@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth/session';
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const token = request.cookies.get('session')?.value;
@@ -26,6 +26,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Protect everything except login page, auth API, Next.js internals, and static files
   matcher: ['/((?!login|api/auth|_next/static|_next/image|favicon\\.ico).*)'],
 };
