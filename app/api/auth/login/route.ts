@@ -11,7 +11,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 });
   }
 
-  const user = db.select().from(users).where(eq(users.email, body.email as string)).get();
+  const email = (body.email as string).trim().toLowerCase();
+  const user = db.select().from(users).where(eq(users.email, email)).get();
   if (!user) {
     // Same error as wrong password — avoids user enumeration
     return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });

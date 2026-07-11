@@ -13,7 +13,7 @@ export async function GET(
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
   const { report: reportId } = await params;
-  const config = REPORTS[reportId];
+  const config = Object.hasOwn(REPORTS, reportId) ? REPORTS[reportId] : undefined;
   if (!config) return NextResponse.json({ error: 'Reporte no encontrado' }, { status: 404 });
 
   if (!/^[\w.[\]]+$/.test(config.sourceName)) {

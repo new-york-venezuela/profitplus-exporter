@@ -9,7 +9,7 @@ function buildConfig(): sql.config {
     password: process.env.DB_PASSWORD!,
     options: {
       encrypt: process.env.DB_ENCRYPT === 'true',
-      trustServerCertificate: process.env.DB_TRUST_SERVER_CERT === 'true',
+      trustServerCertificate: process.env.DB_TRUST_SERVER_CERT !== 'false',
     },
     pool: {
       min: 2,

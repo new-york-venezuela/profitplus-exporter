@@ -24,6 +24,9 @@ export async function POST(
     if (body.newPassword !== body.confirmPassword) {
       return NextResponse.json({ error: 'Las contraseñas no coinciden' }, { status: 400 });
     }
+    if (!body.newPassword || (body.newPassword as string).length < 8) {
+      return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 });
+    }
 
     const { id } = await params;
     const userId = parseInt(id, 10);

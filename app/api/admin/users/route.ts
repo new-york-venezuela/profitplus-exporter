@@ -46,6 +46,9 @@ export async function POST(request: NextRequest) {
     if (!['user', 'admin'].includes(body.role as string)) {
       return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
     }
+    if (!body.password || (body.password as string).length < 8) {
+      return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 });
+    }
 
     const email = (body.email as string).trim().toLowerCase();
 
