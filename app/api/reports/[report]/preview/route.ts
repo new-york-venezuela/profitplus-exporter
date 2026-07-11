@@ -16,6 +16,10 @@ export async function GET(
   const config = REPORTS[reportId];
   if (!config) return NextResponse.json({ error: 'Reporte no encontrado' }, { status: 404 });
 
+  if (!/^[\w.[\]]+$/.test(config.sourceName)) {
+    return NextResponse.json({ error: 'Reporte no encontrado' }, { status: 404 });
+  }
+
   const sp    = request.nextUrl.searchParams;
   const def   = getPreviousMonthRange();
   const start = parseDate(sp.get('startDate')) ?? def.startDate;
@@ -29,8 +33,8 @@ export async function GET(
     if (config.queryType === 'view') {
       const dc = config.dateColumn!;
       const countRes = await pool.request()
-        .input('startDate', sql.NVarChar, start)
-        .input('endDate',   sql.NVarChar, end)
+        .input('startDate', sql.Date, start)
+        .input('endDate',   sql.Date, end)
         .query(
           `SELECT COUNT(*) AS total FROM [${config.sourceName}] ` +
           `WHERE [${dc}] BETWEEN @startDate AND @endDate`,
@@ -38,8 +42,8 @@ export async function GET(
       totalCount = countRes.recordset[0].total as number;
 
       const dataRes = await pool.request()
-        .input('startDate', sql.NVarChar, start)
-        .input('endDate',   sql.NVarChar, end)
+        .input('startDate', sql.Date, start)
+        .input('endDate',   sql.Date, end)
         .query(
           `SELECT TOP 100 * FROM [${config.sourceName}] ` +
           `WHERE [${dc}] BETWEEN @startDate AND @endDate`,
@@ -47,8 +51,8 @@ export async function GET(
       rows = dataRes.recordset;
     } else {
       const res = await pool.request()
-        .input('startDate', sql.NVarChar, start)
-        .input('endDate',   sql.NVarChar, end)
+        .input('startDate', sql.Date, start)
+        .input('endDate',   sql.Date, end)
         .execute(config.sourceName);
       rows       = res.recordset.slice(0, 100);
       totalCount = res.recordset.length;

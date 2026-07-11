@@ -55,8 +55,8 @@ export async function GET(
     if (config.queryType === 'view') {
       const dc  = config.dateColumn!;
       const res = await pool.request()
-        .input('startDate', sql.NVarChar, start)
-        .input('endDate',   sql.NVarChar, end)
+        .input('startDate', sql.Date, start)
+        .input('endDate',   sql.Date, end)
         .query(
           `SELECT * FROM [${config.sourceName}] ` +
           `WHERE [${dc}] BETWEEN @startDate AND @endDate`,
@@ -64,8 +64,8 @@ export async function GET(
       rows = res.recordset;
     } else {
       const res = await pool.request()
-        .input('startDate', sql.NVarChar, start)
-        .input('endDate',   sql.NVarChar, end)
+        .input('startDate', sql.Date, start)
+        .input('endDate',   sql.Date, end)
         .execute(config.sourceName);
       rows = res.recordset;
     }
