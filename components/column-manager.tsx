@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -18,9 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { ColumnDef } from '@/lib/reports/registry';
 
-export interface ColumnItem extends ColumnDef {
-  visible: boolean;
-}
+type ColumnItem = ColumnDef & { visible: boolean };
 
 interface ChipProps {
   column:   ColumnItem;
@@ -76,36 +75,50 @@ function SortableChip({ column, onToggle }: ChipProps) {
 }
 
 interface Props {
-  columns:  ColumnItem[];
-  onChange: (columns: ColumnItem[]) => void;
+  columns:  ColumnDef[];
+  onChange: (columns: ColumnDef[]) => void;
 }
 
 export function ColumnManager({ columns, onChange }: Props) {
+  const [items, setItems] = useState<ColumnItem[]>(() =>
+    columns.map(c => ({ ...c, visible: c.defaultVisible })),
+  );
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor),
   );
 
+  function emit(next: ColumnItem[]) {
+    onChange(next.filter(c => c.visible || c.alwaysVisible));
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (over && active.id !== over.id) {
-      const oldIdx = columns.findIndex(c => c.key === active.id);
-      const newIdx = columns.findIndex(c => c.key === over.id);
-      onChange(arrayMove(columns, oldIdx, newIdx));
+      const oldIdx = items.findIndex(c => c.key === active.id);
+      const newIdx = items.findIndex(c => c.key === over.id);
+      const next   = arrayMove(items, oldIdx, newIdx);
+      setItems(next);
+      emit(next);
     }
   }
 
   function handleToggle(key: string) {
-    onChange(columns.map(c => c.key === key ? { ...c, visible: !c.visible } : c));
+    const next = items.map(c =>
+      c.key === key && !c.alwaysVisible ? { ...c, visible: !c.visible } : c,
+    );
+    setItems(next);
+    emit(next);
   }
 
   return (
     <div>
       <p className="text-sm font-medium text-gray-600 mb-2">Columnas</p>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={columns.map(c => c.key)} strategy={horizontalListSortingStrategy}>
+        <SortableContext items={items.map(c => c.key)} strategy={horizontalListSortingStrategy}>
           <div className="flex flex-wrap gap-2">
-            {columns.map(col => (
+            {items.map(col => (
               <SortableChip
                 key={col.key}
                 column={col}
