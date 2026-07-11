@@ -22,6 +22,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
   const [selectedId, setSelectedId]   = useState<number | null>(null);
   const [formError, setFormError]     = useState<string | null>(null);
   const [submitting, setSubmitting]   = useState(false);
+  const [deleting, setDeleting]       = useState<number | null>(null);
 
   // ── Create user form state ──────────────────────────────────────────
   const [newEmail,    setNewEmail]    = useState('');
@@ -46,7 +47,9 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
       if (!res.ok) { setFormError(data.error); return; }
       // Refresh list
       const listRes = await fetch('/api/admin/users');
-      setUserList(await listRes.json());
+      if (listRes.ok) {
+        setUserList(await listRes.json());
+      }
       setModal(null);
       setNewEmail(''); setNewName(''); setNewPassword(''); setNewRole('user');
     } catch { setFormError('Error de red'); }
@@ -73,12 +76,18 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
 
   async function handleDelete(id: number, name: string) {
     if (!confirm(`¿Eliminar a ${name}?`)) return;
-    const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
-    if (res.ok) {
-      setUserList(prev => prev.filter(u => u.id !== id));
-    } else {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error ?? 'No se pudo eliminar');
+    if (deleting !== null) return;
+    try {
+      setDeleting(id);
+      const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setUserList(prev => prev.filter(u => u.id !== id));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? 'No se pudo eliminar');
+      }
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -145,7 +154,8 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
                   {user.id !== currentUserId && (
                     <button
                       onClick={() => handleDelete(user.id, user.name)}
-                      className="text-xs text-red-500 hover:text-red-700 font-medium"
+                      disabled={deleting !== null}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       ✕
                     </button>
