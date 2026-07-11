@@ -8,7 +8,7 @@ reports are rigid and can't be easily customized.
 
 | Layer        | Technology                                   |
 |-------------|----------------------------------------------|
-| Framework    | Next.js 15 (App Router), TypeScript 5        |
+| Framework    | Next.js 16 (App Router), TypeScript 5        |
 | Package mgr  | Bun                                          |
 | Auth DB      | SQLite via Drizzle ORM + better-sqlite3      |
 | ERP DB       | SQL Server via mssql                         |
