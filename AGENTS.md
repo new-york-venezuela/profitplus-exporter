@@ -5,7 +5,7 @@ for the ProfitPlus Exporter. Read this before making any changes.
 
 ## System Architecture
 
-Two databases, one Next.js 15 App Router app:
+Two databases, one Next.js 16 App Router app:
 
 | Database   | Purpose              | Driver              | Location          |
 |-----------|----------------------|---------------------|-------------------|
