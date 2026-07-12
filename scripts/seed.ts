@@ -30,19 +30,32 @@ async function main() {
       message:  'Contraseña:',
       validate: (v: string) => v.length >= 8 || 'Mínimo 8 caracteres',
     },
-    {
-      type:     'password',
-      name:     'confirm',
-      message:  'Confirmar contraseña:',
-      validate: (v: string, vals: { password: string }) =>
-        v === vals.password || 'Las contraseñas no coinciden',
-    },
   ], {
     onCancel: () => {
       console.log('\nCancelado.');
       process.exit(0);
     },
   });
+
+  let confirmPassword = '';
+  while (confirmPassword !== answers.password) {
+    const confirm = await prompts([
+      {
+        type:     'password',
+        name:     'confirm',
+        message:  'Confirmar contraseña:',
+      },
+    ], {
+      onCancel: () => {
+        console.log('\nCancelado.');
+        process.exit(0);
+      },
+    });
+    confirmPassword = confirm.confirm;
+    if (confirmPassword !== answers.password) {
+      console.log('Las contraseñas no coinciden');
+    }
+  }
 
   const email = (answers.email as string).trim().toLowerCase();
   const existing = db.select().from(users).where(eq(users.email, email)).get();
