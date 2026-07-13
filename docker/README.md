@@ -16,11 +16,25 @@ docker-compose up -d
 This command will:
 - Pull the MSSQL Server 2019 image (if not already present)
 - Create and start the `profitplus-erp-mock` container
-- Initialize the database with schema and sample data
 - Mount persistent volumes for data storage
 - Set up networking for container communication
 
-### 2. Verify Container is Ready
+### 2. Initialize the Database
+
+After the container starts, run the initialization script to create the database schema and load sample data:
+
+```bash
+bash init-db.sh
+```
+
+This script will:
+- Wait for SQL Server to be ready
+- Create the `ProfitPlus` database with proper collation
+- Create the `compras` and `ventas` tables
+- Create indexes and stored procedures
+- Populate sample data
+
+### 3. Verify Container is Ready
 
 Check the container logs to confirm successful startup:
 
@@ -36,15 +50,17 @@ Verify the container status:
 docker-compose ps
 ```
 
-All services should show `Up` with a healthy status. The healthcheck runs every 10 seconds and verifies connectivity by executing a simple `SELECT 1` query.
+All services should show `Up`. Container should be running.
 
-### 3. Run Test Queries
+### 4. Run Test Queries
 
 Once the container is ready, execute a test query using `sqlcmd`:
 
 ```bash
-sqlcmd -S localhost,1433 -U sa -P "YourStr0ngP@ssw0rd" -d ProfitPlus -Q "SELECT COUNT(*) AS total_compras FROM dbo.compras;"
+sqlcmd -S localhost,1433 -U sa -P "YourStr0ngP@ssw0rd" -d ProfitPlus -Q "SELECT COUNT(*) AS total_compras FROM dbo.compras;" -C
 ```
+
+The `-C` flag is required to trust the container's self-signed SSL certificate.
 
 **Note for macOS users:** If you don't have `sqlcmd` installed, install it using Homebrew:
 
@@ -55,7 +71,15 @@ brew install mssql-tools
 Alternatively, you can use the `sqlcmd` binary from inside the container:
 
 ```bash
-docker exec profitplus-erp-mock /opt/mssql-tools/bin/sqlcmd -U sa -P "YourStr0ngP@ssw0rd" -d ProfitPlus -Q "SELECT COUNT(*) AS total_compras FROM dbo.compras;"
+docker exec profitplus-erp-mock /opt/mssql-tools/bin/sqlcmd -U sa -P "YourStr0ngP@ssw0rd" -d ProfitPlus -Q "SELECT COUNT(*) AS total_compras FROM dbo.compras;" -C
+```
+
+**SSL Certificate Error?**
+
+If you encounter `SSL Provider: [error:0A000086:SSL routines::certificate verify failed]`, ensure you're using the `-C` flag (trust self-signed certificates) or add `TrustServerCertificate=true` to your connection string in application code:
+
+```
+Server=localhost,1433;Database=ProfitPlus;User Id=sa;Password=YourStr0ngP@ssw0rd;TrustServerCertificate=true;
 ```
 
 ## Connection Details

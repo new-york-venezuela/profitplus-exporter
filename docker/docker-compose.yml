@@ -11,16 +11,22 @@ services:
     ports:
       - "1433:1433"
     volumes:
-      - ./mssql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./mssql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
       - mssql-data:/var/opt/mssql
     networks:
       - profitplus-network
-    healthcheck:
-      test: [CMD, "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "YourStr0ngP@ssw0rd", "-Q", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+
+  mssql-init:
+    image: python:3.9-slim
+    container_name: profitplus-init
+    depends_on:
+      - mssql
+    volumes:
+      - ./init.py:/init.py
+      - ./mssql/init.sql:/scripts/init.sql
+      - ./mssql/data.sql:/scripts/data.sql
+    networks:
+      - profitplus-network
+    command: bash -c "pip install pymssql > /dev/null 2>&1 && python /init.py"
 
 volumes:
   mssql-data:
