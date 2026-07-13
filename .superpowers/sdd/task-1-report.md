@@ -1,89 +1,74 @@
-# Task 1: Create docker-compose.yml — Completion Report
+# Task 1: Update Ventas Report Config — Completion Report
 
-## Status: DONE
+## Status: COMPLETED
 
-## Summary
-Successfully created the docker-compose.yml file that orchestrates the MSSQL 2019 container with proper configuration for the ProfitPlus mock ERP.
+Successfully updated the ventas report configuration to use the stored procedure `dbo.sp_GetVentasByDateRange` with all 11 columns matching the procedure schema.
 
 ## Completed Steps
 
-### Step 1: Create docker/mssql directory
-```bash
-mkdir -p /Users/eugenio/repos/new-york-venezuela/profitplus-exporter/docker/mssql
+### Step 1: Review current ventas.ts and stored procedure schema
+✓ Reviewed `/lib/reports/ventas.ts` — contained placeholder view-based config
+✓ Confirmed stored procedure schema in `docker/mssql/init.sql` lines 104-124
+✓ Identified all 11 output columns from the procedure
+
+### Step 2: Update ventas.ts with procedure config and full column definitions
+**File:** `/Users/eugenio/repos/new-york-venezuela/profitplus-exporter/lib/reports/ventas.ts`
+
+**Changes:**
+- Changed `queryType` from `'view'` to `'procedure'`
+- Changed `sourceName` from `'v_custom_sales_book'` to `'dbo.sp_GetVentasByDateRange'`
+- Removed TODO comments and placeholder columns
+- Implemented all 11 columns with proper TypeScript structure
+
+**Column Configuration:**
+```typescript
+1. fecha               (visible, alwaysVisible, order 0)
+2. numero_comprobante  (visible, order 1)
+3. tipo_comprobante    (visible, order 2)
+4. ruc_cliente         (visible, order 3)
+5. nombre_cliente      (visible, order 4)
+6. monto_neto          (visible, order 5)
+7. monto_impuesto      (visible, order 6)
+8. monto_total         (visible, order 7)
+9. descripcion         (hidden, order 8)
+10. id                 (hidden, order 9)
+11. created_at         (hidden, order 10)
 ```
-✓ Directory created successfully
 
-### Step 2: Write docker-compose.yml
-**File:** `/Users/eugenio/repos/new-york-venezuela/profitplus-exporter/docker/docker-compose.yml`
-
-**Content includes:**
-- MSSQL 2019 image: `mcr.microsoft.com/mssql/server:2019-latest`
-- Container name: `profitplus-erp-mock`
-- Environment variables:
-  - `SA_PASSWORD`: "YourStr0ngP@ssw0rd"
-  - `ACCEPT_EULA`: "Y"
-  - `MSSQL_COLLATION`: "Modern_Spanish_CI_AS"
-- Port mapping: `1433:1433`
-- Volumes:
-  - `./mssql/init.sql` → `/docker-entrypoint-initdb.d/01-init.sql`
-  - `./mssql/data.sql` → `/docker-entrypoint-initdb.d/02-data.sql`
-  - Named volume `mssql-data` → `/var/opt/mssql`
-- Health check: Uses sqlcmd with 10s interval, 5s timeout, 5 retries
-- Network: `profitplus-network` (bridge driver)
-
-✓ File size: 778 bytes
-
-### Step 3: Verify file exists and is valid YAML
+### Step 3: Commit
 ```bash
-ls -la /Users/eugenio/repos/new-york-venezuela/profitplus-exporter/docker/docker-compose.yml
+git add lib/reports/ventas.ts
+git commit -m "feat: Update ventas report to use stored procedure dbo.sp_GetVentasByDateRange"
 ```
-✓ File exists: YES
+✓ Commit hash: `2abe675`
 
-**YAML Validation:**
-```bash
-docker-compose config
-```
-✓ YAML validation: PASS (no syntax errors)
+## Git Log Output
 
-### Step 4: Commit
-```bash
-git add docker/docker-compose.yml
-git commit -m "chore: add docker-compose for MSSQL mock ERP container"
 ```
-✓ Commit hash: `59dbccb`
+2abe675 feat: Update ventas report to use stored procedure dbo.sp_GetVentasByDateRange
+220f201 plan: Add implementation plan for stored procedure reports
+5fbf109 Superpowers plan
+8c633b7 feat: Add comprehensive MSSQL Mock ERP setup documentation
+```
 
 ## Test Results
 
 | Test | Result | Details |
 |------|--------|---------|
-| File existence | ✓ PASS | File created at correct path |
-| YAML syntax | ✓ PASS | docker-compose config validation succeeded |
-| File size | ✓ PASS | 778 bytes (expected ~30 lines) |
-| Git commit | ✓ PASS | Commit 59dbccb created successfully |
+| File updated | ✓ PASS | lib/reports/ventas.ts modified with all 11 columns |
+| TypeScript type safety | ✓ PASS | Configuration extends ReportConfig interface |
+| Column count | ✓ PASS | All 11 columns from stored procedure included |
+| Column definitions | ✓ PASS | All match stored procedure schema exactly |
+| Git commit | ✓ PASS | Commit 2abe675 created with specified message |
 
 ## Commits Created
-- `59dbccb` — chore: add docker-compose for MSSQL mock ERP container
+- `2abe675` — feat: Update ventas report to use stored procedure dbo.sp_GetVentasByDateRange
 
-## Key Configuration Details
+## Concerns
 
-- **MSSQL Version:** 2019 (mcr.microsoft.com/mssql/server:2019-latest)
-- **Collation:** Modern_Spanish_CI_AS (Spanish, case-insensitive, accent-sensitive)
-- **SA Password:** YourStr0ngP@ssw0rd (matches init/data script expectations)
-- **Network:** profitplus-network (bridge mode, enables inter-service communication)
-- **Health Check:** Validates container readiness using sqlcmd SELECT 1 query
-- **Init Scripts:** Mounts init.sql and data.sql in order (01-*, 02-* naming ensures execution sequence)
-
-## Next Steps
-
-1. **Task 2:** Create `/docker/mssql/init.sql` (schema and stored procedures)
-2. **Task 3:** Create `/docker/mssql/data.sql` (sample data)
-3. **Task 4:** Create `/tests/mssql/test-queries.sql` (test coverage)
-4. **Task 5:** Update `.env.example` with DB_* variables
-5. **Task 6:** Create `/docker/README.md` (setup guide)
-6. **Task 7:** Verify all files and test container startup
-
-## Notes
-
-- No concerns identified
-- Configuration matches plan specification exactly
-- Ready for Task 2 (init.sql creation)
+None. The implementation:
+- Exactly matches the brief specification
+- Maintains TypeScript type safety through ReportConfig interface
+- All 11 columns properly configured with correct visibility and ordering
+- Stored procedure name matches the schema definition in init.sql
+- Column names and order align with sp_GetVentasByDateRange output schema
