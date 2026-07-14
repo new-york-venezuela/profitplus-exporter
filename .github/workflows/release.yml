@@ -1,0 +1,51 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Create release artifact
+        run: |
+          mkdir -p release/profitplus-exporter
+          cp -r .next/standalone/* release/profitplus-exporter/
+          cp -r public release/profitplus-exporter/ 2>/dev/null || true
+          cp package.json release/profitplus-exporter/
+          cp .env.example release/profitplus-exporter/ 2>/dev/null || true
+          cd release
+          zip -r profitplus-exporter.zip profitplus-exporter/
+
+      - name: Create Release
+        id: create_release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: release/profitplus-exporter.zip
+          artifactContentType: application/zip
+          tag: ${{ github.ref_name }}
+          generateReleaseNotes: true
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.uploadUrl }}
+          asset_path: release/profitplus-exporter.zip
+          asset_name: profitplus-exporter-${{ github.ref_name }}.zip
+          asset_content_type: application/zip
