@@ -30,18 +30,31 @@ export function ReportPage({ config, defaultDates }: Props) {
   const [preview,     setPreview]     = useState<PreviewData | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  const [selectors,   setSelectors]   = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    config.selectors?.forEach(s => {
+      init[s.key] = s.defaultValue;
+    });
+    return init;
+  });
 
   const hasColumns    = config.columns.length > 0;
   const colsParam     = visibleCols.map(c => c.key).join(',');
 
   const fetchPreview = useCallback(
-    async (start: string, end: string, cols: string) => {
+    async (start: string, end: string, cols: string, sels: Record<string, string>) => {
       if (!hasColumns || !cols) return;
       setLoading(true);
       setError(null);
       try {
-        const url = `/api/reports/${config.id}/preview?startDate=${start}&endDate=${end}&cols=${cols}`;
-        const res = await fetch(url);
+        const url = new URL(`/api/reports/${config.id}/preview`, window.location.origin);
+        url.searchParams.set('startDate', start);
+        url.searchParams.set('endDate', end);
+        url.searchParams.set('cols', cols);
+        Object.entries(sels).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+        const res = await fetch(url.toString());
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
@@ -58,19 +71,25 @@ export function ReportPage({ config, defaultDates }: Props) {
 
   // Fetch on mount
   useEffect(() => {
-    fetchPreview(startDate, endDate, colsParam);
+    fetchPreview(startDate, endDate, colsParam, selectors);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleDateChange(newStart: string, newEnd: string) {
     setStartDate(newStart);
     setEndDate(newEnd);
-    fetchPreview(newStart, newEnd, colsParam);
+    fetchPreview(newStart, newEnd, colsParam, selectors);
   }
 
   function handleColumnsChange(next: ColumnDef[]) {
     setVisibleCols(next);
-    fetchPreview(startDate, endDate, next.map(c => c.key).join(','));
+    fetchPreview(startDate, endDate, next.map(c => c.key).join(','), selectors);
+  }
+
+  function handleSelectorChange(key: string, value: string) {
+    const newSelectors = { ...selectors, [key]: value };
+    setSelectors(newSelectors);
+    fetchPreview(startDate, endDate, colsParam, newSelectors);
   }
 
   function handleExport() {
@@ -78,6 +97,9 @@ export function ReportPage({ config, defaultDates }: Props) {
       startDate,
       endDate,
       cols: colsParam,
+    });
+    Object.entries(selectors).forEach(([key, value]) => {
+      params.set(key, value);
     });
     const exportUrl = `/api/reports/${config.id}/export?${params}`;
     const a = document.createElement('a');
@@ -102,6 +124,31 @@ export function ReportPage({ config, defaultDates }: Props) {
           endDate={endDate}
           onChange={handleDateChange}
         />
+
+        {config.selectors && config.selectors.length > 0 && (
+          <div className="space-y-3">
+            {config.selectors.map(selector => (
+              <div key={selector.key}>
+                <label htmlFor={selector.key} className="block text-sm font-medium text-gray-700 mb-1">
+                  {selector.label}
+                </label>
+                <select
+                  id={selector.key}
+                  value={selectors[selector.key] || selector.defaultValue}
+                  onChange={(e) => handleSelectorChange(selector.key, e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {selector.options.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
 
         {hasColumns ? (
           <ColumnManager columns={config.columns} onChange={handleColumnsChange} />

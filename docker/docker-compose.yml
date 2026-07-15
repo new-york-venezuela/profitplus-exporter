@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mssql:
-    image: mcr.microsoft.com/mssql/server:2019-latest
+    image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: profitplus-erp-mock
     environment:
       SA_PASSWORD: "YourStr0ngP@ssw0rd"
@@ -12,21 +12,9 @@ services:
       - "1433:1433"
     volumes:
       - mssql-data:/var/opt/mssql
+      - ./mssql/Ncake_a.bak:/var/opt/mssql/backup/Ncake_a.bak
     networks:
       - profitplus-network
-
-  mssql-init:
-    image: python:3.9-slim
-    container_name: profitplus-init
-    depends_on:
-      - mssql
-    volumes:
-      - ./init.py:/init.py
-      - ./mssql/init.sql:/scripts/init.sql
-      - ./mssql/data.sql:/scripts/data.sql
-    networks:
-      - profitplus-network
-    command: bash -c "pip install pymssql > /dev/null 2>&1 && python /init.py"
 
 volumes:
   mssql-data:

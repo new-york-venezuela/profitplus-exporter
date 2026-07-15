@@ -5,6 +5,7 @@ import { REPORTS }    from '@/lib/reports/registry';
 import { getPool }    from '@/lib/db/mssql';
 import { buildCsv }   from '@/lib/csv';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
+import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 
 function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | null) {
   if (colsParam) {
@@ -18,6 +19,10 @@ function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | nu
     .sort((a, b) => a.defaultOrder - b.defaultOrder);
 }
 
+function needsMapping(reportId: string): boolean {
+  return reportId === 'ventas';
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ report: string }> },
@@ -29,9 +34,8 @@ export async function GET(
   const config = Object.hasOwn(REPORTS, reportId) ? REPORTS[reportId] : undefined;
   if (!config) return NextResponse.json({ error: 'Reporte no encontrado' }, { status: 404 });
 
-  // Defense-in-depth: sourceName and dateColumn come from config (not user input),
-  // but we still validate they contain only safe identifier characters.
-  if (!/^[\w.[\]]+$/.test(config.sourceName)) {
+  // Defense-in-depth: validate procedure names
+  if (config.sourceName && !/^[\w.[\]]+$/.test(config.sourceName)) {
     return NextResponse.json({ error: 'Configuración de reporte inválida' }, { status: 500 });
   }
 
@@ -63,11 +67,18 @@ export async function GET(
         );
       rows = res.recordset;
     } else {
-      const res = await pool.request()
-        .input('startDate', sql.Date, start)
-        .input('endDate',   sql.Date, end)
-        .execute(config.sourceName);
+      const sucursal = sp.get('sucursal') ?? '000001';
+
+      const req = pool.request()
+        .input('cCo_Sucursal', sql.Char(6), sucursal)
+        .input('sCo_fecha_d', sql.SmallDateTime, `${start}`)
+        .input('sCo_fecha_h', sql.SmallDateTime, `${end}`);
+      const res = await req.execute(config.sourceName!);
       rows = res.recordset;
+
+      if (needsMapping(reportId)) {
+        rows = mapVentasRows(rows);
+      }
     }
 
     const csv      = buildCsv(cols, rows);
@@ -79,7 +90,8 @@ export async function GET(
         'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error('Export error:', error);
     return NextResponse.json({ error: 'Error al consultar la base de datos' }, { status: 500 });
   }
 }
