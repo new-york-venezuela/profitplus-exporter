@@ -6,6 +6,7 @@ import { getPool }    from '@/lib/db/mssql';
 import { buildCsv }   from '@/lib/csv';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
+import { mapComprasRows, buildComprasCsv, needsCustomMapping } from '@/lib/routes/api/reports/compras-csv';
 
 function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | null) {
   if (colsParam) {
@@ -20,7 +21,7 @@ function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | nu
 }
 
 function needsMapping(reportId: string): boolean {
-  return reportId === 'ventas';
+  return reportId === 'ventas' || needsCustomMapping(reportId);
 }
 
 export async function GET(
@@ -77,7 +78,17 @@ export async function GET(
       rows = res.recordset;
 
       if (needsMapping(reportId)) {
-        rows = mapVentasRows(rows);
+        if (reportId === 'ventas') {
+          rows = mapVentasRows(rows);
+        } else if (reportId === 'compras') {
+          rows = mapComprasRows(rows);
+          return new NextResponse(buildComprasCsv(cols, rows), {
+            headers: {
+              'Content-Type':        'text/csv; charset=utf-8',
+              'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.csv"`,
+            },
+          });
+        }
       }
     }
 
