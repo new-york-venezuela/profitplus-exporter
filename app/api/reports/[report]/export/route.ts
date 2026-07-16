@@ -6,7 +6,7 @@ import { getPool }    from '@/lib/db/mssql';
 import { buildCsv }   from '@/lib/csv';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
-import { mapComprasRows, buildComprasCsv, needsCustomMapping } from '@/lib/routes/api/reports/compras-csv';
+import { mapComprasRows, buildComprasCsv } from '@/lib/routes/api/reports/compras-csv';
 
 function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | null) {
   if (colsParam) {
@@ -18,10 +18,6 @@ function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | nu
   return config.columns
     .filter(c => c.defaultVisible || c.alwaysVisible)
     .sort((a, b) => a.defaultOrder - b.defaultOrder);
-}
-
-function needsMapping(reportId: string): boolean {
-  return reportId === 'ventas' || needsCustomMapping(reportId);
 }
 
 export async function GET(
@@ -77,18 +73,18 @@ export async function GET(
       const res = await req.execute(config.sourceName!);
       rows = res.recordset;
 
-      if (needsMapping(reportId)) {
-        if (reportId === 'ventas') {
-          rows = mapVentasRows(rows);
-        } else if (reportId === 'compras') {
-          rows = mapComprasRows(rows);
-          return new NextResponse(buildComprasCsv(cols, rows), {
-            headers: {
-              'Content-Type':        'text/csv; charset=utf-8',
-              'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.csv"`,
-            },
-          });
-        }
+      if (reportId === 'compras') {
+        const comprasRows = mapComprasRows(rows);
+        return new NextResponse(buildComprasCsv(cols, comprasRows), {
+          headers: {
+            'Content-Type':        'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.csv"`,
+          },
+        });
+      }
+
+      if (reportId === 'ventas') {
+        rows = mapVentasRows(rows);
       }
     }
 
