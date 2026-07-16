@@ -5,10 +5,7 @@ import { REPORTS }    from '@/lib/reports/registry';
 import { getPool }    from '@/lib/db/mssql';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
-
-function needsMapping(reportId: string): boolean {
-  return reportId === 'ventas';
-}
+import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
 
 export async function GET(
   request: NextRequest,
@@ -55,7 +52,7 @@ export async function GET(
         );
       rows = dataRes.recordset;
     } else {
-      const sucursal = sp.get('sucursal') ?? null;
+      const sucursal = sp.get('sucursal') ?? '000001';
 
       const req = pool.request()
         .input('cCo_Sucursal', sql.Char(6), sucursal)
@@ -64,8 +61,10 @@ export async function GET(
       const res = await req.execute(config.sourceName!);
       rows = res.recordset;
 
-      if (needsMapping(reportId)) {
+      if (reportId === 'ventas') {
         rows = mapVentasRows(rows);
+      } else if (reportId === 'compras') {
+        rows = mapComprasRows(rows);
       }
 
       totalCount = rows.length;
