@@ -1,9 +1,9 @@
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { eq } from 'drizzle-orm';
 import argon2 from 'argon2';
 import prompts from 'prompts';
-import { db } from '../lib/db/sqlite';
-import { users } from '../lib/db/schema';
+import { db } from '@/lib/db/sqlite';
+import { users } from '@/lib/db/schema';
 
 // Ensure schema is up-to-date before inserting
 migrate(db, { migrationsFolder: './drizzle/migrations' });

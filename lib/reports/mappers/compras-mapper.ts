@@ -53,7 +53,7 @@ function matchIvanRows(
     else documentsByKey.set(key, [{ row: exportRows[i] }]);
   });
 
-  rawRows.forEach((row, i) => {
+  rawRows.forEach((row) => {
     if (row.co_tipo_doc !== 'IVAN') return;
 
     const matchedDocuments = documentsByKey.get(documentKey(row.co_prov, row.doc_afec));
@@ -76,7 +76,7 @@ export function mapComprasData(
   return exportRows
     .filter((row, i) => row.total_neto !== 0 && mainRows[i].co_tipo_doc !== 'IVAN')
     .map((row, index) => {
-      const { anulado_por_ivan, ...rest } = row;
+      const { _anulado_por_ivan, ...rest } = row;
       return { ...rest, nro: index + 1 };
     });
 }

@@ -216,7 +216,7 @@ export function ReportPage({ config, defaultDates }: Props) {
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     {visibleCols.map(col => (
                       <td
-                        key={col.key}
+                        key={`${i}-${col.key}`}
                         className="px-4 py-2.5 text-gray-700 whitespace-nowrap"
                       >
                         {row[col.key] == null ? '' : String(row[col.key])}

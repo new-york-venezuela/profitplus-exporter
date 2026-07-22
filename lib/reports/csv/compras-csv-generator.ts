@@ -1,5 +1,3 @@
-import type { ComprasExportRow } from '../mappers/compras-mapper';
-
 const HEADERS = [
   'Nº',
   'FECHA',
