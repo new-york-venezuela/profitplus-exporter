@@ -5,7 +5,7 @@
 ```
 Internet/Intranet → IIS (port 80/443)
                     └── ARR Reverse Proxy
-                        └── Node.js / Bun (port 3000, managed by NSSM)
+                        └── Bun (port 3000, managed by NSSM)
                             └── Next.js production server
 ```
 
