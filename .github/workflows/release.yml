@@ -21,7 +21,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build
-        run: bun build
+        run: bun run build
 
       - name: Create release artifact
         run: |
