@@ -17,7 +17,7 @@ export const COMPRAS_CONFIG: ReportConfig = {
     { key: 'tipo_transaccion', label: 'TIPO DE TRANSACCION', defaultVisible: true, defaultOrder: 8 },
     { key: 'nro_nota_debito', label: 'Nº NOTA DE DEBITO', defaultVisible: true, defaultOrder: 9 },
     { key: 'nro_nota_credito', label: 'Nº NOTA DE CREDITO', defaultVisible: true, defaultOrder: 10 },
-    { key: 'nro_factura_afectada', label: 'Nº FACTURA AFECTADA', defaultVisible: false, defaultOrder: 11 },
+    { key: 'nro_factura_afectada', label: 'Nº FACTURA AFECTADA', defaultVisible: true, defaultOrder: 11 },
     { key: 'total_compras_incluye_iva', label: 'TOTAL COMPRAS INCLUYE IVA', defaultVisible: true, defaultOrder: 12 },
     { key: 'compras_sin_derecho_credito', label: 'COMPRAS SIN DERECHO A CREDITO IVA', defaultVisible: true, defaultOrder: 13 },
     { key: 'base_imponible', label: 'BASE IMPONIBLE', defaultVisible: true, defaultOrder: 14 },
