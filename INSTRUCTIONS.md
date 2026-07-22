@@ -13,7 +13,7 @@ Internet/Intranet → IIS (port 80/443)
 
 Install on the Windows Server:
 
-1. **Node.js 20 LTS** — https://nodejs.org (needed for native module compilation)
+1. **Node.js 22 LTS** — https://nodejs.org (needed for native module compilation)
 2. **Bun** — Run in PowerShell: `irm bun.sh/install.ps1 | iex`
 3. **IIS** with:
    - **Application Request Routing (ARR)** 3.0

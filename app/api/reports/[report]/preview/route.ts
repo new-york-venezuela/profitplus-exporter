@@ -7,6 +7,17 @@ import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
 
+const trimStrings = (rows:  Record<string, unknown>[]) => {
+    return rows.map(row => {
+        const cleanedRow: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(row)) {
+            // Trim if the value is a string
+            cleanedRow[key] = typeof value === 'string' ? value.trim() : value;
+        }
+        return cleanedRow;
+    });
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ report: string }> },
@@ -59,7 +70,7 @@ export async function GET(
         .input('sCo_fecha_d', sql.SmallDateTime, `${start}`)
         .input('sCo_fecha_h', sql.SmallDateTime, `${end}`);
       const res = await req.execute(config.sourceName!);
-      rows = res.recordset;
+      rows = trimStrings(res.recordset);
 
       if (reportId === 'ventas') {
         rows = mapVentasRows(rows);

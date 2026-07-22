@@ -30,3 +30,13 @@ export function parseDate(value: string | null): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   return value;
 }
+
+export function formatDate(date: unknown): string {
+    if (!date) return '';
+    const d = new Date(date as string | number);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+}

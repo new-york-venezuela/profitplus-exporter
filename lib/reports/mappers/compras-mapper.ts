@@ -1,23 +1,4 @@
-export interface ComprasRawRow {
-  nro_doc: string;
-  fecha_emis: string; // ISO string or Date
-  r: string;
-  prov_des: string;
-  tipo_prov: string;
-  num_comprobante: string;
-  nro_orig: string;
-  n_control: string;
-  anulado: number; // 0 or 1
-  co_tipo_doc: string; // 'FACT', 'N/DB', 'N/CR', etc.
-  doc_orig: string;
-  doc_afec: string;
-  total_neto: number;
-  compras_exentas: number;
-  base_imp: number;
-  tasa: number;
-  monto_imp: number;
-  monto_ret_imp: number;
-}
+import {formatDate} from "@/lib/dates";
 
 export interface ComprasExportRow {
   nro: number;
@@ -41,8 +22,8 @@ export interface ComprasExportRow {
 }
 
 export function mapComprasData(
-  mainRows: ComprasRawRow[]
-): ComprasExportRow[] {
+  mainRows: Record<string, unknown>[]
+): Record<string, unknown>[] {
   return mainRows
     .filter(row => row.total_neto !== 0) // Filter out zero-total rows
     .map((row, index) => {
@@ -53,26 +34,22 @@ export function mapComprasData(
       let nro_factura = '';
       let nro_nota_debito = '';
       let nro_nota_credito = '';
-      let nro_factura_afectada = '';
+      let nro_factura_afectada = String(row.doc_afec ?? '');
 
       if (row.co_tipo_doc === 'FACT') {
-        nro_factura = row.nro_orig;
-        nro_factura_afectada = row.doc_afec || '';
+        nro_factura = String(row.nro_fact ?? '');
       } else if (row.co_tipo_doc === 'N/DB') {
-        nro_nota_debito = row.doc_orig;
-        nro_factura_afectada = row.doc_afec || '';
+        nro_nota_debito = String(row.nro_fact ?? '');
       } else if (row.co_tipo_doc === 'N/CR') {
-        nro_nota_credito = row.doc_orig;
-        nro_factura_afectada = row.doc_afec || '';
+        nro_nota_credito = String(row.nro_fact ?? '');
       }
 
       // Format fecha_emis as YYYY-MM-DD
-      const fecha = new Date(row.fecha_emis);
-      const fecha_formatted = fecha.toISOString().split('T')[0];
+      const fecha = formatDate(row.fecha_emis);
 
       return {
         nro: index + 1,
-        fecha: fecha_formatted,
+        fecha: fecha,
         rif: row.r,
         nombre_proveedor: row.prov_des,
         tipo_proveedor: row.tipo_prov,

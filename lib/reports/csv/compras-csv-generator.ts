@@ -35,7 +35,7 @@ function escapeCsvField(value: string | number | null | undefined): string {
   return stringValue;
 }
 
-export function generateComprasCsv(rows: ComprasExportRow[]): string {
+export function generateComprasCsv(rows: Record<string, unknown>[]): string {
   const lines: string[] = [];
 
   lines.push(HEADERS.map(h => escapeCsvField(h)).join(','));
