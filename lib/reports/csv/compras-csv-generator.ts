@@ -21,7 +21,7 @@ const HEADERS = [
   'IVA RETENIDO',
 ];
 
-function escapeCsvField(value: string | number | null | undefined): string {
+function escapeCsvField(value: string | number | null | undefined | unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
