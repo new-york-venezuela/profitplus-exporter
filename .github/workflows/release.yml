@@ -36,20 +36,10 @@ jobs:
           zip -r profitplus-exporter.zip profitplus-exporter/
 
       - name: Create Release
-        id: create_release
         uses: ncipollo/release-action@v1
         with:
           artifacts: release/profitplus-exporter.zip
           artifactContentType: application/zip
           tag: ${{ github.ref_name }}
           generateReleaseNotes: true
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.uploadUrl }}
-          asset_path: release/profitplus-exporter.zip
-          asset_name: profitplus-exporter-${{ github.ref_name }}.zip
-          asset_content_type: application/zip
+          token: ${{ secrets.GITHUB_TOKEN }}
