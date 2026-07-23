@@ -29,11 +29,14 @@ jobs:
         run: |
           mkdir -p release/profitplus-exporter
           cp -r .next/standalone/* release/profitplus-exporter/
+          # Remove node_modules from standalone build - server will install dependencies
+          rm -rf release/profitplus-exporter/node_modules
           cp -r public release/profitplus-exporter/ 2>/dev/null || true
           cp package.json release/profitplus-exporter/
+          cp bun.lockb release/profitplus-exporter/ 2>/dev/null || true
           cp .env.example release/profitplus-exporter/ 2>/dev/null || true
           cd release
-          zip -r profitplus-exporter.zip profitplus-exporter/
+          zip -r profitplus-exporter.zip profitplus-exporter/ -x "*/node_modules/*" "*/.git/*" "*.node"
 
       - name: Create Release
         uses: ncipollo/release-action@v1
