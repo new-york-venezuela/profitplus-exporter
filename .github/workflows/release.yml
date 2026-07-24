@@ -28,12 +28,9 @@ jobs:
       - name: Create release artifact
         run: |
           mkdir -p release/profitplus-exporter
-          rsync -a --exclude='node_modules' .next/standalone/ release/profitplus-exporter/
+          rsync -a .next/standalone/ release/profitplus-exporter/
           cp -r public release/profitplus-exporter/public
           cp -r .next/static release/profitplus-exporter/.next/static
-          cp package.json release/profitplus-exporter/
-          cp bun.lock release/profitplus-exporter/ 2>/dev/null || true
-          cp .env.example release/profitplus-exporter/ 2>/dev/null || true
           cd release
           zip -r profitplus-exporter.zip profitplus-exporter/ -x "*/node_modules/*" "*/.git/*" "*.node"
 
