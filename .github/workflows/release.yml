@@ -32,7 +32,7 @@ jobs:
           cp -r public release/profitplus-exporter/public
           cp -r .next/static release/profitplus-exporter/.next/static
           cd release
-          zip -r profitplus-exporter.zip profitplus-exporter/ -x "*/node_modules/*" "*/.git/*" "*.node"
+          zip -r profitplus-exporter.zip profitplus-exporter/ -x "*/.git/*"
 
       - name: Create Release
         uses: ncipollo/release-action@v1
