@@ -6,7 +6,7 @@ import { signToken } from '@/lib/auth/session';
 import argon2 from 'argon2';
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
+  const body = await request.json();
   if (!body?.email || !body?.password) {
     return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 });
   }
