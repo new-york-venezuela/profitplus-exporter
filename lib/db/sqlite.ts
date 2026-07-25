@@ -5,10 +5,20 @@ import * as schema from './schema';
 
 const dbPath = path.resolve(process.env.SQLITE_PATH ?? './', 'data', 'exporter.db');
 
-// Singleton prevents multiple connections during Next.js hot reload in dev
-const globalForDb = global as typeof global & { _sqlite?: Database };
+const globalForDb = global as typeof global & { _sqlite?: Database; _drizzle?: ReturnType<typeof drizzle> };
 
-const sqlite = globalForDb._sqlite ?? new Database(dbPath);
-if (process.env.NODE_ENV !== 'production') globalForDb._sqlite = sqlite;
+function getDb() {
+  if (!globalForDb._sqlite) {
+    globalForDb._sqlite = new Database(dbPath);
+  }
+  if (!globalForDb._drizzle) {
+    globalForDb._drizzle = drizzle(globalForDb._sqlite, { schema });
+  }
+  return globalForDb._drizzle;
+}
 
-export const db = drizzle(sqlite, { schema });
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+  get(target, prop) {
+    return Reflect.get(getDb(), prop);
+  },
+});

@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth/get-session';
 import { db } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 
+export const dynamic = 'force-dynamic';
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },

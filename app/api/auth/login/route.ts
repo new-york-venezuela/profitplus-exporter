@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth/session';
 import { password } from 'bun';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   if (!body?.email || !body?.password) {
