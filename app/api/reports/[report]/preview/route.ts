@@ -7,8 +7,6 @@ import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
 
-export const dynamic = 'force-dynamic';
-
 const trimStrings = (rows:  Record<string, unknown>[]) => {
     return rows.map(row => {
         const cleanedRow: Record<string, unknown> = {};

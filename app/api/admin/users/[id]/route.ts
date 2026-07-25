@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { getSession } from '@/lib/auth/get-session';
-import { db } from '@/lib/db/sqlite';
+import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +26,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'No puedes eliminar tu propia cuenta' }, { status: 400 });
     }
 
+    const db = getDb();
     const user = db.select().from(users).where(eq(users.id, userId)).get();
     if (!user) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
 

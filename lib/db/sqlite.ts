@@ -7,7 +7,7 @@ const dbPath = path.resolve(process.env.SQLITE_PATH ?? './', 'data', 'exporter.d
 
 const globalForDb = global as typeof global & { _sqlite?: Database; _drizzle?: ReturnType<typeof drizzle> };
 
-function getDb() {
+export function getDb() {
   if (!globalForDb._sqlite) {
     globalForDb._sqlite = new Database(dbPath);
   }
@@ -16,9 +16,3 @@ function getDb() {
   }
   return globalForDb._drizzle;
 }
-
-export const db = new Proxy({} as ReturnType<typeof drizzle>, {
-  get(target, prop) {
-    return Reflect.get(getDb(), prop);
-  },
-});

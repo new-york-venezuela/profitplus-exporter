@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db/sqlite';
+import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth/session';
@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
   }
 
   const email = (body.email as string).trim().toLowerCase();
+  const db = getDb();
   const user = db.select().from(users).where(eq(users.email, email)).get();
   if (!user) {
     // Same error as wrong password — avoids user enumeration

@@ -8,8 +8,6 @@ import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows, buildComprasCsv } from '@/lib/routes/api/reports/compras-csv';
 
-export const dynamic = 'force-dynamic';
-
 function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | null) {
   if (colsParam) {
     const keys = colsParam.split(',').filter(Boolean);

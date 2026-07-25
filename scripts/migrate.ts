@@ -1,5 +1,6 @@
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
-import { db } from '@/lib/db/sqlite';
+import { getDb } from '@/lib/db/sqlite';
 
+const db = getDb();
 migrate(db, { migrationsFolder: './drizzle/migrations' });
 console.log('✓ Migraciones aplicadas');

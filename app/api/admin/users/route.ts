@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { password } from 'bun';
 import { getSession } from '@/lib/auth/get-session';
-import { db } from '@/lib/db/sqlite';
+import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +19,7 @@ export async function GET() {
     const auth = await requireAdmin();
     if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+    const db = getDb();
     const list = db
       .select({
         id: users.id,
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
 
     const email = (body.email as string).trim().toLowerCase();
 
+    const db = getDb();
     const existing = db.select().from(users).where(eq(users.email, email)).get();
     if (existing) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 409 });

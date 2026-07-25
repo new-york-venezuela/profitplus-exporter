@@ -2,9 +2,10 @@ import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { eq } from 'drizzle-orm';
 import { password } from 'bun';
 import prompts from 'prompts';
-import { db } from '@/lib/db/sqlite';
+import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 
+const db = getDb();
 // Ensure schema is up-to-date before inserting
 migrate(db, { migrationsFolder: './drizzle/migrations' });
 

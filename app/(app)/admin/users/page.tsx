@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/get-session';
-import { db }    from '@/lib/db/sqlite';
+import { getDb }    from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { UsersClient } from './users-client';
 
@@ -9,6 +9,7 @@ export default async function UsersPage() {
   if (!session)               redirect('/login');
   if (session.role !== 'admin') redirect('/reports/ventas');
 
+  const db = getDb();
   const userList = db.select({
     id:        users.id,
     email:     users.email,
