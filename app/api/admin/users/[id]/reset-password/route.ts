@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
-import { password } from 'bun';
+import * as bcrypt from 'bcrypt';
 import { getSession } from '@/lib/auth/get-session';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
@@ -41,7 +41,7 @@ export async function POST(
     const user = db.select().from(users).where(eq(users.id, userId)).get();
     if (!user) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
 
-    const passwordHash = await password.hash(body.newPassword as string);
+    const passwordHash = await bcrypt.hash(body.newPassword as string, 10);
     db.update(users).set({ passwordHash }).where(eq(users.id, userId)).run();
 
     return NextResponse.json({ ok: true });

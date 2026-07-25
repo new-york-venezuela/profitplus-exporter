@@ -1,6 +1,6 @@
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { eq } from 'drizzle-orm';
-import { password } from 'bun';
+import * as bcrypt from 'bcrypt';
 import prompts from 'prompts';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
@@ -65,7 +65,7 @@ async function main() {
     process.exit(1);
   }
 
-  const passwordHash = await password.hash(answers.password as string);
+  const passwordHash = await bcrypt.hash(answers.password as string, 10);
 
   db.insert(users).values({
     email,

@@ -3,7 +3,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth/session';
-import { password } from 'bun';
+import * as bcrypt from 'bcrypt';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
   }
 
-  const valid = await password.verify(user.passwordHash, body.password as string);
+  const valid = await bcrypt.compare(body.password as string, user.passwordHash);
   if (!valid) {
     return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
-import { password } from 'bun';
+import * as bcrypt from 'bcrypt';
 import { getSession } from '@/lib/auth/get-session';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 409 });
     }
 
-    const passwordHash = await password.hash(body.password as string);
+    const passwordHash = await bcrypt.hash(body.password as string, 10);
     const result = db
       .insert(users)
       .values({
