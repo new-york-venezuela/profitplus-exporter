@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
-import argon2 from 'argon2';
+import { password } from 'bun';
 import { getSession } from '@/lib/auth/get-session';
 import { db } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 409 });
     }
 
-    const passwordHash = await argon2.hash(body.password as string);
+    const passwordHash = await password.hash(body.password as string);
     const result = db
       .insert(users)
       .values({

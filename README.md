@@ -6,14 +6,14 @@ reports are rigid and can't be easily customized.
 
 ## Tech Stack
 
-| Layer        | Technology                                   |
-|-------------|----------------------------------------------|
-| Framework    | Next.js 16 (App Router), TypeScript 5        |
-| Package mgr  | Bun                                          |
-| Auth DB      | SQLite via Drizzle ORM + better-sqlite3      |
-| ERP DB       | SQL Server via mssql                         |
-| Auth         | argon2id passwords, JWT in httpOnly cookies  |
-| UI           | Tailwind CSS v4, @dnd-kit/sortable           |
+| Layer        | Technology                                      |
+|-------------|-------------------------------------------------|
+| Framework    | Next.js 16 (App Router), TypeScript 5           |
+| Package mgr  | Bun                                             |
+| Auth DB      | SQLite via Drizzle ORM + better-sqlite3         |
+| ERP DB       | SQL Server via mssql                            |
+| Auth         | Bun.password passwords, JWT in httpOnly cookies |
+| UI           | Tailwind CSS v4, @dnd-kit/sortable              |
 
 ## Prerequisites
 

@@ -36,9 +36,7 @@ middleware.ts           — Edge Runtime JWT guard (no next/headers here!)
 
 `middleware.ts` runs in Next.js Edge Runtime. You MUST NOT import:
 - `next/headers`
-- `better-sqlite3`
 - `mssql`
-- `argon2`
 - Any Node.js built-ins that aren't Edge-compatible
 
 Only `jose` and `lib/auth/session.ts` are safe to import there.
@@ -89,7 +87,7 @@ No changes needed to API routes — they use `REPORTS[reportId]` dynamically.
 
 ```
 POST /api/auth/login
-  → argon2.verify(hash, password)
+  → Bun.password.verify(hash, password)
   → signToken({ sub, role, name })
   → Set-Cookie: session=<jwt>; HttpOnly
 
@@ -107,7 +105,7 @@ Admin page (Server Component)
 ## Code Conventions
 
 - **No date library** — use `lib/dates.ts` for all date math
-- **Drizzle queries are synchronous** — no `await` needed; `argon2` and `jose` are async
+- **Drizzle queries are synchronous** — no `await` needed; `Bun.password` and `jose` are async
 - **mssql queries use `.input()` for ALL user-controlled values** — never concatenate
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
 - **Error responses** — always `{ error: string }` shape with appropriate HTTP status

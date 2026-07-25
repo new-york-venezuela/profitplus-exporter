@@ -1,6 +1,6 @@
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { eq } from 'drizzle-orm';
-import argon2 from 'argon2';
+import { password } from 'bun';
 import prompts from 'prompts';
 import { db } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
@@ -64,7 +64,7 @@ async function main() {
     process.exit(1);
   }
 
-  const passwordHash = await argon2.hash(answers.password as string);
+  const passwordHash = await password.hash(answers.password as string);
 
   db.insert(users).values({
     email,

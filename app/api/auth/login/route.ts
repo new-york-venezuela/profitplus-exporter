@@ -3,7 +3,7 @@ import { db } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth/session';
-import argon2 from 'argon2';
+import { password } from 'bun';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
   }
 
-  const valid = await argon2.verify(user.passwordHash, body.password as string);
+  const valid = await password.verify(user.passwordHash, body.password as string);
   if (!valid) {
     return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
   }
