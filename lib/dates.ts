@@ -1,3 +1,10 @@
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 export interface DateRange {
   startDate: string;  // YYYY-MM-DD
   endDate:   string;  // YYYY-MM-DD
@@ -32,11 +39,8 @@ export function parseDate(value: string | null): string | null {
 }
 
 export function formatDate(date: unknown): string {
-    if (!date) return '';
-    const d = new Date(date as string | number);
-    if (isNaN(d.getTime())) return '';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
+    // This function forces JS to parse the string as is, avoiding timezone
+    // offset issues. e.g: a string stored as 2026-06-01 00:00:00 is shown as 2026-05-31 20:00:00
+    // in servers or computers running in UTC-4
+    return dayjs.utc(date as string).format("YYYY-MM-DD");
 }

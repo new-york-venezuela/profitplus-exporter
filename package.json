@@ -19,6 +19,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "argon2": "^0.45.1",
     "bcrypt": "^6.0.0",
+    "dayjs": "^1.11.21",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
     "mssql": "^12.7.0",
