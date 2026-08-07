@@ -8,17 +8,20 @@ export function mapVentasRows(
     itemCounter++;
 
     const coTipoDoc = String(venta.co_tipo_doc ?? '');
+    const numComprobante = String(venta.num_comprobante ?? '');
     let numeroFactura = '';
     let nroFacturaAfectada = '';
     let nroNotaCredito = '';
     let nroNotaDebito = '';
 
     if (coTipoDoc === 'FACT') {
-      numeroFactura = String(venta.nro_orig ?? '');
-      // FACT with num_comprobante is a retention record (shows affected invoice)
+      // FACT with num_comprobante is a retention record (empty numero_factura, shows affected invoice)
+      if (!numComprobante) {
+        numeroFactura = String(venta.nro_orig ?? '');
+      }
       nroFacturaAfectada = String(venta.doc_afec ?? '');
     } else if (coTipoDoc === 'N/CR') {
-      nroNotaCredito = String(venta.nro_orig ?? '');
+      nroNotaCredito = String(venta.nro_doc ?? '');
       nroFacturaAfectada = String(venta.doc_afec ?? '');
     } else if (coTipoDoc === 'N/DB') {
       nroNotaDebito = String(venta.nro_orig ?? '');
