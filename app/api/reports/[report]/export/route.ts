@@ -5,6 +5,7 @@ import { REPORTS }    from '@/lib/reports/registry';
 import { getPool }    from '@/lib/db/mssql';
 import { buildCsv }   from '@/lib/csv';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
+import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows, buildComprasCsv } from '@/lib/routes/api/reports/compras-csv';
 
@@ -71,7 +72,7 @@ export async function GET(
         .input('sCo_fecha_d', sql.SmallDateTime, `${start}`)
         .input('sCo_fecha_h', sql.SmallDateTime, `${end}`);
       const res = await req.execute(config.sourceName!);
-      rows = res.recordset;
+      rows = trimStrings(res.recordset);
 
       if (reportId === 'compras') {
         const comprasRows = mapComprasRows(rows);

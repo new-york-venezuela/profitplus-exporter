@@ -66,17 +66,17 @@ describe('ventasMapper', () => {
     expect(result[0].nro_factura_afectada).toBe('FACT-001');
   });
 
-  test('trims whitespace from all string values', () => {
+  test('expects trimmed values (trimStrings applied by route)', () => {
     const rows = [
       {
-        co_tipo_doc: '  FACT  ',
-        nro_orig: '  001  ',
+        co_tipo_doc: 'FACT',
+        nro_orig: '001',
         doc_afec: '',
-        num_comprobante: '  CB123  ',
+        num_comprobante: 'CB123',
         fecha_emis: '2026-06-10',
-        r: '  J-12345  ',
-        cli_des: '  Cliente A  ',
-        n_control: '  NC001  ',
+        r: 'J-12345',
+        cli_des: 'Cliente A',
+        n_control: 'NC001',
         anulado: 0,
         ventas_exentas: 0,
         base_imp: 1000,
