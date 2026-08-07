@@ -4,19 +4,9 @@ import { getSession } from '@/lib/auth/get-session';
 import { REPORTS }    from '@/lib/reports/registry';
 import { getPool }    from '@/lib/db/mssql';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
+import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
-
-const trimStrings = (rows:  Record<string, unknown>[]) => {
-    return rows.map(row => {
-        const cleanedRow: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(row)) {
-            // Trim if the value is a string
-            cleanedRow[key] = typeof value === 'string' ? value.trim() : value;
-        }
-        return cleanedRow;
-    });
-}
 
 export async function GET(
   request: NextRequest,
