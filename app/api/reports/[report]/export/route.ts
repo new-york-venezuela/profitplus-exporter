@@ -71,7 +71,7 @@ export async function GET(
         .input('sCo_fecha_d', sql.SmallDateTime, `${start}`)
         .input('sCo_fecha_h', sql.SmallDateTime, `${end}`);
       const res = await req.execute(config.sourceName!);
-      rows = res.recordset;
+      rows = trimStrings(res.recordset);
 
       if (reportId === 'compras') {
         const comprasRows = mapComprasRows(rows);
