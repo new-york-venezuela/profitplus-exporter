@@ -21,10 +21,14 @@ export function mapVentasRows(
       }
       nroFacturaAfectada = String(venta.doc_afec ?? '');
     } else if (coTipoDoc === 'N/CR') {
-      nroNotaCredito = String(venta.nro_doc ?? '');
+      if (!numComprobante) {
+          nroNotaCredito = String(venta.nro_doc ?? '');
+      }
       nroFacturaAfectada = String(venta.doc_afec ?? '');
     } else if (coTipoDoc === 'N/DB') {
-      nroNotaDebito = String(venta.nro_orig ?? '');
+      if (!numComprobante) {
+        nroNotaDebito = String(venta.nro_orig ?? '');
+      }
       nroFacturaAfectada = String(venta.doc_afec ?? '');
     }
 
