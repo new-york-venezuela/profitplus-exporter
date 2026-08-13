@@ -14,6 +14,10 @@ const NAV_REPORTS = [
   { href: '/reports/compras', label: 'Compras' },
 ];
 
+const NAV_TOOLS = [
+    { href: '/firmas', label: 'Firma Corporativa' },
+]
+
 export function Sidebar({ user }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
@@ -50,6 +54,15 @@ export function Sidebar({ user }: Props) {
           <Link key={href} href={href} className={navClass(href)}>
             {label}
           </Link>
+        ))}
+
+        <p className="px-2 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          Herramientas
+        </p>
+        {NAV_TOOLS.map(({ href, label }) => (
+            <Link key={href} href={href} className={navClass(href)}>
+                {label}
+            </Link>
         ))}
 
         {user.role === 'admin' && (
