@@ -4,6 +4,7 @@ function toExportRow(row: Record<string, unknown>): Record<string, unknown> {
   let nro_factura = '';
   let nro_nota_debito = '';
   let nro_nota_credito = '';
+  let tipoTransaccion = '';
 
   if (row.co_tipo_doc === 'FACT') {
     nro_factura = String(row.nro_fact ?? '');
@@ -11,6 +12,14 @@ function toExportRow(row: Record<string, unknown>): Record<string, unknown> {
     nro_nota_debito = String(row.nro_fact ?? '');
   } else if (row.co_tipo_doc === 'N/CR') {
     nro_nota_credito = String(row.nro_fact ?? '');
+  }
+
+  if (row.anulado === 1) {
+      tipoTransaccion = '03-anu';
+  } else if (row.co_tipo_doc === 'FACT') {
+      tipoTransaccion = '01-reg';
+  } else {
+      tipoTransaccion = '02-reg';
   }
 
   return {
@@ -22,7 +31,7 @@ function toExportRow(row: Record<string, unknown>): Record<string, unknown> {
     nro_comprobante: row.num_comprobante,
     nro_factura,
     nro_control: row.n_control,
-    tipo_transaccion: row.anulado === 1 ? '03-anu' : '01-reg',
+    tipo_transaccion: tipoTransaccion,
     nro_nota_debito,
     nro_nota_credito,
     nro_factura_afectada: String(row.doc_afec ?? ''),
