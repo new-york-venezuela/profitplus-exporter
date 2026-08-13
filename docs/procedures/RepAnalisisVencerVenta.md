@@ -1,0 +1,82 @@
+# SP: RepAnalisisVencerVenta
+**Tipo**: Reporte
+**Módulo**: Tesorería
+
+## Tablas Referenciadas
+- [`saCliente`](../tables/saCliente.md)
+- [`saCobro`](../tables/saCobro.md)
+- [`saCobroDocReng`](../tables/saCobroDocReng.md)
+- [`saDocumentoVenta`](../tables/saDocumentoVenta.md)
+- [`saTipoDocumento`](../tables/saTipoDocumento.md)
+
+## Código (excerpt)
+```sql
+-- =============================================
+-- Author:		SOFTECH SISTEMAS
+-- Create date: <22-09-10>
+-- Description:	<Analisis de Vencimiento Ventas>
+-- =============================================
+CREATE PROCEDURE [RepAnalisisVencerVenta]
+	-- Add the parameters for the stored procedure here
+    @sCo_Prov_d CHAR(16) = NULL ,
+    @sCo_Prov_h CHAR(16) = NULL ,
+    @sCo_Zon_d CHAR(6) = NULL ,
+    @sCo_Zon_h CHAR(6) = NULL ,
+    @dFecha SMALLDATETIME = NULL ,
+    @sCo_Moneda CHAR(6) = NULL ,
+    @sCo_Seg_d CHAR(6) = NULL ,
+    @sCo_Seg_h CHAR(6) = NULL ,
+    @iDias DECIMAL(18,0) = NULL ,
+    @iIncrementoDias INT = NULL ,
+    @sCo_Tip CHAR(6) = NULL ,
+    @bCondic BIT = NULL ,
+    @sCo_Sucursal CHAR(6) = NULL ,
+    @sCampOrderBy VARCHAR(16) = NULL ,
+    @sDir VARCHAR(6) = NULL ,
+    @bHeaderRep BIT = 0
+AS 
+    BEGIN
+        SET NOCOUNT ON ;
+
+        IF @dFecha IS NULL 
+            SET @dFecha = GETDATE()
+ 
+        IF @dFecha IS NOT NULL 
+            SET @dFecha = DATEADD(ss, -1, DATEADD(day, 1, @dFecha))
+
+        DECLARE @saldo_venc30_d AS INT
+        DECLARE @saldo_venc30_h AS INT
+        DECLARE @saldo_venc60_d AS INT
+        DECLARE @saldo_venc60_h AS INT
+        DECLARE @saldo_venc90_d AS INT
+        DECLARE @saldo_venc90_h AS INT
+        DECLARE @saldo_venc90_mayor AS INT
+	
+        IF @iDias IS NULL
+            AND @iIncrementoDias IS NULL 
+            BEGIN
+                SET @iDias = 30
+                SET @iIncrementoDias = 30
+
+                SET @saldo_venc30_d = 0
+                SET @saldo_venc30_h = @iDias
+                SET @saldo_venc60_d = 1 + @iDias 
+                SET @saldo_venc60_h = @saldo_venc60_d + @iIncrementoDias - 1
+                SET @saldo_venc90_d = 1 + @saldo_venc60_h
+                SET @saldo_venc90_h = @saldo_venc90_d + @iIncrementoDias - 1
+                SET @saldo_venc90_mayor = 1 + @saldo_venc90_h
+            END
+        IF @iDias IS NOT NULL
+            AND @iIncrementoDias IS NOT NULL 
+            BEGIN	
+                SET @saldo_venc30_d = 0
+                SET @saldo_venc30_h = @iDias
+                SET @saldo_venc60_d = 1 + @iDias
+                SET @saldo_venc60_h = @saldo_venc60_d + @iIncrementoDias - 1
+                SET @saldo_venc90_d = 1 + @saldo_venc60_h
+                SET @saldo_venc90_h = @saldo_venc90_d + @iIncrementoDias - 1
+                SET @saldo_venc90_mayor = 1 + @saldo_venc90_h 
+            END	
+	
+        IF @iDias IS NOT
+```

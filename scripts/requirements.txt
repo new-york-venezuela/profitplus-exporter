@@ -1,0 +1,16 @@
+# Step 1 — Schema extractor
+pyodbc>=5.0
+python-dotenv>=1.0
+
+# Step 2 — Orchestrator (doc generator)
+anthropic>=0.30
+
+# Step 3 — RAG indexer
+qdrant-client>=1.9
+fastembed>=0.3
+
+# Step 4 — MCP server
+mcp>=1.0
+
+# Step 5 — DW ETL
+pyodbc>=5.0        # already listed above

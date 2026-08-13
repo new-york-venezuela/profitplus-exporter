@@ -1,0 +1,76 @@
+# SP: pInsertarParametroConc
+**Tipo**: Insertar
+**Módulo**: General
+
+## Tablas Referenciadas
+- [`saParametroConc`](../tables/saParametroConc.md)
+
+## Código (excerpt)
+```sql
+/************************************************************************
+*NOMBRE			: pInsertarParametroConc
+*AUTOR			: SOFTECH SISTEMAS
+*************************************************************************/
+
+CREATE PROCEDURE [pInsertarParametroConc]
+    (
+      @sCo_Conf CHAR(6) ,
+      @sDes_Conf VARCHAR(60) ,
+      @sCo_Ban CHAR(6) ,
+      @bOpc_Doc BIT ,
+      @iConc_Parcial INT ,
+      @iCantidadDig INT ,
+      @bOpc_Fec BIT ,
+      @iMargenInf INT ,
+      @iMargenSup INT ,
+      @sCampo1 VARCHAR(60) = NULL ,
+      @sCampo2 VARCHAR(60) = NULL ,
+      @sCampo3 VARCHAR(60) = NULL ,
+      @sCampo4 VARCHAR(60) = NULL ,
+      @sCampo5 VARCHAR(60) = NULL ,
+      @sCampo6 VARCHAR(60) = NULL ,
+      @sCampo7 VARCHAR(60) = NULL ,
+      @sCampo8 VARCHAR(60) = NULL ,
+      @sCo_Us_In CHAR(6) ,
+      @sCo_Sucu_In CHAR(6) ,
+      @sMaquina VARCHAR(60) = NULL ,
+      @sRevisado CHAR(1) = NULL ,
+      @sTrasnfe CHAR(1) = NULL
+    )
+AS 
+    BEGIN
+
+        DECLARE @TableTimestamp TABLE
+            (
+              validador VARBINARY(MAX) ,
+              fe_us_in DATETIME ,
+              fe_us_mo DATETIME ,
+              rowguid UNIQUEIDENTIFIER
+            )
+
+        INSERT  INTO [saParametroConc]
+                ( [co_conf], [des_conf], [co_ban], [opc_doc], [conc_parcial], [cantidadDig], [opc_fec], [margenInf],
+                  [margenSup], [campo1], [campo2], [campo3], [campo4], [campo5], [campo6], [campo7], [campo8],
+                  [co_us_in], [co_sucu_in], [fe_us_in], [co_us_mo], [co_sucu_mo], [fe_us_mo], [revisado], [trasnfe] )
+        OUTPUT  Inserted.validador, inserted.fe_us_in, inserted.fe_us_mo, Inserted.rowguid
+                INTO @TableTimestamp
+        VALUES
+                ( @sCo_Conf, @sDes_Conf, @sCo_Ban, @bOpc_Doc, @iConc_Parcial, @iCantidadDig, @bOpc_Fec, @iMargenInf,
+                  @iMargenSup, @sCampo1, @sCampo2, @sCampo3, @sCampo4, @sCampo5, @sCampo6, @sCampo7, @sCampo8,
+                  @sCo_Us_In, @sCo_Sucu_In, GETDATE(), @sCo_Us_In, @sCo_Sucu_In, GETDATE(), @sRevisado, @sTrasnfe )
+		
+        DECLARE @dtFe_In DATETIME
+		
+        DECLARE
+            @rowGuidOri UNIQUEIDENTIFIER ,
+            @sCamposIn VARCHAR(12)
+
+        SELECT
+            @dtFe_In = fe_us_in, @rowGuidOri = rowguid
+        FROM
+            @TableTimestamp
+        SET @sCamposIn = @sCo_Conf + ',' + @sCo_Ban
+
+		-- Insertar Pista
+        EXEC [pInsertarPista] @sUsuario_Id = @sCo_Us_In, @dtFecha = @dtFe_
+```
