@@ -4,6 +4,12 @@
 /node_modules
 /.pnp
 .pnp.*
+
+# Generated artifacts (regenerate with scripts/extract_schema.py)
+profit_schema.json
+
+# Qdrant local storage
+qdrant_storage/
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
