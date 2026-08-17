@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/auth/session';
+import { verifyResetToken } from '@/lib/auth/session';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -10,12 +10,11 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  // Step 1: Extract token from route params
-  const { token } = params;
+  // Await params (Next 16 requirement)
+  const { token } = await params;
 
-  // Step 2: Validate token presence
   if (!token) {
     return NextResponse.json(
       { error: 'Token is required' },
@@ -23,7 +22,6 @@ export async function POST(
     );
   }
 
-  // Step 3: Parse request body
   let body: unknown;
   try {
     body = await request.json();
@@ -34,10 +32,8 @@ export async function POST(
     );
   }
 
-  // Step 4: Extract newPassword from body
   const { newPassword } = body as Record<string, unknown>;
 
-  // Step 5: Validate password
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
     return NextResponse.json(
       { error: 'Password must be at least 8 characters' },
@@ -45,62 +41,44 @@ export async function POST(
     );
   }
 
-  // Step 6: Verify token
   let payload;
   try {
-    payload = await verifyToken(token);
+    payload = await verifyResetToken(token);
     if (!payload) {
       throw new TokenExpiredError();
     }
   } catch (error) {
     if (error instanceof TokenExpiredError) {
       return NextResponse.json(
-        { error: error.message },
+        { error: 'Token expired or invalid' },
         { status: 401 }
       );
     }
-    // If verifyToken returns null, treat as expired
-    return NextResponse.json(
-      { error: 'Token expired or invalid' },
-      { status: 401 }
-    );
-  }
-
-  // Step 7: Extract userId from payload sub claim
-  const userId = payload.sub;
-
-  // Step 8: Hash new password
-  let hashedPassword: string;
-  try {
-    hashedPassword = await bcrypt.hash(newPassword, 10);
-  } catch (error) {
-    console.error('Error hashing password:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     );
   }
 
-  // Step 9: Update user password in DB by userId
   try {
+    const userId = parseInt(payload.sub, 10);
+    const newHash = await bcrypt.hash(newPassword, 10);
+
     const db = getDb();
-    const id = parseInt(userId, 10);
+    db.update(users)
+      .set({ passwordHash: newHash })
+      .where(eq(users.id, userId))
+      .run();
 
-    await db
-      .update(users)
-      .set({ passwordHash: hashedPassword })
-      .where(eq(users.id, id));
+    return NextResponse.json({
+      ok: true,
+      message: 'Password reset successful',
+    });
   } catch (error) {
-    console.error('Error updating password in database:', error);
+    console.error('Password reset error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     );
   }
-
-  // Step 10: Return 200 with success response
-  return NextResponse.json({
-    ok: true,
-    message: 'Password reset successful',
-  });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/auth/session';
+import { verifyResetToken } from '@/lib/auth/session';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Step 3: Verify token
-    const payload = await verifyToken(token);
+    // Step 3: Verify reset token
+    const payload = await verifyResetToken(token);
 
     // Step 4: If invalid/expired, throw TokenExpiredError
     if (!payload) {
@@ -33,9 +33,11 @@ export async function GET(request: NextRequest) {
 
     // Step 6: Fetch user from DB by userId
     const db = getDb();
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
+    const user = db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
 
     // Step 7: If user not found, throw TokenExpiredError
     if (!user) {

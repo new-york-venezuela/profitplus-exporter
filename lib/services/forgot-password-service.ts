@@ -1,23 +1,8 @@
-import { SignJWT } from 'jose';
 import { getDb } from '@/lib/db/sqlite';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { type SessionPayload } from '@/lib/auth/session';
+import { signResetToken } from '@/lib/auth/session';
 import { InvalidEmailError } from '@/lib/errors/password-reset';
-
-function getSecret(): Uint8Array {
-  const s = process.env.JWT_SECRET;
-  if (!s) throw new Error('JWT_SECRET environment variable is not set');
-  return new TextEncoder().encode(s);
-}
-
-async function signResetToken(payload: SessionPayload): Promise<string> {
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('15m')
-    .sign(getSecret());
-}
 
 export class ForgotPasswordService {
   async requestReset(email: string): Promise<{ token: string; resetUrl: string }> {

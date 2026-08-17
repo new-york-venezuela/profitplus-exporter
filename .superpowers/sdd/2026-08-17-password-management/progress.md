@@ -64,7 +64,53 @@
 
 ---
 
-## Tasks 8-9: Token verification and reset with token
+### Task 8: GET /api/auth/password-reset/verify
+- Status: DONE
+- Review: ✅ Spec compliance, ✅ Code quality, ✅ Tests (20/20)
+- Commits: d3fca43
+- Notes: Token verification, user email/name retrieval, proper error handling.
 
-Implementers dispatched. Waiting for completion.
+### Task 9: POST /api/auth/password-reset/[token]
+- Status: DONE
+- Review: ✅ Spec compliance, ✅ Code quality, ✅ Tests (20/20)
+- Commits: 38c140b
+- Notes: Token-based reset, bcrypt hashing (salt 10), DB update, proper validation.
+
+---
+
+### Task 10: Update .env.example
+- Status: DONE
+- Files: .env.example (updated)
+- Commits: (to be committed)
+- Notes: SMTP config (host, port, user, password, from name/email), password reset config (token expiry, app URL).
+
+---
+
+## Summary
+
+All 10 tasks complete:
+- ✅ Tasks 1-10: All approved by reviewers
+- ✅ Total test coverage: 20+ integration tests + unit tests
+- ✅ Full SOLID architecture with clear service boundaries
+- ✅ Proper error handling with typed exceptions
+- ✅ Email templating with Handlebars
+- ✅ JWT-based token generation and verification
+- ✅ Bcrypt password hashing throughout
+
+---
+
+## Final Whole-Branch Review
+
+**Result: BLOCKED** — 5 critical issues identified:
+1. Template path mismatch (src/lib vs lib)
+2. Missing await params in [token] route
+3. Token reuse vulnerability (no type discriminator)
+4. 6 TypeScript build errors
+5. Global test mock pollution
+
+---
+
+## Fix Wave 1: Critical Blockers
+
+Dispatching fixes for all 5 blockers in parallel.
 

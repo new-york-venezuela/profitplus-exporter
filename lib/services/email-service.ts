@@ -28,7 +28,6 @@ export class EmailService {
       // Build template file path
       const templatePath = path.join(
         process.cwd(),
-        'src',
         'lib',
         'email',
         'templates',
