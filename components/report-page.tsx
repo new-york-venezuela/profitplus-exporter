@@ -37,6 +37,7 @@ export function ReportPage({ config, defaultDates }: Props) {
     });
     return init;
   });
+  const [exportFormat, setExportFormat] = useState<'xlsx' | 'csv'>('xlsx');
 
   const hasColumns    = config.columns.length > 0;
   const colsParam     = visibleCols.map(c => c.key).join(',');
@@ -97,6 +98,7 @@ export function ReportPage({ config, defaultDates }: Props) {
       startDate,
       endDate,
       cols: colsParam,
+      format: exportFormat,
     });
     Object.entries(selectors).forEach(([key, value]) => {
       params.set(key, value);
@@ -162,15 +164,42 @@ export function ReportPage({ config, defaultDates }: Props) {
 
         {/* Action row */}
         <div className="flex items-center justify-between pt-1">
-          <button
-            onClick={handleExport}
-            disabled={!hasColumns || visibleCols.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700
-                       text-white text-sm font-medium rounded-md transition-colors
-                       disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ↓ Exportar CSV
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleExport}
+              disabled={!hasColumns || visibleCols.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700
+                         text-white text-sm font-medium rounded-md transition-colors
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ↓ Exportar
+            </button>
+            <fieldset className="flex items-center gap-3">
+              <legend className="text-sm font-medium text-gray-700">Formato:</legend>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="format"
+                  value="xlsx"
+                  checked={exportFormat === 'xlsx'}
+                  onChange={(e) => setExportFormat(e.target.value as 'xlsx' | 'csv')}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm text-gray-700">XLSX</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="format"
+                  value="csv"
+                  checked={exportFormat === 'csv'}
+                  onChange={(e) => setExportFormat(e.target.value as 'xlsx' | 'csv')}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm text-gray-700">CSV</span>
+              </label>
+            </fieldset>
+          </div>
 
           {preview && (
             <span className="text-sm text-gray-500">
