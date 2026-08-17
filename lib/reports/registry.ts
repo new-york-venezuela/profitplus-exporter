@@ -4,6 +4,7 @@ export interface ColumnDef {
   defaultVisible: boolean;
   defaultOrder:   number;
   alwaysVisible?: boolean;  // if true, cannot be toggled off in the UI
+  type?:          'text' | 'number' | 'date'; // cell typing hint for XLSX export; defaults to text
 }
 
 export interface SelectorOption {

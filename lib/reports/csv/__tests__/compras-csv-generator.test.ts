@@ -1,11 +1,12 @@
 import { describe, test, expect } from 'bun:test';
 import { generateComprasCsv } from '../compras-csv-generator';
+import { COMPRAS_CONFIG } from '../../compras';
 import type { ComprasExportRow } from '../../mappers/compras-mapper';
 
 describe('generateComprasCsv', () => {
   test('generates CSV with proper header', () => {
     const rows: ComprasExportRow[] = [];
-    const csv = generateComprasCsv(rows);
+    const csv = generateComprasCsv(COMPRAS_CONFIG.columns, rows);
     const lines = csv.split('\n');
     expect(lines[0]).toContain('Nº,FECHA,RIF');
   });
@@ -33,7 +34,7 @@ describe('generateComprasCsv', () => {
         iva_retenido: 50,
       },
     ];
-    const csv = generateComprasCsv(rows);
+    const csv = generateComprasCsv(COMPRAS_CONFIG.columns, rows);
     expect(csv).toContain('"Provider, Inc."');
   });
 
@@ -60,7 +61,7 @@ describe('generateComprasCsv', () => {
         iva_retenido: 50,
       },
     ];
-    const csv = generateComprasCsv(rows);
+    const csv = generateComprasCsv(COMPRAS_CONFIG.columns, rows);
     expect(csv).toContain('"Provider ""Special"" Ltd."');
   });
 
@@ -87,7 +88,7 @@ describe('generateComprasCsv', () => {
         iva_retenido: 50,
       },
     ];
-    const csv = generateComprasCsv(rows);
+    const csv = generateComprasCsv(COMPRAS_CONFIG.columns, rows);
     expect(csv).toContain('"Provider\nMultiline"');
   });
 });

@@ -9,6 +9,6 @@ export function mapComprasRows(rows: Record<string, unknown>[]): Record<string, 
   return mapComprasData(rows);
 }
 
-export function buildComprasCsv(cols: Array<{ key: string }>, rows: Record<string, unknown>[]): string {
-  return generateComprasCsv(rows);
+export function buildComprasCsv(cols: Array<{ key: string; label: string }>, rows: Record<string, unknown>[]): string {
+  return generateComprasCsv(cols, rows);
 }
