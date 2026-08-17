@@ -56,6 +56,25 @@ async function callPasswordResetEndpoint(
   return POST(request);
 }
 
+// Helper to create a POST request for forgot password
+async function callForgotPasswordEndpoint(
+  body: Record<string, unknown>
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  const request = new NextRequest('http://localhost:3000/api/auth/password-reset-request', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers,
+  });
+
+  // Dynamically import and call the route handler
+  const { POST } = await import('@/app/api/auth/password-reset-request/route');
+  return POST(request);
+}
+
 describe('Password Reset Routes Integration', () => {
   beforeEach(() => {
     // Reset environment and state
@@ -199,5 +218,71 @@ describe('Password Reset Routes Integration', () => {
     });
     // Will be 500 because service tries to access DB, but validation should pass
     expect([401, 500]).toContain(response.status);
+  });
+
+  // Forgot Password Request Tests (Task 7)
+  test('sends reset email for valid email', async () => {
+    // Mock ForgotPasswordService
+    const mockForgotPasswordService = mock(() => ({
+      requestReset: mock(async (email: string) => ({
+        token: 'test-reset-token',
+        resetUrl: 'http://localhost:3000/auth/password-reset?token=test-reset-token',
+      })),
+    }));
+
+    // Mock EmailService
+    const mockEmailService = mock(() => ({
+      send: mock(async (to: string, templateName: string, data: Record<string, string>) => {
+        // Mock successful send
+      }),
+    }));
+
+    // Mock the modules
+    mock.module('@/lib/services/forgot-password-service', () => ({
+      ForgotPasswordService: mockForgotPasswordService,
+    }));
+
+    mock.module('@/lib/services/email-service', () => ({
+      EmailService: mockEmailService,
+    }));
+
+    const response = await callForgotPasswordEndpoint({
+      email: 'user@example.com',
+    });
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.ok).toBe(true);
+    expect(data.message).toBe('Check your email for password reset instructions');
+  });
+
+  test('returns 404 when email not found', async () => {
+    // Mock ForgotPasswordService to throw InvalidEmailError
+    const mockForgotPasswordService = mock(() => ({
+      requestReset: mock(async (email: string) => {
+        const { InvalidEmailError } = await import('@/lib/errors/password-reset');
+        throw new InvalidEmailError();
+      }),
+    }));
+
+    mock.module('@/lib/services/forgot-password-service', () => ({
+      ForgotPasswordService: mockForgotPasswordService,
+    }));
+
+    const response = await callForgotPasswordEndpoint({
+      email: 'notfound@example.com',
+    });
+
+    expect(response.status).toBe(404);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Email not found');
+  });
+
+  test('returns 400 when email is missing', async () => {
+    const response = await callForgotPasswordEndpoint({});
+
+    expect(response.status).toBe(400);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Email is required');
   });
 });
