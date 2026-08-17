@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth/get-session';
 import { REPORTS }    from '@/lib/reports/registry';
 import { getPool }    from '@/lib/db/mssql';
 import { buildCsv }   from '@/lib/csv';
+import { buildXlsx }  from '@/lib/xlsx';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
@@ -42,6 +43,7 @@ export async function GET(
   const start  = parseDate(sp.get('startDate')) ?? def.startDate;
   const end    = parseDate(sp.get('endDate'))   ?? def.endDate;
   const cols   = resolveColumns(config, sp.get('cols'));
+  const format = sp.get('format') ?? 'xlsx'; // Default to xlsx
 
   if (cols.length === 0) {
     return NextResponse.json(
@@ -76,9 +78,21 @@ export async function GET(
 
       if (reportId === 'compras') {
         const comprasRows = mapComprasRows(rows);
+
+        if (format === 'xlsx') {
+          const buffer = buildXlsx(cols, comprasRows);
+          return new NextResponse(new Uint8Array(buffer), {
+            headers: {
+              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.xlsx"`,
+            },
+          });
+        }
+
+        // CSV fallback for compras
         return new NextResponse(buildComprasCsv(cols, comprasRows), {
           headers: {
-            'Content-Type':        'text/csv; charset=utf-8',
+            'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.csv"`,
           },
         });
@@ -89,12 +103,23 @@ export async function GET(
       }
     }
 
-    const csv      = buildCsv(cols, rows);
-    const filename = `${reportId}_${start}_${end}.csv`;
+    if (format === 'xlsx') {
+      const buffer = buildXlsx(cols, rows);
+      const filename = `${reportId}_${start}_${end}.xlsx`;
+      return new NextResponse(new Uint8Array(buffer), {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+        },
+      });
+    }
 
+    // CSV fallback
+    const csv = buildCsv(cols, rows);
+    const filename = `${reportId}_${start}_${end}.csv`;
     return new NextResponse(csv, {
       headers: {
-        'Content-Type':        'text/csv; charset=utf-8',
+        'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });
