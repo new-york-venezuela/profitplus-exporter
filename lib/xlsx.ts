@@ -22,8 +22,9 @@ export function buildXlsx(
           return '';
         }
 
-        // Preserve numbers (XLSX will type them as numbers)
-        if (typeof value === 'number') {
+        // Preserve numbers only if column is marked as numeric type
+        // (avoids losing leading zeros / going scientific on identifiers)
+        if (typeof value === 'number' && col.type === 'number') {
           return value;
         }
 
@@ -32,7 +33,12 @@ export function buildXlsx(
           return value;
         }
 
-        // Strings and everything else: convert to string
+        // Preserve dates (will be formatted by Excel based on locale)
+        if (value instanceof Date) {
+          return value;
+        }
+
+        // Everything else (default text, including numeric-looking strings): convert to string
         return String(value);
       }),
     ),

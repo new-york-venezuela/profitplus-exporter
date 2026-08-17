@@ -23,7 +23,7 @@
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
     "mssql": "^12.7.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "next": "16.2.11",
     "prompts": "^2.4.2",
     "react": "19.2.4",

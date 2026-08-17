@@ -43,7 +43,12 @@ export async function GET(
   const start  = parseDate(sp.get('startDate')) ?? def.startDate;
   const end    = parseDate(sp.get('endDate'))   ?? def.endDate;
   const cols   = resolveColumns(config, sp.get('cols'));
-  const format = sp.get('format') ?? 'xlsx'; // Default to xlsx
+
+  const formatParam = sp.get('format') ?? 'xlsx'; // Default to xlsx
+  if (formatParam !== 'xlsx' && formatParam !== 'csv') {
+    return NextResponse.json({ error: 'Formato inválido' }, { status: 400 });
+  }
+  const format = formatParam as 'xlsx' | 'csv';
 
   if (cols.length === 0) {
     return NextResponse.json(
