@@ -3,6 +3,13 @@ import { NextRequest } from 'next/server';
 import { signToken, type SessionPayload } from '@/lib/auth/session';
 import * as bcrypt from 'bcrypt';
 
+// Mock nodemailer at the top level to prevent actual email sending
+mock.module('nodemailer', () => ({
+  createTransport: mock(() => ({
+    sendMail: mock(async () => ({ messageId: 'mock-message-id' })),
+  })),
+}));
+
 // Mock environment variables
 const mockEnv = {
   JWT_SECRET: 'test-secret-key-for-testing-only',
@@ -104,15 +111,17 @@ async function callTokenPasswordResetEndpoint(
     getDb: () => ({
       update: (table: unknown) => ({
         set: (updates: Record<string, unknown>) => ({
-          where: async (condition: unknown) => {
-            // Update the mock user with the new password hash
-            for (const userId of Object.keys(mockUsers)) {
-              const user = mockUsers[userId];
-              if (updates.passwordHash) {
-                user.passwordHash = updates.passwordHash as string;
+          where: (condition: unknown) => ({
+            run: () => {
+              // Update the mock user with the new password hash
+              for (const userId of Object.keys(mockUsers)) {
+                const user = mockUsers[userId];
+                if (updates.passwordHash) {
+                  user.passwordHash = updates.passwordHash as string;
+                }
               }
             }
-          }
+          })
         })
       })
     })
@@ -322,11 +331,11 @@ describe('Password Reset Routes Integration', () => {
       role: 'user',
       name: 'Reset User',
     };
-    const resetToken = await signToken(resetPayload);
+    const { signResetToken, verifyResetToken } = await import('@/lib/auth/session');
+    const resetToken = await signResetToken(resetPayload);
 
-    // Verify token is valid
-    const { verifyToken } = await import('@/lib/auth/session');
-    const verifiedReset = await verifyToken(resetToken);
+    // Verify reset token is valid
+    const verifiedReset = await verifyResetToken(resetToken);
     expect(verifiedReset).not.toBeNull();
     expect(verifiedReset?.sub).toBe(userId);
 
@@ -415,20 +424,9 @@ describe('Password Reset Routes Integration', () => {
       })),
     }));
 
-    // Mock EmailService
-    const mockEmailService = mock(() => ({
-      send: mock(async (to: string, templateName: string, data: Record<string, string>) => {
-        // Mock successful send
-      }),
-    }));
-
-    // Mock the modules
+    // Mock the modules (EmailService no longer needs mocking—nodemailer is mocked at top level)
     mock.module('@/lib/services/forgot-password-service', () => ({
       ForgotPasswordService: mockForgotPasswordService,
-    }));
-
-    mock.module('@/lib/services/email-service', () => ({
-      EmailService: mockEmailService,
     }));
 
     const response = await callForgotPasswordEndpoint({
@@ -483,23 +481,26 @@ describe('Password Reset Routes Integration', () => {
       role: 'user',
       name: userName,
     };
-    const token = await signToken(sessionPayload);
+    const { signResetToken: signResetTokenFunc } = await import('@/lib/auth/session');
+    const token = await signResetTokenFunc(sessionPayload);
 
     // Mock the database query
     mock.module('@/lib/db/sqlite', () => ({
       getDb: mock(() => ({
-        query: {
-          users: {
-            findFirst: mock(async () => ({
-              id: parseInt(userId, 10),
-              email: userEmail,
-              name: userName,
-              passwordHash: 'hash',
-              role: 'user' as const,
-              createdAt: Date.now(),
+        select: mock(() => ({
+          from: mock(() => ({
+            where: mock(() => ({
+              get: mock(() => ({
+                id: parseInt(userId, 10),
+                email: userEmail,
+                name: userName,
+                passwordHash: 'hash',
+                role: 'user' as const,
+                createdAt: Date.now(),
+              })),
             })),
-          },
-        },
+          })),
+        })),
       })),
     }));
 
