@@ -12,6 +12,31 @@ const mockEnv = {
 // Store mock user data
 const mockUsers: Record<string, { id: number; email: string; name: string; passwordHash: string; role: 'user' | 'admin' }> = {};
 
+// Mock database module
+const createMockDb = () => {
+  return {
+    update: () => ({
+      set: (updates: Record<string, unknown>) => ({
+        where: async () => {
+          // Successfully update mock users
+          for (const [userId, user] of Object.entries(mockUsers)) {
+            if (userId === String(updates.userId)) {
+              if (updates.passwordHash) {
+                user.passwordHash = updates.passwordHash as string;
+              }
+            }
+          }
+        }
+      })
+    }),
+    select: () => ({
+      from: () => ({
+        where: async () => [mockUsers['1']] // Return first mock user
+      })
+    })
+  };
+};
+
 // Create a mock module for PasswordResetService that we can control
 const createMockPasswordResetService = () => {
   return {
@@ -56,6 +81,48 @@ async function callPasswordResetEndpoint(
   return POST(request);
 }
 
+// Helper to create a POST request for token-based password reset
+async function callTokenPasswordResetEndpoint(
+  token: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  const request = new NextRequest(
+    `http://localhost:3000/api/auth/password-reset/${encodeURIComponent(token)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers,
+    }
+  );
+
+  // Mock the database module before importing the route
+  mock.module('@/lib/db/sqlite', () => ({
+    getDb: () => ({
+      update: (table: unknown) => ({
+        set: (updates: Record<string, unknown>) => ({
+          where: async (condition: unknown) => {
+            // Update the mock user with the new password hash
+            for (const userId of Object.keys(mockUsers)) {
+              const user = mockUsers[userId];
+              if (updates.passwordHash) {
+                user.passwordHash = updates.passwordHash as string;
+              }
+            }
+          }
+        })
+      })
+    })
+  }));
+
+  // Dynamically import and call the route handler
+  const { POST } = await import('@/app/api/auth/password-reset/[token]/route');
+  return POST(request, { params: { token } });
+}
+
 // Helper to create a POST request for forgot password
 async function callForgotPasswordEndpoint(
   body: Record<string, unknown>
@@ -73,6 +140,22 @@ async function callForgotPasswordEndpoint(
   // Dynamically import and call the route handler
   const { POST } = await import('@/app/api/auth/password-reset-request/route');
   return POST(request);
+}
+
+// Helper to create a GET request for token verification
+async function callVerifyTokenEndpoint(token: string | null): Promise<Response> {
+  const url = new URL('http://localhost:3000/api/auth/password-reset/verify');
+  if (token) {
+    url.searchParams.set('token', token);
+  }
+
+  const request = new NextRequest(url, {
+    method: 'GET',
+  });
+
+  // Dynamically import and call the route handler
+  const { GET } = await import('@/app/api/auth/password-reset/verify/route');
+  return GET(request);
 }
 
 describe('Password Reset Routes Integration', () => {
@@ -220,6 +303,108 @@ describe('Password Reset Routes Integration', () => {
     expect([401, 500]).toContain(response.status);
   });
 
+  // Token-Based Password Reset Tests (Task 9)
+  test('password updated with valid token', async () => {
+    // Setup: Create a user in the mock database
+    const hashedPassword = await bcrypt.hash('oldPassword123', 10);
+    const userId = '1';
+    mockUsers[userId] = {
+      id: 1,
+      email: 'reset@example.com',
+      name: 'Reset User',
+      passwordHash: hashedPassword,
+      role: 'user',
+    };
+
+    // Create a valid reset token
+    const resetPayload: SessionPayload = {
+      sub: userId,
+      role: 'user',
+      name: 'Reset User',
+    };
+    const resetToken = await signToken(resetPayload);
+
+    // Verify token is valid
+    const { verifyToken } = await import('@/lib/auth/session');
+    const verifiedReset = await verifyToken(resetToken);
+    expect(verifiedReset).not.toBeNull();
+    expect(verifiedReset?.sub).toBe(userId);
+
+    // Call endpoint with new password
+    const response = await callTokenPasswordResetEndpoint(resetToken, {
+      newPassword: 'newPassword456789',
+    });
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.ok).toBe(true);
+    expect(data.message).toBe('Password reset successful');
+  });
+
+  test('returns 401 with expired token', async () => {
+    // Create an expired token by manipulating JWT_EXPIRY_DAYS
+    const oldExpiryDays = process.env.JWT_EXPIRY_DAYS;
+    process.env.JWT_EXPIRY_DAYS = '0'; // Expire immediately
+
+    const expiredPayload: SessionPayload = {
+      sub: '1',
+      role: 'user',
+      name: 'Test User',
+    };
+    const expiredToken = await signToken(expiredPayload);
+
+    // Restore original expiry
+    if (oldExpiryDays) {
+      process.env.JWT_EXPIRY_DAYS = oldExpiryDays;
+    }
+
+    // Wait a moment to ensure token is expired
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Call endpoint with expired token
+    const response = await callTokenPasswordResetEndpoint(expiredToken, {
+      newPassword: 'newPassword456789',
+    });
+
+    expect(response.status).toBe(401);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Token expired or invalid');
+  });
+
+  test('returns 400 when password too short', async () => {
+    // Create a valid reset token
+    const resetPayload: SessionPayload = {
+      sub: '1',
+      role: 'user',
+      name: 'Test User',
+    };
+    const resetToken = await signToken(resetPayload);
+
+    // Call endpoint with short password
+    const response = await callTokenPasswordResetEndpoint(resetToken, {
+      newPassword: 'short',
+    });
+
+    expect(response.status).toBe(400);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Password must be at least 8 characters');
+  });
+
+  test('returns 400 when token is missing', async () => {
+    const request = new NextRequest('http://localhost:3000/api/auth/password-reset/', {
+      method: 'POST',
+      body: JSON.stringify({ newPassword: 'newPassword456789' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const { POST } = await import('@/app/api/auth/password-reset/[token]/route');
+    const response = await POST(request, { params: { token: '' } });
+
+    expect(response.status).toBe(400);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Token is required');
+  });
+
   // Forgot Password Request Tests (Task 7)
   test('sends reset email for valid email', async () => {
     // Mock ForgotPasswordService
@@ -284,5 +469,75 @@ describe('Password Reset Routes Integration', () => {
     expect(response.status).toBe(400);
     const data = await response.json() as Record<string, unknown>;
     expect(data.error).toBe('Email is required');
+  });
+
+  // Token Verification Tests (Task 8)
+  test('verify returns email and name for valid token', async () => {
+    // Create a user and token
+    const userId = '42';
+    const userEmail = 'verify@example.com';
+    const userName = 'Verify User';
+
+    const sessionPayload: SessionPayload = {
+      sub: userId,
+      role: 'user',
+      name: userName,
+    };
+    const token = await signToken(sessionPayload);
+
+    // Mock the database query
+    mock.module('@/lib/db/sqlite', () => ({
+      getDb: mock(() => ({
+        query: {
+          users: {
+            findFirst: mock(async () => ({
+              id: parseInt(userId, 10),
+              email: userEmail,
+              name: userName,
+              passwordHash: 'hash',
+              role: 'user' as const,
+              createdAt: Date.now(),
+            })),
+          },
+        },
+      })),
+    }));
+
+    const response = await callVerifyTokenEndpoint(token);
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.valid).toBe(true);
+    expect(data.email).toBe(userEmail);
+    expect(data.name).toBe(userName);
+  });
+
+  test('verify returns 400 when token is missing', async () => {
+    const response = await callVerifyTokenEndpoint(null);
+
+    expect(response.status).toBe(400);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Token is required');
+  });
+
+  test('verify returns 401 when token is invalid', async () => {
+    const response = await callVerifyTokenEndpoint('invalid-token-xyz');
+
+    expect(response.status).toBe(401);
+    const data = await response.json() as Record<string, unknown>;
+    expect(data.error).toBe('Token expired or invalid');
+  });
+
+  test('verify route has dynamic = force-dynamic configuration', async () => {
+    const routeModule = await import('@/app/api/auth/password-reset/verify/route');
+    expect(routeModule.dynamic).toBe('force-dynamic');
+  });
+
+  test('verify endpoint only accepts GET method', async () => {
+    const routeModule = await import('@/app/api/auth/password-reset/verify/route');
+    expect(typeof routeModule.GET).toBe('function');
+    expect(routeModule.POST).toBeUndefined();
+    expect(routeModule.PUT).toBeUndefined();
+    expect(routeModule.DELETE).toBeUndefined();
   });
 });
