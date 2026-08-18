@@ -36,9 +36,11 @@ export async function POST(request: NextRequest) {
 
   // Step 6: Call service.requestReset()
   let resetUrl: string;
+  let userName: string;
   try {
     const result = await service.requestReset(normalizedEmail);
     resetUrl = result.resetUrl;
+    userName = result.name;
   } catch (error) {
     // Step 9: Handle service errors
     if (error instanceof InvalidEmailError) {
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest) {
   // Step 8: Send email
   try {
     await emailService.send(normalizedEmail, 'password-reset', {
-      userName: 'User',
+      userName,
       resetUrl,
       resetUrlPlain: resetUrl,
     });

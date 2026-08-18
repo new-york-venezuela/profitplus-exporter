@@ -5,7 +5,7 @@ import { signResetToken } from '@/lib/auth/session';
 import { InvalidEmailError } from '@/lib/errors/password-reset';
 
 export class ForgotPasswordService {
-  async requestReset(email: string): Promise<{ token: string; resetUrl: string }> {
+  async requestReset(email: string): Promise<{ token: string; resetUrl: string; name: string }> {
     // Normalize email
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -31,9 +31,9 @@ export class ForgotPasswordService {
 
     // Build reset URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const resetUrl = `${baseUrl}/auth/password-reset?token=${token}`;
+    const resetUrl = `${baseUrl}/password-reset?token=${token}`;
 
-    // Return token and resetUrl
-    return { token, resetUrl };
+    // Return token, resetUrl, and user's name
+    return { token, resetUrl, name: user.name };
   }
 }

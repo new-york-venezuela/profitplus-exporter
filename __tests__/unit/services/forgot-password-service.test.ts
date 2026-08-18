@@ -72,10 +72,10 @@ describe('ForgotPasswordService', () => {
   test('reset URL is constructed correctly', async () => {
     const baseUrl = 'https://example.com';
     const token = 'test-token-123';
-    const resetUrl = `${baseUrl}/auth/password-reset?token=${token}`;
+    const resetUrl = `${baseUrl}/password-reset?token=${token}`;
 
     expect(resetUrl).toContain('example.com');
-    expect(resetUrl).toContain('/auth/password-reset');
+    expect(resetUrl).toContain('/password-reset');
     expect(resetUrl).toContain('token=test-token-123');
   });
 
@@ -95,7 +95,7 @@ describe('ForgotPasswordService', () => {
       token:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.fake',
       resetUrl:
-        'https://example.com/auth/password-reset?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.fake',
+        'https://example.com/password-reset?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.fake',
     };
 
     expect(mockResponse).toHaveProperty('token');
@@ -192,10 +192,10 @@ describe('ForgotPasswordService', () => {
   test('reset URL format validation', () => {
     const token = 'abc123';
     const baseUrl = 'https://app.example.com';
-    const resetUrl = `${baseUrl}/auth/password-reset?token=${token}`;
+    const resetUrl = `${baseUrl}/password-reset?token=${token}`;
 
     expect(resetUrl).toMatch(/^https:\/\//);
-    expect(resetUrl).toContain('/auth/password-reset');
+    expect(resetUrl).toContain('/password-reset');
     expect(resetUrl).toContain('?token=');
   });
 });

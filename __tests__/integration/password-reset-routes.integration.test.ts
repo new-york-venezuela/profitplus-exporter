@@ -420,7 +420,7 @@ describe('Password Reset Routes Integration', () => {
     const mockForgotPasswordService = mock(() => ({
       requestReset: mock(async (email: string) => ({
         token: 'test-reset-token',
-        resetUrl: 'http://localhost:3000/auth/password-reset?token=test-reset-token',
+        resetUrl: 'http://localhost:3000/password-reset?token=test-reset-token',
       })),
     }));
 

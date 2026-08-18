@@ -37,7 +37,7 @@ export function Sidebar({ user }: Props) {
   }
 
   return (
-    <aside className="w-52 min-h-screen bg-gray-900 flex flex-col shrink-0">
+    <aside className="w-52 h-full bg-gray-900 flex flex-col shrink-0 overflow-y-auto">
       {/* Brand */}
       <div className="px-4 py-5 border-b border-gray-700">
         <span className="text-sm font-bold text-white tracking-tight">
