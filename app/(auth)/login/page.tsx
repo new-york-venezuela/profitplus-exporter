@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [email,    setEmail]    = useState('');
@@ -56,9 +57,14 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Contraseña
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium text-gray-700">
+              Contraseña
+            </label>
+            <Link href="/forgot-password" className="text-xs text-blue-600 hover:text-blue-700">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
           <input
             type="password"
             value={password}

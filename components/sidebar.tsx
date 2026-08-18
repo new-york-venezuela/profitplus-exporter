@@ -79,7 +79,12 @@ export function Sidebar({ user }: Props) {
 
       {/* Footer */}
       <div className="px-4 py-4 border-t border-gray-700">
-        <p className="text-xs text-gray-400 mb-2 truncate">{user.name}</p>
+        <Link
+          href="/profile"
+          className="block text-xs text-gray-400 hover:text-white mb-2 truncate transition-colors"
+        >
+          {user.name}
+        </Link>
         <button
           onClick={handleLogout}
           className="text-xs text-gray-400 hover:text-white transition-colors"
