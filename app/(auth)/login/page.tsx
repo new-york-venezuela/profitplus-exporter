@@ -42,10 +42,11 @@ export default function LoginPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
             Correo electrónico
           </label>
           <input
+            id="email"
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
@@ -58,7 +59,7 @@ export default function LoginPage() {
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-gray-700">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
               Contraseña
             </label>
             <Link href="/forgot-password" className="text-xs text-blue-600 hover:text-blue-700">
@@ -66,6 +67,7 @@ export default function LoginPage() {
             </Link>
           </div>
           <input
+            id="password"
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
