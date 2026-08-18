@@ -84,7 +84,8 @@ describe('ForgotPasswordService', () => {
     expect(appUrl).toBe('https://example.com');
 
     // Test fallback
-    const fallbackUrl = undefined || 'http://localhost:3000';
+    const maybeUndefined: string | undefined = undefined;
+    const fallbackUrl = maybeUndefined || 'http://localhost:3000';
     expect(fallbackUrl).toBe('http://localhost:3000');
   });
 

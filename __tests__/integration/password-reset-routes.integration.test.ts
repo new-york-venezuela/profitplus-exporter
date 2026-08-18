@@ -129,7 +129,7 @@ async function callTokenPasswordResetEndpoint(
 
   // Dynamically import and call the route handler
   const { POST } = await import('@/app/api/auth/password-reset/[token]/route');
-  return POST(request, { params: { token } });
+  return POST(request, { params: Promise.resolve({ token }) });
 }
 
 // Helper to create a POST request for forgot password
@@ -407,7 +407,7 @@ describe('Password Reset Routes Integration', () => {
     });
 
     const { POST } = await import('@/app/api/auth/password-reset/[token]/route');
-    const response = await POST(request, { params: { token: '' } });
+    const response = await POST(request, { params: Promise.resolve({ token: '' }) });
 
     expect(response.status).toBe(400);
     const data = await response.json() as Record<string, unknown>;
@@ -535,7 +535,7 @@ describe('Password Reset Routes Integration', () => {
   });
 
   test('verify endpoint only accepts GET method', async () => {
-    const routeModule = await import('@/app/api/auth/password-reset/verify/route');
+    const routeModule = await import('@/app/api/auth/password-reset/verify/route') as Record<string, unknown>;
     expect(typeof routeModule.GET).toBe('function');
     expect(routeModule.POST).toBeUndefined();
     expect(routeModule.PUT).toBeUndefined();
