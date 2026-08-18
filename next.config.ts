@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   // Prevent Next.js from bundling native modules — they must be required at runtime
-  serverExternalPackages: ['mssql'],
+  serverExternalPackages: ['mssql', 'bcrypt'],
   experimental: {
     // WORKAROUND: Turbopack regression in Next.js 16.2.10-16.2.11
     // The auto-generated _global-error boundary fails during static prerendering
