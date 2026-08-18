@@ -9,6 +9,12 @@
     "start": "bun --bun run next start",
     "lint": "eslint",
     "test": "bun test",
+    "test:unit": "bun test --path-ignore-patterns='**/compras-export.integration.test.ts'",
+    "test:mssql": "bun test __tests__/integration/compras-export.integration.test.ts",
+    "e2e": "playwright test --grep-invert @mssql",
+    "e2e:mssql": "playwright test --grep @mssql",
+    "e2e:ui": "playwright test --ui --grep-invert @mssql",
+    "e2e:seed": "bun --bun run scripts/e2e-seed.ts",
     "seed": "bun --bun run scripts/seed.ts",
     "migrate": "bun --bun run scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
@@ -35,6 +41,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
