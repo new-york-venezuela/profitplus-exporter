@@ -28,18 +28,12 @@ lib/
   reports/compras.ts    — Compras report config
   dates.ts              — getPreviousMonthRange(), parseDate()
   csv.ts                — buildCsv() with UTF-8 BOM
-
-middleware.ts           — Edge Runtime JWT guard (no next/headers here!)
 ```
 
-## Critical Constraint: Edge Runtime in middleware.ts
-
-`middleware.ts` runs in Next.js Edge Runtime. You MUST NOT import:
-- `next/headers`
-- `mssql`
-- Any Node.js built-ins that aren't Edge-compatible
-
-Only `jose` and `lib/auth/session.ts` are safe to import there.
+**No `middleware.ts`** — there is no Edge Runtime request guard in this
+app. Every route (page or API) must call `getSession()` and check
+auth/role/module access independently; there is no shared enforcement
+layer to fall back on.
 
 ## Database Quirk: Spanish Collation
 
@@ -91,8 +85,8 @@ POST /api/auth/login
   → signToken({ sub, role, name })
   → Set-Cookie: session=<jwt>; HttpOnly
 
-middleware.ts (every request except /login, /api/auth/*)
-  → verifyToken(cookie)
+Every page/route (no shared middleware — checked independently)
+  → getSession() → verifyToken(cookie)
   → fail → redirect /login or 401 JSON
 
 Admin-only API routes
@@ -109,7 +103,7 @@ Admin page (Server Component)
 - **mssql queries use `.input()` for ALL user-controlled values** — never concatenate
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
 - **Error responses** — always `{ error: string }` shape with appropriate HTTP status
-- **Admin check** — call `getSession()` and check `role === 'admin'` in every admin route handler independently (don't rely solely on middleware)
+- **Admin check** — call `getSession()` and check `role === 'admin'` in every admin route handler independently — there is no middleware to rely on instead
 
 ## Environment Variables
 

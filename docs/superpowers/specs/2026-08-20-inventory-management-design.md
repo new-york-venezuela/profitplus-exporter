@@ -110,8 +110,23 @@ by `tipo_trans`:
 | `S00003` | Merma De Produccion A Materia Prima | `1` |
 | `S00004` | Salida De Productos Dañados | `1` |
 
-These populate the adjustment-reason dropdown directly — no new
-Profit Plus config needed.
+These populate the adjustment-reason dropdown directly. None of the 6
+covers a manual physical recount that doesn't go through the
+`saInventarioFisico` count-session flow (also unused in this
+database) — a recount can turn up either more or less stock than the
+system shows, and `saTipoAjuste` ties each row to a single direction
+via `tipo_trans`, so one code can't cover both. This module adds two
+new rows, seeded via the same `mssql-migrations/` mechanism as the new
+stored procedure (data, not a schema change — `saTipoAjuste` is an
+editable catalog, not a fixed enum):
+
+| `co_tipo` | `des_tipo` | `tipo_trans` |
+|---|---|---|
+| `E00003` | Ajuste Por Conteo Manual (Sobrante) | `0` (entrada) |
+| `S00005` | Ajuste Por Conteo Manual (Faltante) | `1` (salida) |
+
+`E00003`/`S00005` are the next free codes in each series (`E`/`S` +
+zero-padded sequence), matching the existing naming convention.
 
 **`dbo.MovimientoInventario`** is a verified, pre-existing table-valued
 function that unifies all 12 kinds of inventory movement (purchases,
@@ -184,6 +199,10 @@ Body, all inside one `BEGIN TRAN` / `ROLLBACK` on any error:
    header, no lines, no stock changes — and the API surfaces the
    original message (it already names the article and warehouse) so
    the user knows exactly which line failed.
+
+The same `mssql-migrations/` script also seeds the two new
+`saTipoAjuste` rows for manual recounts (`E00003`/`S00005` — see
+Context) as a data-only `INSERT`, not a schema change.
 
 No other Profit Plus schema changes. All reads use existing tables and
 `dbo.MovimientoInventario`.
