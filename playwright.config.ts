@@ -31,19 +31,19 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    // --webpack: Turbopack's dev server cannot resolve/load the native `bcrypt`
-    // addon as an external module at runtime (`serverExternalPackages` in
-    // next.config.ts is respected for detection but the resulting require() of
-    // the "external" chunk fails: "Failed to load external module bcrypt-<hash>").
-    // Confirmed via a clean A/B: identical login request 500s under Turbopack,
-    // 200s under webpack. This makes every login-dependent e2e spec unrunnable.
-    // TODO: drop --webpack once upstream Next.js/Turbopack fixes native-addon
-    // external module resolution in dev (same class of bug as the
-    // staticGenerationRetryCount workaround already documented in next.config.ts).
-    command: 'bun --bun run next dev --webpack',
+    // Build once, then serve the production build (`next start`) instead of
+    // `next dev`. Dev mode compiles each route on its first request; under
+    // `fullyParallel`, several workers hit different cold routes at once and
+    // that on-demand compile is slow/racy enough to fail real tests (clicks
+    // landing before hydration, requests timing out mid-compile). A
+    // production build has no such window — every route is already compiled
+    // before the first test runs. `--webpack`: `serverExternalPackages`
+    // (next.config.ts) needs it for `bcrypt`/`mssql` to resolve correctly;
+    // confirmed via `next build --webpack` succeeding cleanly.
+    command: 'bun --bun run next build --webpack && bun --bun run next start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    timeout: 180_000,
     env: loadEnvTest(),
   },
 });
