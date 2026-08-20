@@ -104,10 +104,11 @@ function PasswordResetForm() {
       {verifyState === 'valid' && !success && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-1">
               Nueva contraseña
             </label>
             <input
+              id="newPassword"
               type="password"
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
@@ -119,10 +120,11 @@ function PasswordResetForm() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
               Confirmar contraseña
             </label>
             <input
+              id="confirmPassword"
               type="password"
               value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)}

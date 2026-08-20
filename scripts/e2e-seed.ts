@@ -8,6 +8,7 @@ import { users } from '@/lib/db/schema';
 const SEED_USERS = [
   { email: 'admin@e2e.test', name: 'E2E Admin', password: 'AdminPass123!', role: 'admin' as const },
   { email: 'user@e2e.test',  name: 'E2E User',  password: 'UserPass123!',  role: 'user' as const },
+  { email: 'reset-flow@e2e.test', name: 'E2E Reset Flow', password: 'ResetFlowPass123!', role: 'user' as const },
 ];
 
 async function main() {
