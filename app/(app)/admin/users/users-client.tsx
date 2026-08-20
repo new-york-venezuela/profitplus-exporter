@@ -178,23 +178,23 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <Modal title="Crear usuario" onClose={() => setModal(null)}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
+              <label htmlFor="newUserName" className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input id="newUserName" type="text" value={newName} onChange={e => setNewName(e.target.value)}
                      className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              <label htmlFor="newUserEmail" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input id="newUserEmail" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
                      className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-              <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              <label htmlFor="newUserPassword" className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+              <input id="newUserPassword" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
                      className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
-              <select value={newRole} onChange={e => setNewRole(e.target.value as 'user' | 'admin')}
+              <label htmlFor="newUserRole" className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+              <select id="newUserRole" value={newRole} onChange={e => setNewRole(e.target.value as 'user' | 'admin')}
                       className={inputClass}>
                 <option value="user">Usuario</option>
                 <option value="admin">Administrador</option>
@@ -225,13 +225,13 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <Modal title="Restablecer contraseña" onClose={() => setModal(null)}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
-              <input type="password" value={resetPwd} onChange={e => setResetPwd(e.target.value)}
+              <label htmlFor="resetPwd" className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
+              <input id="resetPwd" type="password" value={resetPwd} onChange={e => setResetPwd(e.target.value)}
                      className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
-              <input type="password" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)}
+              <label htmlFor="resetConfirm" className="block text-sm font-medium text-gray-700 mb-1">Confirmar contraseña</label>
+              <input id="resetConfirm" type="password" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)}
                      className={inputClass} />
             </div>
             {formError && (
