@@ -1,0 +1,73 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bunx tsc --noEmit
+      - run: bun run test:unit
+
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    # Secrets below are read from this named GitHub Environment (Settings >
+    # Environments > e2e-test), not committed to the repo. They mirror
+    # .env.test's keys, which remains the source of truth for local runs
+    # (playwright.config.ts's loadEnvTest() reads the tracked file locally,
+    # these secrets in CI — see that function's CI branch).
+    environment: e2e-test
+    services:
+      mailhog:
+        image: mailhog/mailhog
+        ports:
+          - 1025:1025
+          - 8025:8025
+    env:
+      SQLITE_PATH: ./e2e/.tmp
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      JWT_EXPIRY_DAYS: ${{ secrets.JWT_EXPIRY_DAYS }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
+      SMTP_FROM_EMAIL: ${{ secrets.SMTP_FROM_EMAIL }}
+      PASSWORD_RESET_TOKEN_EXPIRY_MINUTES: ${{ secrets.PASSWORD_RESET_TOKEN_EXPIRY_MINUTES }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+      NEXT_PUBLIC_APP_NAME: ${{ secrets.NEXT_PUBLIC_APP_NAME }}
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      # Build once here, as its own step: clear failure attribution if the
+      # build itself breaks, and playwright.config.ts's webServer just runs
+      # `next start` against this build in CI (see its CI-branch comment) —
+      # never `next dev`, which compiles routes on first request and races
+      # badly under parallel workers. NEXT_PUBLIC_* vars must be present at
+      # build time (Next.js inlines them), so this step needs the same job
+      # env as everything after it — already true here since env: is set at
+      # the job level above.
+      - run: bun --bun run next build --webpack
+      - run: bun run e2e:seed
+      - run: bun run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
