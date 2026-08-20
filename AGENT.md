@@ -99,34 +99,42 @@ native-submit fallback for those to race into.
 
 ## The `@mssql` tag
 
-Some report-backed routes (`/reports/ventas`, `/reports/compras`) need the
-dockerized mock ERP (`docker/docker-compose.yml`) with real query results.
-That stack is **intentionally excluded from CI** — it's heavy, and we
-don't want to add multi-minute SQL Server container boots (plus committed
-`.bak` seed files) to every PR run.
+`e2e/reports.spec.ts` covers `/reports/ventas` and `/reports/compras`,
+which need the dockerized mock ERP (`docker/docker-compose.yml`) with real
+query results. That stack is **intentionally excluded from CI** — it's
+heavy, and we don't want to add multi-minute SQL Server container boots
+(plus large seed/backup files) to every PR run.
 
-**As of this writing, no `@mssql`-tagged spec exists yet** — `e2e/reports.spec.ts`
-from the original implementation plan hasn't been written. This section
-documents the intended pattern for whoever writes it:
-
-Every test that depends on the mock ERP should have `@mssql` in its title.
-This is not a Playwright `project` or config option — it's a plain string
-in `test()`'s name, filtered with `--grep`/`--grep-invert`. `bun run e2e`
+Every test that depends on the mock ERP has `@mssql` in its title. This is
+not a Playwright `project` or config option — it's a plain string in
+`test()`'s name, filtered with `--grep`/`--grep-invert`. `bun run e2e`
 uses `--grep-invert @mssql` (skips them); `bun run e2e:mssql` uses
-`--grep @mssql` (runs only them). Tag the `describe` block (e.g.
-`describe('reports @mssql', ...)`) rather than every individual `test()` —
-`--grep` matches on the full test title Playwright prints, which includes
-the `describe` block name, so tagging the block covers everything inside
-it in one place.
+`--grep @mssql` (runs only them). `reports.spec.ts` tags its `describe`
+block (`describe('reports @mssql', ...)`) rather than every individual
+`test()` — `--grep` matches on the full test title Playwright prints,
+which includes the `describe` block name, so tagging the block covers
+everything inside it in one place. Follow the same pattern for new
+`@mssql` specs.
 
-To run the `@mssql` tier locally once it exists:
+To run the `@mssql` tier locally:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
+bash docker/init-db.sh   # loads schema + data — required, the container starts empty
 # wait for MSSQL to be ready (first boot ~30-60s), then:
 bun run e2e:mssql
 docker compose -f docker/docker-compose.yml down
 ```
+
+**Known local issue (as of this writing):** `docker-compose.yml` also
+mounts `docker/mssql/Ncake_a.bak` (gitignored, not present by default),
+which currently makes `docker compose up -d` fail outright unless that
+file exists locally — `docker/README.md`'s actual init flow
+(`init-db.sh` + `init.sql`/`data.sql`) never touches it, so it looks like
+stale config. `reports.spec.ts` was written against the real column
+config and seed data (`lib/reports/ventas.ts`, `docker/mssql/data.sql`)
+but has not been run end-to-end against a live container — verify it
+once this is sorted out, rather than trusting it blind.
 
 ## Testing philosophy: behavior, not implementation
 
