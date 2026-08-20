@@ -2,17 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **PROGRESS (paused 2026-08-20):** Tasks 1-6 and 8 are done and committed on
-> branch `worktree-e2e-playwright-testing`, working in the git worktree at
-> `.claude/worktrees/e2e-playwright-testing/` (NOT the main worktree — `cd`
-> there before resuming, or launch `superpowers:using-git-worktrees`).
-> **Remaining: Task 7 (reports.spec.ts, `@mssql`-tagged) and Task 9
-> (AGENT.md).** See the "Deviations from this plan" section below — the
-> single biggest one is that the suite runs against a **production build**
+> **PROGRESS (updated 2026-08-20):** Tasks 1-6, 8, and 9 are done and
+> committed on branch `worktree-e2e-playwright-testing`, working in the git
+> worktree at `.claude/worktrees/e2e-playwright-testing/` (NOT the main
+> worktree — `cd` there before resuming, or launch
+> `superpowers:using-git-worktrees`). **Remaining: Task 7 only**
+> (reports.spec.ts, `@mssql`-tagged — needs the docker MSSQL mock and
+> inspecting `docker/mssql/data.sql` for concrete seed values). See the
+> "Deviations from this plan" section below — the single biggest one is
+> that the suite runs against a **production build**
 > (`next build --webpack && next start`), not `bun dev`/`next dev` as
 > originally planned; Task 7's spec must be written against that same
-> assumption. Full session narrative: ask about "e2e playwright testing
-> session" or check conversation history around 2026-08-20.
+> assumption. `AGENT.md` (Task 9) documents this and notes that Task 7's
+> spec doesn't exist yet — update that note once Task 7 lands. Full session
+> narrative: ask about "e2e playwright testing session" or check
+> conversation history around 2026-08-20.
 
 **Goal:** Add a Playwright e2e suite covering this app's user-facing flows, wire it plus existing lint/typecheck/unit tests into a GitHub Actions PR workflow, and document the whole setup in a new root-level `AGENT.md`.
 
@@ -978,7 +982,7 @@ This step requires a branch + PR, which is a user-visible/shared-state action �
 
 ---
 
-### Task 9: `AGENT.md` — ⬜ NOT STARTED
+### Task 9: `AGENT.md` — ✅ DONE (commit 663b0e1)
 
 **Files:**
 - Create: `AGENT.md`
