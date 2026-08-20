@@ -2,21 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **PROGRESS (updated 2026-08-20):** Tasks 1-6, 8, and 9 are done and
-> committed on branch `worktree-e2e-playwright-testing`, working in the git
-> worktree at `.claude/worktrees/e2e-playwright-testing/` (NOT the main
-> worktree — `cd` there before resuming, or launch
-> `superpowers:using-git-worktrees`). **Remaining: Task 7 only**
-> (reports.spec.ts, `@mssql`-tagged — needs the docker MSSQL mock and
-> inspecting `docker/mssql/data.sql` for concrete seed values). See the
-> "Deviations from this plan" section below — the single biggest one is
-> that the suite runs against a **production build**
-> (`next build --webpack && next start`), not `bun dev`/`next dev` as
-> originally planned; Task 7's spec must be written against that same
-> assumption. `AGENT.md` (Task 9) documents this and notes that Task 7's
-> spec doesn't exist yet — update that note once Task 7 lands. Full session
-> narrative: ask about "e2e playwright testing session" or check
-> conversation history around 2026-08-20.
+> **PROGRESS (updated 2026-08-20):** All 9 tasks are done and committed on
+> branch `worktree-e2e-playwright-testing`, working in the git worktree at
+> `.claude/worktrees/e2e-playwright-testing/` (NOT the main worktree). See
+> the "Deviations from this plan" section below for what changed from the
+> original plan text during implementation — the biggest one is that the
+> suite runs against a **production build**
+> (`next build --webpack && next start`), not `bun dev`/`next dev`.
+>
+> **Outstanding, not blocking:** Task 7's `reports.spec.ts` (`@mssql`-tagged)
+> was written against real source (seed data, column config, component DOM)
+> but **has not been run against a live MSSQL container** —
+> `docker/docker-compose.yml` mounts `docker/mssql/Ncake_a.bak` (gitignored,
+> not present in this worktree) and fails to start as-is. This is a
+> pre-existing local infra issue, not an e2e-suite bug; the user has said
+> they'll deal with it separately. Since `@mssql` tests never run in CI,
+> nothing else depends on this being fixed. Verify `reports.spec.ts`
+> end-to-end once the docker blocker is resolved. The `e2e-test` GitHub
+> Environment (Task 8) also still needs its secrets configured manually in
+> GitHub before CI can pass — see the plan's Task 8 section or `AGENT.md`.
 
 **Goal:** Add a Playwright e2e suite covering this app's user-facing flows, wire it plus existing lint/typecheck/unit tests into a GitHub Actions PR workflow, and document the whole setup in a new root-level `AGENT.md`.
 
@@ -84,6 +88,21 @@
   real selector bug not a flaky one). Task 5's `profile.spec.ts` scopes its
   text assertions to `getByRole('main')` since the sidebar also links to
   `/profile` using the same user name text.
+- **Task 7's `reports.spec.ts` is written but unverified against live
+  data.** `docker/docker-compose.yml` mounts `docker/mssql/Ncake_a.bak`
+  (gitignored, not present in this worktree) and fails `docker compose up
+  -d` outright as a result — `docker/README.md`'s actual init flow
+  (`init-db.sh` + `init.sql`/`data.sql`) never references that file, so it
+  looks like stale/dead config, not something this plan should fix (out of
+  the "don't modify docker-compose.yml" constraint, and the user has said
+  they'll handle it separately). The seeded date range
+  (`docker/mssql/data.sql`: 2026-07-01 through 2026-07-20) happens to match
+  `lib/dates.ts`'s `getPreviousMonthRange()` default as of this writing
+  (system date 2026-08-20), and the column-toggle test targets `FECHA`
+  (`fecha_emis`, the first non-`alwaysVisible` column in
+  `VENTAS_CONFIG.columns`) — both confirmed by reading the real source, not
+  guessed, but the spec itself has never actually run. Verify it end-to-end
+  once the docker blocker is resolved.
 
 ---
 
@@ -788,7 +807,7 @@ git commit -m "test: add firmas signature generator e2e spec"
 
 ---
 
-### Task 7: Reports spec (`@mssql`-tagged) — ⬜ NOT STARTED (needs docker mssql mock; see plan's own note about writing against a production build now, not bun dev)
+### Task 7: Reports spec (`@mssql`-tagged) — ✅ DONE, unverified against live data (commit 776e296; see docker/mssql/Ncake_a.bak blocker note)
 
 **Files:**
 - Create: `e2e/reports.spec.ts`
