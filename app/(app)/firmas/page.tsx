@@ -150,8 +150,9 @@ export default function CorporateSignaturePage() {
 
                     <div className="space-y-3 text-sm">
                         <div>
-                            <label className="block text-slate-700 font-medium mb-1">Nombre Completo</label>
+                            <label htmlFor="fullName" className="block text-slate-700 font-medium mb-1">Nombre Completo</label>
                             <input
+                                id="fullName"
                                 type="text"
                                 name="fullName"
                                 value={formData.fullName}
@@ -162,8 +163,9 @@ export default function CorporateSignaturePage() {
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-slate-700 font-medium mb-1">Cargo</label>
+                                <label htmlFor="role" className="block text-slate-700 font-medium mb-1">Cargo</label>
                                 <input
+                                    id="role"
                                     type="text"
                                     name="role"
                                     value={formData.role}
@@ -172,8 +174,9 @@ export default function CorporateSignaturePage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-slate-700 font-medium mb-1">Departamento (Opcional)</label>
+                                <label htmlFor="department" className="block text-slate-700 font-medium mb-1">Departamento (Opcional)</label>
                                 <input
+                                    id="department"
                                     type="text"
                                     name="department"
                                     placeholder="Ej. Ventas"
@@ -186,8 +189,9 @@ export default function CorporateSignaturePage() {
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-slate-700 font-medium mb-1">Teléfono (T)</label>
+                                <label htmlFor="phone" className="block text-slate-700 font-medium mb-1">Teléfono (T)</label>
                                 <input
+                                    id="phone"
                                     type="text"
                                     name="phone"
                                     value={formData.phone}
@@ -196,8 +200,9 @@ export default function CorporateSignaturePage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-slate-700 font-medium mb-1">Correo Electrónico (E)</label>
+                                <label htmlFor="email" className="block text-slate-700 font-medium mb-1">Correo Electrónico (E)</label>
                                 <input
+                                    id="email"
                                     type="email"
                                     name="email"
                                     value={formData.email}
