@@ -2,6 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **PROGRESS (paused 2026-08-20):** Tasks 1-6 and 8 are done and committed on
+> branch `worktree-e2e-playwright-testing`, working in the git worktree at
+> `.claude/worktrees/e2e-playwright-testing/` (NOT the main worktree — `cd`
+> there before resuming, or launch `superpowers:using-git-worktrees`).
+> **Remaining: Task 7 (reports.spec.ts, `@mssql`-tagged) and Task 9
+> (AGENT.md).** See the "Deviations from this plan" section below — the
+> single biggest one is that the suite runs against a **production build**
+> (`next build --webpack && next start`), not `bun dev`/`next dev` as
+> originally planned; Task 7's spec must be written against that same
+> assumption. Full session narrative: ask about "e2e playwright testing
+> session" or check conversation history around 2026-08-20.
+
 **Goal:** Add a Playwright e2e suite covering this app's user-facing flows, wire it plus existing lint/typecheck/unit tests into a GitHub Actions PR workflow, and document the whole setup in a new root-level `AGENT.md`.
 
 **Architecture:** Two-tier Playwright suite (default tier: auth, password-reset via Mailhog, admin users, profile, firmas; `@mssql`-tagged tier: reports, excluded from CI by default) running against `bun dev`, driven by role/label selectors per Playwright best practice (test behavior, not implementation). A non-interactive seed script builds a throwaway SQLite auth DB for the default tier. CI is a two-job GitHub Actions workflow: fast checks (lint/typecheck/unit) and e2e (with a Mailhog service container).
@@ -19,9 +31,59 @@
 - `SQLITE_PATH` env var is a **directory**, not a file path — actual DB file is always `<SQLITE_PATH>/data/exporter.db` (see `lib/db/sqlite.ts:8`). Every task touching seed/env config must respect this.
 - New root file is `AGENT.md` (singular — distinct from the existing `AGENTS.md`, which documents app architecture and is not touched by this plan).
 
+## Deviations from this plan (discovered during implementation)
+
+- **Runs against a production build, not `bun dev`.** `next dev` compiles
+  each route on its first request; under `fullyParallel` with multiple
+  workers, that on-demand compile raced real tests (clicks landing before
+  React hydration attached handlers, requests timing out mid-compile) —
+  reproduced at a ~75% failure rate across repeated cold-cache runs.
+  `playwright.config.ts`'s `webServer.command` now runs
+  `next build --webpack && next start` locally, or in CI just `next start`
+  against a build done as its own workflow step (see Task 8's commit
+  `e720457` and `.github/workflows/pr-checks.yml`). 5/5 and then 3/3
+  statistical verification runs came back clean after this change, versus
+  never once passing clean across ~15 attempts under `next dev`.
+- **`e2e/fixtures.ts` exports a `submitReliably(page, fillAndClick)` helper**
+  (not in the original plan) used by every spec with a `<form onSubmit>`
+  that has unnamed inputs — guards against the same hydration race by
+  retrying the whole interaction if the URL picks up a stray trailing `?`
+  (the native-form-submit-fallback signature). Login, forgot-password, and
+  password-reset specs all use it.
+- **Several pages had missing `htmlFor`/`id` label associations**, which
+  `getByLabel()` cannot resolve without (a pre-existing accessibility bug,
+  not introduced by this plan). Fixed alongside their specs rather than
+  working around it with fragile selectors:
+  `app/(auth)/login/page.tsx` (pre-existing fix, commit `54ea714`),
+  `app/(auth)/forgot-password/page.tsx`, `app/(auth)/password-reset/page.tsx`
+  (commit `e884329`), `app/(app)/admin/users/users-client.tsx` (commit
+  `477cb20`), `app/(app)/firmas/page.tsx` (commit `ab0c606`).
+- **`e2e/helpers/mailhog.ts`'s reset-link regex needed two more decode
+  steps** beyond the plan's `=3D`→`=`/`&amp;`→`&` replacements: quoted-printable
+  soft line-wraps (`=` immediately before a CRLF) can split the URL
+  mid-token and must be joined first, and Handlebars' default HTML-escaping
+  of `{{resetUrl}}` turns `?token=` into `?token&#x3D;` (not just `&amp;`
+  for literal ampersands). Confirmed against a real sent message's raw
+  Mailhog body — see commit `e884329`.
+- **CI secrets come from a named GitHub Environment (`e2e-test`), not the
+  tracked `.env.test` file.** `.env.test` remains the source of truth for
+  local runs; `playwright.config.ts`'s `loadEnvTest()` branches on
+  `process.env.CI` to read either the file (local) or `process.env`
+  (CI, populated by the workflow's `environment: e2e-test` + `secrets.*`).
+  **The `e2e-test` GitHub Environment must be created manually** (repo
+  Settings → Environments) with secrets mirroring `.env.test`'s keys
+  before the CI workflow can run — it fails fast with a clear error if
+  any are missing. See commit `e720457`.
+- Task 4's `getByRole('button', { name: 'Crear' })` needed `{ exact: true }`
+  — Playwright's default substring name-matching made it also match the
+  "+ Crear usuario" button that opens the modal (strict-mode violation, a
+  real selector bug not a flaky one). Task 5's `profile.spec.ts` scopes its
+  text assertions to `getByRole('main')` since the sidebar also links to
+  `/profile` using the same user name text.
+
 ---
 
-### Task 1: Install Playwright and scaffold config
+### Task 1: Install Playwright and scaffold config — ✅ DONE (commit 35bec9e)
 
 **Files:**
 - Modify: `package.json` (add `@playwright/test` devDependency + new scripts)
@@ -158,7 +220,7 @@ git commit -m "chore: install Playwright and scaffold e2e config"
 
 ---
 
-### Task 2: Non-interactive e2e seed script
+### Task 2: Non-interactive e2e seed script — ✅ DONE (commit e08ccd8, extended in e884329)
 
 **Files:**
 - Create: `scripts/e2e-seed.ts`
@@ -263,7 +325,7 @@ git commit -m "feat: add non-interactive e2e seed script for auth DB"
 
 ---
 
-### Task 3: Auth fixture + auth.spec.ts
+### Task 3: Auth fixture + auth.spec.ts — ✅ DONE (commits acb9f77, 0171e59, 3f002f3)
 
 **Files:**
 - Create: `e2e/fixtures.ts`
@@ -360,7 +422,7 @@ git commit -m "test: add e2e auth fixtures and login/route-protection specs"
 
 ---
 
-### Task 4: Mailhog helper + password-reset.spec.ts
+### Task 4: Mailhog helper + password-reset.spec.ts — ✅ DONE (commit e884329)
 
 **Files:**
 - Create: `e2e/helpers/mailhog.ts`
@@ -511,7 +573,7 @@ git commit -m "test: add Mailhog helper and full password-reset e2e flow"
 
 ---
 
-### Task 5: Admin users spec + profile spec
+### Task 5: Admin users spec + profile spec — ✅ DONE (commit 477cb20)
 
 **Files:**
 - Create: `e2e/admin-users.spec.ts`
@@ -651,7 +713,7 @@ git commit -m "test: add admin user management and profile e2e specs"
 
 ---
 
-### Task 6: Firmas spec
+### Task 6: Firmas spec — ✅ DONE (commit ab0c606)
 
 **Files:**
 - Create: `e2e/firmas.spec.ts`
@@ -722,7 +784,7 @@ git commit -m "test: add firmas signature generator e2e spec"
 
 ---
 
-### Task 7: Reports spec (`@mssql`-tagged)
+### Task 7: Reports spec (`@mssql`-tagged) — ⬜ NOT STARTED (needs docker mssql mock; see plan's own note about writing against a production build now, not bun dev)
 
 **Files:**
 - Create: `e2e/reports.spec.ts`
@@ -834,7 +896,7 @@ git commit -m "test: add @mssql-tagged reports e2e spec (excluded from default C
 
 ---
 
-### Task 8: GitHub Actions PR workflow
+### Task 8: GitHub Actions PR workflow — ✅ DONE (commit e720457; needs e2e-test GitHub Environment created manually before it can run green)
 
 **Files:**
 - Create: `.github/workflows/pr-checks.yml`
@@ -916,7 +978,7 @@ This step requires a branch + PR, which is a user-visible/shared-state action �
 
 ---
 
-### Task 9: `AGENT.md`
+### Task 9: `AGENT.md` — ⬜ NOT STARTED
 
 **Files:**
 - Create: `AGENT.md`
