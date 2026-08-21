@@ -9,7 +9,7 @@ Two databases, one Next.js 16 App Router app:
 
 | Database   | Purpose              | Driver              | Location          |
 |-----------|----------------------|---------------------|-------------------|
-| SQLite    | User accounts / auth | Drizzle + better-sqlite3 | `data/app.db`    |
+| SQLite    | User accounts / auth | Drizzle + bun:sqlite | `data/exporter.db`    |
 | SQL Server| ERP report data      | mssql singleton pool | Profit Plus server|
 
 Sessions are **stateless JWTs** in `httpOnly` cookies — no session table.
@@ -20,7 +20,7 @@ Sessions are **stateless JWTs** in `httpOnly` cookies — no session table.
 lib/
   auth/session.ts       — signToken(), verifyToken() — pure, Edge-safe
   auth/get-session.ts   — getSession() — uses next/headers, Server only
-  db/schema.ts          — Drizzle users table
+  db/schema.ts          — Drizzle tables: users, user_modules, inventory_warehouses, inventory_settings
   db/sqlite.ts          — Drizzle client singleton
   db/mssql.ts           — mssql pool singleton: getPool()
   reports/registry.ts   — ColumnDef, ReportConfig, REPORTS map
@@ -31,9 +31,10 @@ lib/
 ```
 
 **No `middleware.ts`** — there is no Edge Runtime request guard in this
-app. Every route (page or API) must call `getSession()` and check
-auth/role/module access independently; there is no shared enforcement
-layer to fall back on.
+app. Every route (page or API) must check auth/role/module access
+independently; there is no shared enforcement layer to fall back on.
+Server Components use `getSession()`; API Route Handlers use
+`getSessionFromRequest(request)` instead (see Auth Flow Summary below).
 
 ## Database Quirk: Spanish Collation
 
@@ -86,11 +87,20 @@ POST /api/auth/login
   → Set-Cookie: session=<jwt>; HttpOnly
 
 Every page/route (no shared middleware — checked independently)
-  → getSession() → verifyToken(cookie)
   → fail → redirect /login or 401 JSON
 
+Server Components (page.tsx)
+  → getSession() (lib/auth/get-session.ts) → verifyToken(cookie)
+  → relies on next/headers cookies(), only valid inside a real request scope
+
+API Route Handlers
+  → getSessionFromRequest(request) (lib/inventory/access.ts) → verifyToken(cookie)
+  → reads the cookie off the NextRequest directly — use this instead of
+    getSession() in route handlers, since getSession() throws when called
+    outside a live Next.js request (e.g. in a test)
+
 Admin-only API routes
-  → getSession() → check role === 'admin' → 403 if not
+  → getSessionFromRequest(request) → check role === 'admin' → 403 if not
 
 Admin page (Server Component)
   → getSession() → role !== 'admin' → redirect('/reports/ventas')
@@ -103,7 +113,7 @@ Admin page (Server Component)
 - **mssql queries use `.input()` for ALL user-controlled values** — never concatenate
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
 - **Error responses** — always `{ error: string }` shape with appropriate HTTP status
-- **Admin check** — call `getSession()` and check `role === 'admin'` in every admin route handler independently — there is no middleware to rely on instead
+- **Admin check** — check `role === 'admin'` in every admin route independently (no middleware to rely on instead); Server Components call `getSession()`, API Route Handlers call `getSessionFromRequest(request)` instead — `getSession()` throws outside a live request scope
 
 ## Environment Variables
 
