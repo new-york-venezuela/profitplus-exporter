@@ -46,11 +46,17 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
   }
 
   async function handleToggleActive(warehouse: Warehouse) {
-    await fetch(`/api/admin/inventory-warehouses/${warehouse.id}`, {
+    setError(null);
+    const res = await fetch(`/api/admin/inventory-warehouses/${warehouse.id}`, {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ active: !warehouse.active }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? 'No se pudo actualizar el almacén');
+      return;
+    }
     setWarehouses(prev => prev.map(w => w.id === warehouse.id ? { ...w, active: !w.active } : w));
   }
 
