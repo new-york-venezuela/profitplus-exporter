@@ -7,6 +7,7 @@ import type { SessionPayload } from '@/lib/auth/session';
 
 interface Props {
   user: SessionPayload;
+  canSeeInventory: boolean;
 }
 
 const NAV_REPORTS = [
@@ -18,7 +19,7 @@ const NAV_TOOLS = [
     { href: '/firmas', label: 'Firma Corporativa' },
 ]
 
-export function Sidebar({ user }: Props) {
+export function Sidebar({ user, canSeeInventory }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -64,6 +65,17 @@ export function Sidebar({ user }: Props) {
                 {label}
             </Link>
         ))}
+
+        {canSeeInventory && (
+          <>
+            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Inventario
+            </p>
+            <Link href="/inventario/articulos" className={navClass('/inventario/articulos')}>
+              Artículos
+            </Link>
+          </>
+        )}
 
         {user.role === 'admin' && (
           <>
