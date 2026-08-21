@@ -8,7 +8,7 @@
     "build": "bun --bun run next build",
     "start": "bun --bun run next start",
     "lint": "eslint",
-    "test": "bun test --isolate",
+    "test": "bun test --isolate --env-file=.env.local",
     "seed": "bun --bun run scripts/seed.ts",
     "migrate": "bun --bun run scripts/migrate.ts",
     "migrate:mssql": "bun --bun run scripts/migrate-mssql.ts",
