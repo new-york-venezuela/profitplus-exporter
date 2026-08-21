@@ -8,7 +8,7 @@
     "build": "bun --bun run next build",
     "start": "bun --bun run next start",
     "lint": "eslint",
-    "test": "bun test",
+    "test": "bun test --isolate",
     "seed": "bun --bun run scripts/seed.ts",
     "migrate": "bun --bun run scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
