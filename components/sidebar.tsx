@@ -73,6 +73,9 @@ export function Sidebar({ user }: Props) {
             <Link href="/admin/users" className={navClass('/admin/users')}>
               Usuarios
             </Link>
+            <Link href="/admin/config-inventario" className={navClass('/admin/config-inventario')}>
+              Config. Inventario
+            </Link>
           </>
         )}
       </nav>
