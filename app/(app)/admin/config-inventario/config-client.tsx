@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Warehouse {
   id:     number;
@@ -15,6 +15,11 @@ interface Settings {
   daysOfStockThreshold: number;
 }
 
+interface ProfitPlusOption {
+  coAlma: string;
+  label:  string;
+}
+
 interface Props {
   initialWarehouses: Warehouse[];
   initialSettings:   Settings;
@@ -23,26 +28,60 @@ interface Props {
 export function ConfigInventarioClient({ initialWarehouses, initialSettings }: Props) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>(initialWarehouses);
   const [settings, setSettings]     = useState<Settings>(initialSettings);
-  const [newCoAlma, setNewCoAlma]   = useState('');
-  const [newLabel, setNewLabel]     = useState('');
+  const [options, setOptions]       = useState<ProfitPlusOption[]>([]);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [selectedCoAlma, setSelectedCoAlma] = useState('');
+  const [labelOverride, setLabelOverride] = useState<string | null>(null);
   const [error, setError]           = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [optionsReloadToken, setOptionsReloadToken] = useState(0);
 
   const inputClass = `w-full border border-gray-300 rounded-md px-3 py-2 text-sm
                       focus:outline-none focus:ring-2 focus:ring-blue-500`;
+
+  const selectedOption = options.find(o => o.coAlma === selectedCoAlma);
+  const newLabel = labelOverride ?? selectedOption?.label ?? '';
+
+  function handleSelectChange(coAlma: string) {
+    setSelectedCoAlma(coAlma);
+    setLabelOverride(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setOptionsError(null);
+      const res = await fetch('/api/admin/inventory-warehouses/profit-plus-options');
+      if (cancelled) return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setOptionsError(data.error ?? 'No se pudo cargar la lista de almacenes de Profit Plus');
+        return;
+      }
+      const data: ProfitPlusOption[] = await res.json();
+      if (cancelled) return;
+      setOptions(data);
+      setSelectedCoAlma(prev => (prev && data.some(o => o.coAlma === prev)) ? prev : (data[0]?.coAlma ?? ''));
+      setLabelOverride(null);
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [optionsReloadToken]);
 
   async function handleAddWarehouse() {
     setError(null);
     const res = await fetch('/api/admin/inventory-warehouses', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ coAlma: newCoAlma, label: newLabel }),
+      body:    JSON.stringify({ coAlma: selectedCoAlma, label: newLabel }),
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error); return; }
     const listRes = await fetch('/api/admin/inventory-warehouses');
     if (listRes.ok) setWarehouses(await listRes.json());
-    setNewCoAlma(''); setNewLabel('');
+    setOptionsReloadToken(t => t + 1);
   }
 
   async function handleToggleActive(warehouse: Warehouse) {
@@ -63,7 +102,10 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
   async function handleDeleteWarehouse(id: number) {
     if (!confirm('¿Eliminar este almacén de la lista?')) return;
     const res = await fetch(`/api/admin/inventory-warehouses/${id}`, { method: 'DELETE' });
-    if (res.ok) setWarehouses(prev => prev.filter(w => w.id !== id));
+    if (res.ok) {
+      setWarehouses(prev => prev.filter(w => w.id !== id));
+      setOptionsReloadToken(t => t + 1);
+    }
   }
 
   async function handleSaveSettings() {
@@ -148,22 +190,45 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
           )}
         </div>
 
-        <div className="flex gap-3 items-end">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Código (co_alma)</label>
-            <input value={newCoAlma} onChange={e => setNewCoAlma(e.target.value)} className={inputClass} />
+        {optionsError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
+            {optionsError}
+          </p>
+        )}
+
+        {options.length === 0 && !optionsError ? (
+          <p className="text-sm text-gray-400">
+            No hay más almacenes de Profit Plus disponibles para agregar.
+          </p>
+        ) : (
+          <div className="flex gap-3 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Almacén (Profit Plus)</label>
+              <select
+                value={selectedCoAlma}
+                onChange={e => handleSelectChange(e.target.value)}
+                className={`${inputClass} w-64`}
+              >
+                {options.map(o => (
+                  <option key={o.coAlma} value={o.coAlma}>
+                    {o.coAlma} — {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input value={newLabel} onChange={e => setLabelOverride(e.target.value)} className={inputClass} />
+            </div>
+            <button
+              onClick={handleAddWarehouse}
+              disabled={!selectedCoAlma}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50"
+            >
+              + Agregar
+            </button>
           </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-            <input value={newLabel} onChange={e => setNewLabel(e.target.value)} className={inputClass} />
-          </div>
-          <button
-            onClick={handleAddWarehouse}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
-          >
-            + Agregar
-          </button>
-        </div>
+        )}
       </section>
 
       <section>
