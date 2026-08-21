@@ -9,6 +9,7 @@ interface UserRow {
   name:      string;
   role:      'user' | 'admin';
   createdAt: number;
+  modules:   string[];
 }
 
 interface Props {
@@ -74,6 +75,22 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
     finally  { setSubmitting(false); }
   }
 
+  async function handleToggleInventoryModule(user: UserRow) {
+    const hasIt = user.modules.includes('inventory');
+    const nextModules = hasIt
+      ? user.modules.filter(m => m !== 'inventory')
+      : [...user.modules, 'inventory'];
+
+    const res = await fetch(`/api/admin/users/${user.id}/modules`, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ modules: nextModules }),
+    });
+    if (res.ok) {
+      setUserList(prev => prev.map(u => u.id === user.id ? { ...u, modules: nextModules } : u));
+    }
+  }
+
   async function handleDelete(id: number, name: string) {
     if (!confirm(`¿Eliminar a ${name}?`)) return;
     if (deleting !== null) return;
@@ -113,7 +130,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Nombre', 'Email', 'Rol', 'Creado', 'Acciones'].map(h => (
+              {['Nombre', 'Email', 'Rol', 'Inventario', 'Creado', 'Acciones'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold
                                        text-gray-600 uppercase tracking-wider">
                   {h}
@@ -134,6 +151,18 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
                   }`}>
                     {user.role === 'admin' ? 'Administrador' : 'Usuario'}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={user.modules.includes('inventory')}
+                      onChange={() => handleToggleInventoryModule(user)}
+                      disabled={user.role === 'admin'}
+                      className="rounded border-gray-300"
+                    />
+                    {user.role === 'admin' ? 'Incluido (admin)' : 'Inventario'}
+                  </label>
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {new Date(user.createdAt).toLocaleDateString('es-VE')}
