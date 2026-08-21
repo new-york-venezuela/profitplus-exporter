@@ -13,6 +13,16 @@ export type EditableItemField = typeof EDITABLE_ITEM_FIELDS[number];
 
 const NUMERIC_FIELDS = new Set(['stock_min', 'stock_max', 'stock_pedido']);
 
+// Real column widths (verified against sys.columns on the live DB) — comentario
+// is varchar(MAX). Enforced in the PATCH route so an over-length value gets a
+// clean 400 instead of SQL Server error 8152 surfacing as an opaque 500.
+export const ITEM_FIELD_MAX_LEN: Record<EditableItemField, number> = {
+  art_des: 120, ref: 20, modelo: 20, comentario: -1,
+  campo1: 60, campo2: 60, campo3: 60, campo4: 60,
+  campo5: 60, campo6: 60, campo7: 60, campo8: 60,
+  stock_min: -1, stock_max: -1, stock_pedido: -1,
+};
+
 export function isEditableItemField(field: string): field is EditableItemField {
   return (EDITABLE_ITEM_FIELDS as readonly string[]).includes(field);
 }
