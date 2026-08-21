@@ -64,6 +64,16 @@ async function getStock(coArt: string, coAlma: string): Promise<number> {
   return result.recordset[0]?.stock ?? 0;
 }
 
+async function getAjusNumProxN(): Promise<number> {
+  const result = await pool.request().query(`
+    SELECT S.prox_n
+    FROM saConsecutivo C
+    JOIN saSerie S ON S.co_serie = C.co_serie
+    WHERE C.co_consecutivo = 'AJUS_NUM'
+  `);
+  return Number(result.recordset[0].prox_n);
+}
+
 async function restoreStock(coArt: string, coAlma: string, value: number): Promise<void> {
   await pool.request()
     .input('coArt', sql.Char(30), coArt)
@@ -73,6 +83,31 @@ async function restoreStock(coArt: string, coAlma: string, value: number): Promi
 }
 
 async function cleanupAjuste(ajueNum: string): Promise<void> {
+  // The stored procedure's write path (via pInsertarRenglonesAjusteEntradaSalida ->
+  // pCostoActualizarEntrada/Salida) inserts FIFO cost-layer rows into
+  // saCostoHistoricoEntrada/saCostoHistoricoSalida tagged tipo_doc='AJUS', with
+  // doc_orig set to the *line's* saAjusteReng.rowguid (not the ajue_num string and
+  // not saAjuste.rowguid — verified against pInsertarRenglonesAjusteEntradaSalida's
+  // and pCostoActualizarEntrada/Salida's live definitions). These must be deleted
+  // while the saAjusteReng rows they reference still exist, and before saAjusteReng
+  // itself is deleted, or the join to find them is lost.
+  //
+  // saCostoHistoricoSalida and saCostoHistoricoEntrada also cross-reference each
+  // other (FK_saCostoHistoricoSalida_saCostoHistoricoEntrada via
+  // cod_costo_historico_entrada); deleting Salida rows before Entrada rows keeps
+  // this FK-safe.
+  await pool.request().input('n', sql.Char(20), ajueNum)
+    .query(`
+      DELETE CHS FROM saCostoHistoricoSalida CHS
+      JOIN saAjusteReng AR ON AR.rowguid = CHS.doc_orig
+      WHERE CHS.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+    `);
+  await pool.request().input('n', sql.Char(20), ajueNum)
+    .query(`
+      DELETE CHE FROM saCostoHistoricoEntrada CHE
+      JOIN saAjusteReng AR ON AR.rowguid = CHE.doc_orig
+      WHERE CHE.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+    `);
   await pool.request().input('n', sql.Char(20), ajueNum)
     .query(`DELETE FROM saAjusteReng WHERE ajue_num = @n`);
   await pool.request().input('n', sql.Char(20), ajueNum)
@@ -118,13 +153,16 @@ beforeAll(async () => {
     secondStockSnapshot = await getStock(secondArticle.co_art, WAREHOUSE);
   }
 
+  // costo > 0 ensures this resolves to an article with a genuine, nonzero cost so
+  // the test below actually exercises the cod_articulo_rowguid join instead of
+  // passing vacuously via ISNULL(@cost_unit, 0) fallback matching an incidental 0 cost.
   const pricedArticleResult = await pool.request()
     .query(`
       SELECT TOP 1 A.co_art, au.co_uni, CHE.costo
       FROM saCostoHistoricoEntrada CHE
       JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
       JOIN saArtUnidad au ON au.co_art = A.co_art
-      WHERE CHE.tipo_doc <> 'AJUS'
+      WHERE CHE.tipo_doc <> 'AJUS' AND CHE.costo > 0
       ORDER BY CHE.fecha_emision DESC
     `);
   if (pricedArticleResult.recordset.length > 0) {
@@ -218,6 +256,7 @@ describe('pApiCrearAjusteInventario', () => {
   test('rejects negative stock and leaves no trace (header, line, stock all unchanged)', async () => {
     const beforeCount = (await pool.request()
       .query(`SELECT COUNT(*) AS c FROM saAjuste`)).recordset[0].c;
+    const proxNBefore = await getAjusNumProxN();
 
     await expect(callProcedure([{
       co_tipo: 'S00005', co_art: testArticle.co_art, co_alma: WAREHOUSE,
@@ -231,6 +270,13 @@ describe('pApiCrearAjusteInventario', () => {
 
     const stockAfter = await getStock(testArticle.co_art, WAREHOUSE);
     expect(stockAfter).toBe(stockSnapshot);
+
+    // The consecutivo counter (advanced earlier in the same transaction by
+    // pConsecutivoProximoOutPut, before the failing pStockActualizar call) must
+    // also roll back — the design spec's all-or-nothing guarantee covers this
+    // counter too, not just saAjuste/saAjusteReng/saStockAlmacen.
+    const proxNAfter = await getAjusNumProxN();
+    expect(proxNAfter).toBe(proxNBefore);
   });
 
   test('allows negative stock when permitir_negativo is true', async () => {

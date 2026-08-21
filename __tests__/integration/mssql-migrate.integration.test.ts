@@ -20,10 +20,15 @@ let testPool: sql.ConnectionPool;
 
 beforeEach(async () => {
   const pool = await new sql.ConnectionPool(buildTestConfig()).connect();
+  // Scoped to this file's own concern (migration 0001) only. An unscoped DELETE
+  // here would also wipe migrations 0002/0003's tracking rows, forcing
+  // runMigrations() to re-apply them (dropping/recreating the live stored
+  // procedure and TVP) on every run of this file — depends on every future
+  // migration staying perfectly re-runnable, which isn't guaranteed.
   await pool.request().query(`
     IF EXISTS (SELECT 1 FROM sys.tables WHERE name = '__exporter_migrations' AND schema_id = SCHEMA_ID('dbo'))
     BEGIN
-      DELETE FROM dbo.__exporter_migrations;
+      DELETE FROM dbo.__exporter_migrations WHERE name = '0001_create_migrations_table.sql';
     END
   `);
   await pool.close();
