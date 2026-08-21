@@ -11,6 +11,7 @@
     "test": "bun test --isolate",
     "seed": "bun --bun run scripts/seed.ts",
     "migrate": "bun --bun run scripts/migrate.ts",
+    "migrate:mssql": "bun --bun run scripts/migrate-mssql.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio"
   },
