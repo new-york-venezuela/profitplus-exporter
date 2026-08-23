@@ -3,7 +3,7 @@ import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDb } from '@/lib/db/sqlite';
-import { users } from '@/lib/db/schema';
+import { users, userModules } from '@/lib/db/schema';
 
 const SEED_USERS = [
   { email: 'admin@e2e.test', name: 'E2E Admin', password: 'AdminPass123!', role: 'admin' as const },
@@ -29,13 +29,22 @@ async function main() {
 
   for (const u of SEED_USERS) {
     const passwordHash = await bcrypt.hash(u.password, 10);
-    db.insert(users).values({
+    const inserted = db.insert(users).values({
       email: u.email,
       name: u.name,
       passwordHash,
       role: u.role,
       createdAt: Date.now(),
-    }).run();
+    }).returning({ id: users.id }).get();
+
+    // admin@e2e.test gets inventory access via hasInventoryAccess's admin
+    // bypass, needing no explicit grant. user@e2e.test needs one to exercise
+    // the inventory module's e2e specs (items/adjustments/dashboard); no
+    // inventory_warehouses rows are seeded, so those specs run against the
+    // established empty-allowlist-means-all-warehouses fallback.
+    if (u.email === 'user@e2e.test') {
+      db.insert(userModules).values({ userId: inserted.id, module: 'inventory' }).run();
+    }
   }
 
   console.log(`Seeded ${SEED_USERS.length} e2e users into ${dbFile}`);

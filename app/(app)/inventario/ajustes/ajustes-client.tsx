@@ -119,8 +119,9 @@ export function AjustesClient() {
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Artículo / Almacén</label>
+          <label htmlFor="articulo-almacen-select" className="block text-xs font-medium text-gray-700 mb-1">Artículo / Almacén</label>
           <select
+            id="articulo-almacen-select"
             value={selectedKey}
             onChange={e => { setSelectedKey(e.target.value); setLastResult(null); setFormError(null); }}
             className="w-full border border-gray-300 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -141,8 +142,9 @@ export function AjustesClient() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Stock contado</label>
+              <label htmlFor="stock-contado" className="block text-xs font-medium text-gray-700 mb-1">Stock contado</label>
               <input
+                id="stock-contado"
                 type="number"
                 value={countedStock}
                 onChange={e => { setCountedStock(e.target.value); setLastResult(null); setFormError(null); }}

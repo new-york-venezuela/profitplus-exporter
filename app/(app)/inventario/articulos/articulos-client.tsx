@@ -180,15 +180,15 @@ export function ArticulosClient() {
 
       <div className="flex gap-4">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Línea</label>
-          <select value={lineaFilter} onChange={e => setLineaFilter(e.target.value)} className={`${inputClass} w-48`}>
+          <label htmlFor="linea-filter" className="block text-xs font-medium text-gray-700 mb-1">Línea</label>
+          <select id="linea-filter" value={lineaFilter} onChange={e => setLineaFilter(e.target.value)} className={`${inputClass} w-48`}>
             <option value="">Todas</option>
             {lineas.map(([co, des]) => <option key={co} value={co}>{des}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Categoría</label>
-          <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className={`${inputClass} w-48`}>
+          <label htmlFor="cat-filter" className="block text-xs font-medium text-gray-700 mb-1">Categoría</label>
+          <select id="cat-filter" value={catFilter} onChange={e => setCatFilter(e.target.value)} className={`${inputClass} w-48`}>
             <option value="">Todas</option>
             {categorias.map(([co, des]) => <option key={co} value={co}>{des}</option>)}
           </select>
@@ -215,27 +215,27 @@ export function ArticulosClient() {
                 <tr key={key} className="hover:bg-gray-50 align-top">
                   <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.coArt}</td>
                   <td className="px-3 py-2">
-                    <input value={fields.artDes} onChange={e => setField(item, 'artDes', e.target.value)} className={inputClass} />
+                    <input aria-label={`Nombre ${item.coArt} (${item.coAlma})`} value={fields.artDes} onChange={e => setField(item, 'artDes', e.target.value)} className={inputClass} />
                   </td>
                   <td className="px-3 py-2">
-                    <input value={fields.ref} onChange={e => setField(item, 'ref', e.target.value)} className={`${inputClass} w-28`} />
+                    <input aria-label={`Referencia ${item.coArt} (${item.coAlma})`} value={fields.ref} onChange={e => setField(item, 'ref', e.target.value)} className={`${inputClass} w-28`} />
                   </td>
                   <td className="px-3 py-2">
-                    <input value={fields.modelo} onChange={e => setField(item, 'modelo', e.target.value)} className={`${inputClass} w-28`} />
+                    <input aria-label={`Modelo ${item.coArt} (${item.coAlma})`} value={fields.modelo} onChange={e => setField(item, 'modelo', e.target.value)} className={`${inputClass} w-28`} />
                   </td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
                   <td className="px-3 py-2">
-                    <input type="number" value={fields.stockMin}
+                    <input aria-label={`Mín ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockMin}
                       onChange={e => setField(item, 'stockMin', parseFloat(e.target.value) || 0)}
                       className={`${inputClass} w-20`} />
                   </td>
                   <td className="px-3 py-2">
-                    <input type="number" value={fields.stockMax}
+                    <input aria-label={`Máx ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockMax}
                       onChange={e => setField(item, 'stockMax', parseFloat(e.target.value) || 0)}
                       className={`${inputClass} w-20`} />
                   </td>
                   <td className="px-3 py-2">
-                    <input type="number" value={fields.stockPedido}
+                    <input aria-label={`Pedido ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockPedido}
                       onChange={e => setField(item, 'stockPedido', parseFloat(e.target.value) || 0)}
                       className={`${inputClass} w-20`} />
                   </td>
@@ -243,6 +243,7 @@ export function ArticulosClient() {
                     <button
                       onClick={() => handleSave(item)}
                       disabled={!dirty || savingRow === key}
+                      aria-label={`Guardar ${item.coArt} en almacén ${item.coAlma}`}
                       className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-40 whitespace-nowrap"
                     >
                       {savingRow === key ? 'Guardando…' : 'Guardar'}
