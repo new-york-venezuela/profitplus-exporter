@@ -74,6 +74,9 @@ export function Sidebar({ user, canSeeInventory }: Props) {
             <Link href="/inventario/articulos" className={navClass('/inventario/articulos')}>
               Artículos
             </Link>
+            <Link href="/inventario/ajustes" className={navClass('/inventario/ajustes')}>
+              Ajustes
+            </Link>
           </>
         )}
 
