@@ -105,6 +105,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, ajueNum, delta });
   } catch (error) {
+    // 50000 = a RAISERROR without an explicit custom error number, which is how
+    // pApiCrearAjusteInventario (via pStockActualizar) reports its own validation
+    // failures — most reachably, stock having shifted between our read above and
+    // this call (TOCTOU) so that permitir_negativo=false rejects the write. The
+    // whole call rolls back atomically in that case; surface the DB's own message
+    // as a 400 instead of an opaque 500.
+    if (typeof error === 'object' && error !== null && 'number' in error && error.number === 50000) {
+      const message = 'message' in error && typeof error.message === 'string' ? error.message : 'El stock cambió desde que se cargó esta página; vuelva a intentar';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     console.error('Inventory adjustment error:', error);
     return NextResponse.json({ error: 'Error al registrar el ajuste en Profit Plus' }, { status: 500 });
   }

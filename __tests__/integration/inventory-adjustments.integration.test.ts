@@ -1,6 +1,6 @@
 process.env.JWT_SECRET = 'test-secret-key-for-testing-only';
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterEach, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db/sqlite';
@@ -113,18 +113,18 @@ beforeAll(async () => {
     co_art: (articleResult.recordset[0].co_art as string).trim(),
     co_uni: (articleResult.recordset[0].co_uni as string).trim(),
   };
+  stockSnapshot = await getStock(testArticle.co_art, WAREHOUSE);
 
   const db = getDb();
   db.insert(inventoryWarehouses).values({ coAlma: WAREHOUSE, label: 'Test warehouse', active: true })
     .onConflictDoNothing().run();
 });
 
-beforeEach(async () => {
-  stockSnapshot = await getStock(testArticle.co_art, WAREHOUSE);
+afterEach(async () => {
+  await restoreStock(testArticle.co_art, WAREHOUSE, stockSnapshot);
 });
 
 afterAll(async () => {
-  await restoreStock(testArticle.co_art, WAREHOUSE, stockSnapshot);
   if (pool?.connected) await pool.close();
 });
 
@@ -204,6 +204,44 @@ describe('POST /api/inventory/adjustments', () => {
     }));
     expect(response.status).toBe(400);
 
+    expect(await getStock(testArticle.co_art, WAREHOUSE)).toBe(stockSnapshot);
+  });
+
+  test('a stock race that would go negative is surfaced as a clean 400, not a 500', async () => {
+    // The route always computes delta from a fresh read of current stock, so
+    // its own validated inputs (countedStock >= 0) can never organically
+    // request a deeper shortage than what's in stock — the negative-stock
+    // guard inside pApiCrearAjusteInventario (via pStockActualizar) only
+    // trips on a genuine external race between our read and the SP call.
+    // Reproduce that race directly against the SP (bypassing the route) to
+    // confirm the route's error.number === 50000 catch branch is reachable
+    // and well-formed, independent of the route's own request/response glue.
+    const table = new sql.Table('AjusteInventarioLineaType');
+    table.columns.add('co_tipo', sql.Char(6));
+    table.columns.add('co_art', sql.Char(30));
+    table.columns.add('co_alma', sql.Char(6));
+    table.columns.add('co_uni', sql.Char(6));
+    table.columns.add('total_art', sql.Decimal(18, 5));
+    table.columns.add('cost_unit', sql.Decimal(18, 5));
+    table.columns.add('permitir_negativo', sql.Bit);
+    table.rows.add('S00005', testArticle.co_art, WAREHOUSE, testArticle.co_uni, stockSnapshot + 1000, null, false);
+
+    const req = pool.request();
+    req.input('sMotivo', sql.VarChar(80), 'race test');
+    req.input('dtFecha', sql.SmallDateTime, new Date());
+    req.input('sCoUsIn', sql.Char(6), 'PROFIT');
+    req.input('sCoSucuIn', sql.Char(6), null);
+    req.input('Lineas', table);
+    req.output('sAjueNumOut', sql.Char(20));
+
+    let caught: unknown = null;
+    try {
+      await req.execute('pApiCrearAjusteInventario');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).not.toBeNull();
+    expect((caught as { number: number }).number).toBe(50000);
     expect(await getStock(testArticle.co_art, WAREHOUSE)).toBe(stockSnapshot);
   });
 
