@@ -17,6 +17,11 @@ import { test, expect, submitReliably } from './fixtures';
 test.describe('inventario/articulos @mssql', () => {
   test('access is denied without the inventory module grant', async ({ page }) => {
     // reset-flow@e2e.test has no inventory module grant (see scripts/e2e-seed.ts).
+    // Its password stays ResetFlowPass123! only as long as this doesn't run in
+    // the same invocation as password-reset.spec.ts's full-flow test, which
+    // changes it — safe today since that spec isn't @mssql-tagged and `bun run
+    // e2e`/`bun run e2e:mssql` are mutually exclusive, but a future change to
+    // that split would need this login to move to a dedicated account.
     await submitReliably(page, async () => {
       await page.goto('/login');
       await page.getByLabel('Correo electrónico').fill('reset-flow@e2e.test');
@@ -122,5 +127,38 @@ test.describe('inventario/articulos @mssql', () => {
     // The failed save shouldn't have changed anything server-side; restore
     // the field to its original value for test hygiene regardless.
     await refField.fill(originalRef);
+  });
+
+  test('setting stock_min above stock_max shows the CK_saArticulo_Stock error', async ({ userPage }) => {
+    await userPage.goto('/inventario/articulos');
+    const rowSuffix = await firstRowNameLabel(userPage);
+
+    const minField = userPage.getByLabel(`Mín ${rowSuffix}`);
+    const maxField = userPage.getByLabel(`Máx ${rowSuffix}`);
+    const originalMin = await minField.inputValue();
+    const originalMax = await maxField.inputValue();
+
+    // saArticulo has a live CK_saArticulo_Stock CHECK constraint enforcing
+    // stock_min <= stock_max (see app/api/inventory/items/[co_art]/route.ts's
+    // error.number === 547 handling). Force a violation regardless of the
+    // row's real current values by setting min above whatever max already is.
+    const forcedMax = Number(originalMax) || 0;
+    await maxField.fill(String(forcedMax));
+    await minField.fill(String(forcedMax + 1));
+    await expect(minField).toHaveValue(String(forcedMax + 1));
+
+    const saveButton = userPage.locator('table tbody tr', { has: minField })
+      .getByRole('button', { name: /^Guardar /, exact: false });
+    await saveButton.click();
+
+    // The DB's own constraint-violation message is surfaced verbatim by the
+    // route (not a fixed app-authored string), so match loosely on the
+    // constraint name rather than exact wording.
+    await expect(userPage.getByText(/CK_saArticulo_Stock/)).toBeVisible({ timeout: 10_000 });
+
+    // The failed save shouldn't have changed anything server-side; restore
+    // both fields to their original values for test hygiene regardless.
+    await minField.fill(originalMin);
+    await maxField.fill(originalMax);
   });
 });

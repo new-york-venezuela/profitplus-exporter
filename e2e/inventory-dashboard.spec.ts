@@ -15,6 +15,10 @@ import { test, expect, submitReliably } from './fixtures';
 
 test.describe('inventario/dashboard @mssql', () => {
   test('access is denied without the inventory module grant', async ({ page }) => {
+    // reset-flow@e2e.test's password stays ResetFlowPass123! only as long as
+    // this doesn't run in the same invocation as password-reset.spec.ts's
+    // full-flow test, which changes it — see inventory-items.spec.ts's
+    // equivalent test for the full explanation.
     await submitReliably(page, async () => {
       await page.goto('/login');
       await page.getByLabel('Correo electrónico').fill('reset-flow@e2e.test');

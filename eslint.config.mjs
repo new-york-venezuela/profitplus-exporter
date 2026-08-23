@@ -24,6 +24,18 @@ const eslintConfig = defineConfig([
     "**/next-env.d.ts",
     ".claude/worktrees/**",
   ]),
+  {
+    // Playwright's fixture callback parameter is conventionally named
+    // `use` (see e2e/fixtures.ts's `test.extend({ ... async (fixtures,
+    // use) => ... })`), which react-hooks/rules-of-hooks misreads as a
+    // call to React's `use()` hook from a non-component/non-hook
+    // function. e2e/ isn't part of the Next.js app — its files never
+    // render React — so react-hooks rules don't apply here at all.
+    files: ["e2e/**"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -6,7 +6,7 @@ on:
 
 jobs:
   checks:
-    name: Typecheck, unit tests
+    name: Lint, typecheck, unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,10 +14,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # `bun run lint` is deliberately not gated here: the codebase has ~1600
-      # pre-existing lint errors unrelated to any PR's own changes, so a hard
-      # lint gate would fail every PR from day one. Re-add once that's
-      # triaged/fixed as its own effort — not bundled into this workflow.
+      - run: bun run lint
       - run: bunx tsc --noEmit
       - run: bun run test:unit
 
