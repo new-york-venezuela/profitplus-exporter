@@ -42,6 +42,41 @@ test.describe('admin user management', () => {
     await expect(adminPage.getByRole('cell', { name: 'To Be Deleted' })).not.toBeVisible();
   });
 
+  test('admin can grant and revoke the inventory module for a user', async ({ adminPage }) => {
+    await adminPage.goto('/admin/users');
+    await adminPage.getByRole('button', { name: '+ Crear usuario' }).click();
+    await adminPage.getByLabel('Nombre').fill('Module Grant Target');
+    await adminPage.getByLabel('Email').fill('module-grant-target@e2e.test');
+    await adminPage.getByLabel('Contraseña').fill('ModuleGrantPass123!');
+    await adminPage.getByLabel('Rol').selectOption('user');
+    await adminPage.getByRole('button', { name: 'Crear', exact: true }).click();
+    await expect(adminPage.getByRole('cell', { name: 'Module Grant Target' })).toBeVisible();
+
+    const row = adminPage.getByRole('row', { name: /Module Grant Target/ });
+    const inventoryCheckbox = row.getByRole('checkbox');
+    await expect(inventoryCheckbox).not.toBeChecked();
+
+    // The checkbox is a fully controlled component: it only reflects the
+    // toggle after handleToggleInventoryModule's async PUT resolves and
+    // React re-renders, with no native pre-toggle of its own. Playwright's
+    // .check()/.uncheck() verify the DOM state immediately after the click
+    // event and fail ("did not change its state") because that verification
+    // races the pending fetch — confirmed via a diagnostic spec showing the
+    // click's own PUT succeeds (200) and the checkbox does become checked
+    // once the response lands. Use .click() + expect(...).toBeChecked()
+    // instead, since the latter polls/retries rather than checking once.
+    await inventoryCheckbox.click();
+    await expect(inventoryCheckbox).toBeChecked();
+    // Persisted server-side, not just local state.
+    await adminPage.reload();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).toBeChecked();
+
+    await adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox').click();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+    await adminPage.reload();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+  });
+
   test('admin can reset another user\'s password', async ({ adminPage }) => {
     await adminPage.goto('/admin/users');
     await adminPage.getByRole('button', { name: '+ Crear usuario' }).click();
