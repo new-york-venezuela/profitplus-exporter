@@ -14,11 +14,22 @@ interface AdjustmentResult {
   delta:   number;
 }
 
+function rowKey(item: Item): string {
+  return `${item.coArt}::${item.coAlma}`;
+}
+
+function matchesSearch(item: Item, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === '') return true;
+  return item.coArt.toLowerCase().includes(q) || item.artDes.toLowerCase().includes(q);
+}
+
 export function AjustesClient() {
   const [items, setItems]         = useState<Item[]>([]);
   const [loading, setLoading]     = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [search, setSearch]           = useState('');
   const [selectedKey, setSelectedKey] = useState('');
   const [countedStock, setCountedStock] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -50,14 +61,22 @@ export function AjustesClient() {
     return () => { cancelled = true; };
   }, []);
 
-  function rowKey(item: Item): string {
-    return `${item.coArt}::${item.coAlma}`;
-  }
+  const filteredItems = useMemo(
+    () => items.filter(item => matchesSearch(item, search)),
+    [items, search],
+  );
 
   const selected = useMemo(
     () => items.find(item => rowKey(item) === selectedKey) ?? null,
     [items, selectedKey],
   );
+
+  function handleSelectRow(item: Item) {
+    setSelectedKey(rowKey(item));
+    setCountedStock('');
+    setLastResult(null);
+    setFormError(null);
+  }
 
   const countedValue = countedStock === '' ? null : Number(countedStock);
   const delta = selected && countedValue !== null && isFinite(countedValue)
@@ -103,12 +122,16 @@ export function AjustesClient() {
     return <div className="p-6 text-sm text-gray-500">Cargando artículos…</div>;
   }
 
+  const inputClass = `w-full border border-gray-300 rounded-md px-2 py-1 text-sm
+                      focus:outline-none focus:ring-2 focus:ring-blue-500`;
+
   return (
-    <div className="p-6 max-w-2xl space-y-6">
+    <div className="p-6 max-w-4xl space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Ajustes por Conteo Manual</h1>
       <p className="text-sm text-gray-500">
-        Registra el stock físicamente contado de un artículo. El sistema calcula la diferencia
-        contra el stock actual en Profit Plus y registra un ajuste de sobrante o faltante según corresponda.
+        Busca un artículo, selecciónalo de la tabla y registra el stock físicamente contado.
+        El sistema calcula la diferencia contra el stock actual en Profit Plus y registra un
+        ajuste de sobrante o faltante según corresponda.
       </p>
 
       {loadError && (
@@ -117,72 +140,110 @@ export function AjustesClient() {
         </p>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-        <div>
-          <label htmlFor="articulo-almacen-select" className="block text-xs font-medium text-gray-700 mb-1">Artículo / Almacén</label>
-          <select
-            id="articulo-almacen-select"
-            value={selectedKey}
-            onChange={e => { setSelectedKey(e.target.value); setLastResult(null); setFormError(null); }}
-            className="w-full border border-gray-300 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Seleccione un artículo…</option>
-            {items.map(item => (
-              <option key={rowKey(item)} value={rowKey(item)}>
-                {item.coArt} — {item.artDes} (almacén {item.coAlma})
-              </option>
-            ))}
-          </select>
-        </div>
+      <div>
+        <label htmlFor="ajustes-search" className="block text-xs font-medium text-gray-700 mb-1">
+          Buscar artículo
+        </label>
+        <input
+          id="ajustes-search"
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Código o nombre…"
+          className={`${inputClass} max-w-sm`}
+        />
+      </div>
 
-        {selected && (
-          <>
-            <div className="text-sm text-gray-700">
-              Stock actual en Profit Plus: <span className="font-semibold">{selected.stock}</span>
-            </div>
-
-            <div>
-              <label htmlFor="stock-contado" className="block text-xs font-medium text-gray-700 mb-1">Stock contado</label>
-              <input
-                id="stock-contado"
-                type="number"
-                value={countedStock}
-                onChange={e => { setCountedStock(e.target.value); setLastResult(null); setFormError(null); }}
-                className="w-40 border border-gray-300 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {delta !== null && delta !== 0 && (
-              <p className="text-sm text-gray-600">
-                {delta > 0
-                  ? <>Se registrará un <span className="font-semibold text-green-700">sobrante de {delta}</span>.</>
-                  : <>Se registrará un <span className="font-semibold text-red-700">faltante de {Math.abs(delta)}</span>.</>}
-              </p>
-            )}
-
-            {formError && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-                {formError}
-              </p>
-            )}
-
-            {lastResult && (
-              <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
-                Ajuste {lastResult.ajueNum} registrado
-                ({lastResult.delta > 0 ? `sobrante de ${lastResult.delta}` : `faltante de ${Math.abs(lastResult.delta)}`}).
-              </p>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={submitting || countedValue === null || !isFinite(countedValue) || delta === 0}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
-            >
-              {submitting ? 'Registrando…' : 'Registrar Ajuste'}
-            </button>
-          </>
+      <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto max-h-96 overflow-y-auto">
+        <table className="min-w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50">
+            <tr className="border-b border-gray-200">
+              {['Código', 'Nombre', 'Almacén', 'Stock'].map(h => (
+                <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filteredItems.map(item => {
+              const key = rowKey(item);
+              const isSelected = key === selectedKey;
+              return (
+                <tr
+                  key={key}
+                  onClick={() => handleSelectRow(item)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleSelectRow(item); }}
+                  aria-pressed={isSelected}
+                  className={`cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                >
+                  <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.coArt}</td>
+                  <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filteredItems.length === 0 && (
+          <div className="text-center py-10 text-gray-400 text-sm">
+            No hay artículos que coincidan con la búsqueda.
+          </div>
         )}
       </div>
+
+      {selected && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+          <div className="text-sm text-gray-700">
+            Ajustando <span className="font-semibold">{selected.coArt} — {selected.artDes}</span> en
+            almacén <span className="font-semibold">{selected.coAlma}</span>.
+            Stock actual en Profit Plus: <span aria-label="Stock actual" className="font-semibold">{selected.stock}</span>
+          </div>
+
+          <div>
+            <label htmlFor="stock-contado" className="block text-xs font-medium text-gray-700 mb-1">Stock contado</label>
+            <input
+              id="stock-contado"
+              type="number"
+              value={countedStock}
+              onChange={e => { setCountedStock(e.target.value); setLastResult(null); setFormError(null); }}
+              className={`${inputClass} w-40`}
+            />
+          </div>
+
+          {delta !== null && delta !== 0 && (
+            <p className="text-sm text-gray-600">
+              {delta > 0
+                ? <>Se registrará un <span className="font-semibold text-green-700">sobrante de {delta}</span>.</>
+                : <>Se registrará un <span className="font-semibold text-red-700">faltante de {Math.abs(delta)}</span>.</>}
+            </p>
+          )}
+
+          {formError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {formError}
+            </p>
+          )}
+
+          {lastResult && (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+              Ajuste {lastResult.ajueNum} registrado
+              ({lastResult.delta > 0 ? `sobrante de ${lastResult.delta}` : `faltante de ${Math.abs(lastResult.delta)}`}).
+            </p>
+          )}
+
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || countedValue === null || !isFinite(countedValue) || delta === 0}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
+          >
+            {submitting ? 'Registrando…' : 'Registrar Ajuste'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

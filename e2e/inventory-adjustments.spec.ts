@@ -30,16 +30,26 @@ test.describe('inventario/ajustes @mssql', () => {
     await page.waitForURL('/reports/ventas');
   });
 
+  async function waitForRowsLoaded(page: import('@playwright/test').Page): Promise<number> {
+    const emptyState = page.getByText('No hay artículos que coincidan con la búsqueda.');
+    const firstRow = page.locator('table tbody tr').first();
+    await expect(emptyState.or(firstRow)).toBeVisible({ timeout: 15_000 });
+    return page.locator('table tbody tr').count();
+  }
+
+  async function selectFirstRow(page: import('@playwright/test').Page) {
+    const firstRow = page.locator('table tbody tr').first();
+    await expect(firstRow).toBeVisible({ timeout: 15_000 });
+    await firstRow.click();
+  }
+
   test('selecting an article shows its current stock and disables submit until a count is entered', async ({ userPage }) => {
     await userPage.goto('/inventario/ajustes');
-    const select = userPage.getByLabel('Artículo / Almacén');
-    await expect(select).toBeVisible({ timeout: 15_000 });
+    const rowCount = await waitForRowsLoaded(userPage);
+    test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
 
-    const options = await select.locator('option').allTextContents();
-    test.skip(options.length < 2, 'No artículo/almacén options available in this data');
-
-    await select.selectOption({ index: 1 });
-    await expect(userPage.getByText('Stock actual en Profit Plus:')).toBeVisible();
+    await selectFirstRow(userPage);
+    await expect(userPage.locator('[aria-label="Stock actual"]')).toBeVisible();
 
     const submitButton = userPage.getByRole('button', { name: 'Registrar Ajuste' });
     await expect(submitButton).toBeDisabled();
@@ -47,11 +57,12 @@ test.describe('inventario/ajustes @mssql', () => {
 
   test('entering a count equal to current stock keeps submit disabled (no-op guard)', async ({ userPage }) => {
     await userPage.goto('/inventario/ajustes');
-    const select = userPage.getByLabel('Artículo / Almacén');
-    await expect(select).toBeVisible({ timeout: 15_000 });
-    await select.selectOption({ index: 1 });
+    const rowCount = await waitForRowsLoaded(userPage);
+    test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
 
-    const stockText = await userPage.getByText(/Stock actual en Profit Plus:/).locator('span').textContent();
+    await selectFirstRow(userPage);
+
+    const stockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
     const currentStock = Number(stockText?.trim());
     expect(Number.isFinite(currentStock)).toBe(true);
 
@@ -59,17 +70,34 @@ test.describe('inventario/ajustes @mssql', () => {
     await expect(userPage.getByRole('button', { name: 'Registrar Ajuste' })).toBeDisabled();
   });
 
+  test('searching narrows the table to matching articles', async ({ userPage }) => {
+    await userPage.goto('/inventario/ajustes');
+    const totalRows = await waitForRowsLoaded(userPage);
+    test.skip(totalRows < 1, 'No artículo/almacén rows available in this data');
+
+    const firstRow = userPage.locator('table tbody tr').first();
+    const coArt = (await firstRow.locator('td').first().textContent())?.trim();
+    if (!coArt) throw new Error('Could not read co_art from the first row');
+
+    await userPage.getByLabel('Buscar artículo').fill(coArt);
+    const filteredRows = await userPage.locator('table tbody tr').count();
+    expect(filteredRows).toBeGreaterThan(0);
+    expect(filteredRows).toBeLessThanOrEqual(totalRows);
+
+    const filteredCoArts = await userPage.locator('table tbody tr td:first-child').allTextContents();
+    for (const value of filteredCoArts) {
+      expect(value.trim()).toBe(coArt);
+    }
+  });
+
   test('registering a surplus then a matching shortage nets stock back to its original value', async ({ userPage }) => {
     await userPage.goto('/inventario/ajustes');
-    const select = userPage.getByLabel('Artículo / Almacén');
-    await expect(select).toBeVisible({ timeout: 15_000 });
+    const rowCount = await waitForRowsLoaded(userPage);
+    test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
 
-    const options = await select.locator('option').allTextContents();
-    test.skip(options.length < 2, 'No artículo/almacén options available in this data');
+    await selectFirstRow(userPage);
 
-    await select.selectOption({ index: 1 });
-
-    const stockText = await userPage.getByText(/Stock actual en Profit Plus:/).locator('span').textContent();
+    const stockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
     const originalStock = Number(stockText?.trim());
     expect(Number.isFinite(originalStock)).toBe(true);
 
@@ -78,7 +106,7 @@ test.describe('inventario/ajustes @mssql', () => {
     await expect(userPage.getByText(/Se registrará un sobrante de 1\./)).toBeVisible();
     await userPage.getByRole('button', { name: 'Registrar Ajuste' }).click();
     await expect(userPage.getByText(/^Ajuste .* registrado/)).toBeVisible({ timeout: 15_000 });
-    const stockAfterSurplusText = await userPage.getByText(/Stock actual en Profit Plus:/).locator('span').textContent();
+    const stockAfterSurplusText = await userPage.locator('[aria-label="Stock actual"]').textContent();
     expect(Number(stockAfterSurplusText?.trim())).toBe(originalStock + 1);
 
     // Shortage of 1, back to the original value.
@@ -88,8 +116,8 @@ test.describe('inventario/ajustes @mssql', () => {
     await expect(userPage.getByText(/^Ajuste .* registrado/)).toBeVisible({ timeout: 15_000 });
 
     await userPage.reload();
-    await select.selectOption({ index: 1 });
-    const finalStockText = await userPage.getByText(/Stock actual en Profit Plus:/).locator('span').textContent();
+    await selectFirstRow(userPage);
+    const finalStockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
     expect(Number(finalStockText?.trim())).toBe(originalStock);
   });
 });
