@@ -83,9 +83,6 @@ export function mapComprasData(
   matchIvanRows(mainRows, exportRows);
 
   return exportRows
-    .filter((row, i) => row.total_neto !== 0 && mainRows[i].co_tipo_doc !== 'IVAN')
-    .map((row, index) => {
-      const { _anulado_por_ivan, ...rest } = row;
-      return { ...rest, nro: index + 1 };
-    });
+    .filter((row, i) => mainRows[i].total_neto !== 0 && mainRows[i].co_tipo_doc !== 'IVAN')
+    .map((row, index) => ({ ...row, nro: index + 1 }));
 }

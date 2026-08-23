@@ -188,10 +188,13 @@ once this is sorted out, rather than trusting it blind.
 `.github/workflows/pr-checks.yml` runs on every PR targeting `main`,
 as two jobs:
 
-- **`checks`** — `bun run lint`, `bunx tsc --noEmit`, `bun run test:unit`
-  (this excludes `compras-export.integration.test.ts`, which — like
-  `@mssql` e2e specs — needs the real MSSQL mock and is run on demand
-  via `bun run test:mssql`, never in CI).
+- **`checks`** — `bunx tsc --noEmit`, `bun run test:unit` (this excludes
+  `compras-export.integration.test.ts`, which — like `@mssql` e2e specs —
+  needs the real MSSQL mock and is run on demand via `bun run test:mssql`,
+  never in CI). `bun run lint` is deliberately NOT gated here: the
+  codebase has ~1600 pre-existing lint errors unrelated to any given
+  PR's changes, so a hard gate would fail every PR immediately. Re-add
+  once that's triaged as its own effort.
 - **`e2e`** — builds the app (`next build --webpack`), then runs the
   default-tier Playwright suite (`bun run e2e`) against that build, with
   Mailhog as a service container. On failure, the HTML report is

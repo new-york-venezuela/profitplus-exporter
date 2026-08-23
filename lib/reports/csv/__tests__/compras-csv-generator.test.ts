@@ -1,18 +1,17 @@
 import { describe, test, expect } from 'bun:test';
 import { generateComprasCsv } from '../compras-csv-generator';
 import { COMPRAS_CONFIG } from '../../compras';
-import type { ComprasExportRow } from '../../mappers/compras-mapper';
 
 describe('generateComprasCsv', () => {
   test('generates CSV with proper header', () => {
-    const rows: ComprasExportRow[] = [];
+    const rows: Record<string, unknown>[] = [];
     const csv = generateComprasCsv(COMPRAS_CONFIG.columns, rows);
     const lines = csv.split('\n');
     expect(lines[0]).toContain('Nº,FECHA,RIF');
   });
 
   test('escapes commas in field values', () => {
-    const rows: ComprasExportRow[] = [
+    const rows: Record<string, unknown>[] = [
       {
         nro: 1,
         fecha: '2026-06-10',
@@ -39,7 +38,7 @@ describe('generateComprasCsv', () => {
   });
 
   test('escapes quotes in field values', () => {
-    const rows: ComprasExportRow[] = [
+    const rows: Record<string, unknown>[] = [
       {
         nro: 1,
         fecha: '2026-06-10',
@@ -66,7 +65,7 @@ describe('generateComprasCsv', () => {
   });
 
   test('handles newlines in field values', () => {
-    const rows: ComprasExportRow[] = [
+    const rows: Record<string, unknown>[] = [
       {
         nro: 1,
         fecha: '2026-06-10',

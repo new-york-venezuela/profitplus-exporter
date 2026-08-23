@@ -63,7 +63,7 @@ describe('comprasMapper', () => {
         n_control: 'NC001',
         anulado: 0,
         co_tipo_doc: 'N/DB',
-        doc_orig: 'ND001',
+        nro_fact: 'ND001',
         doc_afec: 'FACT999',
         total_neto: 1000,
         compras_exentas: 0,
