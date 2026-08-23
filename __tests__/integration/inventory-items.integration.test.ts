@@ -205,17 +205,19 @@ describe('PATCH /api/inventory/items/:co_art', () => {
     expect(unchanged.stock_min).toBe(testArticle.stock_min);
   });
 
-  test('rejects a non-whitelisted field', async () => {
+  test.each([
+    'co_lin', 'anulado', 'tipo_imp', 'margen_min', 'co_art', '__proto__', '',
+  ])('rejects a non-whitelisted field: %p', async (field) => {
     const db = getDb();
     const user = db.insert(users).values({
-      email: 'editor2@x.com', name: 'Editor', passwordHash: 'x',
+      email: `editor-${encodeURIComponent(field)}@x.com`, name: 'Editor', passwordHash: 'x',
       role: 'user', createdAt: Date.now(),
     }).returning({ id: users.id }).get()!;
     db.insert(userModules).values({ userId: user.id, module: 'inventory' }).run();
     const token = await signToken({ sub: String(user.id), role: 'user', name: 'Editor' });
 
     const response = await patchItem(
-      buildRequest(token, { method: 'PATCH', body: JSON.stringify({ co_lin: 'HACKED' }) }),
+      buildRequest(token, { method: 'PATCH', body: JSON.stringify({ [field]: 'HACKED' }) }),
       { params: Promise.resolve({ co_art: testArticle.co_art }) },
     );
     expect(response.status).toBe(400);
