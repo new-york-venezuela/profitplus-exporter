@@ -90,6 +90,41 @@ test.describe('inventario/ajustes @mssql', () => {
     }
   });
 
+  test('search is accent-insensitive', async ({ userPage }) => {
+    await userPage.goto('/inventario/ajustes');
+    const totalRows = await waitForRowsLoaded(userPage);
+    test.skip(totalRows < 1, 'No artículo/almacén rows available in this data');
+
+    // Find a real article name carrying an accented vowel — searching for
+    // the unaccented form should still match it (e.g. "Azucar" -> "Azúcar").
+    const names = await userPage.locator('table tbody tr td:nth-child(2)').allTextContents();
+    const accented = names.find(n => /[áéíóú]/i.test(n));
+    test.skip(!accented, 'No accented article name available in this data');
+
+    const stripped = accented!
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .trim();
+
+    await userPage.getByLabel('Buscar artículo').fill(stripped);
+    await expect(userPage.locator('table tbody tr').first()).toBeVisible();
+    const filteredNames = await userPage.locator('table tbody tr td:nth-child(2)').allTextContents();
+    expect(filteredNames).toContain(accented!.trim());
+  });
+
+  test('a row can be selected via keyboard (tab + enter)', async ({ userPage }) => {
+    await userPage.goto('/inventario/ajustes');
+    const rowCount = await waitForRowsLoaded(userPage);
+    test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
+
+    const firstRow = userPage.locator('table tbody tr').first();
+    await firstRow.focus();
+    await expect(firstRow).toBeFocused();
+
+    await userPage.keyboard.press('Enter');
+    await expect(userPage.locator('[aria-label="Stock actual"]')).toBeVisible();
+    await expect(firstRow).toHaveAttribute('aria-selected', 'true');
+  });
+
   test('registering a surplus then a matching shortage nets stock back to its original value', async ({ userPage }) => {
     await userPage.goto('/inventario/ajustes');
     const rowCount = await waitForRowsLoaded(userPage);

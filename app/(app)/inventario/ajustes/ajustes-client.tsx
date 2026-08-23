@@ -18,10 +18,16 @@ function rowKey(item: Item): string {
   return `${item.coArt}::${item.coAlma}`;
 }
 
+// Case- and accent-insensitive so "camara" matches "Cámara" — Spanish
+// article names routinely carry accents a user won't bother typing.
+function normalize(value: string): string {
+  return value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 function matchesSearch(item: Item, query: string): boolean {
-  const q = query.trim().toLowerCase();
+  const q = normalize(query.trim());
   if (q === '') return true;
-  return item.coArt.toLowerCase().includes(q) || item.artDes.toLowerCase().includes(q);
+  return normalize(item.coArt).includes(q) || normalize(item.artDes).includes(q);
 }
 
 export function AjustesClient() {
@@ -165,7 +171,7 @@ export function AjustesClient() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100" role="listbox" aria-label="Artículos">
             {filteredItems.map(item => {
               const key = rowKey(item);
               const isSelected = key === selectedKey;
@@ -173,11 +179,11 @@ export function AjustesClient() {
                 <tr
                   key={key}
                   onClick={() => handleSelectRow(item)}
-                  role="button"
+                  role="option"
                   tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleSelectRow(item); }}
-                  aria-pressed={isSelected}
-                  className={`cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectRow(item); } }}
+                  aria-selected={isSelected}
+                  className={`cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                 >
                   <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.coArt}</td>
                   <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
