@@ -21,15 +21,22 @@ export async function signToken(payload: SessionPayload): Promise<string> {
     .sign(getSecret());
 }
 
+interface TokenPayload extends JWTPayload {
+  sub?:  string;
+  role?: 'user' | 'admin';
+  name?: string;
+  type?: string;
+}
+
 export async function verifyToken(token: string): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
-    const verified = payload as unknown as SessionPayload;
+    const verified = payload as TokenPayload;
     // Reject password-reset tokens; they must use verifyResetToken
-    if ((payload as any).type === 'password-reset') {
+    if (verified.type === 'password-reset') {
       return null;
     }
-    return verified;
+    return verified as unknown as SessionPayload;
   } catch {
     return null;
   }
@@ -46,14 +53,15 @@ export async function signResetToken(payload: SessionPayload): Promise<string> {
 export async function verifyResetToken(token: string): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    const verified = payload as TokenPayload;
     // Only accept password-reset tokens
-    if ((payload as any).type !== 'password-reset') {
+    if (verified.type !== 'password-reset') {
       return null;
     }
     return {
-      sub: (payload as any).sub,
-      role: (payload as any).role,
-      name: (payload as any).name,
+      sub:  verified.sub!,
+      role: verified.role!,
+      name: verified.name!,
     };
   } catch {
     return null;

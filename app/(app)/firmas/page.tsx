@@ -306,7 +306,7 @@ export default function CorporateSignaturePage() {
                 <div className="text-sm text-slate-700 leading-relaxed">
                     {activeTab === 'outlook' ? (
                         <ol className="list-decimal list-inside space-y-2">
-                            <li>Haz clic en <strong>"Copiar Firma (Texto Enriquecido)"</strong>.</li>
+                            <li>Haz clic en <strong>&ldquo;Copiar Firma (Texto Enriquecido)&rdquo;</strong>.</li>
                             <li>Abre Outlook y ve a <strong>Archivo &gt; Opciones &gt; Correo &gt; Firmas</strong>.</li>
                             <li>Crea una nueva firma e ingresa un nombre.</li>
                             <li>En el cuadro de texto, pega directamente con <kbd className="bg-slate-100 border px-1 rounded">Ctrl + V</kbd>.</li>
@@ -314,7 +314,7 @@ export default function CorporateSignaturePage() {
                         </ol>
                     ) : (
                         <ol className="list-decimal list-inside space-y-2">
-                            <li>Haz clic en <strong>"Copiar Firma (Texto Enriquecido)"</strong>.</li>
+                            <li>Haz clic en <strong>&ldquo;Copiar Firma (Texto Enriquecido)&rdquo;</strong>.</li>
                             <li>Ve a tu Webmail de Mailcow en <strong>Ajustes &gt; Correo &gt; Firmas</strong>.</li>
                             <li>Pega el contenido en el editor e indica la cuenta por defecto.</li>
                         </ol>
