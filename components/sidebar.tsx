@@ -71,6 +71,9 @@ export function Sidebar({ user, canSeeInventory }: Props) {
             <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
               Inventario
             </p>
+            <Link href="/inventario/dashboard" className={navClass('/inventario/dashboard')}>
+              Panel
+            </Link>
             <Link href="/inventario/articulos" className={navClass('/inventario/articulos')}>
               Artículos
             </Link>
