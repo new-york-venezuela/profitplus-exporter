@@ -56,18 +56,22 @@ export function ArticulosClient() {
     let cancelled = false;
     async function load() {
       setLoadError(null);
-      const res = await fetch('/api/inventory/items');
-      if (cancelled) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (!cancelled) setLoadError(data.error ?? 'No se pudo cargar la lista de artículos');
-        setLoading(false);
-        return;
+      try {
+        const res = await fetch('/api/inventory/items');
+        if (cancelled) return;
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (!cancelled) setLoadError(data.error ?? 'No se pudo cargar la lista de artículos');
+          return;
+        }
+        const data: Item[] = await res.json();
+        if (cancelled) return;
+        setItems(data);
+      } catch {
+        if (!cancelled) setLoadError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      const data: Item[] = await res.json();
-      if (cancelled) return;
-      setItems(data);
-      setLoading(false);
     }
     load();
     return () => { cancelled = true; };
@@ -117,39 +121,47 @@ export function ArticulosClient() {
     setRowErrors(prev => ({ ...prev, [key]: '' }));
 
     const fields = getEdits(item);
-    const res = await fetch(`/api/inventory/items/${encodeURIComponent(item.coArt)}`, {
-      method:  'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        art_des:      fields.artDes,
-        ref:          fields.ref || null,
-        modelo:       fields.modelo || null,
-        stock_min:    fields.stockMin,
-        stock_max:    fields.stockMax,
-        stock_pedido: fields.stockPedido,
-      }),
-    });
+    try {
+      const res = await fetch(`/api/inventory/items/${encodeURIComponent(item.coArt)}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          art_des:      fields.artDes,
+          ref:          fields.ref || null,
+          modelo:       fields.modelo || null,
+          stock_min:    fields.stockMin,
+          stock_max:    fields.stockMax,
+          stock_pedido: fields.stockPedido,
+        }),
+      });
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setRowErrors(prev => ({ ...prev, [key]: data.error ?? 'No se pudo guardar' }));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setRowErrors(prev => ({ ...prev, [key]: data.error ?? 'No se pudo guardar' }));
+        return;
+      }
+
+      // These fields live on saArticulo, shared across every warehouse row
+      // of this article — update all of them, not just the edited row, and
+      // drop any pending edits/errors on sibling rows of the same article so
+      // they don't shadow the values just saved.
+      setItems(prev => prev.map(i => i.coArt === item.coArt
+        ? { ...i, artDes: fields.artDes, ref: fields.ref || null, modelo: fields.modelo || null,
+            stockMin: fields.stockMin, stockMax: fields.stockMax, stockPedido: fields.stockPedido }
+        : i,
+      ));
+      const siblingPrefix = `${item.coArt}::`;
+      setEdits(prev => Object.fromEntries(
+        Object.entries(prev).filter(([k]) => !k.startsWith(siblingPrefix)),
+      ));
+      setRowErrors(prev => Object.fromEntries(
+        Object.entries(prev).filter(([k]) => !k.startsWith(siblingPrefix)),
+      ));
+    } catch {
+      setRowErrors(prev => ({ ...prev, [key]: 'No se pudo conectar con el servidor' }));
+    } finally {
       setSavingRow(null);
-      return;
     }
-
-    // These fields live on saArticulo, shared across every warehouse row
-    // of this article — update all of them, not just the edited row.
-    setItems(prev => prev.map(i => i.coArt === item.coArt
-      ? { ...i, artDes: fields.artDes, ref: fields.ref || null, modelo: fields.modelo || null,
-          stockMin: fields.stockMin, stockMax: fields.stockMax, stockPedido: fields.stockPedido }
-      : i,
-    ));
-    setEdits(prev => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    setSavingRow(null);
   }
 
   if (loading) {
