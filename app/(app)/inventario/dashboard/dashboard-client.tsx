@@ -90,9 +90,15 @@ export function DashboardClient() {
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.avgDailySales.toFixed(1)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <span className={`font-semibold ${item.daysOfStock <= 0 ? 'text-red-700' : 'text-orange-600'}`}>
-                        {item.daysOfStock.toFixed(1)}
-                      </span>
+                      {item.stock < 0 ? (
+                        <span className="font-semibold text-gray-400" title="Stock negativo en Profit Plus — este valor no refleja stock físico real">
+                          {item.daysOfStock.toFixed(1)} (stock negativo)
+                        </span>
+                      ) : (
+                        <span className={`font-semibold ${item.daysOfStock <= 0 ? 'text-red-700' : 'text-orange-600'}`}>
+                          {item.daysOfStock.toFixed(1)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

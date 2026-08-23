@@ -60,14 +60,16 @@ export async function GET(request: NextRequest) {
 
     const items = rows
       .map(r => {
-        const avgDailySales = r.sold / settings.rollingWindowDays;
-        const daysOfStock = avgDailySales > 0 ? r.stock / avgDailySales : null;
+        const stock = Number(r.stock);
+        const sold = Number(r.sold);
+        const avgDailySales = sold / settings.rollingWindowDays;
+        const daysOfStock = avgDailySales > 0 ? stock / avgDailySales : null;
         return {
-          coArt:         r.co_art,
-          artDes:        r.art_des,
-          coAlma:        r.co_alma,
-          stock:         r.stock,
-          sold:          r.sold,
+          coArt:  r.co_art,
+          artDes: r.art_des,
+          coAlma: r.co_alma,
+          stock,
+          sold,
           avgDailySales,
           daysOfStock,
         };

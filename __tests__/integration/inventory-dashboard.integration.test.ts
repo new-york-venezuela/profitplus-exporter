@@ -123,6 +123,18 @@ describe('GET /api/inventory/dashboard', () => {
     expect(response.status).toBe(403);
   });
 
+  test('admin can view the dashboard without an explicit module grant', async () => {
+    const db = getDb();
+    const admin = db.insert(users).values({
+      email: 'admin-dash@x.com', name: 'Admin', passwordHash: 'x',
+      role: 'admin', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const token = await signToken({ sub: String(admin.id), role: 'admin', name: 'Admin' });
+
+    const response = await getDashboard(buildRequest(token));
+    expect(response.status).toBe(200);
+  });
+
   test('flags an item whose stock/avgDailySales is under the threshold', async () => {
     const avgDailySales = testArticle.sold60 / 60;
     // Set stock to exactly 3 days of coverage — comfortably under the
