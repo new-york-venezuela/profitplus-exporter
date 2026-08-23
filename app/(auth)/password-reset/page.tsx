@@ -10,7 +10,7 @@ function PasswordResetForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
-  const [verifyState, setVerifyState] = useState<VerifyState>('checking');
+  const [verifyState, setVerifyState] = useState<VerifyState>(token ? 'checking' : 'invalid');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +18,7 @@ function PasswordResetForm() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      setVerifyState('invalid');
-      return;
-    }
+    if (!token) return;
 
     fetch(`/api/auth/password-reset/verify?token=${encodeURIComponent(token)}`)
       .then(res => setVerifyState(res.ok ? 'valid' : 'invalid'))

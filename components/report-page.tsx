@@ -70,8 +70,12 @@ export function ReportPage({ config, defaultDates }: Props) {
     [config.id, hasColumns],
   );
 
-  // Fetch on mount
+  // Fetch on mount. fetchPreview's own setState calls are all inside its
+  // async try/finally, not synchronous in this effect body — the
+  // set-state-in-effect rule can't see through the function call to confirm
+  // that, hence the disable.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPreview(startDate, endDate, colsParam, selectors);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
