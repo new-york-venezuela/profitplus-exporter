@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/get-session';
 import { getDb }    from '@/lib/db/sqlite';
-import { users } from '@/lib/db/schema';
+import { users, userModules } from '@/lib/db/schema';
 import { UsersClient } from './users-client';
 
 export default async function UsersPage() {
@@ -18,9 +18,22 @@ export default async function UsersPage() {
     createdAt: users.createdAt,
   }).from(users).all();
 
+  const allModuleGrants = db.select().from(userModules).all();
+  const modulesByUser = new Map<number, string[]>();
+  for (const grant of allModuleGrants) {
+    const existing = modulesByUser.get(grant.userId) ?? [];
+    existing.push(grant.module);
+    modulesByUser.set(grant.userId, existing);
+  }
+
+  const withModules = userList.map(u => ({
+    ...u,
+    modules: modulesByUser.get(u.id) ?? [],
+  }));
+
   return (
     <UsersClient
-      initialUsers={userList as Parameters<typeof UsersClient>[0]['initialUsers']}
+      initialUsers={withModules}
       currentUserId={parseInt(session.sub)}
     />
   );

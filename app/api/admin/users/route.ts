@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
-import { getSession } from '@/lib/auth/get-session';
+import { getSessionFromRequest } from '@/lib/inventory/access';
 import { getDb } from '@/lib/db/sqlite';
-import { users } from '@/lib/db/schema';
+import { users, userModules } from '@/lib/db/schema';
 
 export const dynamic = 'force-dynamic';
 
-async function requireAdmin() {
-  const session = await getSession();
+async function requireAdmin(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
   if (!session) return { error: 'No autorizado', status: 401 } as const;
   if (session.role !== 'admin') return { error: 'Prohibido', status: 403 } as const;
   return { session };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireAdmin(request);
     if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
     const db = getDb();
@@ -31,7 +31,20 @@ export async function GET() {
       .from(users)
       .all();
 
-    return NextResponse.json(list);
+    const allModuleGrants = db.select().from(userModules).all();
+    const modulesByUser = new Map<number, string[]>();
+    for (const grant of allModuleGrants) {
+      const existing = modulesByUser.get(grant.userId) ?? [];
+      existing.push(grant.module);
+      modulesByUser.set(grant.userId, existing);
+    }
+
+    const withModules = list.map(u => ({
+      ...u,
+      modules: modulesByUser.get(u.id) ?? [],
+    }));
+
+    return NextResponse.json(withModules);
   } catch {
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
@@ -39,7 +52,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireAdmin(request);
     if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
     const body = await request.json().catch(() => null);
