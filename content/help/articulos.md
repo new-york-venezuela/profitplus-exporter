@@ -18,11 +18,16 @@ stock — nunca campos que afecten precios, impuestos o contabilidad.
   También es solo informativo.
 - **Stock**: la cantidad actual disponible en el almacén, según Profit
   Plus. No se edita aquí — para corregirlo, usa la página de **Ajustes**.
-- **Mín**: el stock mínimo que se debe mantener de este artículo (umbral
-  de reorden bajo). Sirve como referencia para saber cuándo reabastecer.
-- **Máx**: el stock máximo que se debe mantener.
-- **Pedido**: la cantidad de reposición sugerida cuando el stock llega al
-  mínimo.
+- **Mín / Máx**: umbrales de referencia para reabastecimiento manual —
+  ayudan a decidir cuánto pedir, pero **no generan alertas automáticas**.
+  Las alertas de stock bajo que aparecen en el Panel se calculan por
+  consumo real reciente, no por estos valores.
+- **Pedido**: la cantidad de reposición sugerida cuando alguien decide
+  reabastecer este artículo.
+
+> Si buscas cambiar cuándo se dispara una alerta de stock bajo, ve a
+> **Configuración de Inventario** (solo administradores) — ahí se
+> configuran la ventana de consumo y el umbral de días de stock.
 
 ## Cómo editar un artículo
 

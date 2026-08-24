@@ -199,6 +199,12 @@ export function ArticulosClient() {
         </div>
       </div>
 
+      <p className="text-xs text-gray-500 -mt-2">
+        Mín/Máx/Pedido son valores de referencia para reabastecimiento — no generan
+        alertas automáticas. Las alertas de stock bajo del Panel se calculan por
+        consumo real; ajústalas en <span className="font-medium">Configuración de Inventario</span>.
+      </p>
+
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <button
           onClick={() => setShowAddToWarehouse(v => !v)}
@@ -289,7 +295,7 @@ export function ArticulosClient() {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Código', 'Nombre', 'Referencia', 'Modelo', 'Stock', 'Mín', 'Máx', 'Pedido', 'Acciones'].map(h => (
+              {['Código', 'Nombre', 'Referencia', 'Modelo', 'Stock', 'Mín (reorden)', 'Máx (reorden)', 'Pedido', 'Acciones'].map(h => (
                 <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
