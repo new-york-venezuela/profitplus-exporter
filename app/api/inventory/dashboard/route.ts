@@ -13,16 +13,23 @@ export const dynamic = 'force-dynamic';
 // that same warehouse over the rolling window. Items with no sales in the
 // window are excluded here — with no consumption data there's no meaningful
 // days-of-stock estimate, so they can't be flagged as at-risk either way.
+// des_uni is fetched via a correlated scalar subquery rather than a JOIN:
+// nothing in the schema enforces that at most one saArtUnidad row per
+// article has uni_principal = 1, and a JOIN-based fan-out here would
+// silently double-count SUM(fvr.total_art) if that assumption were ever
+// violated. A scalar subquery is at-most-one-row by construction, so it
+// can't corrupt the aggregate even if the data ever breaks that assumption.
 const DASHBOARD_QUERY_BASE = `
   SELECT
-    a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni,
+    a.co_art, a.art_des, s.co_alma, s.stock,
+    (SELECT TOP 1 u.des_uni FROM saArtUnidad au
+       JOIN saUnidad u ON u.co_uni = au.co_uni
+       WHERE au.co_art = a.co_art AND au.uni_principal = 1) AS des_uni,
     SUM(fvr.total_art) AS sold
   FROM saArticulo a
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
   JOIN saFacturaVentaReng fvr ON fvr.co_art = a.co_art AND fvr.co_alma = s.co_alma
   JOIN saFacturaVenta fv ON fv.doc_num = fvr.doc_num
-  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
-  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   WHERE a.anulado = 0 AND fv.anulado = 0 AND fv.fec_emis > @sinceDate
 `;
 
@@ -33,12 +40,17 @@ interface DashboardRow {
 // Current stock per configured warehouse, with no sales-velocity join —
 // used to power the "browse all stock" table, which must show every
 // article/warehouse pair regardless of whether it has recent sales.
+// des_uni uses the same at-most-one-row scalar subquery as
+// DASHBOARD_QUERY_BASE above, for the same reason: a JOIN would fan out
+// (duplicating rows in this table) if an article ever had more than one
+// saArtUnidad row with uni_principal = 1.
 const ALL_STOCK_QUERY_BASE = `
-  SELECT a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni
+  SELECT a.co_art, a.art_des, s.co_alma, s.stock,
+    (SELECT TOP 1 u.des_uni FROM saArtUnidad au
+       JOIN saUnidad u ON u.co_uni = au.co_uni
+       WHERE au.co_art = a.co_art AND au.uni_principal = 1) AS des_uni
   FROM saArticulo a
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
-  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
-  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   WHERE a.anulado = 0
 `;
 
@@ -71,7 +83,7 @@ export async function GET(request: NextRequest) {
       });
       query += ` AND s.co_alma IN (${placeholders.join(', ')})`;
     }
-    query += ' GROUP BY a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni ORDER BY a.art_des';
+    query += ' GROUP BY a.co_art, a.art_des, s.co_alma, s.stock ORDER BY a.art_des';
 
     const result = await request_.query(query);
     const rows = trimStrings(result.recordset) as unknown as DashboardRow[];

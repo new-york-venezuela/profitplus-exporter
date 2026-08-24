@@ -109,7 +109,7 @@ export function DashboardClient() {
                       <td className="px-3 py-2 text-gray-900">{row.artDes}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.coAlma}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.stock}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.unidad ?? '—'}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.unidad?.trim() || '—'}</td>
                     </tr>
                   ))}
               </tbody>
@@ -149,7 +149,7 @@ export function DashboardClient() {
                     <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
-                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad?.trim() || '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.avgDailySales.toFixed(1)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {item.stock < 0 ? (

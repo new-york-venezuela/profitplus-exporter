@@ -208,7 +208,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
                   <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
-                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad?.trim() || '—'}</td>
                 </tr>
               );
             })}

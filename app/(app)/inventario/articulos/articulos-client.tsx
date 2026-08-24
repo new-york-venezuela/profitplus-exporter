@@ -339,7 +339,7 @@ export function ArticulosClient() {
                     <input aria-label={`Modelo ${item.coArt} (${item.coAlma})`} value={fields.modelo} onChange={e => setField(item, 'modelo', e.target.value)} className={`${inputClass} w-28`} />
                   </td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
-                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad?.trim() || '—'}</td>
                   <td className="px-3 py-2">
                     <input aria-label={`Mín ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockMin}
                       onChange={e => setField(item, 'stockMin', parseFloat(e.target.value) || 0)}

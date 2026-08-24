@@ -8,6 +8,12 @@ import sql from 'mssql';
 
 export const dynamic = 'force-dynamic';
 
+// des_uni (the article's principal unit of measure) is fetched via a
+// correlated scalar subquery rather than a JOIN: nothing in the schema
+// enforces at most one saArtUnidad row per article with uni_principal = 1,
+// and a JOIN would fan out (duplicating the article's row in this list) if
+// that assumption were ever violated. A scalar subquery is at-most-one-row
+// by construction, so it can't produce duplicate rows either way.
 const ITEMS_QUERY_BASE = `
   SELECT
     a.co_art, a.art_des, a.ref, a.modelo, a.comentario,
@@ -16,12 +22,12 @@ const ITEMS_QUERY_BASE = `
     a.co_lin, l.lin_des,
     a.co_cat, c.cat_des,
     s.co_alma, s.stock,
-    u.des_uni
+    (SELECT TOP 1 u.des_uni FROM saArtUnidad au
+       JOIN saUnidad u ON u.co_uni = au.co_uni
+       WHERE au.co_art = a.co_art AND au.uni_principal = 1) AS des_uni
   FROM saArticulo a
   LEFT JOIN saLineaArticulo l ON l.co_lin = a.co_lin
   LEFT JOIN saCatArticulo c ON c.co_cat = a.co_cat
-  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
-  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
   WHERE a.anulado = 0
 `;
