@@ -81,6 +81,7 @@ describe('POST /api/inventory/items/[co_art]/warehouses @mssql', () => {
     const db = getDb();
     const user = db.insert(users).values({
       email: 'wh-test@e2e.test', passwordHash: 'x', name: 'WH Test', role: 'user',
+      createdAt: Date.now(),
     }).returning({ id: users.id }).get();
     db.insert(userModules).values({ userId: user!.id, module: 'inventory' }).run();
     db.insert(inventoryWarehouses).values({ coAlma: TEST_WAREHOUSE, label: 'Materia Prima', active: true }).run();
@@ -103,6 +104,7 @@ describe('POST /api/inventory/items/[co_art]/warehouses @mssql', () => {
     const db = getDb();
     const user = db.insert(users).values({
       email: 'wh-test2@e2e.test', passwordHash: 'x', name: 'WH Test 2', role: 'user',
+      createdAt: Date.now(),
     }).returning({ id: users.id }).get();
     db.insert(userModules).values({ userId: user!.id, module: 'inventory' }).run();
     db.insert(inventoryWarehouses).values({ coAlma: TEST_WAREHOUSE, label: 'Materia Prima', active: true }).run();
