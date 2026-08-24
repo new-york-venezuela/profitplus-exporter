@@ -7,8 +7,8 @@ stock — nunca campos que afecten precios, impuestos o contabilidad.
 
 ## Glosario de campos
 
-- **Código**: el código interno del artículo en Profit Plus (`co_art`).
-  No se puede editar aquí.
+- **Código**: el código interno del artículo en Profit Plus. No se puede
+  editar aquí.
 - **Nombre**: la descripción del artículo tal como aparece en el
   catálogo.
 - **Referencia**: un código alterno del artículo — por ejemplo, un
