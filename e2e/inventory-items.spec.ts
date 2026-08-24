@@ -162,6 +162,35 @@ test.describe('inventario/articulos @mssql', () => {
     await maxField.fill(originalMax);
   });
 
+  test('shows a non-blocking inline warning when Mín exceeds Máx', async ({ userPage }) => {
+    await userPage.goto('/inventario/articulos');
+    const rowSuffix = await firstRowNameLabel(userPage);
+
+    const minField = userPage.getByLabel(`Mín ${rowSuffix}`);
+    const maxField = userPage.getByLabel(`Máx ${rowSuffix}`);
+    const originalMin = await minField.inputValue();
+    const originalMax = await maxField.inputValue();
+
+    const forcedMax = Number(originalMax) || 0;
+    await maxField.fill(String(forcedMax));
+    await minField.fill(String(forcedMax + 1));
+    await expect(minField).toHaveValue(String(forcedMax + 1));
+
+    const row = userPage.locator('table tbody tr', { has: minField });
+    await expect(row.getByText('El mínimo no puede ser mayor que el máximo')).toBeVisible();
+
+    // Must stay enabled — this is a warning, not a block. The existing test
+    // 'setting stock_min above stock_max shows the CK_saArticulo_Stock error'
+    // depends on being able to click Guardar in exactly this state.
+    const saveButton = row.getByRole('button', { name: /^Guardar /, exact: false });
+    await expect(saveButton).toBeEnabled();
+
+    // Restore original values for test hygiene; no save occurred so nothing
+    // server-side changed, but leave the UI as it was found.
+    await minField.fill(originalMin);
+    await maxField.fill(originalMax);
+  });
+
   test('Ajustar link on Artículos preselects the same article in Ajustes', async ({ userPage }) => {
     await userPage.goto('/inventario/articulos');
     const firstRow = userPage.locator('table tbody tr').first();

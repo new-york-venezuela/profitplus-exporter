@@ -115,6 +115,14 @@ export function ArticulosClient() {
     return edits[rowKey(item)] ?? toEditable(item);
   }
 
+  function minMaxWarning(item: Item): string | null {
+    const fields = getEdits(item);
+    if (fields.stockMin > fields.stockMax) {
+      return 'El mínimo no puede ser mayor que el máximo';
+    }
+    return null;
+  }
+
   function setField(item: Item, field: keyof EditableFields, value: string | number) {
     const key = rowKey(item);
     setEdits(prev => ({
@@ -307,6 +315,7 @@ export function ArticulosClient() {
               const key = rowKey(item);
               const fields = getEdits(item);
               const dirty = !!edits[key];
+              const minMaxWarn = minMaxWarning(item);
               return (
                 <tr key={key} className="hover:bg-gray-50 align-top">
                   <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.coArt}</td>
@@ -344,6 +353,9 @@ export function ArticulosClient() {
                     >
                       {savingRow === key ? 'Guardando…' : 'Guardar'}
                     </button>
+                    {minMaxWarn && (
+                      <p className="text-xs text-orange-600 mt-1 max-w-xs">{minMaxWarn}</p>
+                    )}
                     {rowErrors[key] && (
                       <p className="text-xs text-red-600 mt-1 max-w-xs">{rowErrors[key]}</p>
                     )}
