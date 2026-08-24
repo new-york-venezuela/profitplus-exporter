@@ -107,6 +107,11 @@ export function ArticulosClient() {
     (catFilter === '' || item.coCat === catFilter),
   );
 
+  // saArticulo fields are shared across every warehouse row of the same
+  // article, but the table renders one row per (coArt, coAlma) — an
+  // article stocked in two configured warehouses gets two rows. Edit/dirty/
+  // error/saving state is keyed by rowKey (not coArt alone) so editing one
+  // row never marks its sibling rows as dirty or independently saveable.
   function rowKey(item: Item): string {
     return `${item.coArt}::${item.coAlma}`;
   }
@@ -157,6 +162,10 @@ export function ArticulosClient() {
         return;
       }
 
+      // These fields live on saArticulo, shared across every warehouse row
+      // of this article — update all of them, not just the edited row, and
+      // drop any pending edits/errors on sibling rows of the same article so
+      // they don't shadow the values just saved.
       setItems(prev => prev.map(i => i.coArt === item.coArt
         ? { ...i, artDes: fields.artDes, ref: fields.ref || null, modelo: fields.modelo || null,
             stockMin: fields.stockMin, stockMax: fields.stockMax, stockPedido: fields.stockPedido }

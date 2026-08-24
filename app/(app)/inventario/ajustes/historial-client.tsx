@@ -69,7 +69,7 @@ export function HistorialClient({ reloadToken }: { reloadToken: number }) {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {items.map(item => (
-              <tr key={item.ajueNum} className="hover:bg-gray-50">
+              <tr key={`${item.ajueNum}::${item.coArt}::${item.coAlma}`} className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.ajueNum}</td>
                 <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{new Date(item.fecha).toLocaleDateString('es-VE')}</td>
                 <td className="px-3 py-2 text-gray-900">{item.coArt} — {item.artDes}</td>

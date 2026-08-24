@@ -24,6 +24,8 @@ function rowKey(item: Item): string {
   return `${item.coArt}::${item.coAlma}`;
 }
 
+// Case- and accent-insensitive so "camara" matches "Cámara" — Spanish
+// article names routinely carry accents a user won't bother typing.
 function normalize(value: string): string {
   return value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }

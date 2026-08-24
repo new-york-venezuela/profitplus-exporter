@@ -55,6 +55,9 @@ export async function GET(request: NextRequest) {
       if (!targetCoAlma) {
         return NextResponse.json({ error: 'Almacén requerido' }, { status: 400 });
       }
+      if (activeWarehouses.length > 0 && !activeWarehouses.includes(targetCoAlma)) {
+        return NextResponse.json({ error: 'Almacén no configurado para Inventario' }, { status: 400 });
+      }
       const unstockedResult = await pool.request()
         .input('coAlma', sql.Char(6), targetCoAlma)
         .query(`
