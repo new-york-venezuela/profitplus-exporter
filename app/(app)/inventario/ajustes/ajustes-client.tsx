@@ -14,12 +14,15 @@ interface AdjustmentResult {
   delta:   number;
 }
 
+interface Props {
+  initialCoArt?: string;
+  initialCoAlma?: string;
+}
+
 function rowKey(item: Item): string {
   return `${item.coArt}::${item.coAlma}`;
 }
 
-// Case- and accent-insensitive so "camara" matches "Cámara" — Spanish
-// article names routinely carry accents a user won't bother typing.
 function normalize(value: string): string {
   return value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
@@ -30,7 +33,7 @@ function matchesSearch(item: Item, query: string): boolean {
   return normalize(item.coArt).includes(q) || normalize(item.artDes).includes(q);
 }
 
-export function AjustesClient() {
+export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
   const [items, setItems]         = useState<Item[]>([]);
   const [loading, setLoading]     = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,6 +69,17 @@ export function AjustesClient() {
     load();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (loading || !initialCoArt || !initialCoAlma) return;
+    const key = `${initialCoArt}::${initialCoAlma}`;
+    if (items.some(item => rowKey(item) === key)) {
+      setSelectedKey(key);
+      setCountedStock('');
+      setLastResult(null);
+      setFormError(null);
+    }
+  }, [loading, items, initialCoArt, initialCoAlma]);
 
   const filteredItems = useMemo(
     () => items.filter(item => matchesSearch(item, search)),

@@ -161,4 +161,16 @@ test.describe('inventario/articulos @mssql', () => {
     await minField.fill(originalMin);
     await maxField.fill(originalMax);
   });
+
+  test('Ajustar link on Artículos preselects the same article in Ajustes', async ({ userPage }) => {
+    await userPage.goto('/inventario/articulos');
+    const firstRow = userPage.locator('table tbody tr').first();
+    await expect(firstRow).toBeVisible({ timeout: 15_000 });
+    const coArt = (await firstRow.locator('td').first().textContent())?.trim();
+
+    await firstRow.getByRole('link', { name: 'Ajustar stock →' }).click();
+    await userPage.waitForURL(/\/inventario\/ajustes\?co_art=/);
+
+    await expect(userPage.getByText(new RegExp(`Ajustando.*${coArt}`))).toBeVisible({ timeout: 10_000 });
+  });
 });
