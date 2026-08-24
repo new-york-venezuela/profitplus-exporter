@@ -41,14 +41,19 @@ test.describe('inventario/dashboard @mssql', () => {
     await userPage.goto('/inventario/dashboard');
     await expect(userPage.getByRole('heading', { name: 'Artículos con Stock Bajo' })).toBeVisible({ timeout: 15_000 });
 
+    // The page now renders two tables (the "Stock actual" browse table added
+    // above this one, then this low-stock table) — scope to the second
+    // `<table>` specifically, since an unscoped `table tbody tr` selector
+    // would silently match the first table's rows instead.
+    const lowStockTable = userPage.locator('table').nth(1);
     const emptyState = userPage.getByText('No hay artículos con stock bajo en este momento.');
-    const firstRow = userPage.locator('table tbody tr').first();
+    const firstRow = lowStockTable.locator('tbody tr').first();
 
     // Either the table has rows, or the explicit empty state is shown —
     // never neither, and never both.
     await expect(emptyState.or(firstRow)).toBeVisible({ timeout: 15_000 });
 
-    const rowCount = await userPage.locator('table tbody tr').count();
+    const rowCount = await lowStockTable.locator('tbody tr').count();
     if (rowCount === 0) {
       await expect(emptyState).toBeVisible();
       return;
@@ -57,12 +62,12 @@ test.describe('inventario/dashboard @mssql', () => {
     // Every visible row must show a numeric days-of-stock value in the last
     // column, and negative-stock rows must carry the explicit annotation
     // (not just red/orange styling a screenshot-based check would need).
-    const lastCells = userPage.locator('table tbody tr td:last-child');
+    const lastCells = lowStockTable.locator('tbody tr td:last-child');
     const count = await lastCells.count();
     for (let i = 0; i < count; i++) {
       const text = (await lastCells.nth(i).textContent())?.trim() ?? '';
       expect(text.length).toBeGreaterThan(0);
-      const stockCellText = (await userPage.locator('table tbody tr').nth(i).locator('td').nth(3).textContent())?.trim();
+      const stockCellText = (await lowStockTable.locator('tbody tr').nth(i).locator('td').nth(3).textContent())?.trim();
       const stock = Number(stockCellText);
       if (Number.isFinite(stock) && stock < 0) {
         expect(text).toContain('stock negativo');

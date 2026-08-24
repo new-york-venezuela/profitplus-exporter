@@ -30,15 +30,23 @@ test.describe('inventario/ajustes @mssql', () => {
     await page.waitForURL('/reports/ventas');
   });
 
+  // The page also renders the adjustment-history table (HistorialClient)
+  // below the article picker — scope to the picker's own tbody (identified
+  // by its `role="listbox"`, set in ajustes-client.tsx) so an unscoped
+  // `table tbody tr` doesn't pick up history rows too.
+  function articleRows(page: import('@playwright/test').Page) {
+    return page.getByRole('listbox', { name: 'Artículos' }).locator('tr');
+  }
+
   async function waitForRowsLoaded(page: import('@playwright/test').Page): Promise<number> {
     const emptyState = page.getByText('No hay artículos que coincidan con la búsqueda.');
-    const firstRow = page.locator('table tbody tr').first();
+    const firstRow = articleRows(page).first();
     await expect(emptyState.or(firstRow)).toBeVisible({ timeout: 15_000 });
-    return page.locator('table tbody tr').count();
+    return articleRows(page).count();
   }
 
   async function selectFirstRow(page: import('@playwright/test').Page) {
-    const firstRow = page.locator('table tbody tr').first();
+    const firstRow = articleRows(page).first();
     await expect(firstRow).toBeVisible({ timeout: 15_000 });
     await firstRow.click();
   }
@@ -75,16 +83,16 @@ test.describe('inventario/ajustes @mssql', () => {
     const totalRows = await waitForRowsLoaded(userPage);
     test.skip(totalRows < 1, 'No artículo/almacén rows available in this data');
 
-    const firstRow = userPage.locator('table tbody tr').first();
+    const firstRow = articleRows(userPage).first();
     const coArt = (await firstRow.locator('td').first().textContent())?.trim();
     if (!coArt) throw new Error('Could not read co_art from the first row');
 
     await userPage.getByLabel('Buscar artículo').fill(coArt);
-    const filteredRows = await userPage.locator('table tbody tr').count();
+    const filteredRows = await articleRows(userPage).count();
     expect(filteredRows).toBeGreaterThan(0);
     expect(filteredRows).toBeLessThanOrEqual(totalRows);
 
-    const filteredCoArts = await userPage.locator('table tbody tr td:first-child').allTextContents();
+    const filteredCoArts = await articleRows(userPage).locator('td:first-child').allTextContents();
     for (const value of filteredCoArts) {
       expect(value.trim()).toBe(coArt);
     }
@@ -97,7 +105,7 @@ test.describe('inventario/ajustes @mssql', () => {
 
     // Find a real article name carrying an accented vowel — searching for
     // the unaccented form should still match it (e.g. "Azucar" -> "Azúcar").
-    const names = await userPage.locator('table tbody tr td:nth-child(2)').allTextContents();
+    const names = await articleRows(userPage).locator('td:nth-child(2)').allTextContents();
     const accented = names.find(n => /[áéíóú]/i.test(n));
     test.skip(!accented, 'No accented article name available in this data');
 
@@ -106,8 +114,8 @@ test.describe('inventario/ajustes @mssql', () => {
       .trim();
 
     await userPage.getByLabel('Buscar artículo').fill(stripped);
-    await expect(userPage.locator('table tbody tr').first()).toBeVisible();
-    const filteredNames = await userPage.locator('table tbody tr td:nth-child(2)').allTextContents();
+    await expect(articleRows(userPage).first()).toBeVisible();
+    const filteredNames = await articleRows(userPage).locator('td:nth-child(2)').allTextContents();
     expect(filteredNames).toContain(accented!.trim());
   });
 
@@ -116,7 +124,7 @@ test.describe('inventario/ajustes @mssql', () => {
     const rowCount = await waitForRowsLoaded(userPage);
     test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
 
-    const firstRow = userPage.locator('table tbody tr').first();
+    const firstRow = articleRows(userPage).first();
     await firstRow.focus();
     await expect(firstRow).toBeFocused();
 

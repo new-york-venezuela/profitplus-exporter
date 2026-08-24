@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
               SELECT 1 FROM saStockAlmacen s
               WHERE s.co_art = a.co_art AND s.co_alma = @coAlma AND s.tipo = 'ACT'
             )
-          ORDER BY a.art_des
+          ORDER BY a.art_des, a.co_art
         `);
       const unstockedRows = trimStrings(unstockedResult.recordset) as unknown as Array<{ co_art: string; art_des: string }>;
       return NextResponse.json(unstockedRows.map(r => ({ coArt: r.co_art, artDes: r.art_des })));
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       });
       query += ` AND s.co_alma IN (${placeholders.join(', ')})`;
     }
-    query += ' ORDER BY a.art_des';
+    query += ' ORDER BY a.art_des, a.co_art';
 
     const result = await request_.query(query);
     const rows = trimStrings(result.recordset) as unknown as ItemRow[];

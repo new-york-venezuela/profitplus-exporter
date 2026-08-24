@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       });
       allStockQuery += ` AND s.co_alma IN (${allStockPlaceholders.join(', ')})`;
     }
-    allStockQuery += ' ORDER BY a.art_des';
+    allStockQuery += ' ORDER BY a.art_des, a.co_art, s.co_alma';
     const allStockResult = await allStockRequest.query(allStockQuery);
     const allStockRows = trimStrings(allStockResult.recordset) as unknown as AllStockRow[];
     const allStock = allStockRows.map(r => ({
