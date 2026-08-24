@@ -47,6 +47,30 @@ export async function GET(request: NextRequest) {
       .filter(w => w.active).map(w => w.coAlma);
 
     const pool = await getPool();
+
+    const url = new URL(request.url);
+    const unstockedOnly = url.searchParams.get('unstocked') === 'true';
+    if (unstockedOnly) {
+      const targetCoAlma = url.searchParams.get('co_alma');
+      if (!targetCoAlma) {
+        return NextResponse.json({ error: 'Almacén requerido' }, { status: 400 });
+      }
+      const unstockedResult = await pool.request()
+        .input('coAlma', sql.Char(6), targetCoAlma)
+        .query(`
+          SELECT a.co_art, a.art_des
+          FROM saArticulo a
+          WHERE a.anulado = 0
+            AND NOT EXISTS (
+              SELECT 1 FROM saStockAlmacen s
+              WHERE s.co_art = a.co_art AND s.co_alma = @coAlma AND s.tipo = 'ACT'
+            )
+          ORDER BY a.art_des
+        `);
+      const unstockedRows = trimStrings(unstockedResult.recordset) as unknown as Array<{ co_art: string; art_des: string }>;
+      return NextResponse.json(unstockedRows.map(r => ({ coArt: r.co_art, artDes: r.art_des })));
+    }
+
     const request_ = pool.request();
 
     let query = ITEMS_QUERY_BASE;

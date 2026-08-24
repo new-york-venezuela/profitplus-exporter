@@ -9,10 +9,10 @@ import { signToken } from '@/lib/auth/session';
 import { GET as getItems } from '@/app/api/inventory/items/route';
 import { PATCH as patchItem } from '@/app/api/inventory/items/[co_art]/route';
 
-function buildRequest(token: string | null, init: { method: string; body?: string }): NextRequest {
+function buildRequest(token: string | null, init: { method: string; body?: string }, url = 'http://localhost:3000/api/test'): NextRequest {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Cookie'] = `session=${token}`;
-  return new NextRequest('http://localhost:3000/api/test', {
+  return new NextRequest(url, {
     method: init.method,
     body: init.body,
     headers,
@@ -151,6 +151,61 @@ describe('GET /api/inventory/items', () => {
     const response = await getItems(buildRequest(token, { method: 'GET' }));
     const body = await response.json() as Array<{ coArt: string; coAlma: string }>;
     expect(body.some(item => item.coAlma === WAREHOUSE)).toBe(false);
+  });
+});
+
+describe('GET /api/inventory/items?unstocked=true', () => {
+  beforeEach(() => {
+    resetSqliteDb();
+  });
+
+  test('requires co_alma', async () => {
+    const db = getDb();
+    const admin = db.insert(users).values({
+      email: 'admin-unstocked1@x.com', name: 'Admin', passwordHash: 'x',
+      role: 'admin', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const token = await signToken({ sub: String(admin.id), role: 'admin', name: 'Admin' });
+
+    const response = await getItems(buildRequest(
+      token, { method: 'GET' }, 'http://localhost:3000/api/inventory/items?unstocked=true',
+    ));
+    expect(response.status).toBe(400);
+  });
+
+  test('lists articles missing a stock row in the requested warehouse, excluding the stocked test article', async () => {
+    const db = getDb();
+    const admin = db.insert(users).values({
+      email: 'admin-unstocked2@x.com', name: 'Admin', passwordHash: 'x',
+      role: 'admin', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const token = await signToken({ sub: String(admin.id), role: 'admin', name: 'Admin' });
+
+    const response = await getItems(buildRequest(
+      token, { method: 'GET' },
+      `http://localhost:3000/api/inventory/items?unstocked=true&co_alma=${encodeURIComponent(WAREHOUSE)}`,
+    ));
+    expect(response.status).toBe(200);
+
+    const body = await response.json() as Array<{ coArt: string; artDes: string }>;
+    // testArticle has a stock row in WAREHOUSE (set up in the top-level beforeAll),
+    // so it must never appear in the "missing stock" list for that warehouse.
+    expect(body.some(item => item.coArt === testArticle.co_art)).toBe(false);
+  });
+
+  test('user without the inventory module gets 403', async () => {
+    const db = getDb();
+    const user = db.insert(users).values({
+      email: 'noaccess-unstocked@x.com', name: 'No Access', passwordHash: 'x',
+      role: 'user', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const token = await signToken({ sub: String(user.id), role: 'user', name: 'No Access' });
+
+    const response = await getItems(buildRequest(
+      token, { method: 'GET' },
+      `http://localhost:3000/api/inventory/items?unstocked=true&co_alma=${encodeURIComponent(WAREHOUSE)}`,
+    ));
+    expect(response.status).toBe(403);
   });
 });
 

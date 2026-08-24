@@ -49,6 +49,12 @@ export function ArticulosClient() {
   const [edits, setEdits]       = useState<Record<string, EditableFields>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [savingRow, setSavingRow] = useState<string | null>(null);
+  const [showAddToWarehouse, setShowAddToWarehouse] = useState(false);
+  const [warehouseCandidates, setWarehouseCandidates] = useState<Array<{ coArt: string; artDes: string }>>([]);
+  const [addWarehouseTarget, setAddWarehouseTarget] = useState('');
+  const [addArticleTarget, setAddArticleTarget] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const inputClass = `w-full border border-gray-300 rounded-md px-2 py-1 text-sm
                       focus:outline-none focus:ring-2 focus:ring-blue-500`;
@@ -88,6 +94,12 @@ export function ArticulosClient() {
     const seen = new Map<string, string>();
     for (const item of items) seen.set(item.coCat, item.catDes ?? item.coCat);
     return Array.from(seen.entries());
+  }, [items]);
+
+  const warehouseOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of items) seen.add(item.coAlma);
+    return Array.from(seen);
   }, [items]);
 
   const filteredItems = items.filter(item =>
@@ -185,6 +197,92 @@ export function ArticulosClient() {
             {categorias.map(([co, des]) => <option key={co} value={co}>{des}</option>)}
           </select>
         </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <button
+          onClick={() => setShowAddToWarehouse(v => !v)}
+          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+        >
+          {showAddToWarehouse ? 'Cancelar' : '+ Agregar artículo existente a un almacén'}
+        </button>
+
+        {showAddToWarehouse && (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-gray-500">
+              Para artículos que ya existen en Profit Plus pero aún no tienen stock
+              registrado en un almacén configurado — por ejemplo, una línea de
+              productos nueva.
+            </p>
+            <div className="flex gap-3 items-end">
+              <div>
+                <label htmlFor="add-warehouse-target" className="block text-xs font-medium text-gray-700 mb-1">Almacén</label>
+                <select
+                  id="add-warehouse-target"
+                  value={addWarehouseTarget}
+                  onChange={async e => {
+                    const coAlma = e.target.value;
+                    setAddWarehouseTarget(coAlma);
+                    setAddArticleTarget('');
+                    setAddError(null);
+                    if (!coAlma) { setWarehouseCandidates([]); return; }
+                    const res = await fetch(`/api/inventory/items?unstocked=true&co_alma=${encodeURIComponent(coAlma)}`);
+                    setWarehouseCandidates(res.ok ? await res.json() : []);
+                  }}
+                  className={`${inputClass} w-48`}
+                >
+                  <option value="">Selecciona…</option>
+                  {warehouseOptions.map(coAlma => <option key={coAlma} value={coAlma}>{coAlma}</option>)}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label htmlFor="add-article-target" className="block text-xs font-medium text-gray-700 mb-1">Artículo</label>
+                <select
+                  id="add-article-target"
+                  value={addArticleTarget}
+                  onChange={e => setAddArticleTarget(e.target.value)}
+                  disabled={!addWarehouseTarget}
+                  className={inputClass}
+                >
+                  <option value="">Selecciona…</option>
+                  {warehouseCandidates.map(c => <option key={c.coArt} value={c.coArt}>{c.coArt} — {c.artDes}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={async () => {
+                  setAdding(true);
+                  setAddError(null);
+                  try {
+                    const res = await fetch(`/api/inventory/items/${encodeURIComponent(addArticleTarget)}/warehouses`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ coAlma: addWarehouseTarget }),
+                    });
+                    if (!res.ok) {
+                      const data = await res.json().catch(() => ({}));
+                      setAddError(data.error ?? 'No se pudo agregar el artículo al almacén');
+                      return;
+                    }
+                    const listRes = await fetch('/api/inventory/items');
+                    if (listRes.ok) setItems(await listRes.json());
+                    setShowAddToWarehouse(false);
+                    setAddWarehouseTarget('');
+                    setAddArticleTarget('');
+                  } finally {
+                    setAdding(false);
+                  }
+                }}
+                disabled={!addWarehouseTarget || !addArticleTarget || adding}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
+              >
+                {adding ? 'Agregando…' : 'Agregar'}
+              </button>
+            </div>
+            {addError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{addError}</p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
