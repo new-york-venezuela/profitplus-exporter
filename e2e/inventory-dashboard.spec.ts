@@ -69,4 +69,10 @@ test.describe('inventario/dashboard @mssql', () => {
       }
     }
   });
+
+  test('shows a searchable current-stock table above the low-stock list', async ({ userPage }) => {
+    await userPage.goto('/inventario/dashboard');
+    await expect(userPage.getByRole('heading', { name: 'Stock actual' })).toBeVisible({ timeout: 15_000 });
+    await expect(userPage.getByPlaceholder('Buscar artículo…')).toBeVisible();
+  });
 });

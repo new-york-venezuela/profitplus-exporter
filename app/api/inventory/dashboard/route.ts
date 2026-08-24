@@ -28,6 +28,20 @@ interface DashboardRow {
   co_art: string; art_des: string; co_alma: string; stock: number; sold: number;
 }
 
+// Current stock per configured warehouse, with no sales-velocity join —
+// used to power the "browse all stock" table, which must show every
+// article/warehouse pair regardless of whether it has recent sales.
+const ALL_STOCK_QUERY_BASE = `
+  SELECT a.co_art, a.art_des, s.co_alma, s.stock
+  FROM saArticulo a
+  JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
+  WHERE a.anulado = 0
+`;
+
+interface AllStockRow {
+  co_art: string; art_des: string; co_alma: string; stock: number;
+}
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -77,8 +91,28 @@ export async function GET(request: NextRequest) {
       .filter(item => item.daysOfStock !== null && item.daysOfStock < settings.daysOfStockThreshold)
       .sort((a, b) => (a.daysOfStock as number) - (b.daysOfStock as number));
 
+    const allStockRequest = pool.request();
+    let allStockQuery = ALL_STOCK_QUERY_BASE;
+    if (activeWarehouses.length > 0) {
+      const allStockPlaceholders = activeWarehouses.map((w, i) => {
+        allStockRequest.input(`coAlma${i}`, sql.Char(6), w.coAlma);
+        return `@coAlma${i}`;
+      });
+      allStockQuery += ` AND s.co_alma IN (${allStockPlaceholders.join(', ')})`;
+    }
+    allStockQuery += ' ORDER BY a.art_des';
+    const allStockResult = await allStockRequest.query(allStockQuery);
+    const allStockRows = trimStrings(allStockResult.recordset) as unknown as AllStockRow[];
+    const allStock = allStockRows.map(r => ({
+      coArt:  r.co_art,
+      artDes: r.art_des,
+      coAlma: r.co_alma,
+      stock:  Number(r.stock),
+    }));
+
     return NextResponse.json({
       items,
+      allStock,
       rollingWindowDays:    settings.rollingWindowDays,
       daysOfStockThreshold: settings.daysOfStockThreshold,
     });

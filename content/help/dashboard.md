@@ -4,6 +4,15 @@ Muestra los artículos que están en riesgo de quedarse sin stock pronto,
 según su ritmo de venta reciente. La idea es que puedas revisar esta
 lista periódicamente y decidir qué reabastecer antes de que se agote.
 
+## Stock actual
+
+La tabla **Stock actual**, ubicada arriba de la lista de stock bajo,
+muestra el stock disponible de **todos** los artículos en los almacenes
+configurados — no solo los que están en riesgo. Usa el campo de
+búsqueda para filtrar por código o nombre de artículo. A diferencia de
+la lista de stock bajo, esta tabla no depende del historial de ventas:
+un artículo aparece aquí aunque no haya tenido ventas recientes.
+
 ## Glosario de campos
 
 - **Almacén**: el almacén de Profit Plus donde se encuentra ese stock.

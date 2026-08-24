@@ -12,8 +12,16 @@ interface LowStockItem {
   daysOfStock:   number;
 }
 
+interface StockRow {
+  coArt:  string;
+  artDes: string;
+  coAlma: string;
+  stock:  number;
+}
+
 interface DashboardResponse {
   items:                 LowStockItem[];
+  allStock:              StockRow[];
   rollingWindowDays:     number;
   daysOfStockThreshold:  number;
 }
@@ -22,6 +30,7 @@ export function DashboardClient() {
   const [data, setData]       = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const [stockSearch, setStockSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +69,55 @@ export function DashboardClient() {
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
           {error}
         </p>
+      )}
+
+      {data && (
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-4">
+            <h2 className="text-sm font-semibold text-gray-800">Stock actual</h2>
+            <input
+              type="text"
+              placeholder="Buscar artículo…"
+              value={stockSearch}
+              onChange={e => setStockSearch(e.target.value)}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm w-56
+                         focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr className="border-b border-gray-200">
+                  {['Código', 'Nombre', 'Almacén', 'Stock'].map(h => (
+                    <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data.allStock
+                  .filter(row => {
+                    const q = stockSearch.trim().toLowerCase();
+                    return q === '' || row.coArt.toLowerCase().includes(q) || row.artDes.toLowerCase().includes(q);
+                  })
+                  .map(row => (
+                    <tr key={`${row.coArt}::${row.coAlma}`} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{row.coArt}</td>
+                      <td className="px-3 py-2 text-gray-900">{row.artDes}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.coAlma}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.stock}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {data.allStock.length === 0 && (
+              <div className="text-center py-10 text-gray-400 text-sm">
+                No hay artículos configurados para mostrar.
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {data && (
