@@ -15,31 +15,35 @@ export const dynamic = 'force-dynamic';
 // days-of-stock estimate, so they can't be flagged as at-risk either way.
 const DASHBOARD_QUERY_BASE = `
   SELECT
-    a.co_art, a.art_des, s.co_alma, s.stock,
+    a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni,
     SUM(fvr.total_art) AS sold
   FROM saArticulo a
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
   JOIN saFacturaVentaReng fvr ON fvr.co_art = a.co_art AND fvr.co_alma = s.co_alma
   JOIN saFacturaVenta fv ON fv.doc_num = fvr.doc_num
+  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
+  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   WHERE a.anulado = 0 AND fv.anulado = 0 AND fv.fec_emis > @sinceDate
 `;
 
 interface DashboardRow {
-  co_art: string; art_des: string; co_alma: string; stock: number; sold: number;
+  co_art: string; art_des: string; co_alma: string; stock: number; sold: number; des_uni: string | null;
 }
 
 // Current stock per configured warehouse, with no sales-velocity join —
 // used to power the "browse all stock" table, which must show every
 // article/warehouse pair regardless of whether it has recent sales.
 const ALL_STOCK_QUERY_BASE = `
-  SELECT a.co_art, a.art_des, s.co_alma, s.stock
+  SELECT a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni
   FROM saArticulo a
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
+  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
+  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   WHERE a.anulado = 0
 `;
 
 interface AllStockRow {
-  co_art: string; art_des: string; co_alma: string; stock: number;
+  co_art: string; art_des: string; co_alma: string; stock: number; des_uni: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -67,7 +71,7 @@ export async function GET(request: NextRequest) {
       });
       query += ` AND s.co_alma IN (${placeholders.join(', ')})`;
     }
-    query += ' GROUP BY a.co_art, a.art_des, s.co_alma, s.stock ORDER BY a.art_des';
+    query += ' GROUP BY a.co_art, a.art_des, s.co_alma, s.stock, u.des_uni ORDER BY a.art_des';
 
     const result = await request_.query(query);
     const rows = trimStrings(result.recordset) as unknown as DashboardRow[];
@@ -83,6 +87,7 @@ export async function GET(request: NextRequest) {
           artDes: r.art_des,
           coAlma: r.co_alma,
           stock,
+          unidad: r.des_uni,
           sold,
           avgDailySales,
           daysOfStock,
@@ -108,6 +113,7 @@ export async function GET(request: NextRequest) {
       artDes: r.art_des,
       coAlma: r.co_alma,
       stock:  Number(r.stock),
+      unidad: r.des_uni,
     }));
 
     return NextResponse.json({

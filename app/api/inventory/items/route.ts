@@ -15,10 +15,13 @@ const ITEMS_QUERY_BASE = `
     a.stock_min, a.stock_max, a.stock_pedido,
     a.co_lin, l.lin_des,
     a.co_cat, c.cat_des,
-    s.co_alma, s.stock
+    s.co_alma, s.stock,
+    u.des_uni
   FROM saArticulo a
   LEFT JOIN saLineaArticulo l ON l.co_lin = a.co_lin
   LEFT JOIN saCatArticulo c ON c.co_cat = a.co_cat
+  LEFT JOIN saArtUnidad au ON au.co_art = a.co_art AND au.uni_principal = 1
+  LEFT JOIN saUnidad u ON u.co_uni = au.co_uni
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
   WHERE a.anulado = 0
 `;
@@ -32,6 +35,7 @@ interface ItemRow {
   co_lin: string; lin_des: string | null;
   co_cat: string; cat_des: string | null;
   co_alma: string; stock: number;
+  des_uni: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -106,6 +110,7 @@ export async function GET(request: NextRequest) {
       catDes:       r.cat_des,
       coAlma:       r.co_alma,
       stock:        r.stock,
+      unidad:       r.des_uni,
     }));
 
     return NextResponse.json(items);

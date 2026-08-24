@@ -7,6 +7,7 @@ interface LowStockItem {
   artDes:        string;
   coAlma:        string;
   stock:         number;
+  unidad:        string | null;
   sold:          number;
   avgDailySales: number;
   daysOfStock:   number;
@@ -17,6 +18,7 @@ interface StockRow {
   artDes: string;
   coAlma: string;
   stock:  number;
+  unidad: string | null;
 }
 
 interface DashboardResponse {
@@ -88,7 +90,7 @@ export function DashboardClient() {
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 bg-gray-50">
                 <tr className="border-b border-gray-200">
-                  {['Código', 'Nombre', 'Almacén', 'Stock'].map(h => (
+                  {['Código', 'Nombre', 'Almacén', 'Stock', 'Unidad'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                       {h}
                     </th>
@@ -107,6 +109,7 @@ export function DashboardClient() {
                       <td className="px-3 py-2 text-gray-900">{row.artDes}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.coAlma}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.stock}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.unidad ?? '—'}</td>
                     </tr>
                   ))}
               </tbody>
@@ -132,7 +135,7 @@ export function DashboardClient() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
-                  {['Código', 'Nombre', 'Almacén', 'Stock', 'Venta diaria prom.', 'Días de stock'].map(h => (
+                  {['Código', 'Nombre', 'Almacén', 'Stock', 'Unidad', 'Venta diaria prom.', 'Días de stock'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                       {h}
                     </th>
@@ -146,6 +149,7 @@ export function DashboardClient() {
                     <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.avgDailySales.toFixed(1)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {item.stock < 0 ? (

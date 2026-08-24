@@ -8,6 +8,7 @@ interface Item {
   artDes: string;
   coAlma: string;
   stock:  number;
+  unidad: string | null;
 }
 
 interface AdjustmentResult {
@@ -182,7 +183,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
         <table className="min-w-full text-sm">
           <thead className="sticky top-0 bg-gray-50">
             <tr className="border-b border-gray-200">
-              {['Código', 'Nombre', 'Almacén', 'Stock'].map(h => (
+              {['Código', 'Nombre', 'Almacén', 'Stock', 'Unidad'].map(h => (
                 <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
@@ -207,6 +208,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
                   <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
                 </tr>
               );
             })}

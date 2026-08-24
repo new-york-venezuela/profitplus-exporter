@@ -125,6 +125,24 @@ describe('GET /api/inventory/items', () => {
     expect(body.some(item => item.coArt === testArticle.co_art)).toBe(true);
   });
 
+  test('includes the article\'s unit of measure', async () => {
+    const db = getDb();
+    const admin = db.insert(users).values({
+      email: 'admin-unidad@x.com', name: 'Admin', passwordHash: 'x',
+      role: 'admin', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const token = await signToken({ sub: String(admin.id), role: 'admin', name: 'Admin' });
+
+    const response = await getItems(buildRequest(token, { method: 'GET' }));
+    expect(response.status).toBe(200);
+
+    const body = await response.json() as Array<{ coArt: string; unidad: string | null }>;
+    const testItem = body.find(item => item.coArt === testArticle.co_art);
+    expect(testItem).toBeDefined();
+    expect(typeof testItem!.unidad).toBe('string');
+    expect(testItem!.unidad!.length).toBeGreaterThan(0);
+  });
+
   test('admin can list items without an explicit module grant', async () => {
     const db = getDb();
     const admin = db.insert(users).values({

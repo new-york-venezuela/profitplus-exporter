@@ -18,6 +18,7 @@ interface Item {
   catDes:      string | null;
   coAlma:      string;
   stock:       number;
+  unidad:      string | null;
 }
 
 interface EditableFields {
@@ -312,7 +313,7 @@ export function ArticulosClient() {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Código', 'Nombre', 'Referencia', 'Modelo', 'Stock', 'Mín (reorden)', 'Máx (reorden)', 'Pedido', 'Acciones'].map(h => (
+              {['Código', 'Nombre', 'Referencia', 'Modelo', 'Stock', 'Unidad', 'Mín (reorden)', 'Máx (reorden)', 'Pedido', 'Acciones'].map(h => (
                 <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
@@ -338,6 +339,7 @@ export function ArticulosClient() {
                     <input aria-label={`Modelo ${item.coArt} (${item.coAlma})`} value={fields.modelo} onChange={e => setField(item, 'modelo', e.target.value)} className={`${inputClass} w-28`} />
                   </td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad ?? '—'}</td>
                   <td className="px-3 py-2">
                     <input aria-label={`Mín ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockMin}
                       onChange={e => setField(item, 'stockMin', parseFloat(e.target.value) || 0)}

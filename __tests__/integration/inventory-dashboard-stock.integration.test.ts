@@ -38,4 +38,27 @@ describe('GET /api/inventory/dashboard @mssql — allStock', () => {
         s.coArt === flagged.coArt && s.coAlma === flagged.coAlma)).toBe(true);
     }
   });
+
+  test('allStock rows include the unit of measure', async () => {
+    resetSqliteDb();
+    const db = getDb();
+    const user = db.insert(users).values({
+      email: 'dash-unidad@e2e.test', passwordHash: 'x', name: 'Dash Unidad', role: 'user',
+      createdAt: Date.now(),
+    }).returning({ id: users.id }).get();
+    db.insert(userModules).values({ userId: user!.id, module: 'inventory' }).run();
+    const token = await signToken({ sub: String(user!.id), role: 'user', name: 'Dash Unidad' });
+
+    const req = new NextRequest('http://localhost:3000/api/inventory/dashboard', {
+      headers: { Cookie: `session=${token}` },
+    });
+    const res = await getDashboard(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.allStock.length).toBeGreaterThan(0);
+    for (const row of body.allStock as Array<{ unidad: string | null }>) {
+      expect(typeof row.unidad === 'string' || row.unidad === null).toBe(true);
+    }
+    expect(body.allStock.some((row: { unidad: string | null }) => typeof row.unidad === 'string' && row.unidad.length > 0)).toBe(true);
+  });
 });
