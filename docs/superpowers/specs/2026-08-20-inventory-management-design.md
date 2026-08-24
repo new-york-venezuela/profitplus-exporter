@@ -235,7 +235,7 @@ Nav: new "Inventario" sidebar section, visible when
 
 **Pages** (Spanish URIs, matching existing convention):
 
-- **`/inventario`** — dashboard. Current stock per article/warehouse
+- **`/inventario/dashboard`** — dashboard. Current stock per article/warehouse
   (`saStockAlmacen`, filtered to configured warehouses); a stock
   evolution chart per article, built from `dbo.MovimientoInventario`'s
   running balance (`SUM(total_entrada - total_salida)` ordered by
