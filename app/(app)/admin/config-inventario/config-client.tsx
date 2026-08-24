@@ -99,11 +99,11 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
     setWarehouses(prev => prev.map(w => w.id === warehouse.id ? { ...w, active: !w.active } : w));
   }
 
-  async function handleDeleteWarehouse(id: number) {
-    if (!confirm('¿Eliminar este almacén de la lista?')) return;
-    const res = await fetch(`/api/admin/inventory-warehouses/${id}`, { method: 'DELETE' });
+  async function handleDeleteWarehouse(warehouse: Warehouse) {
+    if (!confirm(`¿Quitar el almacén ${warehouse.coAlma} — ${warehouse.label} de la lista de Inventario?`)) return;
+    const res = await fetch(`/api/admin/inventory-warehouses/${warehouse.id}`, { method: 'DELETE' });
     if (res.ok) {
-      setWarehouses(prev => prev.filter(w => w.id !== id));
+      setWarehouses(prev => prev.filter(w => w.id !== warehouse.id));
       setOptionsReloadToken(t => t + 1);
     }
   }
@@ -173,7 +173,9 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => handleDeleteWarehouse(w.id)}
+                      onClick={() => handleDeleteWarehouse(w)}
+                      aria-label={`Quitar almacén ${w.coAlma} — ${w.label}`}
+                      title={`Quitar almacén ${w.coAlma}`}
                       className="text-xs text-red-500 hover:text-red-700 font-medium"
                     >
                       ✕
