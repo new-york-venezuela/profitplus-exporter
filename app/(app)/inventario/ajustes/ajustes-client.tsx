@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { HistorialClient } from './historial-client';
 
 interface Item {
   coArt:  string;
@@ -44,6 +45,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AdjustmentResult | null>(null);
+  const [historyReloadToken, setHistoryReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +132,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
         : item,
       ));
       setLastResult({ ajueNum: data.ajueNum, delta: data.delta });
+      setHistoryReloadToken(t => t + 1);
       setCountedStock('');
     } catch {
       setFormError('No se pudo conectar con el servidor');
@@ -264,6 +267,8 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
           </button>
         </div>
       )}
+
+      <HistorialClient reloadToken={historyReloadToken} />
     </div>
   );
 }

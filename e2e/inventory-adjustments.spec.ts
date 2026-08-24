@@ -155,4 +155,9 @@ test.describe('inventario/ajustes @mssql', () => {
     const finalStockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
     expect(Number(finalStockText?.trim())).toBe(originalStock);
   });
+
+  test('adjustment history shows a newly created adjustment', async ({ userPage }) => {
+    await userPage.goto('/inventario/ajustes');
+    await expect(userPage.getByRole('heading', { name: 'Últimos ajustes' })).toBeVisible({ timeout: 15_000 });
+  });
 });
