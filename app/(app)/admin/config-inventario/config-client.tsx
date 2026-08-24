@@ -235,7 +235,7 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
 
       <section>
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Alertas de stock bajo</h2>
-        <div className="flex gap-6 items-end">
+        <div className="flex gap-6 items-start">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Ventana de consumo (días)
@@ -247,6 +247,10 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
               onChange={e => setSettings(s => ({ ...s, rollingWindowDays: parseInt(e.target.value, 10) || 0 }))}
               className={`${inputClass} w-32`}
             />
+            <p className="text-xs text-gray-500 mt-1 max-w-48">
+              Cuántos días de historial de ventas se usan para calcular el
+              consumo diario promedio. Ej.: 60.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -259,6 +263,10 @@ export function ConfigInventarioClient({ initialWarehouses, initialSettings }: P
               onChange={e => setSettings(s => ({ ...s, daysOfStockThreshold: parseInt(e.target.value, 10) || 0 }))}
               className={`${inputClass} w-32`}
             />
+            <p className="text-xs text-gray-500 mt-1 max-w-48">
+              Un artículo se marca &quot;stock bajo&quot; cuando le quedan menos de
+              estos días, según su consumo reciente. Ej.: 7.
+            </p>
           </div>
           <button
             onClick={handleSaveSettings}
