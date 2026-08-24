@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { HistorialClient } from './historial-client';
 
 interface Item {
   coArt:  string;
@@ -45,7 +44,6 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AdjustmentResult | null>(null);
-  const [historyReloadToken, setHistoryReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,25 +70,24 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    if (loading || !initialCoArt || !initialCoAlma) return;
-    const key = `${initialCoArt}::${initialCoAlma}`;
-    if (items.some(item => rowKey(item) === key)) {
-      setSelectedKey(key);
-      setCountedStock('');
-      setLastResult(null);
-      setFormError(null);
-    }
-  }, [loading, items, initialCoArt, initialCoAlma]);
-
   const filteredItems = useMemo(
     () => items.filter(item => matchesSearch(item, search)),
     [items, search],
   );
 
+  // The URL-preselected article (if any) is derived during render rather
+  // than copied into state via an effect: selectedKey stays empty until
+  // the user explicitly picks a row (handleSelectRow), and effectiveKey
+  // falls back to the URL params only while that hasn't happened yet, so
+  // an explicit selection always wins even if it later differs from the
+  // URL. This avoids the react-hooks/set-state-in-effect cascading-render
+  // pattern an effect-based version of this preselection would trigger.
+  const initialKey = initialCoArt && initialCoAlma ? `${initialCoArt}::${initialCoAlma}` : '';
+  const effectiveKey = selectedKey || initialKey;
+
   const selected = useMemo(
-    () => items.find(item => rowKey(item) === selectedKey) ?? null,
-    [items, selectedKey],
+    () => items.find(item => rowKey(item) === effectiveKey) ?? null,
+    [items, effectiveKey],
   );
 
   function handleSelectRow(item: Item) {
@@ -127,12 +124,11 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
         return;
       }
 
-      setItems(prev => prev.map(item => rowKey(item) === selectedKey
+      setItems(prev => prev.map(item => rowKey(item) === effectiveKey
         ? { ...item, stock: countedValue }
         : item,
       ));
       setLastResult({ ajueNum: data.ajueNum, delta: data.delta });
-      setHistoryReloadToken(t => t + 1);
       setCountedStock('');
     } catch {
       setFormError('No se pudo conectar con el servidor');
@@ -191,7 +187,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
           <tbody className="divide-y divide-gray-100" role="listbox" aria-label="Artículos">
             {filteredItems.map(item => {
               const key = rowKey(item);
-              const isSelected = key === selectedKey;
+              const isSelected = key === effectiveKey;
               return (
                 <tr
                   key={key}
@@ -267,8 +263,6 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
           </button>
         </div>
       )}
-
-      <HistorialClient reloadToken={historyReloadToken} />
     </div>
   );
 }
