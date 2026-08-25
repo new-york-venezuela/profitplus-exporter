@@ -57,9 +57,14 @@ BEGIN
       AND src.validador > @Watermark
       AND (
             ISNULL(tgt.ProductName, '') <> ISNULL(src.art_des, '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.ProductTypeCode, '') <> ISNULL(src.tipo, '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.CostingMethodCode, '') <> ISNULL(src.tipo_cos, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.CategoryCode, '') <> ISNULL(RTRIM(src.co_cat), '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.CategoryName, '') <> ISNULL(src.cat_des, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.LineCode, '') <> ISNULL(RTRIM(src.co_lin), '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.LineName, '') <> ISNULL(src.lin_des, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.SubLineCode, '') <> ISNULL(RTRIM(src.co_subl), '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.SubLineName, '') <> ISNULL(src.subl_des, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.MarginMinPercent, -1) <> ISNULL(src.margen_min, -1)
          OR ISNULL(tgt.MarginMaxPercent, -1) <> ISNULL(src.margen_max, -1)
          OR ISNULL(tgt.IsInactive, 0) <> ISNULL(src.anulado, 0)
