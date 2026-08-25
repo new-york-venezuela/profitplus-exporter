@@ -6,17 +6,17 @@
 
 ## 1. Purpose & Scope
 
-Design a Kimball-style dimensional Data Warehouse (DWH) for "Alimentos New York," a Venezuelan bakery/food operation running Profit Plus 2k12 as its ERP (SQL Server, database referred to here as `ERP_DB` — the live instance is `Ncake_a`). The DWH powers three BI pillars:
+Design a Kimball-style dimensional Data Warehouse (DWH) for "Alimentos New York," a Venezuelan bakery/food operation running Profit Plus 2k12 as its ERP (SQL Server, database referred to here as `ERP_DB` — the live instance is `Ncake_a`). The DWH powers two BI pillars in this phase:
 
 1. **Sales, Returns & Net Revenue** — trend, return rate, customer/product Pareto, sales rep performance
-2. **Unit Economics, Costs & Margins** — gross margin waterfall, margin by product/category, cost volatility
-3. **Collections, Aging & Cash Flow** — AR aging buckets, DSO trend, collections efficiency, credit concentration
+2. **Collections, Aging & Cash Flow** — AR aging buckets, DSO trend, collections efficiency, credit concentration
 
 This spec covers the dimensional model (dims + facts), the ETL/incremental-load mechanism, and the T-SQL to build it. It also covers targeted improvements to the `erp-knowledge-base` documentation repo for source tables this design depends on that were previously undocumented stubs.
 
 **Explicitly out of scope** (confirmed with user):
 - Return reason-code breakdown — Profit Plus has no `co_motivo_devolucion` catalog; only a free-text `comentario` field exists on `saDevolucionCliente`. Fact_Returns ships without a reason dimension.
 - Sales target / quota realization — Profit Plus has no presupuesto/meta table anywhere in the schema. Fact_Sales ships with full rep performance (gross/net/discount) but no target-vs-actual.
+- **Unit Economics, Costs & Margins (deferred, not cancelled)** — the Gross Margin Waterfall, Margin by Product/Category, and Cost Volatility dashboards from the original ask are deferred out of this phase. §2 documents a live-verified finding: no production/manufacturing cost has ever been recorded for any finished good in this Profit Plus installation (`saCostoHistoricoSalida`, `saCostoHistoricoEntrada`, and `saArtCompuesto`/BOM all confirmed empty or zero for `tipo='V'` articles). This is a business-process gap, not a DWH engineering problem — margin dashboards need a costing process established upstream before they're buildable. Fact_Sales still carries `UnitCost`/`COGSAmount`/`GrossProfitAmount`/`CostSourceFlag` columns (see §3.2) so the schema activates automatically the day real cost data starts flowing, but this phase's implementation plan builds and loads **Fact_Sales, Fact_Returns, Fact_Collections, Fact_AR_Snapshot, and Fact_ExchangeRate** — not a margin dashboard.
 
 ## 2. Source System Facts Grounding This Design
 
