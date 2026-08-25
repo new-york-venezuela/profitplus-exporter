@@ -76,6 +76,7 @@ BEGIN
         FROM Ncake_a.dbo.saTasa t
         INNER JOIN dim.Dim_Currency c ON c.CurrencyCode = RTRIM(t.co_mone) COLLATE SQL_Latin1_General_CP1_CI_AS
         WHERE EXISTS (SELECT 1 FROM Ncake_a.dbo.saMoneda m WHERE RTRIM(m.co_mone) = RTRIM(t.co_mone) COLLATE SQL_Latin1_General_CP1_CI_AS)
+        AND t.fecha >= '2020-01-01'
     ) AS src
         ON tgt.DateKey = src.DateKey AND tgt.CurrencyKey = src.CurrencyKey
     WHEN MATCHED THEN UPDATE SET

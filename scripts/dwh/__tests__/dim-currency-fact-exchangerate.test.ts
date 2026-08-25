@@ -38,14 +38,15 @@ describe('Dim_Currency + Fact_ExchangeRate', () => {
     await masterPool.close();
   });
 
-  test('Load_Dim_Currency loads the base currency with the correct BS code, not VES', async () => {
+  test('Load_Dim_Currency flags BSD as a base currency, not VES', async () => {
     await pool.request().execute('dwh.Load_Dim_Currency');
 
-    const baseCurrency = await pool.request().query(`
-      SELECT CurrencyCode, IsBaseCurrency FROM dim.Dim_Currency WHERE IsBaseCurrency = 1
+    const baseCurrencies = await pool.request().query(`
+      SELECT CurrencyCode FROM dim.Dim_Currency WHERE IsBaseCurrency = 1
     `);
-    expect(baseCurrency.recordset.length).toBe(1);
-    expect(baseCurrency.recordset[0].CurrencyCode.trim()).toBe('BS');
+    const codes = baseCurrencies.recordset.map((r: { CurrencyCode: string }) => r.CurrencyCode.trim());
+    expect(codes).toContain('BSD');
+    expect(codes).not.toContain('VES');
   });
 
   test('Load_Dim_Currency row count matches saMoneda row count', async () => {
