@@ -109,7 +109,9 @@ BEGIN
             ISNULL(a.produccion, 0) AS IsProductionWarehouse,
             CASE WHEN EXISTS (
                 SELECT 1 FROM Ncake_a.dbo.saStockAlmacen s
-                WHERE RTRIM(s.co_alma) COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(a.co_alma) COLLATE SQL_Latin1_General_CP1_CI_AS AND s.stock <> 0
+                WHERE RTRIM(s.co_alma) COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(a.co_alma) COLLATE SQL_Latin1_General_CP1_CI_AS
+                GROUP BY s.co_alma
+                HAVING SUM(s.stock) > 0
             ) THEN 1 ELSE 0 END AS HasRealStock
         FROM Ncake_a.dbo.saAlmacen a
     ) AS src
