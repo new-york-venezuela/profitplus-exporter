@@ -293,3 +293,78 @@ describe('POST /api/inventory/adjustments', () => {
     if (found) await cleanupAjuste(found);
   });
 });
+
+describe('POST /api/inventory/adjustments — simple ajuste @mssql', () => {
+  let token: string;
+
+  beforeAll(async () => {
+    const db = getDb();
+    const user = db.insert(users).values({
+      email: 'editor-simple-adj@x.com', name: 'Editor', passwordHash: 'x',
+      role: 'user', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    db.insert(userModules).values({ userId: user.id, module: 'inventory' }).run();
+    token = await signToken({ sub: String(user.id), role: 'user', name: 'Editor' });
+  });
+
+  test('registers an entrada movement for the exact typed quantity, no delta math', async () => {
+    const before = await getStock(testArticle.co_art, WAREHOUSE);
+    const req = buildRequest(token, {
+      coTipo: 'E00001', coArt: testArticle.co_art, coAlma: WAREHOUSE, cantidad: 7,
+    });
+    const res = await postAdjustment(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ajueNum).toBeTruthy();
+
+    const after = await getStock(testArticle.co_art, WAREHOUSE);
+    expect(after).toBe(before + 7);
+
+    await cleanupAjuste(data.ajueNum);
+    await restoreStock(testArticle.co_art, WAREHOUSE, before);
+  });
+
+  test('registers a salida movement, decreasing stock by the exact typed quantity', async () => {
+    const before = await getStock(testArticle.co_art, WAREHOUSE);
+    const req = buildRequest(token, {
+      coTipo: 'S00001', coArt: testArticle.co_art, coAlma: WAREHOUSE, cantidad: 3,
+    });
+    const res = await postAdjustment(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+
+    const after = await getStock(testArticle.co_art, WAREHOUSE);
+    expect(after).toBe(before - 3);
+
+    await cleanupAjuste(data.ajueNum);
+    await restoreStock(testArticle.co_art, WAREHOUSE, before);
+  });
+
+  test('rejects a salida that would push stock negative, leaving stock unchanged', async () => {
+    const before = await getStock(testArticle.co_art, WAREHOUSE);
+    const req = buildRequest(token, {
+      coTipo: 'S00001', coArt: testArticle.co_art, coAlma: WAREHOUSE, cantidad: before + 1000,
+    });
+    const res = await postAdjustment(req);
+    expect(res.status).toBe(400);
+
+    const after = await getStock(testArticle.co_art, WAREHOUSE);
+    expect(after).toBe(before);
+  });
+
+  test('rejects a non-positive cantidad', async () => {
+    const req = buildRequest(token, {
+      coTipo: 'E00001', coArt: testArticle.co_art, coAlma: WAREHOUSE, cantidad: 0,
+    });
+    const res = await postAdjustment(req);
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects an unknown coTipo', async () => {
+    const req = buildRequest(token, {
+      coTipo: 'X99999', coArt: testArticle.co_art, coAlma: WAREHOUSE, cantidad: 1,
+    });
+    const res = await postAdjustment(req);
+    expect(res.status).toBe(400);
+  });
+});
