@@ -17,7 +17,7 @@ export type NewUser = typeof users.$inferInsert;
 export const userModules = sqliteTable('user_modules', {
   id:     integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  module: text('module', { enum: ['inventory'] }).notNull(),
+  module: text('module', { enum: ['inventory', 'dwh'] }).notNull(),
 });
 
 export type UserModule    = typeof userModules.$inferSelect;

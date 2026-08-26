@@ -46,6 +46,13 @@ bun dev
 # Open http://localhost:3000
 ```
 
+This app also has a second SQL Server database — `DWH_AlimentosNY`, a
+pre-aggregated warehouse that powers `/analitica` — plus a Dockerized mock
+ERP for fully offline development. See **`INSTRUCTIONS.md`** for DWH setup,
+the mock ERP, testing, and production deployment on Windows Server + IIS.
+See **`AGENTS.md`** for architecture and extension patterns if you're
+adding a feature.
+
 ## Adding a Report
 
 1. Create `lib/reports/<name>.ts` with your `ReportConfig`.
@@ -57,12 +64,15 @@ See `AGENTS.md` for column definition format and `lib/reports/ventas.ts` for a w
 
 ## Scripts
 
-| Command            | Purpose                                   |
-|--------------------|-------------------------------------------|
-| `bun dev`          | Start development server                  |
-| `bun run build`    | Build for production                      |
-| `bun run start`    | Start production server (after build)     |
-| `bun run seed`     | Create admin user interactively           |
-| `bun run migrate`  | Apply SQLite migrations                   |
-| `bun run db:generate` | Generate new Drizzle migration         |
-| `bun test`         | Run unit tests                            |
+| Command               | Purpose                                   |
+|------------------------|-------------------------------------------|
+| `bun dev`              | Start development server                  |
+| `bun run build`        | Build for production                      |
+| `bun run start`        | Start production server (after build)     |
+| `bun run seed`         | Create admin user interactively           |
+| `bun run migrate`      | Apply SQLite migrations                   |
+| `bun run migrate:dwh`  | Apply DWH_AlimentosNY schema migrations   |
+| `bun run db:generate`  | Generate new Drizzle migration            |
+| `bun test`             | Run unit tests                            |
+
+See `INSTRUCTIONS.md` for the full script reference (e2e, DWH-specific test env, etc.).

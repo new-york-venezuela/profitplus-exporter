@@ -6,7 +6,7 @@ import { users, userModules } from '@/lib/db/schema';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_MODULES = ['inventory'] as const;
+const VALID_MODULES = ['inventory', 'dwh'] as const;
 
 export async function PUT(
   request: NextRequest,
@@ -38,7 +38,7 @@ export async function PUT(
 
     db.delete(userModules).where(eq(userModules.userId, userId)).run();
     for (const moduleName of modules) {
-      db.insert(userModules).values({ userId, module: moduleName as 'inventory' }).run();
+      db.insert(userModules).values({ userId, module: moduleName as 'inventory' | 'dwh' }).run();
     }
 
     return NextResponse.json({ ok: true });

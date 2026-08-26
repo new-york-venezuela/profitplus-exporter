@@ -75,11 +75,11 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
     finally  { setSubmitting(false); }
   }
 
-  async function handleToggleInventoryModule(user: UserRow) {
-    const hasIt = user.modules.includes('inventory');
+  async function handleToggleModule(user: UserRow, moduleName: 'inventory' | 'dwh') {
+    const hasIt = user.modules.includes(moduleName);
     const nextModules = hasIt
-      ? user.modules.filter(m => m !== 'inventory')
-      : [...user.modules, 'inventory'];
+      ? user.modules.filter(m => m !== moduleName)
+      : [...user.modules, moduleName];
 
     const res = await fetch(`/api/admin/users/${user.id}/modules`, {
       method:  'PUT',
@@ -130,7 +130,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Nombre', 'Email', 'Rol', 'Inventario', 'Creado', 'Acciones'].map(h => (
+              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Creado', 'Acciones'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold
                                        text-gray-600 uppercase tracking-wider">
                   {h}
@@ -157,11 +157,23 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
                     <input
                       type="checkbox"
                       checked={user.modules.includes('inventory')}
-                      onChange={() => handleToggleInventoryModule(user)}
+                      onChange={() => handleToggleModule(user, 'inventory')}
                       disabled={user.role === 'admin'}
                       className="rounded border-gray-300"
                     />
                     {user.role === 'admin' ? 'Incluido (admin)' : 'Inventario'}
+                  </label>
+                </td>
+                <td className="px-4 py-3">
+                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={user.modules.includes('dwh')}
+                      onChange={() => handleToggleModule(user, 'dwh')}
+                      disabled={user.role === 'admin'}
+                      className="rounded border-gray-300"
+                    />
+                    {user.role === 'admin' ? 'Incluido (admin)' : 'Analítica'}
                   </label>
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
