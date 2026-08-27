@@ -41,6 +41,21 @@ function toEditable(item: Item): EditableFields {
   };
 }
 
+interface Lookups {
+  lineas:     Array<{ coLin: string; linDes: string }>;
+  sublineas:  Array<{ coLin: string; coSubl: string; sublDes: string }>;
+  categorias: Array<{ coCat: string; catDes: string }>;
+  unidades:   Array<{ coUni: string; desUni: string }>;
+}
+
+const TIPO_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'M', label: 'Materia Prima' },
+  { value: 'V', label: 'Venta' },
+  { value: 'S', label: 'Servicio' },
+  { value: 'C', label: 'Consumo Interno' },
+  { value: 'E', label: 'Existencia' },
+];
+
 export function ArticulosClient() {
   const [items, setItems]       = useState<Item[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -56,9 +71,81 @@ export function ArticulosClient() {
   const [addArticleTarget, setAddArticleTarget] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [showCreateArticle, setShowCreateArticle] = useState(false);
+  const [lookups, setLookups] = useState<Lookups | null>(null);
+  const [newCoArt, setNewCoArt] = useState('');
+  const [newArtDes, setNewArtDes] = useState('');
+  const [newTipo, setNewTipo] = useState('');
+  const [newCoLin, setNewCoLin] = useState('');
+  const [newCoSubl, setNewCoSubl] = useState('');
+  const [newCoCat, setNewCoCat] = useState('');
+  const [newCoUni, setNewCoUni] = useState('');
+  const [newCoAlma, setNewCoAlma] = useState('');
+  const [creatingArticle, setCreatingArticle] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
   const inputClass = `w-full border border-gray-300 rounded-md px-2 py-1 text-sm
                       focus:outline-none focus:ring-2 focus:ring-blue-500`;
+
+  async function openCreateArticle() {
+    setShowCreateArticle(v => !v);
+    if (showCreateArticle || lookups) return;
+    const [lookupsRes, nextCodeRes] = await Promise.all([
+      fetch('/api/inventory/lookups'),
+      fetch('/api/inventory/items/next-code'),
+    ]);
+    if (lookupsRes.ok) setLookups(await lookupsRes.json());
+    if (nextCodeRes.ok) {
+      const data = await nextCodeRes.json();
+      setNewCoArt(data.nextCode);
+    }
+  }
+
+  const sublineaOptions = useMemo(
+    () => lookups?.sublineas.filter(s => s.coLin === newCoLin) ?? [],
+    [lookups, newCoLin],
+  );
+
+  const canCreateArticle = newCoArt.trim() !== '' && newArtDes.trim() !== '' && newTipo !== ''
+    && newCoLin !== '' && newCoSubl !== '' && newCoCat !== '' && newCoUni !== '' && newCoAlma !== '';
+
+  async function handleCreateArticle() {
+    setCreatingArticle(true);
+    setCreateError(null);
+    setCreateSuccess(null);
+    try {
+      const res = await fetch('/api/inventory/items', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          coArt: newCoArt, artDes: newArtDes, tipo: newTipo,
+          coLin: newCoLin, coSubl: newCoSubl, coCat: newCoCat, coUni: newCoUni,
+          coAlma: newCoAlma,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCreateError(data.error ?? 'No se pudo crear el artículo');
+        return;
+      }
+      if (data.warehouseError) {
+        setCreateError(data.warehouseError);
+      } else {
+        setCreateSuccess(`Artículo ${data.coArt} creado`);
+      }
+      const listRes = await fetch('/api/inventory/items');
+      if (listRes.ok) setItems(await listRes.json());
+      setNewArtDes(''); setNewTipo(''); setNewCoLin(''); setNewCoSubl('');
+      setNewCoCat(''); setNewCoUni(''); setNewCoAlma('');
+      const nextCodeRes = await fetch('/api/inventory/items/next-code');
+      if (nextCodeRes.ok) setNewCoArt((await nextCodeRes.json()).nextCode);
+    } catch {
+      setCreateError('No se pudo conectar con el servidor');
+    } finally {
+      setCreatingArticle(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +392,92 @@ export function ArticulosClient() {
             {addError && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{addError}</p>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <button
+          onClick={openCreateArticle}
+          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+        >
+          {showCreateArticle ? 'Cancelar' : '+ Crear artículo nuevo'}
+        </button>
+
+        {showCreateArticle && (
+          <div className="mt-4 space-y-3 max-w-2xl" data-testid="create-article-panel">
+            <p className="text-sm text-gray-500">
+              Para un producto nuevo que aún no existe en Profit Plus. Se registra sin
+              pricing, fiscal, ni stock inicial — el artículo queda con stock 0 en el
+              almacén elegido; usa Ajustes para registrar la entrada real después.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="new-co-art" className="block text-xs font-medium text-gray-700 mb-1">Código</label>
+                <input id="new-co-art" value={newCoArt} onChange={e => setNewCoArt(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label htmlFor="new-art-des" className="block text-xs font-medium text-gray-700 mb-1">Nombre</label>
+                <input id="new-art-des" value={newArtDes} onChange={e => setNewArtDes(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label htmlFor="new-tipo" className="block text-xs font-medium text-gray-700 mb-1">Tipo</label>
+                <select id="new-tipo" value={newTipo} onChange={e => setNewTipo(e.target.value)} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {TIPO_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="new-co-alma" className="block text-xs font-medium text-gray-700 mb-1">Almacén inicial</label>
+                <select id="new-co-alma" value={newCoAlma} onChange={e => setNewCoAlma(e.target.value)} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {warehouseOptions.map(coAlma => <option key={coAlma} value={coAlma}>{coAlma}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="new-co-lin" className="block text-xs font-medium text-gray-700 mb-1">Línea</label>
+                <select id="new-co-lin" value={newCoLin} onChange={e => { setNewCoLin(e.target.value); setNewCoSubl(''); }} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {lookups?.lineas.map(l => <option key={l.coLin} value={l.coLin}>{l.linDes}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="new-co-subl" className="block text-xs font-medium text-gray-700 mb-1">Sub-línea</label>
+                <select id="new-co-subl" value={newCoSubl} onChange={e => setNewCoSubl(e.target.value)} disabled={!newCoLin} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {sublineaOptions.map(s => <option key={s.coSubl} value={s.coSubl}>{s.sublDes}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="new-co-cat" className="block text-xs font-medium text-gray-700 mb-1">Categoría</label>
+                <select id="new-co-cat" value={newCoCat} onChange={e => setNewCoCat(e.target.value)} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {lookups?.categorias.map(c => <option key={c.coCat} value={c.coCat}>{c.catDes}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="new-co-uni" className="block text-xs font-medium text-gray-700 mb-1">Unidad</label>
+                <select id="new-co-uni" value={newCoUni} onChange={e => setNewCoUni(e.target.value)} className={inputClass}>
+                  <option value="">Selecciona…</option>
+                  {lookups?.unidades.map(u => <option key={u.coUni} value={u.coUni}>{u.desUni}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {createError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
+            )}
+            {createSuccess && (
+              <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">{createSuccess}</p>
+            )}
+
+            <button
+              onClick={handleCreateArticle}
+              disabled={!canCreateArticle || creatingArticle}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
+            >
+              {creatingArticle ? 'Creando…' : 'Crear artículo'}
+            </button>
           </div>
         )}
       </div>
