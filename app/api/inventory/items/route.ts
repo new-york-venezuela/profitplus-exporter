@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { inventoryWarehouses } from '@/lib/db/schema';
 import { getPool } from '@/lib/db/mssql';
 import { trimStrings } from '@/lib/trim-strings';
+import { assignArticleToWarehouse } from '@/lib/inventory/assign-warehouse';
 import sql from 'mssql';
 
 export const dynamic = 'force-dynamic';
@@ -123,5 +124,99 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Inventory items list error:', error);
     return NextResponse.json({ error: 'Error al consultar Profit Plus' }, { status: 500 });
+  }
+}
+
+interface CreateArticleBody {
+  coArt:  unknown;
+  artDes: unknown;
+  tipo:   unknown;
+  coLin:  unknown;
+  coSubl: unknown;
+  coCat:  unknown;
+  coUni:  unknown;
+  coAlma: unknown;
+}
+
+const VALID_TIPOS = new Set(['V', 'M', 'S', 'C', 'E']);
+
+export async function POST(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  const db = getDb();
+  const allowed = await hasInventoryAccess(db, session.sub, session.role);
+  if (!allowed) return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
+
+  const body = await request.json().catch(() => null) as CreateArticleBody | null;
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
+  }
+
+  const { coArt, artDes, tipo, coLin, coSubl, coCat, coUni, coAlma } = body;
+  if (typeof coArt !== 'string' || coArt.trim() === '' || coArt.length > 30) {
+    return NextResponse.json({ error: 'Código de artículo inválido' }, { status: 400 });
+  }
+  if (typeof artDes !== 'string' || artDes.trim() === '' || artDes.length > 120) {
+    return NextResponse.json({ error: 'Nombre inválido' }, { status: 400 });
+  }
+  if (typeof tipo !== 'string' || !VALID_TIPOS.has(tipo)) {
+    return NextResponse.json({ error: 'Tipo inválido' }, { status: 400 });
+  }
+  if (typeof coLin !== 'string' || coLin.trim() === '') {
+    return NextResponse.json({ error: 'Línea requerida' }, { status: 400 });
+  }
+  if (typeof coSubl !== 'string' || coSubl.trim() === '') {
+    return NextResponse.json({ error: 'Sub-línea requerida' }, { status: 400 });
+  }
+  if (typeof coCat !== 'string' || coCat.trim() === '') {
+    return NextResponse.json({ error: 'Categoría requerida' }, { status: 400 });
+  }
+  if (typeof coUni !== 'string' || coUni.trim() === '') {
+    return NextResponse.json({ error: 'Unidad requerida' }, { status: 400 });
+  }
+  if (typeof coAlma !== 'string' || coAlma.trim() === '') {
+    return NextResponse.json({ error: 'Almacén requerido' }, { status: 400 });
+  }
+
+  const activeWarehouses = db.select().from(inventoryWarehouses).all().filter(w => w.active);
+  if (activeWarehouses.length > 0 && !activeWarehouses.some(w => w.coAlma === coAlma)) {
+    return NextResponse.json({ error: 'Almacén no configurado para Inventario' }, { status: 400 });
+  }
+
+  try {
+    const pool = await getPool();
+
+    const req = pool.request();
+    req.input('sCoArt', sql.Char(30), coArt);
+    req.input('sArtDes', sql.VarChar(120), artDes);
+    req.input('sTipo', sql.Char(1), tipo);
+    req.input('sCoLin', sql.Char(6), coLin);
+    req.input('sCoSubl', sql.Char(6), coSubl);
+    req.input('sCoCat', sql.Char(6), coCat);
+    req.input('sCoUni', sql.Char(6), coUni);
+    req.input('sCoUsIn', sql.Char(6), 'PROFIT');
+    req.input('sCoSucuIn', sql.Char(6), null);
+    await req.execute('pApiCrearArticuloInventario');
+
+    const warehouseResult = await assignArticleToWarehouse(pool, coArt, coAlma);
+    if (!warehouseResult.ok) {
+      return NextResponse.json({
+        ok: true,
+        coArt,
+        warehouseError: `Artículo creado, pero no se pudo asignar al almacén: ${warehouseResult.error}`,
+      });
+    }
+
+    return NextResponse.json({ ok: true, coArt });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'number' in error && (error as { number: unknown }).number === 50000) {
+      const message = 'message' in error && typeof (error as { message: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : 'No se pudo crear el artículo';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+    console.error('Article creation error:', error);
+    return NextResponse.json({ error: 'Error al crear el artículo en Profit Plus' }, { status: 500 });
   }
 }

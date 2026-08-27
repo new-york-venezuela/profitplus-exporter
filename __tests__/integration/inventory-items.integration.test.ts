@@ -1,12 +1,12 @@
 process.env.JWT_SECRET = 'test-secret-key-for-testing-only';
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db/sqlite';
 import { users, userModules, inventoryWarehouses } from '@/lib/db/schema';
 import { signToken } from '@/lib/auth/session';
-import { GET as getItems } from '@/app/api/inventory/items/route';
+import { GET as getItems, POST as postItems } from '@/app/api/inventory/items/route';
 import { PATCH as patchItem } from '@/app/api/inventory/items/[co_art]/route';
 
 function buildRequest(token: string | null, init: { method: string; body?: string }, url = 'http://localhost:3000/api/test'): NextRequest {
@@ -43,6 +43,7 @@ function buildMssqlConfig(): sql.config {
 let pool: sql.ConnectionPool;
 let testArticle: { co_art: string; art_des: string; ref: string | null; stock_min: number };
 const WAREHOUSE = '14';
+const TEST_WAREHOUSE = WAREHOUSE;
 
 async function getArticleSnapshot(coArt: string) {
   const result = await pool.request().input('coArt', sql.Char(30), coArt)
@@ -54,6 +55,34 @@ async function getArticleSnapshot(coArt: string) {
     ref: row.ref === null ? null : (row.ref as string).trim(),
     stock_min: Number(row.stock_min),
   };
+}
+
+async function realLookupRow(): Promise<{ coLin: string; coSubl: string; coCat: string; coUni: string }> {
+  const linResult = await pool.request().query(`SELECT TOP 1 co_lin FROM saLineaArticulo`);
+  const coLin = (linResult.recordset[0].co_lin as string).trim();
+  const sublResult = await pool.request().input('lin', sql.Char(6), coLin)
+    .query(`SELECT TOP 1 co_subl FROM saSubLinea WHERE co_lin = @lin`);
+  const coSubl = (sublResult.recordset[0].co_subl as string).trim();
+  const catResult = await pool.request().query(`SELECT TOP 1 co_cat FROM saCatArticulo`);
+  const coCat = (catResult.recordset[0].co_cat as string).trim();
+  const uniResult = await pool.request().query(`SELECT TOP 1 co_uni FROM saUnidad`);
+  const coUni = (uniResult.recordset[0].co_uni as string).trim();
+  return { coLin, coSubl, coCat, coUni };
+}
+
+async function buildAuthedRequest(url: string, body: unknown): Promise<NextRequest> {
+  const db = getDb();
+  const user = db.insert(users).values({
+    email: `create-item-test-${Date.now()}-${Math.random()}@e2e.test`, passwordHash: 'x',
+    name: 'Create Item Test', role: 'user', createdAt: Date.now(),
+  }).returning({ id: users.id }).get();
+  db.insert(userModules).values({ userId: user!.id, module: 'inventory' }).run();
+  const token = await signToken({ sub: String(user!.id), role: 'user', name: 'Create Item Test' });
+  return new NextRequest(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: `session=${token}` },
+    body: JSON.stringify(body),
+  });
 }
 
 async function restoreArticle(snapshot: typeof testArticle) {
@@ -342,5 +371,92 @@ describe('PATCH /api/inventory/items/:co_art', () => {
       { params: Promise.resolve({ co_art: testArticle.co_art }) },
     );
     expect(response.status).toBe(400);
+  });
+});
+
+describe('POST /api/inventory/items @mssql', () => {
+  const createdArticles: string[] = [];
+
+  beforeEach(() => {
+    // Ensure no ambient allowlist rows (left over from other test files sharing
+    // the on-disk SQLite DB) can make the warehouse-allowlist check reject or
+    // accept a warehouse unexpectedly.
+    resetSqliteDb();
+  });
+
+  afterEach(async () => {
+    while (createdArticles.length > 0) {
+      const coArt = createdArticles.pop()!;
+      await pool.request().input('a', sql.Char(30), coArt).query(`DELETE FROM saStockAlmacen WHERE co_art = @a`);
+      await pool.request().input('a', sql.Char(30), coArt).query(`DELETE FROM saArtUnidad WHERE co_art = @a`);
+      await pool.request().input('a', sql.Char(30), coArt).query(`DELETE FROM saArticulo WHERE co_art = @a`);
+    }
+  });
+
+  test('creates an article and assigns it to the given warehouse at 0 stock', async () => {
+    const lookup = await realLookupRow();
+    const nextCodeResult = await pool.request()
+      .query(`SELECT MAX(TRY_CAST(co_art AS BIGINT)) AS maxCode FROM saArticulo WHERE TRY_CAST(co_art AS BIGINT) IS NOT NULL`);
+    const coArt = String(Number(nextCodeResult.recordset[0].maxCode) + 1).padStart(7, '0');
+
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/items', {
+      coArt, artDes: 'Nuevo Producto Test', tipo: 'M',
+      coLin: lookup.coLin, coSubl: lookup.coSubl, coCat: lookup.coCat, coUni: lookup.coUni,
+      coAlma: TEST_WAREHOUSE,
+    });
+    const res = await postItems(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.coArt).toBe(coArt);
+    createdArticles.push(coArt);
+
+    const stockCheck = await pool.request().input('a', sql.Char(30), coArt).input('w', sql.Char(6), TEST_WAREHOUSE)
+      .query(`SELECT stock FROM saStockAlmacen WHERE co_art = @a AND co_alma = @w AND tipo = 'ACT'`);
+    expect(stockCheck.recordset).toHaveLength(1);
+    expect(Number(stockCheck.recordset[0].stock)).toBe(0);
+  });
+
+  test('rejects an already-existing co_art with a 400', async () => {
+    const lookup = await realLookupRow();
+    const existingResult = await pool.request().query(`SELECT TOP 1 co_art FROM saArticulo`);
+    const existingCoArt = (existingResult.recordset[0].co_art as string).trim();
+
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/items', {
+      coArt: existingCoArt, artDes: 'Duplicate', tipo: 'M',
+      coLin: lookup.coLin, coSubl: lookup.coSubl, coCat: lookup.coCat, coUni: lookup.coUni,
+      coAlma: TEST_WAREHOUSE,
+    });
+    const res = await postItems(req);
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects a warehouse not in the configured allowlist', async () => {
+    const db = getDb();
+    db.insert(inventoryWarehouses).values({ coAlma: TEST_WAREHOUSE, label: 'Allowed', active: true }).run();
+
+    const lookup = await realLookupRow();
+    const nextCodeResult = await pool.request()
+      .query(`SELECT MAX(TRY_CAST(co_art AS BIGINT)) AS maxCode FROM saArticulo WHERE TRY_CAST(co_art AS BIGINT) IS NOT NULL`);
+    const coArt = String(Number(nextCodeResult.recordset[0].maxCode) + 1).padStart(7, '0');
+
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/items', {
+      coArt, artDes: 'Should not be created', tipo: 'M',
+      coLin: lookup.coLin, coSubl: lookup.coSubl, coCat: lookup.coCat, coUni: lookup.coUni,
+      coAlma: '999999',
+    });
+    const res = await postItems(req);
+    expect(res.status).toBe(400);
+
+    const articleCheck = await pool.request().input('a', sql.Char(30), coArt).query(`SELECT 1 FROM saArticulo WHERE co_art = @a`);
+    expect(articleCheck.recordset).toHaveLength(0);
+  });
+
+  test('returns 401 without a session', async () => {
+    const req = new NextRequest('http://localhost:3000/api/inventory/items', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const res = await postItems(req);
+    expect(res.status).toBe(401);
   });
 });
