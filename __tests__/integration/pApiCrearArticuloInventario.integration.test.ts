@@ -147,4 +147,62 @@ describe('pApiCrearArticuloInventario @mssql', () => {
       .query(`SELECT 1 FROM saArticulo WHERE co_art = @a`);
     expect(articleCheck.recordset).toHaveLength(0);
   });
+
+  test('full round trip: create article, assign to warehouse, simple-ajuste entrada, ends with expected stock', async () => {
+    const coArt = await nextTestCoArt();
+    const lookup = await realLookupRow();
+    const warehouse = '14';
+
+    await callProcedure({
+      coArt, artDes: 'Round Trip Test Article', tipo: 'M',
+      coLin: lookup.coLin, coSubl: lookup.coSubl, coCat: lookup.coCat, coUni: lookup.coUni,
+    });
+    createdArticles.push(coArt);
+
+    await pool.request()
+      .input('coArt', sql.Char(30), coArt)
+      .input('coAlma', sql.Char(6), warehouse)
+      .query(`INSERT INTO saStockAlmacen (co_art, co_alma, tipo, stock) VALUES (@coArt, @coAlma, 'ACT', 0)`);
+
+    const zeroStockCheck = await pool.request().input('a', sql.Char(30), coArt).input('w', sql.Char(6), warehouse)
+      .query(`SELECT stock FROM saStockAlmacen WHERE co_art = @a AND co_alma = @w AND tipo = 'ACT'`);
+    expect(Number(zeroStockCheck.recordset[0].stock)).toBe(0);
+
+    const lineasTable = new sql.Table('AjusteInventarioLineaType');
+    lineasTable.columns.add('co_tipo', sql.Char(6));
+    lineasTable.columns.add('co_art', sql.Char(30));
+    lineasTable.columns.add('co_alma', sql.Char(6));
+    lineasTable.columns.add('co_uni', sql.Char(6));
+    lineasTable.columns.add('total_art', sql.Decimal(18, 5));
+    lineasTable.columns.add('cost_unit', sql.Decimal(18, 5));
+    lineasTable.columns.add('permitir_negativo', sql.Bit);
+    lineasTable.rows.add('E00001', coArt, warehouse, lookup.coUni, 50, null, false);
+
+    const ajusteReq = pool.request();
+    ajusteReq.input('sMotivo', sql.VarChar(80), 'Round trip test entrada');
+    ajusteReq.input('dtFecha', sql.SmallDateTime, new Date());
+    ajusteReq.input('sCoUsIn', sql.Char(6), 'PROFIT');
+    ajusteReq.input('sCoSucuIn', sql.Char(6), null);
+    ajusteReq.input('Lineas', lineasTable);
+    ajusteReq.output('sAjueNumOut', sql.Char(20));
+    const ajusteResult = await ajusteReq.execute('pApiCrearAjusteInventario');
+    const ajueNum = (ajusteResult.output.sAjueNumOut as string).trim();
+
+    const finalStockCheck = await pool.request().input('a', sql.Char(30), coArt).input('w', sql.Char(6), warehouse)
+      .query(`SELECT stock FROM saStockAlmacen WHERE co_art = @a AND co_alma = @w AND tipo = 'ACT'`);
+    expect(Number(finalStockCheck.recordset[0].stock)).toBe(50);
+
+    await pool.request().input('n', sql.Char(20), ajueNum).query(`
+      DELETE CHS FROM saCostoHistoricoSalida CHS
+      JOIN saAjusteReng AR ON AR.rowguid = CHS.doc_orig
+      WHERE CHS.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+    `);
+    await pool.request().input('n', sql.Char(20), ajueNum).query(`
+      DELETE CHE FROM saCostoHistoricoEntrada CHE
+      JOIN saAjusteReng AR ON AR.rowguid = CHE.doc_orig
+      WHERE CHE.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+    `);
+    await pool.request().input('n', sql.Char(20), ajueNum).query(`DELETE FROM saAjusteReng WHERE ajue_num = @n`);
+    await pool.request().input('n', sql.Char(20), ajueNum).query(`DELETE FROM saAjuste WHERE ajue_num = @n`);
+  });
 });
