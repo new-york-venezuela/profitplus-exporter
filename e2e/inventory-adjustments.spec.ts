@@ -168,4 +168,61 @@ test.describe('inventario/ajustes @mssql', () => {
     await userPage.goto('/inventario/ajustes');
     await expect(userPage.getByRole('heading', { name: 'Últimos ajustes' })).toBeVisible({ timeout: 15_000 });
   });
+
+  test.describe('modo movimiento simple', () => {
+    test('switching to simple mode hides the recount form and shows motivo/cantidad fields', async ({ userPage }) => {
+      await userPage.goto('/inventario/ajustes');
+      await waitForRowsLoaded(userPage);
+
+      await userPage.getByRole('tab', { name: 'Movimiento simple' }).click();
+      await expect(userPage.getByLabel('Motivo')).toBeVisible();
+      await expect(userPage.getByLabel('Cantidad')).toBeVisible();
+      await expect(userPage.getByLabel('Stock contado')).not.toBeVisible();
+    });
+
+    test('submit is disabled until motivo, artículo, almacén, and cantidad are all set', async ({ userPage }) => {
+      await userPage.goto('/inventario/ajustes');
+      await waitForRowsLoaded(userPage);
+      await userPage.getByRole('tab', { name: 'Movimiento simple' }).click();
+
+      const submitButton = userPage.getByRole('button', { name: 'Registrar Movimiento' });
+      await expect(submitButton).toBeDisabled();
+
+      await userPage.getByLabel('Motivo').selectOption({ label: 'Entrada Produccion' });
+      await expect(submitButton).toBeDisabled();
+
+      await selectFirstRow(userPage);
+      await expect(submitButton).toBeDisabled();
+
+      await userPage.getByLabel('Cantidad').fill('5');
+      await expect(submitButton).toBeEnabled();
+    });
+
+    test('registering an entrada then an equal salida nets stock back to its original value', async ({ userPage }) => {
+      await userPage.goto('/inventario/ajustes');
+      const rowCount = await waitForRowsLoaded(userPage);
+      test.skip(rowCount < 1, 'No artículo/almacén rows available in this data');
+
+      await userPage.getByRole('tab', { name: 'Movimiento simple' }).click();
+      await selectFirstRow(userPage);
+      const stockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
+      const originalStock = Number(stockText?.trim());
+
+      await userPage.getByLabel('Motivo').selectOption({ label: 'Entrada Produccion' });
+      await userPage.getByLabel('Cantidad').fill('4');
+      await userPage.getByRole('button', { name: 'Registrar Movimiento' }).click();
+      await expect(userPage.getByText(/^Movimiento .* registrado/)).toBeVisible({ timeout: 15_000 });
+
+      await userPage.getByLabel('Motivo').selectOption({ label: 'Salida' });
+      await userPage.getByLabel('Cantidad').fill('4');
+      await userPage.getByRole('button', { name: 'Registrar Movimiento' }).click();
+      await expect(userPage.getByText(/^Movimiento .* registrado/)).toBeVisible({ timeout: 15_000 });
+
+      await userPage.reload();
+      await userPage.getByRole('tab', { name: 'Movimiento simple' }).click();
+      await selectFirstRow(userPage);
+      const finalStockText = await userPage.locator('[aria-label="Stock actual"]').textContent();
+      expect(Number(finalStockText?.trim())).toBe(originalStock);
+    });
+  });
 });

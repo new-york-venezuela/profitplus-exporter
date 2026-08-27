@@ -11,15 +11,26 @@ interface Item {
   unidad: string | null;
 }
 
+interface Motivo {
+  coTipo:  string;
+  desTipo: string;
+}
+
 interface AdjustmentResult {
   ajueNum: string;
   delta:   number;
+}
+
+interface SimpleResult {
+  ajueNum: string;
 }
 
 interface Props {
   initialCoArt?: string;
   initialCoAlma?: string;
 }
+
+type Mode = 'recount' | 'simple';
 
 function rowKey(item: Item): string {
   return `${item.coArt}::${item.coAlma}`;
@@ -38,16 +49,23 @@ function matchesSearch(item: Item, query: string): boolean {
 }
 
 export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
+  const [mode, setMode] = useState<Mode>('recount');
+
   const [items, setItems]         = useState<Item[]>([]);
   const [loading, setLoading]     = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [motivos, setMotivos] = useState<Motivo[]>([]);
+  const [selectedMotivo, setSelectedMotivo] = useState('');
+
   const [search, setSearch]           = useState('');
   const [selectedKey, setSelectedKey] = useState('');
   const [countedStock, setCountedStock] = useState('');
+  const [cantidad, setCantidad] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AdjustmentResult | null>(null);
+  const [lastSimpleResult, setLastSimpleResult] = useState<SimpleResult | null>(null);
   const [historyReloadToken, setHistoryReloadToken] = useState(0);
 
   useEffect(() => {
@@ -75,6 +93,22 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMotivos() {
+      try {
+        const res = await fetch('/api/inventory/lookups');
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        setMotivos(data.motivos ?? []);
+      } catch {
+        // Non-fatal: the motivo dropdown just stays empty; the user can retry by switching modes.
+      }
+    }
+    loadMotivos();
+    return () => { cancelled = true; };
+  }, []);
+
   const filteredItems = useMemo(
     () => items.filter(item => matchesSearch(item, search)),
     [items, search],
@@ -98,8 +132,17 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
   function handleSelectRow(item: Item) {
     setSelectedKey(rowKey(item));
     setCountedStock('');
+    setCantidad('');
     setLastResult(null);
+    setLastSimpleResult(null);
     setFormError(null);
+  }
+
+  function handleModeChange(next: Mode) {
+    setMode(next);
+    setFormError(null);
+    setLastResult(null);
+    setLastSimpleResult(null);
   }
 
   const countedValue = countedStock === '' ? null : Number(countedStock);
@@ -107,7 +150,9 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
     ? countedValue - selected.stock
     : null;
 
-  async function handleSubmit() {
+  const cantidadValue = cantidad === '' ? null : Number(cantidad);
+
+  async function handleSubmitRecount() {
     if (!selected || countedValue === null || !isFinite(countedValue)) return;
 
     setSubmitting(true);
@@ -143,6 +188,42 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
     }
   }
 
+  async function handleSubmitSimple() {
+    if (!selected || !selectedMotivo || cantidadValue === null || !isFinite(cantidadValue) || cantidadValue <= 0) return;
+
+    setSubmitting(true);
+    setFormError(null);
+    setLastSimpleResult(null);
+    try {
+      const res = await fetch('/api/inventory/adjustments', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          coTipo:   selectedMotivo,
+          coArt:    selected.coArt,
+          coAlma:   selected.coAlma,
+          cantidad: cantidadValue,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFormError(data.error ?? 'No se pudo registrar el movimiento');
+        return;
+      }
+
+      const itemsRes = await fetch('/api/inventory/items');
+      if (itemsRes.ok) setItems(await itemsRes.json());
+
+      setLastSimpleResult({ ajueNum: data.ajueNum });
+      setHistoryReloadToken(t => t + 1);
+      setCantidad('');
+    } catch {
+      setFormError('No se pudo conectar con el servidor');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando artículos…</div>;
   }
@@ -152,17 +233,52 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
 
   return (
     <div className="p-6 max-w-4xl space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Ajustes por Conteo Manual</h1>
+      <h1 className="text-2xl font-bold text-gray-900">Ajustes de Inventario</h1>
+
+      <div role="tablist" className="flex gap-2 border-b border-gray-200">
+        <button
+          role="tab"
+          aria-selected={mode === 'recount'}
+          onClick={() => handleModeChange('recount')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 ${mode === 'recount' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Conteo manual
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'simple'}
+          onClick={() => handleModeChange('simple')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 ${mode === 'simple' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Movimiento simple
+        </button>
+      </div>
+
       <p className="text-sm text-gray-500">
-        Busca un artículo, selecciónalo de la tabla y registra el stock físicamente contado.
-        El sistema calcula la diferencia contra el stock actual en Profit Plus y registra un
-        ajuste de sobrante o faltante según corresponda.
+        {mode === 'recount'
+          ? 'Busca un artículo, selecciónalo de la tabla y registra el stock físicamente contado. El sistema calcula la diferencia contra el stock actual en Profit Plus y registra un ajuste de sobrante o faltante según corresponda.'
+          : 'Registra directamente una cantidad que entró o salió — sin recontar el stock total. Elige el motivo, el artículo, el almacén y la cantidad exacta del movimiento.'}
       </p>
 
       {loadError && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
           {loadError}
         </p>
+      )}
+
+      {mode === 'simple' && (
+        <div>
+          <label htmlFor="motivo-select" className="block text-xs font-medium text-gray-700 mb-1">Motivo</label>
+          <select
+            id="motivo-select"
+            value={selectedMotivo}
+            onChange={e => { setSelectedMotivo(e.target.value); setLastSimpleResult(null); setFormError(null); }}
+            className={`${inputClass} max-w-sm`}
+          >
+            <option value="">Selecciona…</option>
+            {motivos.map(m => <option key={m.coTipo} value={m.coTipo}>{m.desTipo}</option>)}
+          </select>
+        </div>
       )}
 
       <div>
@@ -221,7 +337,7 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
         )}
       </div>
 
-      {selected && (
+      {selected && mode === 'recount' && (
         <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
           <div className="text-sm text-gray-700">
             Ajustando <span className="font-semibold">{selected.coArt} — {selected.artDes}</span> en
@@ -262,11 +378,58 @@ export function AjustesClient({ initialCoArt, initialCoAlma }: Props) {
           )}
 
           <button
-            onClick={handleSubmit}
+            onClick={handleSubmitRecount}
             disabled={submitting || countedValue === null || !isFinite(countedValue) || delta === 0}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
           >
             {submitting ? 'Registrando…' : 'Registrar Ajuste'}
+          </button>
+        </div>
+      )}
+
+      {mode === 'simple' && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+          {selected ? (
+            <div className="text-sm text-gray-700">
+              Registrando movimiento de <span className="font-semibold">{selected.coArt} — {selected.artDes}</span> en
+              almacén <span className="font-semibold">{selected.coAlma}</span>.
+              Stock actual en Profit Plus: <span aria-label="Stock actual" className="font-semibold">{selected.stock}</span>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">
+              Selecciona un artículo de la tabla para registrar el movimiento.
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="cantidad-simple" className="block text-xs font-medium text-gray-700 mb-1">Cantidad</label>
+            <input
+              id="cantidad-simple"
+              type="number"
+              value={cantidad}
+              onChange={e => { setCantidad(e.target.value); setLastSimpleResult(null); setFormError(null); }}
+              className={`${inputClass} w-40`}
+            />
+          </div>
+
+          {formError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {formError}
+            </p>
+          )}
+
+          {lastSimpleResult && (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+              Movimiento {lastSimpleResult.ajueNum} registrado.
+            </p>
+          )}
+
+          <button
+            onClick={handleSubmitSimple}
+            disabled={submitting || !selected || !selectedMotivo || cantidadValue === null || !isFinite(cantidadValue) || cantidadValue <= 0}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-40"
+          >
+            {submitting ? 'Registrando…' : 'Registrar Movimiento'}
           </button>
         </div>
       )}
