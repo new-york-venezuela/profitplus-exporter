@@ -2,10 +2,23 @@ import { describe, test, expect } from 'bun:test';
 import { groupInvoiceRows } from './repository';
 import type { RawInvoiceRow } from './types';
 
+// Mirrors SQL Server's DATEDIFF(day, fec_venc, GETDATE()) — a calendar-day
+// boundary diff, not a raw 24h-span count — so these fixtures reflect what
+// the real SELECT would return regardless of what time of day tests run.
+function daysBetween(fecVenc: Date): number {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((startOfDay(new Date()) - startOfDay(fecVenc)) / (1000 * 60 * 60 * 24));
+}
+
 function makeRow(overrides: Partial<RawInvoiceRow> = {}): RawInvoiceRow {
+  const fecVenc = overrides.fec_venc ?? new Date();
+  const saldo = overrides.saldo ?? 100;
+  const tasa = overrides.tasa ?? 50;
   return {
     co_cli: 'C001', cli_des: 'Cliente Uno', email: 'uno@x.com',
-    nro_doc: 'B0001', n_control: '00-001', fec_venc: new Date(), saldo: 100, tasa: 50,
+    nro_doc: 'B0001', n_control: '00-001', fec_venc: fecVenc, saldo, tasa,
+    dias_vencido: daysBetween(fecVenc),
+    saldo_usd: tasa !== 0 ? saldo / tasa : null,
     ...overrides,
   };
 }

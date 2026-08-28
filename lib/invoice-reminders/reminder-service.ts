@@ -1,9 +1,9 @@
 import type sql from 'mssql';
-import { eq } from 'drizzle-orm';
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import * as schema from '@/lib/db/schema';
 import { invoiceReminderSettings, invoiceReminderLog } from '@/lib/db/schema';
 import type { EmailService } from '@/lib/services/email-service';
+import { formatDate } from '@/lib/dates';
 import type { CustomerInvoiceGroup, ReminderInvoice } from './types';
 
 export interface RunSummary {
@@ -18,7 +18,7 @@ function formatInvoice(invoice: ReminderInvoice) {
   return {
     nroDoc:      invoice.nroDoc,
     nControl:    invoice.nControl,
-    fecVenc:     invoice.fecVenc.toLocaleDateString('es-VE'),
+    fecVenc:     formatDate(invoice.fecVenc),
     saldoBs:     invoice.saldoBs.toFixed(2),
     saldoUsd:    invoice.saldoUsd.toFixed(2),
     diasVencido: invoice.diasVencido,

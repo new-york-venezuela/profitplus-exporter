@@ -19,22 +19,18 @@ export function groupInvoiceRows(rows: RawInvoiceRow[]): CustomerInvoiceGroup[] 
       byCustomer.set(row.co_cli, group);
     }
 
-    const diasVencido = Math.round(
-      (Date.now() - row.fec_venc.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
     const invoice: ReminderInvoice = {
       nroDoc:      row.nro_doc,
       nControl:    row.n_control,
       fecVenc:     row.fec_venc,
       saldoBs:     row.saldo,
-      saldoUsd:    row.tasa !== 0 ? row.saldo / row.tasa : 0,
-      diasVencido,
+      saldoUsd:    row.saldo_usd ?? 0,
+      diasVencido: row.dias_vencido,
     };
 
-    if (diasVencido < 0)      group.dueSoon.push(invoice);
-    else if (diasVencido === 0) group.dueToday.push(invoice);
-    else                        group.overdue.push(invoice);
+    if (row.dias_vencido < 0)      group.dueSoon.push(invoice);
+    else if (row.dias_vencido === 0) group.dueToday.push(invoice);
+    else                              group.overdue.push(invoice);
   }
 
   return Array.from(byCustomer.values());
@@ -49,7 +45,9 @@ export async function getInvoiceReminderData(
     .query(`
       SELECT
         d.co_cli, c.cli_des, c.email,
-        d.nro_doc, d.n_control, d.fec_venc, d.saldo, d.tasa
+        d.nro_doc, d.n_control, d.fec_venc, d.saldo, d.tasa,
+        DATEDIFF(day, d.fec_venc, GETDATE()) AS dias_vencido,
+        d.saldo / NULLIF(d.tasa, 0) AS saldo_usd
       FROM saDocumentoVenta d
       INNER JOIN saCliente c ON c.co_cli = d.co_cli
       WHERE d.anulado = 0

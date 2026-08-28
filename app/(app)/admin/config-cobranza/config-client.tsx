@@ -31,7 +31,7 @@ export function ConfigCobranzaClient({ initialSettings }: Props) {
         body:    JSON.stringify({ thresholdDays: settings.thresholdDays }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({ error: 'Error desconocido' }));
         setError(data.error);
       } else {
         setSaved(true);

@@ -36,6 +36,6 @@ describe('invoice-reminder.hbs template', () => {
     });
 
     expect(html).not.toContain('Vence pronto');
-    expect(html).toContain('Vencida');
+    expect(html).toContain('Vencidas');
   });
 });

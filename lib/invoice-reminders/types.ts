@@ -25,4 +25,6 @@ export interface RawInvoiceRow {
   fec_venc: Date;
   saldo:    number;
   tasa:     number;
+  dias_vencido: number;
+  saldo_usd: number | null;
 }
