@@ -106,6 +106,9 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
             <Link href="/admin/config-inventario" className={navClass('/admin/config-inventario')}>
               Config. Inventario
             </Link>
+            <Link href="/admin/config-cobranza" className={navClass('/admin/config-cobranza')}>
+              Config. Cobranza
+            </Link>
           </>
         )}
       </nav>

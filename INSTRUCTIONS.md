@@ -408,6 +408,43 @@ current, either:
 Until at least one load has run, `/analitica` renders with empty charts
 (not an error) — the API treats zero rows as valid, empty data.
 
+## Step 9: Scheduling Invoice Reminder Emails (Windows Task Scheduler)
+
+`send-invoice-reminders` queries the ERP daily for invoices due soon,
+due today, or overdue per customer and emails each customer a digest.
+
+Command to schedule: `bun run send-invoice-reminders` (defined in
+`package.json` as `bun --bun run scripts/send-invoice-reminders.ts`). It
+must run from the app's working directory (`$APP`) so it picks up
+`.env.local` the same way `bun dev`/`bun run start` do — this script does
+not take an explicit `--env-file` flag; it relies on Bun's automatic
+`.env.local` loading from the current working directory, so the scheduled
+task's "Start in" directory must be set correctly.
+
+**Creating the task (Task Scheduler GUI):**
+
+1. Open **Task Scheduler** → **Create Basic Task…**
+2. Name: `ProfitPlus - Invoice Reminders`, Trigger: **Daily**, pick a time
+   (e.g. early morning, before business hours).
+3. Action: **Start a program**
+   - Program/script: `C:\Users\<user>\.bun\bin\bun.exe`
+   - Add arguments: `run send-invoice-reminders`
+   - Start in (required): `C:\inetpub\apps\profitplus-exporter` (i.e. `$APP`)
+4. Finish, then open the task's **Properties** and confirm "Start in" was
+   saved correctly (the wizard sometimes drops it) — this is the directory
+   `.env.local` is read from.
+5. Under **Settings**, consider unchecking "Stop the task if it runs
+   longer than X" only if the customer list is large enough that the
+   default limit could be hit; otherwise leave defaults.
+
+Run the task once manually (right-click → **Run**) to confirm it
+completes and exits cleanly (Task Scheduler shows "The operation
+completed successfully. (0x0)" in Last Run Result).
+
+Successes and failures are recorded per-customer in the
+`invoice_reminder_log` SQLite table — check it first when troubleshooting
+a run (e.g. via `bun run db:studio`).
+
 ## Redeploy Procedure
 
 ```powershell

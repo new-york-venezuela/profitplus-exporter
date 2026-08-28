@@ -15,6 +15,13 @@
       "when": 1787273011528,
       "tag": "0001_clean_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787939984013,
+      "tag": "0002_round_warstar",
+      "breakpoints": true
     }
   ]
 }
