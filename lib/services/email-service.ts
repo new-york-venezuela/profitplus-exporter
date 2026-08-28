@@ -22,7 +22,7 @@ export class EmailService {
   async send(
     to: string,
     templateName: string,
-    data: Record<string, string>
+    data: Record<string, unknown>
   ): Promise<void> {
     try {
       // Build template file path
@@ -81,7 +81,8 @@ export class EmailService {
 
   private getSubjectForTemplate(templateName: string): string {
     const subjects: Record<string, string> = {
-      'password-reset': 'Reset Your Password',
+      'password-reset':   'Reset Your Password',
+      'invoice-reminder': 'Estado de cuenta — facturas próximas a vencer',
     };
     return subjects[templateName] || 'Email from ProfitPlus Exporter';
   }

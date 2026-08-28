@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Estado de cuenta</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f9f9f9;">
+
+<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333333; max-width: 650px; width: 100%; border-collapse: collapse; margin: 20px auto; background-color: #ffffff; padding: 30px; border: 1px solid #e5e5e5;">
+
+    <tr>
+        <td align="center" style="padding-bottom: 20px; border-bottom: 1px solid #e5e5e5; padding-top: 20px;">
+            <a href="https://www.alimentosnewyork.com" target="_blank" style="text-decoration: none;">
+                <img src="https://raw.githubusercontent.com/new-york-venezuela/web/6e0c301ac3ddbbf51b34bdf4649f15217b09c619/public/logos/logo-mail.png" alt="Alimentos New York" width="120" style="display: block; border: 0; max-width: 100%; height: auto;">
+            </a>
+        </td>
+    </tr>
+
+    <tr>
+        <td style="padding: 30px 20px;">
+            <h1 style="font-size: 22px; font-weight: bold; color: #111111; margin-top: 0; margin-bottom: 20px; text-align: center;">
+                Estado de cuenta
+            </h1>
+
+            <p style="font-size: 14px; color: #555555; line-height: 1.6; margin-top: 0; margin-bottom: 25px;">
+                Hola <strong>{{cliDes}}</strong>, este es un resumen de tus facturas pendientes.
+            </p>
+
+            {{#if overdue}}
+            <h2 style="font-size: 16px; color: #b91c1c; margin-bottom: 10px;">Vencidas</h2>
+            <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 25px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #fef2f2;">
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #7f1d1d;">Documento</th>
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #7f1d1d;">Vencimiento</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #7f1d1d;">Días vencido</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #7f1d1d;">Monto (Bs)</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #7f1d1d;">Monto (USD)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each overdue}}
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 8px; font-size: 13px;">{{this.nroDoc}}{{#if this.nControl}} ({{this.nControl}}){{/if}}</td>
+                        <td style="padding: 8px; font-size: 13px;">{{this.fecVenc}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.diasVencido}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoBs}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoUsd}}</td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+            {{/if}}
+
+            {{#if dueToday}}
+            <h2 style="font-size: 16px; color: #92400e; margin-bottom: 10px;">Vencen hoy</h2>
+            <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 25px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #fffbeb;">
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #78350f;">Documento</th>
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #78350f;">Vencimiento</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #78350f;">Monto (Bs)</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #78350f;">Monto (USD)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each dueToday}}
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 8px; font-size: 13px;">{{this.nroDoc}}{{#if this.nControl}} ({{this.nControl}}){{/if}}</td>
+                        <td style="padding: 8px; font-size: 13px;">{{this.fecVenc}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoBs}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoUsd}}</td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+            {{/if}}
+
+            {{#if dueSoon}}
+            <h2 style="font-size: 16px; color: #1e40af; margin-bottom: 10px;">Vence pronto</h2>
+            <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 15px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #eff6ff;">
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #1e3a8a;">Documento</th>
+                        <th style="text-align: left; padding: 8px; font-size: 12px; color: #1e3a8a;">Vencimiento</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #1e3a8a;">Monto (Bs)</th>
+                        <th style="text-align: right; padding: 8px; font-size: 12px; color: #1e3a8a;">Monto (USD)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each dueSoon}}
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 8px; font-size: 13px;">{{this.nroDoc}}{{#if this.nControl}} ({{this.nControl}}){{/if}}</td>
+                        <td style="padding: 8px; font-size: 13px;">{{this.fecVenc}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoBs}}</td>
+                        <td style="padding: 8px; font-size: 13px; text-align: right;">{{this.saldoUsd}}</td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+            {{/if}}
+
+            <p style="font-size: 12px; color: #666666; line-height: 1.6; margin-top: 20px; margin-bottom: 0;">
+                Si ya realizaste el pago de alguna de estas facturas, puedes ignorar este correo.
+            </p>
+        </td>
+    </tr>
+
+</table>
+
+</body>
+</html>
