@@ -41,3 +41,27 @@ export const inventorySettings = sqliteTable('inventory_settings', {
 
 export type InventorySettings    = typeof inventorySettings.$inferSelect;
 export type NewInventorySettings = typeof inventorySettings.$inferInsert;
+
+// ── Invoice reminders ───────────────────────────────────────────────
+
+export const invoiceReminderSettings = sqliteTable('invoice_reminder_settings', {
+  id:            integer('id').primaryKey({ autoIncrement: true }),
+  thresholdDays: integer('threshold_days').notNull().default(3),
+});
+
+export type InvoiceReminderSettings    = typeof invoiceReminderSettings.$inferSelect;
+export type NewInvoiceReminderSettings = typeof invoiceReminderSettings.$inferInsert;
+
+export const invoiceReminderLog = sqliteTable('invoice_reminder_log', {
+  id:           integer('id').primaryKey({ autoIncrement: true }),
+  runDate:      text('run_date').notNull(),
+  coCli:        text('co_cli').notNull(),
+  email:        text('email').notNull(),
+  invoiceCount: integer('invoice_count').notNull(),
+  status:       text('status', { enum: ['sent', 'failed'] }).notNull(),
+  errorMessage: text('error_message'),
+  sentAt:       integer('sent_at').notNull(),
+});
+
+export type InvoiceReminderLog    = typeof invoiceReminderLog.$inferSelect;
+export type NewInvoiceReminderLog = typeof invoiceReminderLog.$inferInsert;
