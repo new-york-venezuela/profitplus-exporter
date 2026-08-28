@@ -32,7 +32,7 @@ per `WORKFLOWS.md`: "`saDocumentoVenta.saldo` es la fuente de verdad de CXC
 
 | Column | Meaning |
 |---|---|
-| `co_tipo_doc` | `'FACT'` for invoices; must exclude `'N/CR'`/`'NCR'` (credit notes are not debts) |
+| `co_tipo_doc` | `'FACT'` and `'N/DB'` count as debt; must exclude `'N/CR'`/`'NCR'` (credit notes are not debts) |
 | `nro_doc` | Document number, joins to `saFacturaVenta.doc_num` when `co_tipo_doc='FACT'` |
 | `co_cli` | FK → `saCliente.co_cli` |
 | `fec_venc` | Due date |
@@ -41,7 +41,23 @@ per `WORKFLOWS.md`: "`saDocumentoVenta.saldo` es la fuente de verdad de CXC
 | `anulado` | Must be `0` |
 | `n_control` | Fiscal control number, useful as a human-readable reference in the email |
 
-`saCliente` gives `email` and `cli_des` (customer name) by `co_cli`.
+`saCliente.email` is the confirmed customer contact address (the only email
+field found anywhere in the customer-related tables — `saClienteExt` and
+`saBeneficiario` are both undocumented stubs with no email column).
+
+**`N/DB` (nota de débito) is debt, not a separate category** — confirmed
+during design review: these are issued to the customer for things like
+diferencial cambiario (exchange-rate adjustment) and represent money owed
+to us, same as a `FACT`. The `co_tipo_doc NOT IN ('N/CR','NCR')` filter
+already treats `N/DB` as debt correctly — no query change needed beyond
+what was already planned. `saDocumentoVenta.tipo_origen = 2` is confirmed
+(via `pConsultaNotaCreditoDxPP`'s own `CASE WHEN` logic) to label
+"Dif. cambiario" on `N/CR` rows; whether `N/DB` uses the same value for the
+same reason is unconfirmed (the local mock ERP has zero `N/DB` rows to
+check against) and is not needed for this feature — the digest doesn't
+need to distinguish *why* a debit note exists, only that it's owed. This
+finding was written into `erp-knowledge-base/docs/tables/saDocumentoVenta.md`
+for future reference; RAG reindexing is on the user, not part of this task.
 
 The knowledge base's own "documentos vencidos" recipe (in
 `saDocumentoVenta.md`) is the starting point for the repository query:
