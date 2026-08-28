@@ -46,6 +46,7 @@ interface Lookups {
   sublineas:  Array<{ coLin: string; coSubl: string; sublDes: string }>;
   categorias: Array<{ coCat: string; catDes: string }>;
   unidades:   Array<{ coUni: string; desUni: string }>;
+  warehouses: Array<{ coAlma: string; label: string }>;
 }
 
 const TIPO_OPTIONS: Array<{ value: string; label: string }> = [
@@ -184,6 +185,13 @@ export function ArticulosClient() {
     return Array.from(seen.entries());
   }, [items]);
 
+  // Used only by the "add existing article to a warehouse" panel below, where
+  // offering only already-stocked warehouses is intentional (you're adding an
+  // article's stock row to a warehouse other than the ones it's already in).
+  // The "Almacén inicial" dropdown in the create-article panel deliberately
+  // uses lookups.warehouses instead (the real active-warehouse allowlist), so
+  // a brand-new, still-empty warehouse can be selected as an article's first
+  // warehouse — see app/api/inventory/lookups/route.ts.
   const warehouseOptions = useMemo(() => {
     const seen = new Set<string>();
     for (const item of items) seen.add(item.coAlma);
@@ -431,7 +439,7 @@ export function ArticulosClient() {
                 <label htmlFor="new-co-alma" className="block text-xs font-medium text-gray-700 mb-1">Almacén inicial</label>
                 <select id="new-co-alma" value={newCoAlma} onChange={e => setNewCoAlma(e.target.value)} className={inputClass}>
                   <option value="">Selecciona…</option>
-                  {warehouseOptions.map(coAlma => <option key={coAlma} value={coAlma}>{coAlma}</option>)}
+                  {lookups?.warehouses.map(w => <option key={w.coAlma} value={w.coAlma}>{w.label}</option>)}
                 </select>
               </div>
               <div>

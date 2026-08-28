@@ -4,7 +4,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db/sqlite';
-import { users, userModules } from '@/lib/db/schema';
+import { users, userModules, inventoryWarehouses } from '@/lib/db/schema';
 import { signToken } from '@/lib/auth/session';
 import { GET as getLookups } from '@/app/api/inventory/lookups/route';
 import { GET as getNextCode } from '@/app/api/inventory/items/next-code/route';
@@ -12,6 +12,7 @@ import { GET as getNextCode } from '@/app/api/inventory/items/next-code/route';
 function resetSqliteDb() {
   const db = getDb();
   db.delete(userModules).run();
+  db.delete(inventoryWarehouses).run();
   db.delete(users).run();
 }
 
@@ -57,6 +58,35 @@ describe('GET /api/inventory/lookups @mssql', () => {
     const req = new NextRequest('http://localhost:3000/api/inventory/lookups');
     const res = await getLookups(req);
     expect(res.status).toBe(401);
+  });
+
+  test('returns the active warehouse allowlist, excluding inactive rows', async () => {
+    // buildAuthedRequest() calls resetSqliteDb() (which clears inventoryWarehouses
+    // too) before returning, so the allowlist rows must be inserted after it.
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/lookups');
+    const db = getDb();
+    db.insert(inventoryWarehouses).values({ coAlma: '14', label: 'Almacén Principal', active: true }).run();
+    db.insert(inventoryWarehouses).values({ coAlma: '999999', label: 'Inactivo', active: false }).run();
+
+    const res = await getLookups(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.warehouses).toEqual([{ coAlma: '14', label: 'Almacén Principal' }]);
+  });
+
+  test('falls back to real ERP warehouses when no allowlist is configured (unrestricted)', async () => {
+    // Matches checkWarehouseAllowed's semantics in adjustments/route.ts: an
+    // empty allowlist means "no restriction configured", not "nothing
+    // allowed" — so the create-article dropdown must still offer real
+    // warehouses rather than coming back empty.
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/lookups');
+    const res = await getLookups(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.warehouses)).toBe(true);
+    expect(data.warehouses.length).toBeGreaterThan(0);
+    expect(data.warehouses[0]).toHaveProperty('coAlma');
+    expect(data.warehouses[0]).toHaveProperty('label');
   });
 });
 

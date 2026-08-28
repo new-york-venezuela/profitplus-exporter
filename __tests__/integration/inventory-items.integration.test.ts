@@ -459,4 +459,56 @@ describe('POST /api/inventory/items @mssql', () => {
     const res = await postItems(req);
     expect(res.status).toBe(401);
   });
+
+  test('returns 200 with a warehouseError when article creation succeeds but warehouse assignment fails', async () => {
+    // assignArticleToWarehouse (lib/inventory/assign-warehouse.ts) fails with
+    // {ok:false, status:400} when an 'ACT' saStockAlmacen row already exists
+    // for the (co_art, co_alma) pair. To reach that branch through the real
+    // route (not a mock), pApiCrearArticuloInventario must succeed for co_art
+    // first (a duplicate co_art is rejected before warehouse assignment ever
+    // runs — see the "rejects an already-existing co_art" test above), and
+    // only then must a stray stock row already be waiting for it.
+    //
+    // saStockAlmacen.co_art has a live FK to saArticulo with ON DELETE CASCADE
+    // (verified live), so a stock row for co_art can't be pre-inserted while
+    // co_art doesn't exist, nor can it be made to survive deleting co_art
+    // afterward. The only way to have both "procedure call succeeds" and "a
+    // colliding stock row is already there" is to temporarily disable the FK
+    // (NOCHECK), insert the stray row for the not-yet-created co_art, then
+    // re-enable it — a narrow, fully-controlled, immediately-cleaned-up bypass
+    // used only to set up this one test's precondition.
+    const lookup = await realLookupRow();
+    const nextCodeResult = await pool.request()
+      .query(`SELECT MAX(TRY_CAST(co_art AS BIGINT)) AS maxCode FROM saArticulo WHERE TRY_CAST(co_art AS BIGINT) IS NOT NULL`);
+    const coArt = String(Number(nextCodeResult.recordset[0].maxCode) + 1).padStart(7, '0');
+
+    await pool.request().query(`ALTER TABLE saStockAlmacen NOCHECK CONSTRAINT FK_saStockAlmacen_saArticulo`);
+    try {
+      await pool.request()
+        .input('a', sql.Char(30), coArt).input('w', sql.Char(6), TEST_WAREHOUSE)
+        .query(`INSERT INTO saStockAlmacen (co_art, co_alma, tipo, stock) VALUES (@a, @w, 'ACT', 0)`);
+    } finally {
+      await pool.request().query(`ALTER TABLE saStockAlmacen WITH NOCHECK CHECK CONSTRAINT FK_saStockAlmacen_saArticulo`);
+    }
+
+    const req = await buildAuthedRequest('http://localhost:3000/api/inventory/items', {
+      coArt, artDes: 'Recreated Article', tipo: 'M',
+      coLin: lookup.coLin, coSubl: lookup.coSubl, coCat: lookup.coCat, coUni: lookup.coUni,
+      coAlma: TEST_WAREHOUSE,
+    });
+    const res = await postItems(req);
+    createdArticles.push(coArt);
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.coArt).toBe(coArt);
+    expect(data.warehouseError).toBeTruthy();
+    expect(data.warehouseError).toContain('El artículo ya tiene stock registrado en ese almacén');
+
+    const articleCheck = await pool.request().input('a', sql.Char(30), coArt)
+      .query(`SELECT art_des FROM saArticulo WHERE co_art = @a`);
+    expect(articleCheck.recordset).toHaveLength(1);
+    expect((articleCheck.recordset[0].art_des as string).trim()).toBe('Recreated Article');
+  });
 });

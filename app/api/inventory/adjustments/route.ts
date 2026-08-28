@@ -4,6 +4,7 @@ import { getSessionFromRequest, hasInventoryAccess } from '@/lib/inventory/acces
 import { getDb } from '@/lib/db/sqlite';
 import { inventoryWarehouses } from '@/lib/db/schema';
 import { getPool } from '@/lib/db/mssql';
+import { PRODUCTION_TIPO_AJUSTE_CODES } from '@/lib/inventory/tipo-ajuste';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,8 +15,8 @@ const TIPO_SOBRANTE = 'E00003';
 const TIPO_FALTANTE = 'S00005';
 
 // The 6 production saTipoAjuste reasons the simple-ajuste path may use —
-// mirrors app/api/inventory/lookups/route.ts's PRODUCTION_TIPO_AJUSTE_CODES.
-const SIMPLE_AJUSTE_TIPOS = new Set(['E00001', 'E00002', 'S00001', 'S00002', 'S00003', 'S00004']);
+// shared with app/api/inventory/lookups/route.ts via lib/inventory/tipo-ajuste.ts.
+const SIMPLE_AJUSTE_TIPOS = new Set(PRODUCTION_TIPO_AJUSTE_CODES);
 
 // Fixed service-account identity — this app has no per-user Profit Plus
 // login mapping. sucursal is null: the AJUS_NUM consecutive's saSerie row
