@@ -7,12 +7,22 @@ interface Settings {
   thresholdDays: number;
 }
 
-interface Props {
-  initialSettings: Settings;
+interface LastRun {
+  runDate: string;
+  sentAt:  number;
+  sent:    number;
+  failed:  number;
 }
 
-export function ConfigCobranzaClient({ initialSettings }: Props) {
-  const [settings, setSettings] = useState<Settings>(initialSettings);
+interface Props {
+  initialSettings: Settings;
+  lastRun: LastRun | null;
+}
+
+const MAX_THRESHOLD_DAYS = 60;
+
+export function ConfigCobranzaClient({ initialSettings, lastRun }: Props) {
+  const [thresholdInput, setThresholdInput] = useState(String(initialSettings.thresholdDays));
   const [error, setError]       = useState<string | null>(null);
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
@@ -20,7 +30,19 @@ export function ConfigCobranzaClient({ initialSettings }: Props) {
   const inputClass = `w-full border border-gray-300 rounded-md px-3 py-2 text-sm
                       focus:outline-none focus:ring-2 focus:ring-blue-500`;
 
+  function handleThresholdChange(raw: string) {
+    setThresholdInput(raw);
+    setSaved(false);
+  }
+
   async function handleSave() {
+    const parsed = parseInt(thresholdInput, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > MAX_THRESHOLD_DAYS) {
+      setError(`Ingresa un número entre 1 y ${MAX_THRESHOLD_DAYS}`);
+      setSaved(false);
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -28,12 +50,13 @@ export function ConfigCobranzaClient({ initialSettings }: Props) {
       const res = await fetch('/api/admin/config-cobranza', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ thresholdDays: settings.thresholdDays }),
+        body:    JSON.stringify({ thresholdDays: parsed }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Error desconocido' }));
         setError(data.error);
       } else {
+        setThresholdInput(String(parsed));
         setSaved(true);
       }
     } finally {
@@ -55,19 +78,21 @@ export function ConfigCobranzaClient({ initialSettings }: Props) {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Recordatorios de facturas</h2>
         <div className="flex gap-6 items-start">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="threshold-days" className="block text-sm font-medium text-gray-700 mb-1">
               Días de anticipación
             </label>
             <input
+              id="threshold-days"
               type="number"
               min={1}
-              value={settings.thresholdDays}
-              onChange={e => setSettings(s => ({ ...s, thresholdDays: parseInt(e.target.value, 10) || 0 }))}
+              max={MAX_THRESHOLD_DAYS}
+              value={thresholdInput}
+              onChange={e => handleThresholdChange(e.target.value)}
               className={`${inputClass} w-32`}
             />
             <p className="text-xs text-gray-500 mt-1 max-w-64">
               Cuántos días antes del vencimiento se incluye una factura en el
-              recordatorio diario por correo. Ej.: 3.
+              recordatorio diario por correo. Ej.: 3. (Máximo {MAX_THRESHOLD_DAYS}.)
             </p>
           </div>
           <button
@@ -79,6 +104,32 @@ export function ConfigCobranzaClient({ initialSettings }: Props) {
           </button>
           {saved && <span className="text-sm text-green-600 self-center">Guardado</span>}
         </div>
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Última ejecución</h2>
+        {lastRun ? (
+          <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-700 max-w-md">
+            <p>
+              <span className="font-medium">{lastRun.runDate}</span>
+              {' — '}
+              {new Date(lastRun.sentAt).toLocaleTimeString('es-VE')}
+            </p>
+            <p className="mt-1">
+              <span className="text-green-600 font-medium">{lastRun.sent} enviados</span>
+              {lastRun.failed > 0 && (
+                <>
+                  {', '}
+                  <span className="text-red-600 font-medium">{lastRun.failed} fallidos</span>
+                </>
+              )}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">
+            El recordatorio diario aún no se ha ejecutado.
+          </p>
+        )}
       </section>
     </div>
   );

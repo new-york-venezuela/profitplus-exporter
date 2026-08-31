@@ -98,6 +98,28 @@ describe('InvoiceReminderService', () => {
     expect(receivedThreshold as number | null).toBe(7);
   });
 
+  test('formats amounts with Venezuelan locale and includes the total across buckets', async () => {
+    const groups = [makeGroup({
+      coCli: 'C001',
+      dueSoon: [{ nroDoc: 'B0002', nControl: null, fecVenc: new Date(), saldoBs: 1234.5, saldoUsd: 30, diasVencido: -2 }],
+      dueToday: [{ nroDoc: 'B0001', nControl: '00-001', fecVenc: new Date(), saldoBs: 100, saldoUsd: 2, diasVencido: 0 }],
+      overdue: [],
+    })];
+
+    let receivedContext: Record<string, unknown> | null = null;
+    const fakeEmailService = {
+      send: async (_to: string, _template: string, context: Record<string, unknown>) => { receivedContext = context; },
+    } as unknown as EmailService;
+
+    const service = new InvoiceReminderService(async () => groups, fakeEmailService, getDb(), {} as never);
+    await service.run();
+
+    const context = receivedContext as unknown as Record<string, unknown>;
+    expect(context.totalBs).toBe('1.334,50');
+    expect(context.totalUsd).toBe('32,00');
+    expect((context.dueSoon as Array<{ saldoBs: string }>)[0].saldoBs).toBe('1.234,50');
+  });
+
   test('empty groups produce a zeroed summary and no log rows', async () => {
     const fakeEmailService = { send: async () => {} } as unknown as EmailService;
     const service = new InvoiceReminderService(async () => [], fakeEmailService, getDb(), {} as never);

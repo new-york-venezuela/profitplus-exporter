@@ -14,13 +14,15 @@ export interface RunSummary {
 
 type GetInvoiceData = (pool: sql.ConnectionPool, thresholdDays: number) => Promise<CustomerInvoiceGroup[]>;
 
+const CURRENCY_FORMAT = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function formatInvoice(invoice: ReminderInvoice) {
   return {
     nroDoc:      invoice.nroDoc,
     nControl:    invoice.nControl,
     fecVenc:     formatDate(invoice.fecVenc),
-    saldoBs:     invoice.saldoBs.toFixed(2),
-    saldoUsd:    invoice.saldoUsd.toFixed(2),
+    saldoBs:     CURRENCY_FORMAT.format(invoice.saldoBs),
+    saldoUsd:    CURRENCY_FORMAT.format(invoice.saldoUsd),
     diasVencido: invoice.diasVencido,
   };
 }
@@ -42,12 +44,18 @@ export class InvoiceReminderService {
 
     for (const group of groups) {
       const invoiceCount = group.dueSoon.length + group.dueToday.length + group.overdue.length;
+      const allInvoices = [...group.dueSoon, ...group.dueToday, ...group.overdue];
+      const totalBs = allInvoices.reduce((sum, inv) => sum + inv.saldoBs, 0);
+      const totalUsd = allInvoices.reduce((sum, inv) => sum + inv.saldoUsd, 0);
+
       try {
         await this.emailService.send(group.email, 'invoice-reminder', {
           cliDes:   group.cliDes,
           dueSoon:  group.dueSoon.map(formatInvoice),
           dueToday: group.dueToday.map(formatInvoice),
           overdue:  group.overdue.map(formatInvoice),
+          totalBs:  CURRENCY_FORMAT.format(totalBs),
+          totalUsd: CURRENCY_FORMAT.format(totalUsd),
         });
         this.logResult(group, invoiceCount, 'sent', null);
         sent++;
