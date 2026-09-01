@@ -8,7 +8,8 @@ interface HistoryItem {
   coArt:    string;
   artDes:   string;
   coAlma:   string;
-  tipo:     string;
+  coTipo:   string;
+  desTipo:  string;
   cantidad: number;
 }
 
@@ -75,9 +76,7 @@ export function HistorialClient({ reloadToken }: { reloadToken: number }) {
                 <td className="px-3 py-2 text-gray-900">{item.coArt} — {item.artDes}</td>
                 <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                 <td className="px-3 py-2 whitespace-nowrap">
-                  {item.tipo === 'E00003'
-                    ? <span className="text-green-700 font-medium">Sobrante</span>
-                    : <span className="text-red-700 font-medium">Faltante</span>}
+                  {item.desTipo}
                 </td>
                 <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.cantidad}</td>
               </tr>

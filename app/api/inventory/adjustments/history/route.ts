@@ -7,10 +7,9 @@ import { trimStrings } from '@/lib/trim-strings';
 
 export const dynamic = 'force-dynamic';
 
-// Scoped to the two manual-recount reason codes this module creates (see
-// app/api/inventory/adjustments/route.ts) — not the full saTipoAjuste
-// catalog, which includes production/damage adjustment types this module
-// has no UI for and that would be confusing to show here unexplained.
+// Shows all adjustment types (recount, simple, purchase-derived, etc.).
+// Users can see their own app-created adjustments plus any others that
+// affected inventory (e.g., purchase order intake bumps stock automatically).
 //
 // SCHEMA CONFIDENCE (this table has not been queried anywhere else in this
 // codebase — treat this query with more caution than most):
@@ -36,17 +35,17 @@ export const dynamic = 'force-dynamic';
 // against a real Profit Plus database in CI/staging.
 const HISTORY_QUERY = `
   SELECT TOP (@limit)
-    h.ajue_num, h.fecha, r.co_art, a.art_des, r.co_alma, r.co_tipo, r.total_art
+    h.ajue_num, h.fecha, r.co_art, a.art_des, r.co_alma, r.co_tipo, r.total_art, t.des_tipo
   FROM saAjuste h
   JOIN saAjusteReng r ON r.ajue_num = h.ajue_num
   JOIN saArticulo a ON a.co_art = r.co_art
-  WHERE r.co_tipo IN ('E00003', 'S00005')
+  JOIN saTipoAjuste t ON t.co_tipo = r.co_tipo
   ORDER BY h.fecha DESC, h.ajue_num DESC
 `;
 
 interface HistoryRow {
   ajue_num: string; fecha: string; co_art: string; art_des: string;
-  co_alma: string; co_tipo: string; total_art: number;
+  co_alma: string; co_tipo: string; total_art: number; des_tipo: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -73,7 +72,8 @@ export async function GET(request: NextRequest) {
       coArt:    r.co_art,
       artDes:   r.art_des,
       coAlma:   r.co_alma,
-      tipo:     r.co_tipo,
+      coTipo:   r.co_tipo,
+      desTipo:  r.des_tipo,
       cantidad: Number(r.total_art),
     }));
 

@@ -45,7 +45,7 @@ describe('GET /api/inventory/adjustments/history @mssql', () => {
     await pool.close();
   });
 
-  test('returns only E00003/S00005 manual-recount adjustments, newest first', async () => {
+  test('returns all adjustment types (app-created and external), newest first', async () => {
     resetSqliteDb();
     const db = getDb();
     const user = db.insert(users).values({
@@ -61,7 +61,9 @@ describe('GET /api/inventory/adjustments/history @mssql', () => {
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
     for (const row of body) {
-      expect(['E00003', 'S00005']).toContain(row.tipo);
+      expect(row).toHaveProperty('coTipo');
+      expect(row).toHaveProperty('desTipo');
+      expect(typeof row.desTipo).toBe('string');
     }
     for (let i = 1; i < body.length; i++) {
       expect(new Date(body[i - 1].fecha).getTime()).toBeGreaterThanOrEqual(new Date(body[i].fecha).getTime());
