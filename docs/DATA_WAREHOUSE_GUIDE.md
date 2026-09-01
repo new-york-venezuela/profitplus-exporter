@@ -7,54 +7,85 @@
 
 ## Quick Start
 
-### Running Migrations (First-time Setup)
+### Step 1: Run Migrations (First-time Setup)
 
 ```bash
 # Set up environment (if not already done)
 # Edit .env.local with DW connection details — see .env.example [DWH_AlimentosNY] section
 
-# Run all pending migrations
+# Run all pending migrations — creates database, schema, tables, and stored procedures
 bun run migrate:dwh
 ```
 
-This creates the `DWH_AlimentosNY` database from scratch and applies all numbered migration files in order.
+This creates the `DWH_AlimentosNY` database from scratch, applies all numbered migration files in order, and creates all `Load_Dim_*`, `Load_Fact_*`, and `Snapshot_*` stored procedures inside the database.
 
-### Populating Data
+**Output after success**: All 13 migrations applied; DWH_AlimentosNY ready with empty tables.
 
-Two paths: **full initial load** (first-time only) or **incremental refresh** (ongoing).
+### Step 2: Populate Data
+
+Three paths: **full initial load** (first-time only), **incremental refresh** (ongoing via procedure calls), or **SQL Agent jobs** (production automation).
 
 #### Path 1: Full Initial Load (First Run)
 
-The migration runner (`migrate:dwh`) creates empty tables. After migrations complete:
+After migrations complete, manually run all load procedures **in order** via SQL:
 
-```bash
-# Load all dimensions and facts from ERP (Ncake_a) — first-time full snapshot
-bun run load:dwh-initial
+```sql
+USE DWH_AlimentosNY;
+
+-- Load dimensions first (dependencies for facts)
+EXEC dwh.Load_Dim_Currency;
+EXEC dwh.Load_Fact_ExchangeRate;  -- depends on Dim_Currency
+
+EXEC dwh.Load_Dim_Customer;       -- SCD Type 2 (tracks versions with ValidFrom/ValidTo)
+EXEC dwh.Load_Dim_Product;        -- SCD Type 2
+EXEC dwh.Load_Dim_SalesRep;       -- Type 1 (overwrite)
+EXEC dwh.Load_Dim_Warehouse;      -- Type 1
+-- Note: Dim_Date is pre-populated by migration 0003
+-- Note: Dim_DocumentType is pre-seeded by migration 0007 (static, no loader needed)
+
+-- Load facts (depend on all dims above)
+EXEC dwh.Load_Fact_Sales;
+EXEC dwh.Load_Fact_Returns;
+EXEC dwh.Load_Fact_Collections;
+
+-- Finally, take the first AR snapshot (daily job, separate from incremental)
+EXEC dwh.Snapshot_Fact_AR;
 ```
 
-This runs all `Load_Dim_*` and `Load_Fact_*` stored procedures once to backfill the entire history.
-
-**What it loads**:
-- `Dim_Date` — calendar table (pre-generated, years into future)
-- `Dim_Customer`, `Dim_Product`, `Dim_SalesRep`, `Dim_Warehouse`, `Dim_Currency`, `Dim_DocumentType`
-- `Fact_Sales` — all historical invoices (saFacturaVenta + saFacturaVentaReng)
-- `Fact_Returns` — all historical returns (saDevolucionCliente + saDevolucionClienteReng)
-- `Fact_Collections` — all historical collections (saCobro + saCobroDocReng)
-- `Fact_ExchangeRate` — historical daily rates (saTasa)
-- `Fact_AR_Snapshot` — current AR state (as-of today; **historical snapshots cannot be backfilled**)
+This backfills the entire history from ERP:
+- **Dim_Customer**, **Dim_Product** — all versions (SCD Type 2 with ValidFrom/ValidTo for time-travel)
+- **Dim_SalesRep**, **Dim_Warehouse** — all current values (Type 1 overwrite)
+- **Dim_Date** — pre-generated calendar (1 row per day, years ahead)
+- **Dim_DocumentType** — pre-seeded static lookup (FACT, N/CR, N/DB, COBR, ANT, etc.)
+- **Dim_Currency** — all currencies from ERP with IsBaseCurrency flag
+- **Fact_Sales** — all historical invoices (saFacturaVenta + saFacturaVentaReng)
+- **Fact_Returns** — all historical returns (saDevolucionCliente + saDevolucionClienteReng)
+- **Fact_Collections** — all historical collections (saCobro + saCobroDocReng)
+- **Fact_ExchangeRate** — historical daily rates (saTasa, from 2020-01-01 onward)
+- **Fact_AR_Snapshot** — current AR state (as-of today; **historical snapshots cannot be backfilled**)
 
 **Time**: ~30–60 seconds against the reference test database (~5k sales, ~4.6k sales lines); scale to production volume before running.
 
-#### Path 2: Incremental Refresh (Ongoing)
+#### Path 2: Incremental Refresh (Ongoing — Manual)
 
-After initial load, run this on a schedule (every 15–30 min for near-real-time, or hourly if OLTP load is a concern):
+After initial load, run load procedures on any schedule (every 15–30 min for near-real-time, or hourly if OLTP load is a concern). **Run in the same order as initial load:**
 
-```bash
-# Via TypeScript (development)
-bun run load:dwh-incremental
+```sql
+USE DWH_AlimentosNY;
 
-# Via SQL Agent job (production, after setup step below)
--- Job runs automatically per schedule configured in SQL Server Agent
+-- Incremental load (repeat as often as needed)
+EXEC dwh.Load_Dim_Currency;
+EXEC dwh.Load_Fact_ExchangeRate;
+EXEC dwh.Load_Dim_Customer;
+EXEC dwh.Load_Dim_Product;
+EXEC dwh.Load_Dim_SalesRep;
+EXEC dwh.Load_Dim_Warehouse;
+EXEC dwh.Load_Fact_Sales;
+EXEC dwh.Load_Fact_Returns;
+EXEC dwh.Load_Fact_Collections;
+
+-- Separate daily job (run once per day after business close):
+EXEC dwh.Snapshot_Fact_AR;
 ```
 
 **What it does**:
@@ -62,28 +93,30 @@ bun run load:dwh-incremental
 - Updates or inserts corresponding rows in DWH dimensions and facts
 - Tracks watermark progress in `dwh.EtlWatermark` table
 
-**AR Snapshot job** (daily, separate from incremental):
-```bash
-bun run load:dwh-ar-snapshot
+**Daily AR Snapshot** (separate, run once daily after business close):
+```sql
+EXEC dwh.Snapshot_Fact_AR;
 ```
 
-Runs once daily (recommend after business close, e.g. 22:00) to capture point-in-time `saDocumentoVenta` balance state.
+Captures point-in-time `saDocumentoVenta` balance state for that day.
 
-#### Path 3: Production SQL Agent Jobs (After Initial Load)
+#### Path 3: Production SQL Agent Jobs (Automated)
 
-To automate incremental loads and AR snapshots in production, enable the two jobs created by migration `0013_sql_agent_jobs.sql`:
+To automate incremental loads and AR snapshots, enable the two jobs created by migration `0013_sql_agent_jobs.sql`:
 
 ```sql
--- Enable Incremental Load job
+-- Enable Incremental Load job (runs all Load_* procs in order on a schedule)
 EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Incremental Load', @enabled = 1;
 EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Incremental Load', @name = N'Every 30 min', 
     @freq_type = 4, @freq_interval = 1, @freq_subday_type = 4, @freq_subday_interval = 30;
 
--- Enable Daily AR Snapshot job
+-- Enable Daily AR Snapshot job (runs Snapshot_Fact_AR once daily after business close)
 EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Daily AR Snapshot', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily after close',
+EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily 22:00',
     @freq_type = 4, @freq_interval = 1, @freq_subday_type = 1, @active_start_time = 220000;
 ```
+
+Both jobs are created **disabled** by default (migration 0013). Enable them only after verifying initial load completed successfully.
 
 ---
 
@@ -467,28 +500,24 @@ The runner falls back to `DB_*` values if `DW_*` are unset, so on a single insta
 ```bash
 # Apply all pending migrations in sequence
 bun run migrate:dwh
-
-# Output:
-# Running dwh-migrations/0001_create_database.sql...
-# Running dwh-migrations/0002_create_schemas_and_watermark_table.sql...
-# ... (all 13 migrations) ...
-# ✓ All migrations applied successfully
 ```
+
+This:
+1. Creates `DWH_AlimentosNY` database (connecting to `master` first)
+2. Applies all 13 numbered `.sql` files from `dwh-migrations/` in order
+3. Creates all stored procedures inside the DWH database
+4. Initializes the `dwh.EtlWatermark` tracking table
+5. Pre-populates `Dim_Date` calendar (migration 0003)
+
+**Output**: Database and all tables ready with empty rows; stored procedures in place.
 
 ### First-Time Data Load
 
-After migrations complete:
-
-```bash
-# Full initial load — backfills all history from ERP
-bun run load:dwh-initial
-```
-
-This loads:
-- All historical customers, products, sales reps, warehouses
-- All invoices, returns, and collections since ERP go-live
-- All historical daily exchange rates
-- Current AR state (as-of today) — **no historical AR snapshots can be backfilled**
+After migrations complete, run all load procedures **in SQL** (see "Step 2: Populate Data" above for the exact T-SQL commands). The procedures:
+- Load all historical customers, products, sales reps, warehouses (dimensions)
+- Load all invoices, returns, and collections since ERP go-live (facts)
+- Load all historical daily exchange rates (since 2020-01-01)
+- Take initial AR snapshot (as-of today) — **no historical AR snapshots can be backfilled**
 
 ---
 
@@ -600,11 +629,60 @@ ORDER BY CASE
 
 ---
 
+## Implementation Status
+
+✓ **Design**: Approved spec `2026-08-25-sales-margin-collections-dwh-design.md`  
+✓ **Schema**: All 13 migrations implemented (`dwh-migrations/0001_...0013`)  
+✓ **Tables**: 12 tables created (7 dimensions + 5 facts)  
+✓ **Procedures**: All `Load_Dim_*`, `Load_Fact_*`, and `Snapshot_*` stored procedures created  
+✓ **Automation**: SQL Agent jobs defined (disabled by default, enable after first load)  
+
+⚠️ **Data**: Tables empty until you run `EXEC dwh.Load_*` procedures (see Quick Start)  
+⚠️ **TypeScript load scripts**: Not implemented (migrations create T-SQL procedures only)  
+
+## Workflows
+
+**New DWH from scratch**:
+```bash
+bun run migrate:dwh           # Step 1: Create database, schema, procedures
+# Then in SQL Server Studio:
+# EXEC dwh.Load_Dim_Currency; EXEC dwh.Load_Fact_ExchangeRate; ...  (see Quick Start)
+```
+
+**Regular incremental refresh** (repeat on schedule):
+```sql
+-- Every 15–30 minutes (or as needed for near-real-time freshness)
+EXEC dwh.Load_Dim_Currency;
+EXEC dwh.Load_Fact_ExchangeRate;
+EXEC dwh.Load_Dim_Customer;
+EXEC dwh.Load_Dim_Product;
+EXEC dwh.Load_Dim_SalesRep;
+EXEC dwh.Load_Dim_Warehouse;
+EXEC dwh.Load_Fact_Sales;
+EXEC dwh.Load_Fact_Returns;
+EXEC dwh.Load_Fact_Collections;
+
+-- Separate: Run once daily after business close
+EXEC dwh.Snapshot_Fact_AR;
+```
+
+**Production automation** (via SQL Agent):
+```sql
+-- After first load succeeds, enable the jobs:
+EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Incremental Load', @enabled = 1;
+EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Incremental Load', @name = N'Every 30 min', 
+    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 4, @freq_subday_interval = 30;
+
+EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Daily AR Snapshot', @enabled = 1;
+EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily 22:00',
+    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 1, @active_start_time = 220000;
+```
+
 ## References
 
 - **Design Spec**: `docs/superpowers/specs/2026-08-25-sales-margin-collections-dwh-design.md`
 - **Implementation Plan**: `docs/superpowers/plans/2026-08-25-sales-returns-collections-dwh.md`
-- **Migrations**: `dwh-migrations/`
-- **Migration Runner**: `scripts/migrate-dwh.ts`
-- **Load Procedures**: `DWH_AlimentosNY` database, `dwh` schema (stored procedures)
+- **Migrations**: `dwh-migrations/` (13 files, apply in order via `bun run migrate:dwh`)
+- **Migration Runner**: `scripts/migrate-dwh.ts` (TypeScript runner)
+- **Load Procedures**: Inside `DWH_AlimentosNY` database, `dwh` schema (created by migrations)
 - **ERP Knowledge Base**: `docs/tables/*.md` (source table documentation)
