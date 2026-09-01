@@ -8,6 +8,7 @@ services:
       SA_PASSWORD: "YourStr0ngP@ssw0rd"
       ACCEPT_EULA: "Y"
       MSSQL_COLLATION: "Modern_Spanish_CI_AS"
+      MSSQL_AGENT_ENABLED: "true"
     ports:
       - "1433:1433"
     volumes:
