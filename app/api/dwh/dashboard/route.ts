@@ -102,7 +102,7 @@ const TOTALS_QUERY = `
 const EXCHANGE_RATE_QUERY = `
   SELECT TOP 1
     c.CurrencyCode,
-    f.SellRate AS ExchangeRate
+    f.RateSell AS ExchangeRate
   FROM fact.Fact_ExchangeRate f
   JOIN dim.Dim_Currency c ON c.CurrencyKey = f.CurrencyKey
   WHERE c.IsBaseCurrency = 0
