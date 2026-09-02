@@ -156,16 +156,27 @@ export function ArticulosClient() {
     async function load() {
       setLoadError(null);
       try {
-        const res = await fetch('/api/inventory/items');
+        const [itemsRes, lookupsRes] = await Promise.all([
+          fetch('/api/inventory/items'),
+          fetch('/api/inventory/lookups'),
+        ]);
+
         if (cancelled) return;
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
+
+        if (!itemsRes.ok) {
+          const data = await itemsRes.json().catch(() => ({}));
           if (!cancelled) setLoadError(data.error ?? 'No se pudo cargar la lista de artículos');
           return;
         }
-        const data: Item[] = await res.json();
+
+        const data: Item[] = await itemsRes.json();
         if (cancelled) return;
         setItems(data);
+
+        if (lookupsRes.ok) {
+          const lookupsData = await lookupsRes.json();
+          if (!cancelled) setLookups(lookupsData);
+        }
       } catch {
         if (!cancelled) setLoadError('No se pudo conectar con el servidor');
       } finally {

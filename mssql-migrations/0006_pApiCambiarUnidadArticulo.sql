@@ -30,7 +30,7 @@ BEGIN
 
         -- Set current principal unit to 0
         UPDATE saArtUnidad
-        SET uni_principal = 0, uso_principal = 0
+        SET uni_principal = 0
         WHERE co_art = @sCoArt AND uni_principal = 1;
 
         -- Check if new unit already exists for this article
@@ -38,7 +38,7 @@ BEGIN
         BEGIN
             -- Unit exists; set it as principal
             UPDATE saArtUnidad
-            SET uni_principal = 1, uso_principal = 1
+            SET uni_principal = 1
             WHERE co_art = @sCoArt AND co_uni = @sCoUniNueva;
         END
         ELSE
@@ -48,7 +48,7 @@ BEGIN
                 @sCo_Art = @sCoArt, @sCo_Uni = @sCoUniNueva, @iReng_Num = 1,
                 @bRelacion = 0, @deEquivalencia = 1,
                 @bUso_Venta = 1, @bUso_Compra = 1,
-                @bUni_Principal = 1, @bUso_Principal = 1,
+                @bUni_Principal = 1, @bUso_Principal = 0,
                 @bUni_Secundaria = 0, @bUso_Secundaria = 0,
                 @bUso_NumDecimales = 0, @iNum_Decimales = 0,
                 @sCo_Us_In = @sCoUsIn, @sCo_Sucu_In = @sCoSucuIn,

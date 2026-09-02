@@ -15,7 +15,7 @@ const CO_SUCU_IN = null;
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { co_art: string } },
+  { params }: { params: Promise<{ co_art: string }> },
 ) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -24,7 +24,7 @@ export async function POST(
   const allowed = await hasInventoryAccess(db, session.sub, session.role);
   if (!allowed) return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
 
-  const { co_art } = params;
+  const { co_art } = await params;
   if (typeof co_art !== 'string' || co_art.trim() === '') {
     return NextResponse.json({ error: 'Código de artículo requerido' }, { status: 400 });
   }
