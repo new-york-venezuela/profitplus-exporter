@@ -20,7 +20,7 @@ interface DashboardResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors:   DebtorRow[];
   snapshotDateKey: number | null;
-  data.usdRate ?? undefined:      number | null;
+  usdRate:      number | null;
   kpis: {
     salesNet12mo:   number;
     returnsNet12mo: number;
@@ -161,7 +161,7 @@ export function AnaliticaClient() {
     return total > 0 ? overdue / total : null;
   })();
 
-  const canViewUsd = data?.data.usdRate ?? undefined !== null && data?.data.usdRate ?? undefined !== undefined && data.data.usdRate ?? undefined > 0;
+  const canViewUsd = data.usdRate !== null && data.usdRate !== undefined && data.usdRate > 0;
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
