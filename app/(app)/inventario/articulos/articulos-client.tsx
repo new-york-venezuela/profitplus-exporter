@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
+import { UnitChanger } from './unit-changer';
 
 interface Item {
   coArt:       string;
@@ -85,6 +86,8 @@ export function ArticulosClient() {
   const [creatingArticle, setCreatingArticle] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [showUnitChanger, setShowUnitChanger] = useState(false);
+  const [unitChangerTarget, setUnitChangerTarget] = useState<{ coArt: string; artDes: string } | null>(null);
 
   const inputClass = `w-full border border-gray-300 rounded-md px-2 py-1 text-sm
                       focus:outline-none focus:ring-2 focus:ring-blue-500`;
@@ -520,7 +523,17 @@ export function ArticulosClient() {
                     <input aria-label={`Modelo ${item.coArt} (${item.coAlma})`} value={fields.modelo} onChange={e => setField(item, 'modelo', e.target.value)} className={`${inputClass} w-28`} />
                   </td>
                   <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
-                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad?.trim() || '—'}</td>
+                  <td
+                    className="px-3 py-2 text-gray-700 whitespace-nowrap cursor-pointer hover:bg-blue-50 hover:text-blue-600 rounded"
+                    onClick={() => {
+                      setUnitChangerTarget({ coArt: item.coArt, artDes: item.artDes });
+                      setShowUnitChanger(true);
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    {item.unidad?.trim() || '—'} <span className="text-xs">✎</span>
+                  </td>
                   <td className="px-3 py-2">
                     <input aria-label={`Mín ${item.coArt} (${item.coAlma})`} type="number" value={fields.stockMin}
                       onChange={e => setField(item, 'stockMin', parseFloat(e.target.value) || 0)}
@@ -569,6 +582,22 @@ export function ArticulosClient() {
           </div>
         )}
       </div>
+
+      {lookups && unitChangerTarget && (
+        <UnitChanger
+          coArt={unitChangerTarget.coArt}
+          artDes={unitChangerTarget.artDes}
+          currentUnit={items.find(i => i.coArt === unitChangerTarget.coArt)?.unidad ?? null}
+          units={lookups.unidades}
+          isOpen={showUnitChanger}
+          onClose={() => setShowUnitChanger(false)}
+          onSuccess={(newUnit) => {
+            setItems(prev => prev.map(i =>
+              i.coArt === unitChangerTarget.coArt ? { ...i, unidad: newUnit } : i,
+            ));
+          }}
+        />
+      )}
     </div>
   );
 }
