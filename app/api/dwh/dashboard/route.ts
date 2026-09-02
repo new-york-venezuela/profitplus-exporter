@@ -106,9 +106,9 @@ const EXCHANGE_RATE_QUERY = `
   FROM fact.Fact_ExchangeRate f
   JOIN dim.Dim_Currency c ON c.CurrencyKey = f.CurrencyKey
   WHERE f.DateKey = (SELECT MAX(DateKey) FROM fact.Fact_ExchangeRate)
+    AND RTRIM(c.CurrencyCode) IN ('USD', 'VES')
     AND c.IsBaseCurrency = 0
-    AND RTRIM(c.CurrencyCode) NOT IN ('BS', 'VES')
-  ORDER BY c.CurrencyCode
+  ORDER BY c.CurrencyCode DESC
 `;
 
 export async function GET(request: NextRequest) {
