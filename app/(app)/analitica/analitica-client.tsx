@@ -20,6 +20,7 @@ interface DashboardResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors:   DebtorRow[];
   snapshotDateKey: number | null;
+  usdRate:      number | null;
   kpis: {
     salesNet12mo:   number;
     returnsNet12mo: number;
@@ -37,12 +38,20 @@ const BUCKET_COLORS: Record<string, string> = {
   '>90':   '#dc2626',
 };
 
-function money(n: number): string {
-  return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 }).format(n);
+function money(n: number, currency: 'bs' | 'usd' = 'bs', rate?: number): string {
+  if (currency === 'usd' && rate) {
+    n = n / rate;
+  }
+  const format = currency === 'usd'
+    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
+    : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 });
+  return format.format(n);
 }
 
-function moneyTooltip(value: unknown): string {
-  return `Bs. ${money(Number(Array.isArray(value) ? value[0] : value))}`;
+function moneyTooltip(value: unknown, currency: 'bs' | 'usd' = 'bs', rate?: number): string {
+  const numVal = Number(Array.isArray(value) ? value[0] : value);
+  const prefix = currency === 'usd' ? '$' : 'Bs. ';
+  return `${prefix}${money(numVal, currency, rate)}`;
 }
 
 function pct(n: number | null): string {
@@ -86,6 +95,16 @@ export function AnaliticaClient() {
   const [data, setData]       = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const [currency, setCurrency] = useState<'bs' | 'usd'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('dashboard-currency') ?? 'bs') as 'bs' | 'usd';
+    }
+    return 'bs';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dashboard-currency', currency);
+  }, [currency]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,25 +161,62 @@ export function AnaliticaClient() {
     return total > 0 ? overdue / total : null;
   })();
 
+  const canViewUsd = data?.usdRate !== null && data?.usdRate !== undefined && data.usdRate > 0;
+
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Panel Analítico</h1>
-        <p className="text-sm text-gray-500">
-          Ventas, devoluciones, cobranza y cartera — últimos 12 meses, datos del Data Warehouse
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Panel Analítico</h1>
+          <p className="text-sm text-gray-500">
+            Ventas, devoluciones, cobranza y cartera — últimos 12 meses, datos del Data Warehouse
+          </p>
+        </div>
+        {canViewUsd && (
+          <div className="flex gap-2 bg-white border border-gray-200 rounded-lg p-1">
+            <button
+              onClick={() => setCurrency('bs')}
+              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                currency === 'bs'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Bs.
+            </button>
+            <button
+              onClick={() => setCurrency('usd')}
+              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                currency === 'usd'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              USD
+            </button>
+          </div>
+        )}
       </div>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Ventas netas (12m)" value={`Bs. ${money(data.kpis.salesNet12mo)}`} />
-        <KpiCard label="Devoluciones (12m)" value={`Bs. ${money(data.kpis.returnsNet12mo)}`} />
+        <KpiCard
+          label="Ventas netas (12m)"
+          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.salesNet12mo, currency, data.usdRate ?? undefined)}`}
+        />
+        <KpiCard
+          label="Devoluciones (12m)"
+          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.returnsNet12mo, currency, data.usdRate ?? undefined)}`}
+        />
         <KpiCard
           label="Tasa de devolución"
           value={pct(data.kpis.returnRate)}
           tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
         />
-        <KpiCard label="Cobrado (12m)" value={`Bs. ${money(data.kpis.collected12mo)}`} />
+        <KpiCard
+          label="Cobrado (12m)"
+          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.collected12mo, currency, data.usdRate ?? undefined)}`}
+        />
       </div>
 
       {/* Sales & returns trend */}
@@ -172,8 +228,8 @@ export function AnaliticaClient() {
             <ComposedChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v)} />
-              <Tooltip formatter={moneyTooltip} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
+              <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
               <Legend />
               <Bar dataKey="Ventas" fill="#2563eb" radius={[3, 3, 0, 0]} />
               <Line type="monotone" dataKey="Devoluciones" stroke="#dc2626" strokeWidth={2} dot={false} />
@@ -191,9 +247,9 @@ export function AnaliticaClient() {
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={data.topCustomers} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v)} />
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={moneyTooltip} />
+                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
                 <Bar dataKey="netRevenue" fill="#2563eb" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -208,9 +264,9 @@ export function AnaliticaClient() {
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={data.topProducts} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v)} />
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={moneyTooltip} />
+                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
                 <Bar dataKey="netRevenue" fill="#0891b2" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -231,8 +287,8 @@ export function AnaliticaClient() {
               <BarChart data={agingData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v)} />
-                <Tooltip formatter={moneyTooltip} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
+                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
                 <Bar dataKey="Monto" radius={[3, 3, 0, 0]}>
                   {agingData.map(d => (
                     <Cell key={d.bucket} fill={BUCKET_COLORS[d.bucket] ?? '#94a3b8'} />
@@ -260,7 +316,9 @@ export function AnaliticaClient() {
                   {data.topDebtors.map(d => (
                     <tr key={d.name}>
                       <td className="px-3 py-2 text-gray-800">{d.name}</td>
-                      <td className="px-3 py-2 text-right font-medium text-gray-900">Bs. {money(d.outstanding)}</td>
+                      <td className="px-3 py-2 text-right font-medium text-gray-900">
+                        {currency === 'usd' ? '$' : 'Bs. '}{money(d.outstanding, currency, data.usdRate ?? undefined)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -289,8 +347,12 @@ export function AnaliticaClient() {
                 {data.salesReps.map(r => (
                   <tr key={r.name}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">Bs. {money(r.salesNet)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">Bs. {money(r.returnsNet)}</td>
+                    <td className="px-3 py-2 text-right font-medium text-gray-900">
+                      {currency === 'usd' ? '$' : 'Bs. '}{money(r.salesNet, currency, data.usdRate ?? undefined)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-600">
+                      {currency === 'usd' ? '$' : 'Bs. '}{money(r.returnsNet, currency, data.usdRate ?? undefined)}
+                    </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {r.salesNet > 0 ? pct(r.returnsNet / r.salesNet) : '—'}
                     </td>

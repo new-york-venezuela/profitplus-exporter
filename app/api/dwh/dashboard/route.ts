@@ -99,6 +99,18 @@ const TOTALS_QUERY = `
        WHERE IsVoided = 0 AND DateKey >= CONVERT(int, FORMAT(DATEADD(month, -12, GETUTCDATE()), 'yyyyMMdd'))) AS Collected12mo
 `;
 
+const EXCHANGE_RATE_QUERY = `
+  SELECT TOP 1
+    c.CurrencyCode,
+    f.SellRate AS ExchangeRate
+  FROM fact.Fact_ExchangeRate f
+  JOIN dim.Dim_Currency c ON c.CurrencyKey = f.CurrencyKey
+  WHERE c.IsBaseCurrency = 0
+    AND c.CurrencyCode NOT IN ('BS    ', 'VES   ')
+    AND f.DateKey = (SELECT MAX(DateKey) FROM fact.Fact_ExchangeRate)
+  ORDER BY f.DateKey DESC, c.CurrencyCode
+`;
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -110,13 +122,14 @@ export async function GET(request: NextRequest) {
   try {
     const pool = await getDwhPool();
 
-    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals] = await Promise.all([
+    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, exchangeRates] = await Promise.all([
       pool.request().query(MONTHLY_TREND_QUERY),
       pool.request().query(TOP_CUSTOMERS_QUERY),
       pool.request().query(TOP_PRODUCTS_QUERY),
       pool.request().query(SALES_REP_QUERY),
       pool.request().query(LATEST_SNAPSHOT_QUERY),
       pool.request().query(TOTALS_QUERY),
+      pool.request().query(EXCHANGE_RATE_QUERY),
     ]);
 
     const snapshotDateKey: number | null = latestSnapshot.recordset[0]?.SnapshotDateKey ?? null;
@@ -137,6 +150,8 @@ export async function GET(request: NextRequest) {
     const salesNet = Number(totalsRow.SalesNet12mo);
     const returnsNet = Number(totalsRow.ReturnsNet12mo);
 
+    const usdRate = exchangeRates.recordset[0]?.ExchangeRate ?? null;
+
     return NextResponse.json({
       monthlyTrend: trend.recordset.map(r => ({
         yearMonth: r.YearMonth,
@@ -153,6 +168,7 @@ export async function GET(request: NextRequest) {
       agingBuckets: agingBuckets.map(r => ({ bucket: r.AgingBucket, amount: Number(r.Amount) })),
       topDebtors: topDebtors.map(r => ({ name: r.Name, outstanding: Number(r.Outstanding) })),
       snapshotDateKey,
+      usdRate,
       kpis: {
         salesNet12mo: salesNet,
         returnsNet12mo: returnsNet,
