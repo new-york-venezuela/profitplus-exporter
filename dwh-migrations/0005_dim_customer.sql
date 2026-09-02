@@ -5,6 +5,7 @@ BEGIN
         CustomerCode            char(16)      NOT NULL,
         CustomerName            varchar(120)  NULL,
         TaxId                   varchar(20)   NULL,
+        LegalEntityRIF          varchar(20)   NULL,
         IsSpecialTaxpayer       bit           NOT NULL,
         CreditLimit             decimal(18,2) NULL,
         CreditLimitCurrencyCode char(6)       NULL,
@@ -19,6 +20,7 @@ BEGIN
         LoadedAtUtc              datetime2(3)  NOT NULL DEFAULT SYSUTCDATETIME()
     );
     CREATE INDEX IX_Dim_Customer_CustomerCode_Current ON dim.Dim_Customer (CustomerCode, IsCurrent);
+    CREATE INDEX IX_Dim_Customer_LegalEntityRIF ON dim.Dim_Customer (LegalEntityRIF, IsCurrent);
 END
 GO
 
@@ -46,6 +48,7 @@ BEGIN
       AND (
             ISNULL(tgt.CustomerName, '') <> ISNULL(src.cli_des, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.TaxId, '') <> ISNULL(src.rif, '') COLLATE SQL_Latin1_General_CP1_CI_AS
+         OR ISNULL(tgt.LegalEntityRIF, '') <> ISNULL(src.rif, '') COLLATE SQL_Latin1_General_CP1_CI_AS
          OR ISNULL(tgt.IsSpecialTaxpayer, 0) <> ISNULL(src.contrib, 0)
          OR ISNULL(tgt.CreditLimit, -1) <> ISNULL(src.mont_cre, -1)
          OR ISNULL(RTRIM(tgt.CreditLimitCurrencyCode), '') <> ISNULL(RTRIM(src.co_mone), '') COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -58,11 +61,11 @@ BEGIN
 
     -- Insert new versions: brand-new customers, and customers just closed out above
     INSERT INTO dim.Dim_Customer (
-        CustomerCode, CustomerName, TaxId, IsSpecialTaxpayer, CreditLimit, CreditLimitCurrencyCode,
+        CustomerCode, CustomerName, TaxId, LegalEntityRIF, IsSpecialTaxpayer, CreditLimit, CreditLimitCurrencyCode,
         ZoneCode, SegmentCode, DefaultSalesRepCode, IsLegalEntity, IsInactive, ValidFrom, ValidTo, IsCurrent
     )
     SELECT
-        RTRIM(src.co_cli), src.cli_des, src.rif, ISNULL(src.contrib, 0), src.mont_cre, src.co_mone,
+        RTRIM(src.co_cli), src.cli_des, src.rif, src.rif, ISNULL(src.contrib, 0), src.mont_cre, src.co_mone,
         src.co_zon, src.co_seg, src.co_ven, ISNULL(src.juridico, 0), ISNULL(src.inactivo, 0), @Now, NULL, 1
     FROM Ncake_a.dbo.saCliente src
     WHERE src.validador > @Watermark

@@ -287,12 +287,15 @@ This installation has **never recorded production/manufacturing cost** for any f
 **Grain**: 1 row per customer version  
 **Why SCD2**: Credit limits, zones, and segments change over time. Dashboards like "Credit Risk & Concentration" need the limit that was in force *when* a balance existed, not today's limit.
 
+**⚠️ Customer-to-RIF Multiplicity**: A single legal entity (same `RIF`) may have **multiple customer records** in the ERP — one per location/venue. Example: FARMATODO C.A has one centralized payment account and RIF, but many individual store locations, each with its own `CustomerCode` (RIF + sequential suffix). The dimension reflects store-level accounts. Aggregations at legal-entity level must group by `RIF`; store-specific metrics use `CustomerCode`.
+
 | Column | Type | Source | Notes |
 |---|---|---|---|
 | `CustomerKey` | int | IDENTITY | Surrogate key |
-| `CustomerCode` | char(20) | `saCliente.co_cli` | Natural key (ERP ID) |
+| `CustomerCode` | char(20) | `saCliente.co_cli` | Natural key (ERP ID, store-level) |
 | `CustomerName` | varchar(200) | `saCliente.cli_des` | Business name |
-| `RIF` | varchar(20) | `saCliente.rif` | Tax ID |
+| `TaxId` | varchar(20) | `saCliente.rif` | Tax ID (store-level, may be same as LegalEntityRIF) |
+| `LegalEntityRIF` | varchar(20) | `saCliente.rif` | **Denormalized grouping key for legal entity rollups** — all stores of the same company share this value |
 | `IsSpecialContributor` | bit | `saCliente.contrib` | Special contributor status (SENIAT) |
 | `DefaultSalesRepCode` | char(20) | `saCliente.co_ven` | Default sales rep for this customer |
 | `CreditLimit` | decimal(18,2) | `saCliente.mont_cre` | Credit limit (in original currency) |
@@ -626,6 +629,38 @@ ORDER BY CASE
     WHEN AgingBucket = '61-90' THEN 3
     ELSE 4 END;
 ```
+
+### Legal Entity Rollup (Account for Multi-Store Customers)
+Many customers have multiple store/venue records under the same RIF (e.g., FARMATODO C.A has one corporate account but many individual store locations). To aggregate at the **legal entity level**, use the denormalized `LegalEntityRIF` key (indexed for fast grouping):
+
+```sql
+-- Collections by legal entity (RIF) — each location's receipts summed
+SELECT
+    dc.LegalEntityRIF,
+    COUNT(DISTINCT dc.CustomerCode) AS Num_Store_Locations,
+    COUNT(DISTINCT fc.ReceiptNumber) AS Num_Receipts,
+    SUM(fc.AmountCollected) AS Total_Collections
+FROM fact.Fact_Collections fc
+INNER JOIN dim.Dim_Customer dc ON fc.CustomerKey = dc.CustomerKey AND dc.IsCurrent = 1
+WHERE fc.DateKey >= 20260801
+GROUP BY dc.LegalEntityRIF
+ORDER BY Total_Collections DESC;
+
+-- With store-level breakout (hierarchical):
+SELECT
+    dc.LegalEntityRIF,
+    dc.CustomerCode,
+    dc.CustomerName,
+    COUNT(DISTINCT fc.ReceiptNumber) AS Num_Receipts,
+    SUM(fc.AmountCollected) AS Total_Collections
+FROM fact.Fact_Collections fc
+INNER JOIN dim.Dim_Customer dc ON fc.CustomerKey = dc.CustomerKey AND dc.IsCurrent = 1
+WHERE fc.DateKey >= 20260801
+GROUP BY dc.LegalEntityRIF, dc.CustomerCode, dc.CustomerName
+ORDER BY dc.LegalEntityRIF, Total_Collections DESC;
+```
+
+**Performance note**: `LegalEntityRIF` is indexed (`IX_Dim_Customer_LegalEntityRIF`), so GROUP BY on it is efficient even with millions of fact rows.
 
 ---
 
