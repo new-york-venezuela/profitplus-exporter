@@ -148,7 +148,7 @@ function AnaliticaClientInner() {
       <div className="border-b border-gray-200 bg-white px-6 py-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Panel Analítico</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Analítica</h1>
             <p className="text-sm text-gray-500">
               Ventas, devoluciones, cobranza y cartera — datos del Data Warehouse
             </p>
