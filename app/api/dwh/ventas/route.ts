@@ -39,7 +39,7 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
 function clienteQuery(dateWhere: string, monthFilter: string, salesRepFilter: string): string {
   return `
     SELECT TOP 15
-      CAST(c.CustomerKey AS varchar(20)) AS GroupValue,
+      CAST(fs.CustomerKey AS varchar(20)) AS GroupValue,
       ISNULL(c.CustomerName, c.CustomerCode) AS GroupLabel,
       SUM(fs.NetAmount) AS SalesNet,
       SUM(fs.GrossAmount) AS GrossAmount,
@@ -51,7 +51,7 @@ function clienteQuery(dateWhere: string, monthFilter: string, salesRepFilter: st
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${monthFilter} ${salesRepFilter}
-    GROUP BY c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    GROUP BY fs.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
     ORDER BY SalesNet DESC
   `;
 }

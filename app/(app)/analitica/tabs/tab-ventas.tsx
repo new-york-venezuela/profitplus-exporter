@@ -196,7 +196,7 @@ export default function TabVentas({
                   fill="#2563eb"
                   radius={groupBy === 'mes' ? [3, 3, 0, 0] : [0, 3, 3, 0]}
                   cursor={groupBy === 'mes' ? 'pointer' : undefined}
-                  onClick={groupBy === 'mes' ? (entry: { value: string }) => handleBarClick(entry.value) : undefined}
+                  onClick={groupBy === 'mes' ? (entry: any) => handleBarClick(entry.payload?.value) : undefined}
                 />
               </BarChart>
             </ResponsiveContainer>
