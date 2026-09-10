@@ -1,0 +1,134 @@
+{
+  "spec_compliant": false,
+  "quality_approved": false,
+  "verdict": "FINDINGS",
+  "critical_findings": [
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 8,
+      "issue": "GroupBy type redefined as union of specific values ('day' | 'week' | 'month' | 'quarter' | 'year') instead of generic string; conflicts with spec and breadcrumb usage patterns",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 19,
+      "issue": "DrillContext interface completely refactored - removed required groupBy field, removed parentValue field, added unspecified tab/metric/value/level fields; breaks drill-down contract from spec",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 73,
+      "issue": "VentasResponse missing breadcrumb field (should be Array<{ label: string; groupBy: GroupBy }>); has unspecified total/totalDocumentos/promedio fields instead",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 68,
+      "issue": "VentasRow completely refactored with different field names and structure (periodo/montoVentas/cantidadDocumentos/tipoDocumento/cliente/vendedor/porcentajeVariacion) vs spec (label/value/salesNet/returnRate/avgDiscount)",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 91,
+      "issue": "DevolucionesResponse missing breadcrumb field; renamed rows→matrix, restructured with unspecified rowLabels/columnLabels/porcentajeTotalVentas fields",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 85,
+      "issue": "DevolucionesMatrixCell completely refactored - removed salesRep/producto/cliente/ratioDevolucion/amountNet fields; replaced with row/column/value/percentage",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 107,
+      "issue": "CxcResponse field names changed (agingBuckets→agingDistribution, overdueShare→porcentajeVencido) and added unspecified saldoTotal/saldoVencido/diasPromediosCobro fields",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 118,
+      "issue": "VendedoresRow completely refactored with Spanish field names (nombre/ventasNetas/devolucionesNetas/tasaDevolucion/clientesActivos/comision/variacionAnual) vs spec English names (name/salesNet/returnsNet/returnRate/collectionRate/avgDiscount)",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 127,
+      "issue": "VendedoresResponse added unspecified totalVentas/totalComisiones/tasaDevolucionPromedio fields; added groupBy field not in spec",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 134,
+      "issue": "ClientesRow completely refactored - removed pareto field entirely, changed all field names to Spanish (nombreCliente/ventasNetas/devolucionesNetas/tasaDevolucion/saldoPendiente/diasAtrasoPromedio/frecuenciaCompra/ultimaCompra), added fields not in spec",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 144,
+      "issue": "ClientesResponse removed paretoThresholds field from spec; added unspecified totalVentas/totalSaldoPendiente/tasaDevolucionPromedio/clientesActivos fields; added groupBy",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 151,
+      "issue": "ProductosRow completely refactored - removed sku/linea/sublinea/rotacion/salesNet/margin; replaced with codigoProducto/nombreProducto/ventasNetas/cantidadVendida/precioPromedio/devolucionesNetas/tasaDevolucion/margenBruto/variacionAnual",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 162,
+      "issue": "ProductosResponse missing breadcrumb field; added unspecified totalVentas/totalCantidad/precioPromedioGlobal/margenBrutoPromedio/tasaDevolucionPromedio aggregates",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 172,
+      "issue": "FinanzasWaterfallStep field names changed (step→label, amount→value); added unspecified isTotal and type fields not in spec",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 178,
+      "issue": "FinanzasResponse renamed waterfall→steps; added unspecified startingBalance/totalInflows/totalOutflows/endingBalance/periodDate/groupBy fields; diverges from spec structure",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 191,
+      "issue": "ExchangeRateRow completely refactored from (yearMonth/rateBcvToUsd) to (fecha/moneda/tasaCompra/tasaVenta/tasaPromedio/volatilidad); changed granularity and meaning",
+      "severity": "Critical"
+    },
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 199,
+      "issue": "MultimonedaResponse completely restructured; renamed exchangeRates→rates, currentRate→tasaActualUsdBs, added cambioUltimo7Dias/cambioUltimo30Dias/cambioUltimo90Dias/ventasEnMultimoneda nested object; inappropriately added groupBy field to exchange rate response",
+      "severity": "Critical"
+    }
+  ],
+  "important_findings": [
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 1,
+      "issue": "Implementation does not match review package specification in any material way; nearly every interface has been completely refactored with different field names, structures, and purposes, indicating either spec was ignored or work was done against different requirements",
+      "severity": "Important"
+    }
+  ],
+  "minor_findings": [
+    {
+      "file": "app/(app)/analitica/types.ts",
+      "line": 13,
+      "issue": "FilterParams added groupBy?: GroupBy field and ISO 8601 comments; not in review package spec but reasonable enhancement",
+      "severity": "Minor"
+    }
+  ],
+  "strengths": [
+    "File exists at correct location",
+    "27 exports present as required",
+    "All response types include usdRate: number | null field",
+    "Consistent use of nullable fields with | null syntax",
+    "All monetary values are raw numbers (not formatted strings)",
+    "No logic code present - definitions only",
+    "Proper TypeScript syntax throughout"
+  ]
+}
