@@ -1,0 +1,40 @@
+{
+  "spec_compliant": false,
+  "quality_approved": true,
+  "verdict": "FINDINGS",
+  "critical_findings": [],
+  "important_findings": [
+    {
+      "location": "app/(app)/analitica/analitica-client.tsx:151",
+      "finding": "Spec requirement 5 explicitly requires the header h1 text to be \"Analítica\". The implementation renders `<h1 className=\"text-2xl font-bold text-gray-900\">Panel Analítico</h1>` instead. This text was carried over verbatim from the pre-refactor file (confirmed via `git show a9ba25b:app/(app)/analitica/analitica-client.tsx`, which already had \"Panel Analítico\" at that line) rather than updated to match the new spec. The task-2-report.md's manual spec checklist (item 5) marks this as ✓ without noting the text mismatch."
+    },
+    {
+      "location": "app/(app)/analitica/analitica-client.tsx:224-231",
+      "finding": "Spec requirement 8 states \"Render active tab component only\" combined with lazy-mount-on-first-activation. The implementation instead keeps every previously-activated tab mounted in the DOM simultaneously (`TABS.filter(tab => mountedTabs.has(tab.key)).map(...)`), toggling visibility with a `hidden` (display:none) class rather than only rendering the currently active tab. Once a tab has been visited, its component instance and any internal effects/timers/API calls it runs continue to live in the tree even while another tab is active and it is not visible. This is a deliberate, documented design choice (justified in the report as avoiding refetch on tab-switch) and is internally consistent with the Lazy Loading bullet (req. 4), but it is a real behavioral deviation from the literal 'render active tab component only' requirement and should be confirmed with the plan author/spec owner before sign-off, since later tab implementations (Tasks 3-14) may assume only the active tab is ever mounted at a time."
+    }
+  ],
+  "minor_findings": [
+    {
+      "location": "app/(app)/analitica/analitica-client.tsx:83-92",
+      "finding": "Currency fallback reads `localStorage` inside a `useState` lazy initializer in a 'use client' component. Because this component can still be server-rendered for the initial HTML (with `window` undefined, yielding `DEFAULT_CURRENCY`), while the client's first render can read a different value from `localStorage`, there is a theoretical hydration-mismatch risk on the currency toggle's initial styling if a user previously chose 'usd'. Low practical impact (visual only, self-corrects on hydration) but worth a note."
+    },
+    {
+      "location": "app/(app)/analitica/analitica-client.tsx:94-105",
+      "finding": "`mountedTabs` will silently accumulate any invalid `?tab=` value the user navigates to (e.g., 'foo'), since the Set is keyed by whatever `activeTab` resolves to, not validated against `TABS` before insertion. Harmless (the invalid key never matches any `TABS` entry so it's never rendered) but is unbounded/unnecessary growth for an edge case."
+    },
+    {
+      "location": "app/(app)/analitica/analitica-client.tsx:54-56",
+      "finding": "`isValidDateRange` accepts 'custom' (matching the `DateRange` type from Task 1's types.ts), but the UI only ever offers 30d/90d/12m buttons — 'custom' is unreachable through the shell's own UI. Not a bug (forward-compatible with the type and a future custom-range feature) but worth flagging as currently-unused branch coverage."
+    }
+  ],
+  "strengths": [
+    "All 11 TABS entries present with correct keys and Spanish labels (verified 'Resumen', 'CXC y Cobranzas', 'Rutas y Logística' match spec exactly); compras/rutas correctly render inline via TabStub.",
+    "Named export `AnaliticaClient` preserved (not changed to default), matching the existing import `{ AnaliticaClient }` in page.tsx; page.tsx was not touched, confirmed by diff.",
+    "URL is the genuine single source of truth for tab/dateRange/currency, all changes routed through a single `updateParams()` helper that merges into existing search params rather than clobbering them.",
+    "No `useEffect` used anywhere; derived state (currency, mountedTabs) computed via pure derivation or the documented 'adjust state during render' guarded-setState pattern, avoiding the project's `react-hooks/set-state-in-effect` lint rule — confirms ESLint clean (0 problems), independently re-verified in this review.",
+    "Error handling for invalid `?tab=X` renders 'Tab not found: {activeTab}' with no console output and no crash, independently verified by code inspection.",
+    "No API calls anywhere in the shell file — confirmed via read-through, all data fetching deferred to child tab components as required.",
+    "TypeScript compile independently re-verified: exactly the 10 expected `TS2307: Cannot find module './tabs/...'` errors remain (9 tab components + tab-stub, none of which exist yet since Tasks 3-14 haven't run) — matches the report's claim precisely.",
+    "Tailwind classes for active/inactive tab styling correctly implement blue text + blue bottom border for active, gray text + transparent border with hover transition for inactive, per spec."
+  ]
+}

@@ -1,381 +1,235 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import {
-  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, Cell,
-} from 'recharts';
+import { Suspense, useCallback, useMemo, useState } from 'react';
+import type { ComponentType } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type { Currency, DateRange } from './types';
+import TabResumen from './tabs/tab-resumen';
+import TabVentas from './tabs/tab-ventas';
+import TabDevoluciones from './tabs/tab-devoluciones';
+import TabCxc from './tabs/tab-cxc';
+import TabVendedores from './tabs/tab-vendedores';
+import TabClientes from './tabs/tab-clientes';
+import TabProductos from './tabs/tab-productos';
+import TabFinanzas from './tabs/tab-finanzas';
+import TabMultimoneda from './tabs/tab-multimoneda';
+import TabStub from './tabs/tab-stub';
 
-interface MonthlyTrendRow { yearMonth: string; salesNet: number; returnsNet: number }
-interface NamedAmount { name: string; netRevenue: number }
-interface SalesRepRow { name: string; salesNet: number; returnsNet: number }
-interface AgingBucketRow { bucket: string; amount: number }
-interface DebtorRow { name: string; outstanding: number }
-
-interface DashboardResponse {
-  monthlyTrend: MonthlyTrendRow[];
-  topCustomers: NamedAmount[];
-  topProducts:  NamedAmount[];
-  salesReps:    SalesRepRow[];
-  agingBuckets: AgingBucketRow[];
-  topDebtors:   DebtorRow[];
-  snapshotDateKey: number | null;
-  usdRate:      number | null;
-  kpis: {
-    salesNet12mo:   number;
-    returnsNet12mo: number;
-    returnRate:     number | null;
-    collected12mo:  number;
-  };
+export interface TabComponentProps {
+  dateRange: DateRange;
+  currency: Currency;
 }
 
-const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
-const BUCKET_COLORS: Record<string, string> = {
-  Current: '#16a34a',
-  '1-30':  '#84cc16',
-  '31-60': '#eab308',
-  '61-90': '#f97316',
-  '>90':   '#dc2626',
-};
-
-function money(n: number, currency: 'bs' | 'usd' = 'bs', rate?: number): string {
-  if (currency === 'usd' && rate) {
-    n = n / rate;
-  }
-  const format = currency === 'usd'
-    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-    : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 });
-  return format.format(n);
+interface TabDef {
+  key: string;
+  label: string;
+  component: ComponentType<TabComponentProps>;
 }
 
-function moneyTooltip(value: unknown, currency: 'bs' | 'usd' = 'bs', rate?: number): string {
-  const numVal = Number(Array.isArray(value) ? value[0] : value);
-  const prefix = currency === 'usd' ? '$' : 'Bs. ';
-  return `${prefix}${money(numVal, currency, rate)}`;
+const TABS: TabDef[] = [
+  { key: 'resumen', label: 'Resumen', component: TabResumen },
+  { key: 'ventas', label: 'Ventas', component: TabVentas },
+  { key: 'devoluciones', label: 'Devoluciones', component: TabDevoluciones },
+  { key: 'cxc', label: 'CXC y Cobranzas', component: TabCxc },
+  { key: 'vendedores', label: 'Vendedores', component: TabVendedores },
+  { key: 'clientes', label: 'Clientes', component: TabClientes },
+  { key: 'productos', label: 'Productos', component: TabProductos },
+  { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
+  { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
+  { key: 'compras', label: 'Compras', component: () => <TabStub title="Compras" /> },
+  { key: 'rutas', label: 'Rutas y Logística', component: () => <TabStub title="Rutas y Logística" /> },
+];
+
+const DEFAULT_TAB = 'resumen';
+const DEFAULT_DATE_RANGE: DateRange = '12m';
+const DEFAULT_CURRENCY: Currency = 'bs';
+const CURRENCY_STORAGE_KEY = 'analytics-currency';
+
+const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  { value: '30d', label: '30 días' },
+  { value: '90d', label: '90 días' },
+  { value: '12m', label: '12 meses' },
+];
+
+function isValidDateRange(value: string | null): value is DateRange {
+  return value === '30d' || value === '90d' || value === '12m' || value === 'custom';
 }
 
-function pct(n: number | null): string {
-  if (n === null) return '—';
-  return `${(n * 100).toFixed(1)}%`;
-}
-
-function formatYearMonth(ym: string): string {
-  const [y, m] = ym.split('-');
-  const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${names[parseInt(m, 10) - 1]} ${y.slice(2)}`;
-}
-
-function formatSnapshotDate(key: number | null): string {
-  if (key === null) return 'sin datos';
-  const s = String(key);
-  return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
-}
-
-function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
-    </div>
-  );
-}
-
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <h2 className="text-sm font-bold text-gray-900">{title}</h2>
-      {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
-      {!subtitle && <div className="mb-3" />}
-      {children}
-    </div>
-  );
+function isValidCurrency(value: string | null): value is Currency {
+  return value === 'bs' || value === 'usd';
 }
 
 export function AnaliticaClient() {
-  const [data, setData]       = useState<DashboardResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-  const [currency, setCurrency] = useState<'bs' | 'usd'>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('dashboard-currency') ?? 'bs') as 'bs' | 'usd';
-    }
-    return 'bs';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('dashboard-currency', currency);
-  }, [currency]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      try {
-        const res = await fetch('/api/dwh/dashboard');
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          if (!cancelled) setError(body.error ?? 'No se pudo cargar el panel analítico');
-          return;
-        }
-        const body: DashboardResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
-      } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, []);
-
-  if (loading) {
-    return <div className="p-6 text-sm text-gray-500">Cargando panel analítico…</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const trendData = data.monthlyTrend.map(r => ({
-    label: formatYearMonth(r.yearMonth),
-    Ventas: r.salesNet,
-    Devoluciones: r.returnsNet,
-  }));
-
-  const orderedBuckets = BUCKET_ORDER
-    .map(bucket => data.agingBuckets.find(b => b.bucket === bucket))
-    .filter((b): b is AgingBucketRow => b !== undefined);
-  const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: b.amount }));
-  const overdueShare = (() => {
-    const total = orderedBuckets.reduce((sum, b) => sum + b.amount, 0);
-    const overdue = orderedBuckets.filter(b => b.bucket !== 'Current').reduce((sum, b) => sum + b.amount, 0);
-    return total > 0 ? overdue / total : null;
-  })();
-
-  const canViewUsd = data.usdRate !== null && data.usdRate !== undefined && data.usdRate > 0;
-
   return (
-    <div className="p-6 max-w-7xl space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Panel Analítico</h1>
-          <p className="text-sm text-gray-500">
-            Ventas, devoluciones, cobranza y cartera — últimos 12 meses, datos del Data Warehouse
-          </p>
-        </div>
-        {canViewUsd && (
-          <div className="flex gap-2 bg-white border border-gray-200 rounded-lg p-1">
-            <button
-              onClick={() => setCurrency('bs')}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                currency === 'bs'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Bs.
-            </button>
-            <button
-              onClick={() => setCurrency('usd')}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                currency === 'usd'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              USD
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard
-          label="Ventas netas (12m)"
-          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.salesNet12mo, currency, data.usdRate ?? undefined)}`}
-        />
-        <KpiCard
-          label="Devoluciones (12m)"
-          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.returnsNet12mo, currency, data.usdRate ?? undefined)}`}
-        />
-        <KpiCard
-          label="Tasa de devolución"
-          value={pct(data.kpis.returnRate)}
-          tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
-        />
-        <KpiCard
-          label="Cobrado (12m)"
-          value={`${currency === 'usd' ? '$' : 'Bs. '}${money(data.kpis.collected12mo, currency, data.usdRate ?? undefined)}`}
-        />
-      </div>
-
-      {/* Sales & returns trend */}
-      <ChartCard title="Tendencia de ventas y devoluciones" subtitle="Monto neto por mes, últimos 12 meses">
-        {trendData.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
-              <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
-              <Legend />
-              <Bar dataKey="Ventas" fill="#2563eb" radius={[3, 3, 0, 0]} />
-              <Line type="monotone" dataKey="Devoluciones" stroke="#dc2626" strokeWidth={2} dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top customers */}
-        <ChartCard title="Top 10 clientes" subtitle="Por ingreso neto, últimos 12 meses">
-          {data.topCustomers.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={data.topCustomers} layout="vertical" margin={{ left: 24 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
-                <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
-                <Bar dataKey="netRevenue" fill="#2563eb" radius={[0, 3, 3, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        {/* Top products */}
-        <ChartCard title="Top 10 productos" subtitle="Por ingreso neto, últimos 12 meses">
-          {data.topProducts.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={data.topProducts} layout="vertical" margin={{ left: 24 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
-                <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
-                <Bar dataKey="netRevenue" fill="#0891b2" radius={[0, 3, 3, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* AR aging */}
-        <ChartCard
-          title="Antigüedad de saldos (AR Aging)"
-          subtitle={`Corte al ${formatSnapshotDate(data.snapshotDateKey)}${overdueShare !== null ? ` — ${pct(overdueShare)} vencido` : ''}`}
-        >
-          {data.snapshotDateKey === null ? (
-            <EmptyState message="Aún no se ha corrido el snapshot diario de cuentas por cobrar (dwh.Snapshot_Fact_AR)." />
-          ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={agingData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => money(v, currency, data.usdRate ?? undefined)} />
-                <Tooltip formatter={(val) => moneyTooltip(val, currency, data.usdRate ?? undefined)} />
-                <Bar dataKey="Monto" radius={[3, 3, 0, 0]}>
-                  {agingData.map(d => (
-                    <Cell key={d.bucket} fill={BUCKET_COLORS[d.bucket] ?? '#94a3b8'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        {/* Top debtors */}
-        <ChartCard title="Mayor concentración de crédito" subtitle="Top 10 clientes por saldo pendiente">
-          {data.topDebtors.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Saldo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {data.topDebtors.map(d => (
-                    <tr key={d.name}>
-                      <td className="px-3 py-2 text-gray-800">{d.name}</td>
-                      <td className="px-3 py-2 text-right font-medium text-gray-900">
-                        {currency === 'usd' ? '$' : 'Bs. '}{money(d.outstanding, currency, data.usdRate ?? undefined)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ChartCard>
-      </div>
-
-      {/* Sales rep performance */}
-      <ChartCard title="Desempeño por vendedor" subtitle="Ventas netas y devoluciones, últimos 12 meses">
-        {data.salesReps.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Vendedor</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.salesReps.map(r => (
-                  <tr key={r.name}>
-                    <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {currency === 'usd' ? '$' : 'Bs. '}{money(r.salesNet, currency, data.usdRate ?? undefined)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {currency === 'usd' ? '$' : 'Bs. '}{money(r.returnsNet, currency, data.usdRate ?? undefined)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {r.salesNet > 0 ? pct(r.returnsNet / r.salesNet) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </ChartCard>
-
-      <p className="text-xs text-gray-400">
-        Los volúmenes y tiempos de carga del Data Warehouse reflejan el entorno de datos actual —
-        ver dwh-migrations/README.md para más contexto.
-      </p>
-    </div>
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Cargando panel analítico…</div>}>
+      <AnaliticaClientInner />
+    </Suspense>
   );
 }
 
-function EmptyState({ message }: { message?: string }) {
+function AnaliticaClientInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const tabParam = searchParams.get('tab');
+  const activeTab = tabParam ?? DEFAULT_TAB;
+
+  const dateRangeParam = searchParams.get('dateRange');
+  const dateRange: DateRange = isValidDateRange(dateRangeParam) ? dateRangeParam : DEFAULT_DATE_RANGE;
+
+  const currencyParam = searchParams.get('currency');
+  // Fallback currency for when the URL has no `currency` param: seeded from
+  // localStorage on first render, updated whenever the user toggles currency.
+  const [storedCurrency, setStoredCurrency] = useState<Currency>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem(CURRENCY_STORAGE_KEY);
+      if (isValidCurrency(stored)) return stored;
+    }
+    return DEFAULT_CURRENCY;
+  });
+  // URL takes precedence over localStorage; derived directly during render
+  // so it always reflects the current param (no effect needed).
+  const currency: Currency = isValidCurrency(currencyParam) ? currencyParam : storedCurrency;
+
+  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+
+  // Track newly-activated tabs during render (React's documented pattern for
+  // adjusting state from props, guarded to avoid render loops) rather than in
+  // an effect, since this is a pure derivation of `activeTab`.
+  if (!mountedTabs.has(activeTab)) {
+    setMountedTabs(prev => {
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }
+
+  const updateParams = useCallback(
+    (updates: Record<string, string>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        params.set(key, value);
+      }
+      router.push(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const handleTabChange = useCallback(
+    (key: string) => {
+      updateParams({ tab: key });
+    },
+    [updateParams]
+  );
+
+  const handleDateRangeChange = useCallback(
+    (value: DateRange) => {
+      updateParams({ dateRange: value });
+    },
+    [updateParams]
+  );
+
+  const handleCurrencyChange = useCallback(
+    (value: Currency) => {
+      setStoredCurrency(value);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(CURRENCY_STORAGE_KEY, value);
+      }
+      updateParams({ currency: value });
+    },
+    [updateParams, setStoredCurrency]
+  );
+
+  const activeTabDef = useMemo(() => TABS.find(t => t.key === activeTab), [activeTab]);
+
   return (
-    <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">
-      {message ?? 'Sin datos disponibles todavía.'}
+    <div className="flex flex-col h-screen bg-gray-50">
+      {/* Global header */}
+      <div className="border-b border-gray-200 bg-white px-6 py-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Analítica</h1>
+            <p className="text-sm text-gray-500">
+              Ventas, devoluciones, cobranza y cartera — datos del Data Warehouse
+            </p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Date range filter */}
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+              {DATE_RANGE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleDateRangeChange(opt.value)}
+                  className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                    dateRange === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {/* Currency toggle */}
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+              <button
+                onClick={() => handleCurrencyChange('bs')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                  currency === 'bs' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Bs.
+              </button>
+              <button
+                onClick={() => handleCurrencyChange('usd')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                  currency === 'usd' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                USD
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab navigation bar */}
+      <div className="border-b border-gray-200 bg-white px-6 overflow-x-auto">
+        <nav className="flex gap-6" aria-label="Tabs">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              className={`whitespace-nowrap px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab content area */}
+      <div className="flex-1 overflow-auto">
+        {!activeTabDef && (
+          <div className="p-6">
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">
+              Tab not found: {activeTab}
+            </p>
+          </div>
+        )}
+        {TABS.filter(tab => mountedTabs.has(tab.key)).map(tab => {
+          const TabComponent = tab.component;
+          return (
+            <div key={tab.key} className={tab.key === activeTab ? 'h-full' : 'hidden'}>
+              <TabComponent dateRange={dateRange} currency={currency} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
