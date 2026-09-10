@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 const MIGRATIONS_DIR = join(import.meta.dir, '..', 'dwh-migrations');
 
-function dwEnv(name: string, fallback: string): string {
+export function dwEnv(name: string, fallback: string): string {
   return process.env[`DW_${name}`] ?? process.env[`DB_${name}`] ?? fallback;
 }
 
@@ -12,7 +12,7 @@ export function dwhDatabaseName(): string {
   return process.env.DW_NAME ?? 'DWH_AlimentosNY';
 }
 
-function buildConfig(database: string): sql.config {
+export function buildConfig(database: string): sql.config {
   return {
     server: dwEnv('SERVER', 'localhost'),
     port: parseInt(dwEnv('PORT', '1433')),

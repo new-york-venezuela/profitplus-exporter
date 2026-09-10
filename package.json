@@ -21,7 +21,9 @@
     "migrate:dwh": "bun --bun run scripts/migrate-dwh.ts",
     "send-invoice-reminders": "bun --bun run scripts/send-invoice-reminders.ts",
     "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "dwh:incremental-load": "bun --run run scripts/dwh-incremental-load.ts",
+    "dwh:snapshot-load": "bun --run run scripts/dwh-snapshot-load.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
