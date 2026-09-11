@@ -118,3 +118,19 @@ export function getDimensionSpec(dimension: Dimension): DimensionSpec {
 export function isDimension(value: string | null): value is Dimension {
   return value === 'cliente_entidad' || value === 'cliente_tienda' || value === 'producto' || value === 'vendedor';
 }
+
+/**
+ * Narrower guard for `clienteDimension` params specifically — that param
+ * should only ever be 'cliente_entidad' or 'cliente_tienda' (the two grains
+ * a customer listing can roll up to). `producto`/`vendedor` are valid
+ * `Dimension` values but never valid `clienteDimension` values: e.g.
+ * cxc's topDebtorsQuery joins against Fact_AR_Snapshot, which has no
+ * ProductKey/SalesRepKey column at all, and clientes/devoluciones would
+ * silently mislabel a product- or rep-grain list as a customer list instead
+ * of erroring. Use this (not the general isDimension) wherever a route
+ * parses its own clienteDimension query param; keep isDimension for
+ * breakdownBy params, which legitimately accept all 4 dimensions.
+ */
+export function isClienteDimension(value: string | null): value is 'cliente_entidad' | 'cliente_tienda' {
+  return value === 'cliente_entidad' || value === 'cliente_tienda';
+}

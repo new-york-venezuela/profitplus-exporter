@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, getDimensionSpec, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { CxcResponse, AgingBucketRow, DebtorRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const currency = searchParams.get('currency') ?? 'bs';
   const clienteDimensionParam = searchParams.get('clienteDimension');
-  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
   try {
     const pool = await getDwhPool();

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { Currency, DateRange, DevolucionesResponse, GroupBy } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import type { BreakdownRow, Currency, DateRange, DevolucionesResponse, GroupBy, PivotDimension } from '../types';
 
 type DevolucionesGroupBy = 'salesrep' | 'producto' | 'cliente';
 
@@ -10,6 +11,26 @@ const GROUP_OPTIONS: { value: DevolucionesGroupBy; label: string }[] = [
   { value: 'producto', label: 'Producto' },
   { value: 'cliente', label: 'Cliente' },
 ];
+
+// Cliente view groups by cliente_entidad/cliente_tienda (existing toggle) and
+// breaks down by producto/vendedor — mirrors tab-ventas.tsx's wiring exactly;
+// see that file's comment for why this combination never collides aliases.
+const CLIENTE_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'cliente_entidad', label: 'Entidad' },
+  { value: 'cliente_tienda', label: 'Tienda' },
+];
+
+const BREAKDOWN_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Producto' },
+  { value: 'vendedor', label: 'Vendedor' },
+];
+
+interface DevolucionesTableRow {
+  label: string;
+  value: string;
+  ratioDevolucion: number | null;
+  amountNet: number;
+}
 
 function money(n: number, currency: Currency = 'bs', rate?: number): string {
   if (currency === 'usd' && rate) {
@@ -50,6 +71,7 @@ export default function TabDevoluciones({
   const [data, setData] = useState<DevolucionesResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +109,48 @@ export default function TabDevoluciones({
 
   const groupLabel = (gb: GroupBy): string =>
     GROUP_OPTIONS.find(o => o.value === gb)?.label ?? gb;
+
+  const clienteRows: DevolucionesTableRow[] = useMemo(() => {
+    if (!data || groupBy !== 'cliente') return [];
+    return data.rows
+      .filter(r => r.clienteValue !== null)
+      .map(r => ({
+        label: r.cliente,
+        value: r.clienteValue as string,
+        ratioDevolucion: r.ratioDevolucion,
+        amountNet: r.amountNet,
+      }));
+  }, [data, groupBy]);
+
+  async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
+    const params = new URLSearchParams({
+      dateRange,
+      currency,
+      groupBy: 'cliente',
+      clienteDimension,
+      breakdownBy: dimension,
+      parentValue,
+    });
+    const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
+    if (!res.ok) return [];
+    const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
+    return body.breakdown ?? [];
+  }
+
+  const clienteColumns: DrilldownColumn<DevolucionesTableRow>[] = [
+    {
+      key: 'amountNet',
+      label: 'Monto neto',
+      align: 'right',
+      format: row => moneyLabel(row.amountNet, currency, rate),
+    },
+    {
+      key: 'ratioDevolucion',
+      label: 'Tasa dev.',
+      align: 'right',
+      format: row => pct(row.ratioDevolucion),
+    },
+  ];
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -153,6 +217,18 @@ export default function TabDevoluciones({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
         ) : !data || data.rows.length === 0 ? (
           <EmptyState />
+        ) : groupBy === 'cliente' ? (
+          <GroupedDrilldownTable<DevolucionesTableRow>
+            rows={clienteRows}
+            columns={clienteColumns}
+            groupByOptions={CLIENTE_GROUP_BY_OPTIONS}
+            groupBy={clienteDimension}
+            onGroupByChange={next => setClienteDimension(next as 'cliente_entidad' | 'cliente_tienda')}
+            breakdownByOptions={BREAKDOWN_BY_OPTIONS}
+            breakdownBy={breakdownBy}
+            onBreakdownByChange={setBreakdownBy}
+            onFetchBreakdown={handleFetchBreakdown}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">

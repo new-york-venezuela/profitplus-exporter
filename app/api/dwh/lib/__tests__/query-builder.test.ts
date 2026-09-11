@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension } from '../query-builder';
+import { getDimensionSpec, isDimension, isClienteDimension } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -65,5 +65,23 @@ describe('isDimension', () => {
     expect(isDimension('mes')).toBe(false);
     expect(isDimension(null)).toBe(false);
     expect(isDimension('')).toBe(false);
+  });
+});
+
+describe('isClienteDimension', () => {
+  test('accepts cliente_entidad and cliente_tienda', () => {
+    expect(isClienteDimension('cliente_entidad')).toBe(true);
+    expect(isClienteDimension('cliente_tienda')).toBe(true);
+  });
+
+  test('rejects producto and vendedor, even though they are valid Dimension values', () => {
+    expect(isClienteDimension('producto')).toBe(false);
+    expect(isClienteDimension('vendedor')).toBe(false);
+  });
+
+  test('rejects invalid or null values', () => {
+    expect(isClienteDimension('mes')).toBe(false);
+    expect(isClienteDimension(null)).toBe(false);
+    expect(isClienteDimension('')).toBe(false);
   });
 });

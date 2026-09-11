@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
-import type { Currency, DateRange, VentasResponse, GroupBy } from '../types';
+import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import type { BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow, GroupBy } from '../types';
 
 function money(n: number, currency: Currency = 'bs', rate?: number): string {
   if (currency === 'usd' && rate) {
@@ -50,6 +51,28 @@ const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'linea', label: 'Por línea' },
 ];
 
+// "Por cliente" always groups by cliente_entidad or cliente_tienda (the
+// existing Entidad/Tienda toggle) — GroupedDrilldownTable needs a
+// groupByOptions pair even though only one is ever "selected" through this
+// UI's own toggle rather than the shared component's select, so this fixed
+// pair mirrors clienteDimension's two possible values. Breakdown options are
+// producto/vendedor per spec §5 — NOT cliente_tienda, which would collide
+// aliases with a cliente_entidad parent (see query-builder.ts correlate()).
+const CLIENTE_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'cliente_entidad', label: 'Entidad' },
+  { value: 'cliente_tienda', label: 'Tienda' },
+];
+
+const BREAKDOWN_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Producto' },
+  { value: 'vendedor', label: 'Vendedor' },
+];
+
+interface VentasTableRow extends VentasRow {
+  label: string;
+  value: string;
+}
+
 export default function TabVentas({
   dateRange,
   currency,
@@ -63,6 +86,7 @@ export default function TabVentas({
   const [data, setData] = useState<VentasResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +146,48 @@ export default function TabVentas({
     value: String(r.value),
     salesNet: r.salesNet,
   }));
+
+  const tableRows: VentasTableRow[] = useMemo(
+    () => (data?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
+    [data]
+  );
+
+  async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
+    const params = new URLSearchParams({
+      dateRange,
+      currency,
+      groupBy: 'cliente',
+      clienteDimension,
+      breakdownBy: dimension,
+      parentValue,
+    });
+    if (month) params.set('month', month);
+    const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+    if (!res.ok) return [];
+    const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
+    return body.breakdown ?? [];
+  }
+
+  const clienteColumns: DrilldownColumn<VentasTableRow>[] = [
+    {
+      key: 'salesNet',
+      label: 'Ventas netas',
+      align: 'right',
+      format: row => moneyLabel(row.salesNet, currency, rate),
+    },
+    {
+      key: 'returnRate',
+      label: 'Tasa dev.',
+      align: 'right',
+      format: row => (row.returnRate !== null ? `${(row.returnRate * 100).toFixed(1)}%` : '—'),
+    },
+    {
+      key: 'avgDiscount',
+      label: 'Desc. prom.',
+      align: 'right',
+      format: row => (row.avgDiscount !== null ? `${(row.avgDiscount * 100).toFixed(1)}%` : '—'),
+    },
+  ];
 
   const subtitleByGroupBy: Record<GroupBy, string> = {
     mes: 'Ventas netas por mes — clic en una barra para ver clientes de ese mes',
@@ -225,13 +291,27 @@ export default function TabVentas({
         </ChartCard>
       )}
 
-      {!loading && !error && data && (
+      {!loading && !error && data && groupBy === 'cliente' && (
+        <GroupedDrilldownTable<VentasTableRow>
+          rows={tableRows}
+          columns={clienteColumns}
+          groupByOptions={CLIENTE_GROUP_BY_OPTIONS}
+          groupBy={clienteDimension}
+          onGroupByChange={next => setClienteDimension(next as 'cliente_entidad' | 'cliente_tienda')}
+          breakdownByOptions={BREAKDOWN_BY_OPTIONS}
+          breakdownBy={breakdownBy}
+          onBreakdownByChange={setBreakdownBy}
+          onFetchBreakdown={handleFetchBreakdown}
+        />
+      )}
+
+      {!loading && !error && data && groupBy !== 'cliente' && (
         <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  {groupBy === 'mes' ? 'Mes' : groupBy === 'cliente' ? 'Cliente' : 'Línea'}
+                  {groupBy === 'mes' ? 'Mes' : 'Línea'}
                 </th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>

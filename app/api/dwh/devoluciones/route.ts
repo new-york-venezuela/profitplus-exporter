@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -93,7 +93,10 @@ function matrixQuery(groupBy: DevolucionesGroupBy, clienteDimension: Dimension, 
   }
 }
 
-function toMatrixCell(groupBy: DevolucionesGroupBy, row: { GroupName: string; ReturnsNet: unknown; SalesNet: unknown }): DevolucionesMatrixCell {
+function toMatrixCell(
+  groupBy: DevolucionesGroupBy,
+  row: { GroupName: string; GroupValue?: unknown; ReturnsNet: unknown; SalesNet: unknown }
+): DevolucionesMatrixCell {
   const returnsNet = Number(row.ReturnsNet);
   const salesNet = Number(row.SalesNet);
   const ratioDevolucion = salesNet > 0 ? returnsNet / salesNet : null;
@@ -103,6 +106,7 @@ function toMatrixCell(groupBy: DevolucionesGroupBy, row: { GroupName: string; Re
     salesRep: groupBy === 'salesrep' ? row.GroupName : placeholder,
     producto: groupBy === 'producto' ? row.GroupName : placeholder,
     cliente: groupBy === 'cliente' ? row.GroupName : placeholder,
+    clienteValue: groupBy === 'cliente' && row.GroupValue != null ? String(row.GroupValue) : null,
     ratioDevolucion,
     amountNet: returnsNet,
   };
@@ -122,7 +126,10 @@ export async function GET(request: NextRequest) {
   const groupByParam = searchParams.get('groupBy');
   const groupBy: DevolucionesGroupBy = isDevolucionesGroupBy(groupByParam) ? groupByParam : 'salesrep';
   const clienteDimensionParam = searchParams.get('clienteDimension');
-  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const breakdownByParam = searchParams.get('breakdownBy');
+  const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
+  const parentValue = searchParams.get('parentValue');
 
   try {
     const pool = await getDwhPool();
@@ -133,6 +140,30 @@ export async function GET(request: NextRequest) {
     // productoMatrixQuery, so it needs its own date-where clause built
     // against that alias.
     const salesDateWhere = buildDateWhereClause(dateRange, groupBy === 'cliente' ? 'fs2' : 'fs');
+
+    // Row-expand fetch for the shared GroupedDrilldownTable (see tab-ventas.tsx
+    // for the pattern this mirrors). breakdownBy is always producto/vendedor
+    // (per spec §5 — never cliente_tienda), so it never collides aliases with
+    // clienteDimension's own join (le/c vs p/r) — same reasoning as Ventas'
+    // identical branch.
+    if (breakdownBy && parentValue) {
+      const breakdownSpec = getDimensionSpec(breakdownBy);
+      const parentSpec = getDimensionSpec(clienteDimension);
+      const req = pool.request();
+      req.input('parentValue', parentValue);
+      const result = await req.query(`
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fr.NetAmount) AS ReturnsNet
+        FROM fact.Fact_Returns fr
+        ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fr')}
+        ${parentSpec.joinClause.replace(/\bf\b/g, 'fr')}
+        WHERE fr.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fr')} = @parentValue ${returnsDateWhere}
+        GROUP BY ${breakdownSpec.groupByColumn}
+        ORDER BY ReturnsNet DESC
+      `);
+      return NextResponse.json({
+        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), returnsNet: Number(r.ReturnsNet) })),
+      });
+    }
 
     const [matrix, usdRate] = await Promise.all([
       pool.request().query(matrixQuery(groupBy, clienteDimension, returnsDateWhere, salesDateWhere)),

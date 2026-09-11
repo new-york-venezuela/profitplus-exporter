@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ClientesResponse, ClientesRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const currency = searchParams.get('currency') ?? 'bs';
   const clienteDimensionParam = searchParams.get('clienteDimension');
-  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
   try {
     const pool = await getDwhPool();

@@ -90,6 +90,10 @@ export interface DevolucionesMatrixCell {
   salesRep: string;
   producto: string;
   cliente: string;
+  // Dimension value (e.g. LegalEntityKey/CustomerKey as a string) for the row
+  // being grouped, only populated for groupBy === 'cliente' — used as the
+  // `parentValue` for a GroupedDrilldownTable breakdown fetch on that row.
+  clienteValue: string | null;
   ratioDevolucion: number | null;
   amountNet: number;
 }

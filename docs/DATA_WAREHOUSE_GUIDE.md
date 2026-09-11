@@ -289,7 +289,7 @@ This installation has **never recorded production/manufacturing cost** for any f
 **Grain**: 1 row per customer version  
 **Why SCD2**: Credit limits, zones, and segments change over time. Dashboards like "Credit Risk & Concentration" need the limit that was in force *when* a balance existed, not today's limit.
 
-**⚠️ Customer-to-RIF Multiplicity**: A single legal entity (same `RIF`) may have **multiple customer records** in the ERP — one per location/venue. Example: FARMATODO C.A has one centralized payment account and RIF, but many individual store locations, each with its own `CustomerCode` (RIF + sequential suffix). The dimension reflects store-level accounts. Aggregations at legal-entity level must group by `RIF`; store-specific metrics use `CustomerCode`.
+**⚠️ Customer-to-legal-entity multiplicity**: many customers have **multiple store/venue records** in the ERP that legally belong to one company — one `saCliente` row per location. Example: FARMATODO C.A has one corporate parent record and many individual store locations, each with its own `CustomerCode`. The dimension reflects store-level accounts. Aggregations at the legal-entity level (across all of a chain's stores) must join through `dim.Dim_LegalEntity` and group by `LegalEntityKey` — see [Legal Entity Rollup](#legal-entity-rollup-account-for-multi-store-customers) below. Do **not** group by `RIF`/`LegalEntityRIF` for this — see that section for why.
 
 | Column | Type | Source | Notes |
 |---|---|---|---|
@@ -297,7 +297,9 @@ This installation has **never recorded production/manufacturing cost** for any f
 | `CustomerCode` | char(20) | `saCliente.co_cli` | Natural key (ERP ID, store-level) |
 | `CustomerName` | varchar(200) | `saCliente.cli_des` | Business name |
 | `TaxId` | varchar(20) | `saCliente.rif` | Tax ID (store-level, may be same as LegalEntityRIF) |
-| `LegalEntityRIF` | varchar(20) | `saCliente.rif` | **Denormalized grouping key for legal entity rollups** — all stores of the same company share this value |
+| `LegalEntityRIF` | varchar(20) | `saCliente.rif` | Own RIF, denormalized. **Not the legal-entity grouping key** — superseded by `LegalEntityKey`/`MatrizCode` (see below). Kept as-is for debugging/back-reference only; RIF-based grouping is known to produce false-positive groupings (distinct businesses that happen to share a fiscal RIF) and must not be used for rollups. |
+| `MatrizCode` | char(16) | `saCliente.matriz` | Parent/casa-matriz `co_cli`, when this row is a store belonging to a chain (NULL for a standalone customer or a parent itself). Source for `LegalEntityKey` resolution — see `dwh.Load_Dim_LegalEntity`. |
+| `LegalEntityKey` | int | Derived (`dwh.Load_Dim_LegalEntity`) | FK to `dim.Dim_LegalEntity` — **the correct grouping key for legal-entity rollups**. Every current row resolves to exactly one entity (never NULL): a chain's parent and all its children share the same `LegalEntityKey`; a standalone customer is its own entity of size 1. |
 | `IsSpecialContributor` | bit | `saCliente.contrib` | Special contributor status (SENIAT) |
 | `DefaultSalesRepCode` | char(20) | `saCliente.co_ven` | Default sales rep for this customer |
 | `CreditLimit` | decimal(18,2) | `saCliente.mont_cre` | Credit limit (in original currency) |
@@ -310,6 +312,21 @@ This installation has **never recorded production/manufacturing cost** for any f
 | `ValidTo` | datetime2(3) | DWH load time | When this version was superseded (NULL if current) |
 | `IsCurrent` | bit | Derived | 1 if this is the active version |
 | `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | DWH load timestamp |
+
+#### Dim_LegalEntity
+**Type**: Type 1 (overwrite) — no time-travel need identified for entity membership.
+**Source**: derived from `dim.Dim_Customer` (via `MatrizCode`), populated by `dwh.Load_Dim_LegalEntity`, which runs immediately after `Load_Dim_Customer` (it depends on `Dim_Customer.MatrizCode`).
+**Grain**: 1 row per legal entity — a multi-store chain, or a standalone customer counted as an entity of size 1.
+
+| Column | Type | Source | Notes |
+|---|---|---|---|
+| `LegalEntityKey` | int | IDENTITY | Surrogate key — this is what `Dim_Customer.LegalEntityKey` points to |
+| `RootCustomerCode` | char(16) | Derived | The `co_cli` anchoring this entity: the parent's code for a chain, or the customer's own code if standalone |
+| `LegalEntityName` | varchar(120) | Derived | Parent's `cli_des` for a chain; the customer's own name if standalone |
+| `StoreCount` | int | Derived | Count of `Dim_Customer` rows resolving to this entity, including the parent/root itself |
+| `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | DWH load timestamp |
+
+See `docs/superpowers/specs/2026-09-10-customer-legal-entity-grouping-design.md` §2-3 for the full grouping-mechanism rationale (why `saCliente.matriz`, not RIF matching) and the exact resolution algorithm.
 
 #### Dim_Product
 **Type**: SCD Type 2  
@@ -633,36 +650,44 @@ ORDER BY CASE
 ```
 
 ### Legal Entity Rollup (Account for Multi-Store Customers)
-Many customers have multiple store/venue records under the same RIF (e.g., FARMATODO C.A has one corporate account but many individual store locations). To aggregate at the **legal entity level**, use the denormalized `LegalEntityRIF` key (indexed for fast grouping):
+Many customers have multiple store/venue records that legally belong to one company (e.g., FARMATODO C.A has one corporate parent record but many individual store locations, each its own `saCliente`/`Dim_Customer` row). To aggregate at the **legal entity level**, join through `dim.Dim_LegalEntity` and group by `LegalEntityKey`:
 
 ```sql
--- Collections by legal entity (RIF) — each location's receipts summed
+-- Collections by legal entity — each location's receipts summed under its chain
 SELECT
-    dc.LegalEntityRIF,
-    COUNT(DISTINCT dc.CustomerCode) AS Num_Store_Locations,
+    le.LegalEntityKey,
+    le.LegalEntityName,
+    le.StoreCount,
     COUNT(DISTINCT fc.ReceiptNumber) AS Num_Receipts,
     SUM(fc.AmountCollected) AS Total_Collections
 FROM fact.Fact_Collections fc
 INNER JOIN dim.Dim_Customer dc ON fc.CustomerKey = dc.CustomerKey AND dc.IsCurrent = 1
+INNER JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = dc.LegalEntityKey
 WHERE fc.DateKey >= 20260801
-GROUP BY dc.LegalEntityRIF
+GROUP BY le.LegalEntityKey, le.LegalEntityName, le.StoreCount
 ORDER BY Total_Collections DESC;
 
 -- With store-level breakout (hierarchical):
 SELECT
-    dc.LegalEntityRIF,
+    le.LegalEntityKey,
+    le.LegalEntityName,
     dc.CustomerCode,
     dc.CustomerName,
     COUNT(DISTINCT fc.ReceiptNumber) AS Num_Receipts,
     SUM(fc.AmountCollected) AS Total_Collections
 FROM fact.Fact_Collections fc
 INNER JOIN dim.Dim_Customer dc ON fc.CustomerKey = dc.CustomerKey AND dc.IsCurrent = 1
+INNER JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = dc.LegalEntityKey
 WHERE fc.DateKey >= 20260801
-GROUP BY dc.LegalEntityRIF, dc.CustomerCode, dc.CustomerName
-ORDER BY dc.LegalEntityRIF, Total_Collections DESC;
+GROUP BY le.LegalEntityKey, le.LegalEntityName, dc.CustomerCode, dc.CustomerName
+ORDER BY le.LegalEntityKey, Total_Collections DESC;
 ```
 
-**Performance note**: `LegalEntityRIF` is indexed (`IX_Dim_Customer_LegalEntityRIF`), so GROUP BY on it is efficient even with millions of fact rows.
+`LegalEntityKey` is populated by `dwh.Load_Dim_LegalEntity` from `saCliente.matriz` (Profit's own parent/casa-matriz link — see `pSucursalesVsCasaMatriz`), which runs immediately after `Load_Dim_Customer` in every load path (Quick Start above, and `scripts/dwh-incremental-load.ts`). Every current `Dim_Customer` row resolves to exactly one `LegalEntityKey` (never NULL): a chain's parent and all its stores share one entity; a standalone customer is its own entity of size 1 (`StoreCount = 1`).
+
+**⚠️ Do not group by `RIF`/`LegalEntityRIF` for this.** An earlier version of this guide recommended `GROUP BY dc.LegalEntityRIF` — that approach was investigated and rejected: several RIF-sharing pairs found in live data (e.g. two automercado chains and two other unrelated businesses) turned out to be **distinct companies that happen to share a fiscal RIF** for legitimate reasons unrelated to being one retail chain, so RIF-only grouping produces false-positive merges. `saCliente.matriz` is an explicit, intentional link Profit's own data entry sets and does not have this failure mode. `Dim_Customer.LegalEntityRIF` still exists in the schema and is still populated (own RIF per row) but is kept only for debugging/back-reference — see `docs/superpowers/specs/2026-09-10-customer-legal-entity-grouping-design.md` §2 for the full investigation and rationale.
+
+**Performance note**: `LegalEntityKey` is indexed (`IX_Dim_Customer_LegalEntityKey`), so GROUP BY on it is efficient even with millions of fact rows.
 
 ---
 
