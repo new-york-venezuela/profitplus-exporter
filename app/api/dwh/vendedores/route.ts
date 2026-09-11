@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { VendedoresResponse, VendedoresRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -12,9 +12,22 @@ export const dynamic = 'force-dynamic';
 // dwh-migrations/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
 // needed here, that work already happened at load time.
 
+function breakdownQuery(dimension: Dimension, salesDateWhere: string): string {
+  const spec = getDimensionSpec(dimension);
+  return `
+    SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, SUM(fs.NetAmount) AS SalesNet
+    FROM fact.Fact_Sales fs
+    ${spec.joinClause.replace(/\bf\b/g, 'fs')}
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere}
+    GROUP BY ${spec.groupByColumn}
+    ORDER BY SalesNet DESC
+  `;
+}
+
 function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collectionsDateWhere: string): string {
   return `
     SELECT
+      CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKeyValue,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
       SUM(fs.NetAmount) AS SalesNet,
       SUM(fs.GrossAmount) AS GrossAmount,
@@ -45,6 +58,21 @@ export async function GET(request: NextRequest) {
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const currency = searchParams.get('currency') ?? 'bs';
 
+  const breakdownByParam = searchParams.get('breakdownBy');
+  const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
+  const parentValue = searchParams.get('parentValue');
+
+  if (breakdownBy && parentValue && /^\d+$/.test(parentValue)) {
+    const pool = await getDwhPool();
+    const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
+    const req = pool.request();
+    req.input('salesRepKey', Number(parentValue));
+    const result = await req.query(breakdownQuery(breakdownBy, salesDateWhere));
+    return NextResponse.json({
+      breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })),
+    });
+  }
+
   try {
     const pool = await getDwhPool();
 
@@ -65,6 +93,7 @@ export async function GET(request: NextRequest) {
       const collected = Number(r.Collected);
 
       return {
+        value: String(r.SalesRepKeyValue),
         name: r.Name,
         salesNet,
         returnsNet,

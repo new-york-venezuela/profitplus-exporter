@@ -8,6 +8,8 @@ export interface DrilldownColumn<TRow> {
   label: string;
   align?: 'left' | 'right';
   format: (row: TRow) => string;
+  /** Optional tooltip text shown on hover over the column header (e.g. to clarify a confusing metric). */
+  title?: string;
 }
 
 export interface GroupedDrilldownTableProps<TRow extends { label: string; value: string }> {
@@ -98,7 +100,8 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
               {columns.map(col => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2 text-xs font-semibold text-gray-600 uppercase ${col.align === 'left' ? 'text-left' : 'text-right'}`}
+                  title={col.title}
+                  className={`px-3 py-2 text-xs font-semibold text-gray-600 uppercase ${col.align === 'left' ? 'text-left' : 'text-right'} ${col.title ? 'cursor-help' : ''}`}
                 >
                   {col.label}
                 </th>

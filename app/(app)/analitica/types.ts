@@ -112,6 +112,7 @@ export interface CxcResponse {
 
 // Vendedores tab
 export interface VendedoresRow {
+  value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
   name: string;
   salesNet: number;
   returnsNet: number;
