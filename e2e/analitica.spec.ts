@@ -32,12 +32,18 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.getByRole('button', { name: 'Por cliente' })).toBeVisible({ timeout: 15_000 });
     await adminPage.getByRole('button', { name: 'Por cliente' }).click();
 
-    // Default dimension is "Entidad" (cliente_entidad) once groupBy=cliente.
-    await expect(adminPage.getByRole('button', { name: 'Entidad' })).toBeVisible();
+    // Ventas' cliente view uses GroupedDrilldownTable's own "Agrupar por"
+    // <select> for the Entidad/Tienda toggle (tab-ventas.tsx no longer
+    // renders a separate hand-rolled button toggle — removed as redundant
+    // duplicate UI). Default dimension is "Entidad" (cliente_entidad) once
+    // groupBy=cliente.
+    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    await expect(groupBySelect).toBeVisible();
+    await expect(groupBySelect).toHaveValue('cliente_entidad');
     await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
     const entidadRowCount = await adminPage.locator('table tbody tr').count();
 
-    await adminPage.getByRole('button', { name: 'Tienda' }).click();
+    await groupBySelect.selectOption('cliente_tienda');
     await expect(adminPage.locator('table tbody tr')).not.toHaveCount(0);
     // Store grain should show at least as many rows as entity grain: every
     // multi-store chain expands into multiple rows, standalone customers

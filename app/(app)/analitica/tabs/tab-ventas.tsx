@@ -51,13 +51,13 @@ const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'linea', label: 'Por línea' },
 ];
 
-// "Por cliente" always groups by cliente_entidad or cliente_tienda (the
-// existing Entidad/Tienda toggle) — GroupedDrilldownTable needs a
-// groupByOptions pair even though only one is ever "selected" through this
-// UI's own toggle rather than the shared component's select, so this fixed
-// pair mirrors clienteDimension's two possible values. Breakdown options are
-// producto/vendedor per spec §5 — NOT cliente_tienda, which would collide
-// aliases with a cliente_entidad parent (see query-builder.ts correlate()).
+// "Por cliente" always groups by cliente_entidad or cliente_tienda. The
+// Entidad/Tienda toggle is rendered by GroupedDrilldownTable itself (its
+// "Agrupar por" <select>, wired to clienteDimension via groupBy/
+// onGroupByChange below) — there is no separate hand-rolled toggle here.
+// Breakdown options are producto/vendedor per spec §5 — NOT cliente_tienda,
+// which would collide aliases with a cliente_entidad parent (see
+// query-builder.ts correlate()).
 const CLIENTE_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
   { value: 'cliente_entidad', label: 'Entidad' },
   { value: 'cliente_tienda', label: 'Tienda' },
@@ -212,23 +212,6 @@ export default function TabVentas({
             </button>
           ))}
         </div>
-
-        {groupBy === 'cliente' && (
-          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-            <button
-              onClick={() => setClienteDimension('cliente_entidad')}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              Entidad
-            </button>
-            <button
-              onClick={() => setClienteDimension('cliente_tienda')}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              Tienda
-            </button>
-          </div>
-        )}
 
         {/* Breadcrumb */}
         {data && data.breadcrumb.length > 0 && (
