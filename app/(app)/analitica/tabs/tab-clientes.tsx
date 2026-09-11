@@ -101,6 +101,7 @@ export default function TabClientes({
   const [sortKey, setSortKey] = useState<SortKey>('salesNet');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
+  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +109,8 @@ export default function TabClientes({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/clientes?dateRange=${dateRange}&currency=${currency}`);
+        const params = new URLSearchParams({ dateRange, currency, clienteDimension });
+        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -128,7 +130,7 @@ export default function TabClientes({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange, currency, clienteDimension]);
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
@@ -202,21 +204,37 @@ export default function TabClientes({
               C: resto
             </p>
           </div>
-          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-            {SEGMENT_FILTER_OPTIONS.map(opt => (
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               <button
-                key={opt.value}
-                onClick={() => setSegmentFilter(opt.value)}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                  segmentFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-                }`}
+                onClick={() => setClienteDimension('cliente_entidad')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
               >
-                {opt.label}
-                {opt.value !== 'all' && (
-                  <span className="ml-1 text-xs opacity-75">({segmentCounts[opt.value]})</span>
-                )}
+                Entidad
               </button>
-            ))}
+              <button
+                onClick={() => setClienteDimension('cliente_tienda')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Tienda
+              </button>
+            </div>
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+              {SEGMENT_FILTER_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setSegmentFilter(opt.value)}
+                  className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                    segmentFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                  {opt.value !== 'all' && (
+                    <span className="ml-1 text-xs opacity-75">({segmentCounts[opt.value]})</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {sortedRows.length === 0 ? (

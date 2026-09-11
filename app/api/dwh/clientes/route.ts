@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ClientesResponse, ClientesRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -17,18 +17,22 @@ export const dynamic = 'force-dynamic';
 // cumulative sales, B = next 30% (up to 50% cumulative), C = the rest.
 const PARETO_THRESHOLDS = { a: 0.2, b: 0.5 };
 
-function customerQuery(salesDateWhere: string, returnsDateWhere: string): string {
+function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDateWhere: string): string {
+  const spec = getDimensionSpec(dimension);
+  const { innerJoin, condition } = spec.correlate('fs', 'fr2');
   return `
     SELECT
-      ISNULL(c.CustomerName, c.CustomerCode) AS Name,
+      ${spec.labelExpr} AS Name,
       SUM(fs.NetAmount) AS SalesNet,
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         WHERE fr.CustomerKey = fs.CustomerKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet
+      (SELECT ISNULL(SUM(fr2.NetAmount), 0)
+         FROM fact.Fact_Returns fr2
+         ${innerJoin}
+         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
+      ) AS ReturnsNet
     FROM fact.Fact_Sales fs
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${salesDateWhere}
-    GROUP BY fs.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    GROUP BY ${spec.groupByColumn}
     ORDER BY SalesNet DESC
   `;
 }
@@ -44,15 +48,20 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const currency = searchParams.get('currency') ?? 'bs';
+  const clienteDimensionParam = searchParams.get('clienteDimension');
+  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
   try {
     const pool = await getDwhPool();
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    // customerQuery's correlated returns subquery aliases Fact_Returns as
+    // `fr2` (via spec.correlate), not `fr`, so it needs its own date-where
+    // clause built against that alias.
+    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr2');
 
     const [customers, usdRate] = await Promise.all([
-      pool.request().query(customerQuery(salesDateWhere, returnsDateWhere)),
+      pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere)),
       currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 
