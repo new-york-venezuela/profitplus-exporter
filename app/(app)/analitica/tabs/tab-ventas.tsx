@@ -285,6 +285,7 @@ export default function TabVentas({
           breakdownBy={breakdownBy}
           onBreakdownByChange={setBreakdownBy}
           onFetchBreakdown={handleFetchBreakdown}
+          formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
         />
       )}
 

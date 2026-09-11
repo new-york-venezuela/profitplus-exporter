@@ -228,6 +228,7 @@ export default function TabDevoluciones({
             breakdownBy={breakdownBy}
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
           />
         ) : (
           <div className="overflow-x-auto">

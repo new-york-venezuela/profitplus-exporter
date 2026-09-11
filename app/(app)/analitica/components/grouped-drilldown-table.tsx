@@ -22,6 +22,15 @@ export interface GroupedDrilldownTableProps<TRow extends { label: string; value:
   breakdownBy?: PivotDimension | null;
   onBreakdownByChange?: (next: PivotDimension | null) => void;
   onFetchBreakdown?: (parentValue: string, breakdownBy: PivotDimension) => Promise<BreakdownRow[]>;
+  /**
+   * Formats a breakdown row's metric value for display (e.g. applies the
+   * caller's current currency/exchange-rate selection to a money metric).
+   * Defaults to locale-formatted numbers / raw strings when omitted, which
+   * does NOT apply currency conversion — callers whose breakdown metrics are
+   * money amounts should pass this to stay consistent with the parent row's
+   * own currency-aware formatting.
+   */
+  formatBreakdownMetric?: (metricKey: string, value: string | number | null) => string;
 }
 
 export default function GroupedDrilldownTable<TRow extends { label: string; value: string }>({
@@ -34,6 +43,7 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
   breakdownBy,
   onBreakdownByChange,
   onFetchBreakdown,
+  formatBreakdownMetric,
 }: GroupedDrilldownTableProps<TRow>) {
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
   const [breakdownRows, setBreakdownRows] = useState<BreakdownRow[]>([]);
@@ -157,7 +167,11 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
                                     .filter(k => k !== 'label' && k !== 'value')
                                     .map(metricKey => (
                                       <td key={metricKey} className="px-3 py-1.5 text-right text-gray-800">
-                                        {typeof br[metricKey] === 'number' ? (br[metricKey] as number).toLocaleString('es-VE') : String(br[metricKey] ?? '—')}
+                                        {formatBreakdownMetric
+                                          ? formatBreakdownMetric(metricKey, br[metricKey])
+                                          : typeof br[metricKey] === 'number'
+                                            ? (br[metricKey] as number).toLocaleString('es-VE')
+                                            : String(br[metricKey] ?? '—')}
                                       </td>
                                     ))}
                                 </tr>
