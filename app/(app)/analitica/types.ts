@@ -14,6 +14,14 @@ export interface DrillContext {
   parentValue?: string; // e.g., salesRepKey=123 when drilling into products for that rep
 }
 
+export type PivotDimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor';
+
+export interface BreakdownRow {
+  label: string;
+  value: string;
+  [metricKey: string]: string | number | null;
+}
+
 // Resumen tab
 export interface ResumenKPIs {
   salesNet12mo: number;
