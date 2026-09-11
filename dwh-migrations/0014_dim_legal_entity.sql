@@ -21,7 +21,8 @@ BEGIN
 END
 GO
 
-CREATE INDEX IX_Dim_Customer_LegalEntityKey ON dim.Dim_Customer (LegalEntityKey);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Dim_Customer_LegalEntityKey' AND object_id = OBJECT_ID('dim.Dim_Customer'))
+    CREATE INDEX IX_Dim_Customer_LegalEntityKey ON dim.Dim_Customer (LegalEntityKey);
 GO
 
 -- Load_Dim_Customer gains MatrizCode in its change-detection, INSERT, and
