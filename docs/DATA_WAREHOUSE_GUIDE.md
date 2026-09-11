@@ -37,6 +37,7 @@ EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;  -- depends on Dim_Currency
 
 EXEC dwh.Load_Dim_Customer;       -- SCD Type 2 (tracks versions with ValidFrom/ValidTo)
+EXEC dwh.Load_Dim_LegalEntity;    -- Legal entity grouping (reads Dim_Customer.MatrizCode)
 EXEC dwh.Load_Dim_Product;        -- SCD Type 2
 EXEC dwh.Load_Dim_SalesRep;       -- Type 1 (overwrite)
 EXEC dwh.Load_Dim_Warehouse;      -- Type 1
@@ -77,6 +78,7 @@ USE DWH_AlimentosNY;
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;
 EXEC dwh.Load_Dim_Customer;
+EXEC dwh.Load_Dim_LegalEntity;
 EXEC dwh.Load_Dim_Product;
 EXEC dwh.Load_Dim_SalesRep;
 EXEC dwh.Load_Dim_Warehouse;
@@ -690,6 +692,7 @@ bun run migrate:dwh           # Step 1: Create database, schema, procedures
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;
 EXEC dwh.Load_Dim_Customer;
+EXEC dwh.Load_Dim_LegalEntity;
 EXEC dwh.Load_Dim_Product;
 EXEC dwh.Load_Dim_SalesRep;
 EXEC dwh.Load_Dim_Warehouse;

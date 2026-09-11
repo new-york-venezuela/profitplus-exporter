@@ -9,6 +9,7 @@ const INCREMENTAL_LOAD = `
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;
 EXEC dwh.Load_Dim_Customer;
+EXEC dwh.Load_Dim_LegalEntity;
 EXEC dwh.Load_Dim_Product;
 EXEC dwh.Load_Dim_SalesRep;
 EXEC dwh.Load_Dim_Warehouse;
