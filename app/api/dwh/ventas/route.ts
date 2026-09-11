@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { VentasResponse, VentasRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -36,22 +36,26 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
 // Top customers. Scoped to a single month when @month is supplied (drill-down
 // from the "mes" chart), otherwise falls back to the dateRange filter. Also
 // optionally scoped to a single sales rep when @salesRepKey is supplied.
-function clienteQuery(dateWhere: string, monthFilter: string, salesRepFilter: string): string {
+function clienteQuery(dimension: Dimension, dateWhere: string, returnsDateWhere: string, monthFilter: string, salesRepFilter: string): string {
+  const spec = getDimensionSpec(dimension);
+  const { innerJoin, condition } = spec.correlate('fs', 'fr2');
   return `
     SELECT TOP 15
-      CAST(fs.CustomerKey AS varchar(20)) AS GroupValue,
-      ISNULL(c.CustomerName, c.CustomerCode) AS GroupLabel,
+      ${spec.valueExpr} AS GroupValue,
+      ${spec.labelExpr} AS GroupLabel,
       SUM(fs.NetAmount) AS SalesNet,
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         WHERE fr.CustomerKey = fs.CustomerKey AND fr.IsVoided = 0) AS ReturnsNet
+      (SELECT ISNULL(SUM(fr2.NetAmount), 0)
+         FROM fact.Fact_Returns fr2
+         ${innerJoin}
+         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
+      ) AS ReturnsNet
     FROM fact.Fact_Sales fs
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${monthFilter} ${salesRepFilter}
-    GROUP BY fs.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    GROUP BY ${spec.groupByColumn}
     ORDER BY SalesNet DESC
   `;
 }
@@ -96,6 +100,11 @@ export async function GET(request: NextRequest) {
   const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy') ?? 'mes';
   const groupBy: GroupBy = groupByParam === 'cliente' || groupByParam === 'linea' ? groupByParam : 'mes';
+  const clienteDimensionParam = searchParams.get('clienteDimension');
+  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const breakdownByParam = searchParams.get('breakdownBy');
+  const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
+  const parentValue = searchParams.get('parentValue');
   const month = searchParams.get('month');
   const salesRepKeyParam = searchParams.get('salesRepKey');
   const salesRepKey = salesRepKeyParam && /^\d+$/.test(salesRepKeyParam) ? Number(salesRepKeyParam) : null;
@@ -105,6 +114,27 @@ export async function GET(request: NextRequest) {
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    // clienteQuery's correlated returns subquery aliases Fact_Returns as `fr2`
+    // (via spec.correlate), not `fr` like monthlyQuery/lineaQuery, so it needs
+    // its own date-where clause built against that alias.
+    const clienteReturnsDateWhere = buildDateWhereClause(dateRange, 'fr2');
+
+    if (breakdownBy && parentValue) {
+      const breakdownSpec = getDimensionSpec(breakdownBy);
+      const parentSpec = getDimensionSpec(clienteDimension);
+      const req = pool.request();
+      req.input('parentValue', parentValue);
+      const result = await req.query(`
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fs.NetAmount) AS SalesNet
+        FROM fact.Fact_Sales fs
+        ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fs')}
+        ${parentSpec.joinClause.replace(/\bf\b/g, 'fs')}
+        WHERE fs.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fs')} = @parentValue ${salesDateWhere}
+        GROUP BY ${breakdownSpec.groupByColumn}
+        ORDER BY SalesNet DESC
+      `);
+      return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })) });
+    }
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: VentasResponse['breadcrumb'] = [{ label: 'Ventas', groupBy: 'mes' }];
@@ -121,7 +151,7 @@ export async function GET(request: NextRequest) {
         req.input('salesRepKey', salesRepKey);
         salesRepFilter = 'AND fs.SalesRepKey = @salesRepKey';
       }
-      const result = await req.query(clienteQuery(salesDateWhere, monthFilter, salesRepFilter));
+      const result = await req.query(clienteQuery(clienteDimension, salesDateWhere, clienteReturnsDateWhere, monthFilter, salesRepFilter));
       recordset = result.recordset;
       breadcrumb.push({ label: month ? formatYearMonth(month) : 'Clientes', groupBy: 'cliente' });
     } else if (groupBy === 'linea') {

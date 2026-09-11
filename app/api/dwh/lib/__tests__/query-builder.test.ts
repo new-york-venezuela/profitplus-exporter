@@ -28,19 +28,28 @@ describe('getDimensionSpec', () => {
     expect(spec.groupByColumn).toContain('SalesRepKey');
   });
 
+  // These correlate() conditions must reference this spec's own joined dimension
+  // alias (e.g. `le`, `c`, `p`, `r`) on the outer side, never the fact-table
+  // alias (`outerAlias`). The outer query this correlate() is used from is
+  // GROUPed BY the dimension alias's key column, not the fact table's — SQL
+  // Server rejects a reference to a non-grouped fact-table column inside a
+  // nested subquery even when it's join-equal to a grouped dimension column
+  // (confirmed against a live SQL Server instance; a version of this file
+  // that correlated on `outerAlias.CustomerKey`/`outerAlias.ProductKey`/etc.
+  // failed at query time with "invalid in the select list").
   test('correlate produces distinct aliases on each side for cliente_entidad', () => {
     const spec = getDimensionSpec('cliente_entidad');
     const { innerJoin, condition } = spec.correlate('fr', 'fs2');
     expect(innerJoin).toContain('fs2_c');
     expect(condition).not.toBe('le.LegalEntityKey = le.LegalEntityKey');
     expect(condition).toContain('fs2_c.LegalEntityKey');
-    expect(condition).toContain('fr.CustomerKey');
+    expect(condition).toContain('le.LegalEntityKey');
   });
 
   test('correlate produces a direct key match for cliente_tienda', () => {
     const spec = getDimensionSpec('cliente_tienda');
     const { condition } = spec.correlate('fr', 'fs2');
-    expect(condition).toBe('fs2.CustomerKey = fr.CustomerKey');
+    expect(condition).toBe('fs2.CustomerKey = c.CustomerKey');
   });
 });
 

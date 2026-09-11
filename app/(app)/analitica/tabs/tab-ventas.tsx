@@ -59,6 +59,7 @@ export default function TabVentas({
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>('mes');
   const [month, setMonth] = useState<string | null>(null);
+  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const [data, setData] = useState<VentasResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +71,10 @@ export default function TabVentas({
       setLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, currency, groupBy });
-        if (groupBy === 'cliente' && month) params.set('month', month);
+        if (groupBy === 'cliente') {
+          params.set('clienteDimension', clienteDimension);
+          if (month) params.set('month', month);
+        }
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -91,7 +95,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy, month]);
+  }, [dateRange, currency, groupBy, month, clienteDimension]);
 
   function handleGroupByChange(next: GroupBy) {
     if (next !== 'cliente') setMonth(null);
@@ -143,6 +147,23 @@ export default function TabVentas({
           ))}
         </div>
 
+        {groupBy === 'cliente' && (
+          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+            <button
+              onClick={() => setClienteDimension('cliente_entidad')}
+              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              Entidad
+            </button>
+            <button
+              onClick={() => setClienteDimension('cliente_tienda')}
+              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              Tienda
+            </button>
+          </div>
+        )}
+
         {/* Breadcrumb */}
         {data && data.breadcrumb.length > 0 && (
           <nav className="flex items-center gap-1 text-sm text-gray-500">
@@ -177,7 +198,7 @@ export default function TabVentas({
             <EmptyState />
           ) : (
             <ResponsiveContainer width="100%" height={380}>
-              <BarChart data={chartData} layout={groupBy === 'mes' ? 'horizontal' : 'vertical'} margin={{ left: groupBy === 'mes' ? 0 : 24 }}>
+              <BarChart data={chartData} layout={groupBy === 'mes' ? 'horizontal' : 'vertical'} margin={{ top: 8, left: groupBy === 'mes' ? 0 : 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 {groupBy === 'mes' ? (
                   <>
@@ -187,7 +208,7 @@ export default function TabVentas({
                 ) : (
                   <>
                     <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money(v, currency, rate)} />
-                    <YAxis type="category" dataKey="label" width={160} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="label" width={200} tick={{ fontSize: 11 }} />
                   </>
                 )}
                 <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />

@@ -58,9 +58,18 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     groupByColumn: 'le.LegalEntityKey, le.LegalEntityName',
     labelExpr: 'le.LegalEntityName',
     valueExpr: 'CAST(le.LegalEntityKey AS varchar(20))',
-    correlate: (outerAlias, innerAlias) => ({
+    // NOTE: correlates on `le.LegalEntityKey`, not `${outerAlias}.CustomerKey`.
+    // The outer query for this dimension is grouped by LegalEntityKey (via the
+    // `le` alias this spec's own joinClause brings into scope), so `le` is the
+    // only outer reference valid at that grain — SQL Server rejects a reference
+    // to a non-grouped outer column (fs.CustomerKey) inside a nested subquery
+    // with "invalid in the select list" even though it's only used for
+    // correlation, not aggregation. `outerAlias`/`innerAlias` are accepted for
+    // interface consistency with the other dimensions' correlate() but unused
+    // here since `le` is already unambiguous and in scope.
+    correlate: (_outerAlias, innerAlias) => ({
       innerJoin: `JOIN dim.Dim_Customer ${innerAlias}_c ON ${innerAlias}_c.CustomerKey = ${innerAlias}.CustomerKey`,
-      condition: `${innerAlias}_c.LegalEntityKey = (SELECT c3.LegalEntityKey FROM dim.Dim_Customer c3 WHERE c3.CustomerKey = ${outerAlias}.CustomerKey)`,
+      condition: `${innerAlias}_c.LegalEntityKey = le.LegalEntityKey`,
     }),
   },
   cliente_tienda: {
@@ -68,9 +77,14 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     groupByColumn: 'c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)',
     labelExpr: 'ISNULL(c.CustomerName, c.CustomerCode)',
     valueExpr: 'CAST(c.CustomerKey AS varchar(20))',
-    correlate: (outerAlias, innerAlias) => ({
+    // Correlates on `c.CustomerKey` (this spec's own joined alias, which is
+    // what the outer query actually GROUPs BY), not `${outerAlias}.CustomerKey`
+    // (the fact-table alias) — SQL Server rejects a reference to a non-grouped
+    // fact-table column inside a nested subquery even when it's join-equal to
+    // a grouped dimension column. See cliente_entidad's note above.
+    correlate: (_outerAlias, innerAlias) => ({
       innerJoin: '',
-      condition: `${innerAlias}.CustomerKey = ${outerAlias}.CustomerKey`,
+      condition: `${innerAlias}.CustomerKey = c.CustomerKey`,
     }),
   },
   producto: {
@@ -78,9 +92,10 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     groupByColumn: 'p.ProductKey, ISNULL(p.ProductName, p.ProductCode)',
     labelExpr: 'ISNULL(p.ProductName, p.ProductCode)',
     valueExpr: 'CAST(p.ProductKey AS varchar(20))',
-    correlate: (outerAlias, innerAlias) => ({
+    // Correlates on `p.ProductKey` (grouped alias), not `${outerAlias}.ProductKey`.
+    correlate: (_outerAlias, innerAlias) => ({
       innerJoin: '',
-      condition: `${innerAlias}.ProductKey = ${outerAlias}.ProductKey`,
+      condition: `${innerAlias}.ProductKey = p.ProductKey`,
     }),
   },
   vendedor: {
@@ -88,9 +103,10 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     groupByColumn: 'r.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)',
     labelExpr: 'ISNULL(r.SalesRepName, r.SalesRepCode)',
     valueExpr: 'CAST(r.SalesRepKey AS varchar(20))',
-    correlate: (outerAlias, innerAlias) => ({
+    // Correlates on `r.SalesRepKey` (grouped alias), not `${outerAlias}.SalesRepKey`.
+    correlate: (_outerAlias, innerAlias) => ({
       innerJoin: '',
-      condition: `${innerAlias}.SalesRepKey = ${outerAlias}.SalesRepKey`,
+      condition: `${innerAlias}.SalesRepKey = r.SalesRepKey`,
     }),
   },
 };
