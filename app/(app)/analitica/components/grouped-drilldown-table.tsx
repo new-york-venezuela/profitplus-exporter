@@ -43,6 +43,7 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
       return;
     }
     setExpandedValue(value);
+    setBreakdownRows([]);
     if (!breakdownBy || !onFetchBreakdown) return;
     setBreakdownLoading(true);
     try {
