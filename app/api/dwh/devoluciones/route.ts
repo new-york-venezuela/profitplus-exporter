@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -60,28 +60,33 @@ function productoMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
   `;
 }
 
-function clienteMatrixQuery(returnsDateWhere: string, salesDateWhere: string): string {
+function clienteMatrixQuery(dimension: Dimension, returnsDateWhere: string, salesDateWhere: string): string {
+  const spec = getDimensionSpec(dimension);
+  const { innerJoin, condition } = spec.correlate('fr', 'fs2');
   return `
     SELECT TOP 50
-      ISNULL(c.CustomerName, c.CustomerCode) AS GroupName,
+      ${spec.valueExpr} AS GroupValue,
+      ${spec.labelExpr} AS GroupName,
       SUM(fr.NetAmount) AS ReturnsNet,
-      (SELECT ISNULL(SUM(fs.NetAmount), 0)
-         FROM fact.Fact_Sales fs
-         WHERE fs.CustomerKey = fr.CustomerKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet
+      (SELECT ISNULL(SUM(fs2.NetAmount), 0)
+         FROM fact.Fact_Sales fs2
+         ${innerJoin}
+         WHERE fs2.IsVoided = 0 ${salesDateWhere} AND ${condition}
+      ) AS SalesNet
     FROM fact.Fact_Returns fr
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
+    ${spec.joinClause.replace(/\bf\b/g, 'fr')}
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
-    GROUP BY fr.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    GROUP BY ${spec.groupByColumn}
     ORDER BY ReturnsNet DESC
   `;
 }
 
-function matrixQuery(groupBy: DevolucionesGroupBy, returnsDateWhere: string, salesDateWhere: string): string {
+function matrixQuery(groupBy: DevolucionesGroupBy, clienteDimension: Dimension, returnsDateWhere: string, salesDateWhere: string): string {
   switch (groupBy) {
     case 'producto':
       return productoMatrixQuery(returnsDateWhere, salesDateWhere);
     case 'cliente':
-      return clienteMatrixQuery(returnsDateWhere, salesDateWhere);
+      return clienteMatrixQuery(clienteDimension, returnsDateWhere, salesDateWhere);
     case 'salesrep':
     default:
       return salesRepMatrixQuery(returnsDateWhere, salesDateWhere);
@@ -116,15 +121,21 @@ export async function GET(request: NextRequest) {
   const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy');
   const groupBy: DevolucionesGroupBy = isDevolucionesGroupBy(groupByParam) ? groupByParam : 'salesrep';
+  const clienteDimensionParam = searchParams.get('clienteDimension');
+  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
   try {
     const pool = await getDwhPool();
 
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
-    const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
+    // clienteMatrixQuery's correlated sales subquery aliases Fact_Sales as
+    // `fs2` (via spec.correlate), not `fs` like salesRepMatrixQuery/
+    // productoMatrixQuery, so it needs its own date-where clause built
+    // against that alias.
+    const salesDateWhere = buildDateWhereClause(dateRange, groupBy === 'cliente' ? 'fs2' : 'fs');
 
     const [matrix, usdRate] = await Promise.all([
-      pool.request().query(matrixQuery(groupBy, returnsDateWhere, salesDateWhere)),
+      pool.request().query(matrixQuery(groupBy, clienteDimension, returnsDateWhere, salesDateWhere)),
       currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 

@@ -46,6 +46,7 @@ export default function TabDevoluciones({
   currency: Currency;
 }) {
   const [groupBy, setGroupBy] = useState<DevolucionesGroupBy>('salesrep');
+  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const [data, setData] = useState<DevolucionesResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,9 +57,11 @@ export default function TabDevoluciones({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(
-          `/api/dwh/devoluciones?dateRange=${dateRange}&currency=${currency}&groupBy=${groupBy}`
-        );
+        const params = new URLSearchParams({ dateRange, currency, groupBy });
+        if (groupBy === 'cliente') {
+          params.set('clienteDimension', clienteDimension);
+        }
+        const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -78,7 +81,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy]);
+  }, [dateRange, currency, groupBy, clienteDimension]);
 
   const rate = data?.usdRate ?? undefined;
 
@@ -95,20 +98,39 @@ export default function TabDevoluciones({
             Matriz de devoluciones y tasa de devolución (devoluciones / ventas)
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-          {GROUP_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setGroupBy(opt.value)}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                groupBy === opt.value
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Por {opt.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+            {GROUP_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setGroupBy(opt.value)}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                  groupBy === opt.value
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Por {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {groupBy === 'cliente' && (
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+              <button
+                onClick={() => setClienteDimension('cliente_entidad')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Entidad
+              </button>
+              <button
+                onClick={() => setClienteDimension('cliente_tienda')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Tienda
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
