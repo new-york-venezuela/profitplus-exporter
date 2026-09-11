@@ -77,6 +77,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
   const [data, setData] = useState<CxcResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +85,8 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/cxc?currency=${currency}`);
+        const params = new URLSearchParams({ currency, clienteDimension });
+        const res = await fetch(`/api/dwh/cxc?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -104,7 +106,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     return () => {
       cancelled = true;
     };
-  }, [currency]);
+  }, [currency, clienteDimension]);
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
@@ -174,7 +176,27 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
         </ChartCard>
 
         {/* Top debtors */}
-        <ChartCard title="Mayor concentración de crédito" subtitle="Top 10 clientes por saldo pendiente">
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Mayor concentración de crédito</h2>
+              <p className="text-xs text-gray-500">Top 10 clientes por saldo pendiente</p>
+            </div>
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+              <button
+                onClick={() => setClienteDimension('cliente_entidad')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Entidad
+              </button>
+              <button
+                onClick={() => setClienteDimension('cliente_tienda')}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                Tienda
+              </button>
+            </div>
+          </div>
           {data.topDebtors.length === 0 ? (
             <EmptyState />
           ) : (
@@ -199,7 +221,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
               </table>
             </div>
           )}
-        </ChartCard>
+        </div>
       </div>
     </div>
   );

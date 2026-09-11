@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { CxcResponse, AgingBucketRow, DebtorRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -29,17 +29,20 @@ const AGING_BUCKETS_QUERY = `
   GROUP BY AgingBucket
 `;
 
-const TOP_DEBTORS_QUERY = `
-  SELECT TOP 10
-    ISNULL(c.CustomerName, c.CustomerCode) AS Name,
-    SUM(a.OutstandingBalance) AS Outstanding
-  FROM fact.Fact_AR_Snapshot a
-  JOIN dim.Dim_Customer c ON c.CustomerKey = a.CustomerKey
-  WHERE a.SnapshotDateKey = @snapshotDateKey
-  GROUP BY ISNULL(c.CustomerName, c.CustomerCode)
-  HAVING SUM(a.OutstandingBalance) > 0
-  ORDER BY Outstanding DESC
-`;
+function topDebtorsQuery(dimension: Dimension): string {
+  const spec = getDimensionSpec(dimension);
+  return `
+    SELECT TOP 10
+      ${spec.labelExpr} AS Name,
+      SUM(a.OutstandingBalance) AS Outstanding
+    FROM fact.Fact_AR_Snapshot a
+    ${spec.joinClause.replace(/\bf\b/g, 'a')}
+    WHERE a.SnapshotDateKey = @snapshotDateKey
+    GROUP BY ${spec.groupByColumn}
+    HAVING SUM(a.OutstandingBalance) > 0
+    ORDER BY Outstanding DESC
+  `;
+}
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -51,6 +54,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const currency = searchParams.get('currency') ?? 'bs';
+  const clienteDimensionParam = searchParams.get('clienteDimension');
+  const clienteDimension: Dimension = isDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
   try {
     const pool = await getDwhPool();
@@ -68,7 +73,7 @@ export async function GET(request: NextRequest) {
     if (snapshotDateKey !== null) {
       const [aging, debtors] = await Promise.all([
         pool.request().input('snapshotDateKey', snapshotDateKey).query(AGING_BUCKETS_QUERY),
-        pool.request().input('snapshotDateKey', snapshotDateKey).query(TOP_DEBTORS_QUERY),
+        pool.request().input('snapshotDateKey', snapshotDateKey).query(topDebtorsQuery(clienteDimension)),
       ]);
       agingBuckets = aging.recordset;
       topDebtors = debtors.recordset;
