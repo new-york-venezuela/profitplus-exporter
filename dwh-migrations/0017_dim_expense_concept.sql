@@ -180,15 +180,15 @@ BEGIN
     MERGE dim.Dim_ExpenseConcept AS tgt
     USING (
         SELECT
-            RTRIM(src.co_cta_ingr_egr) AS ConceptCode,
+            LTRIM(RTRIM(src.co_cta_ingr_egr)) AS ConceptCode,
             RTRIM(src.descrip) AS ConceptName,
             ISNULL(seed.ConceptType, 'Gasto') AS ConceptType,
             ISNULL(seed.Category, 'Otros') AS Category,
             CASE WHEN seed.Category IN ('Intereses', 'Impuestos') THEN 1 ELSE 0 END AS IsExcludedFromEbitda
         FROM Ncake_a.dbo.saCuentaIngEgr src
-        LEFT JOIN dim.ExpenseConceptSeed seed ON seed.ConceptCode = RTRIM(src.co_cta_ingr_egr) COLLATE SQL_Latin1_General_CP1_CI_AS
+        LEFT JOIN dim.ExpenseConceptSeed seed ON LTRIM(RTRIM(seed.ConceptCode)) = LTRIM(RTRIM(src.co_cta_ingr_egr)) COLLATE SQL_Latin1_General_CP1_CI_AS
     ) AS src
-        ON tgt.ConceptCode = src.ConceptCode COLLATE SQL_Latin1_General_CP1_CI_AS
+        ON LTRIM(RTRIM(tgt.ConceptCode)) = LTRIM(RTRIM(src.ConceptCode)) COLLATE SQL_Latin1_General_CP1_CI_AS
     WHEN MATCHED THEN UPDATE SET
         tgt.ConceptName = src.ConceptName,
         tgt.ConceptType = src.ConceptType,
