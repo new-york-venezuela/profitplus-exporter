@@ -14,10 +14,12 @@ EXEC dwh.Load_Dim_Product;
 EXEC dwh.Load_Dim_SalesRep;
 EXEC dwh.Load_Dim_Warehouse;
 EXEC dwh.Load_Dim_ExpenseConcept;
+EXEC dwh.Load_Dim_Supplier;
 EXEC dwh.Load_Fact_Sales;
 EXEC dwh.Load_Fact_Returns;
 EXEC dwh.Load_Fact_Collections;
 EXEC dwh.Load_Fact_Expenses;
+EXEC dwh.Load_Fact_Purchases;
 `;
 
 async function main() {
