@@ -32,7 +32,7 @@ function isProductosGroupBy(value: string | null): value is ProductosGroupBy {
   return value === 'linea' || value === 'sublinea' || value === 'sku';
 }
 
-function lineaQuery(dateWhere: string): string {
+function lineaQuery(dateWhere: string, tiendaWhere: string): string {
   return `
     SELECT TOP 30
       ISNULL(p.LineName, '${NO_LINEA}') AS GroupLabel,
@@ -41,13 +41,13 @@ function lineaQuery(dateWhere: string): string {
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere}
+    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
     GROUP BY ISNULL(p.LineName, '${NO_LINEA}')
     ORDER BY SalesNet DESC
   `;
 }
 
-function sublineaQuery(dateWhere: string): string {
+function sublineaQuery(dateWhere: string, tiendaWhere: string): string {
   return `
     SELECT TOP 30
       ISNULL(p.SubLineName, '${NO_SUBLINEA}') AS GroupLabel,
@@ -56,13 +56,13 @@ function sublineaQuery(dateWhere: string): string {
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere} AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
+    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere} AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
     GROUP BY ISNULL(p.SubLineName, '${NO_SUBLINEA}')
     ORDER BY SalesNet DESC
   `;
 }
 
-function skuQuery(dateWhere: string): string {
+function skuQuery(dateWhere: string, tiendaWhere: string): string {
   return `
     SELECT TOP 50
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
@@ -71,11 +71,22 @@ function skuQuery(dateWhere: string): string {
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere}
+    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
       AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
       AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea
     GROUP BY ISNULL(p.ProductName, p.ProductCode)
     ORDER BY SalesNet DESC
+  `;
+}
+
+function tiendasQuery(): string {
+  return `
+    SELECT c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName
+    FROM dim.Dim_Customer c
+    JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
+    WHERE fs.IsVoided = 0
+    GROUP BY c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    ORDER BY CustomerName
   `;
 }
 
@@ -93,6 +104,20 @@ export async function GET(request: NextRequest) {
   const groupByParam = searchParams.get('groupBy');
   const lineaParam = searchParams.get('linea');
   const sublineaParam = searchParams.get('sublinea');
+  const tiendaParam = searchParams.get('tienda');
+  const tiendaKey = tiendaParam && /^\d+$/.test(tiendaParam) ? Number(tiendaParam) : null;
+
+  if (searchParams.get('tiendas') === '1') {
+    try {
+      const pool = await getDwhPool();
+      const result = await pool.request().query(tiendasQuery());
+      return NextResponse.json({
+        tiendas: result.recordset.map(r => ({ value: String(r.CustomerKey), label: r.CustomerName })),
+      });
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
 
   // Fall back to a shallower level if the params needed to scope a deeper
   // drill are missing (e.g. a stale/hand-built URL) rather than erroring.
@@ -104,25 +129,28 @@ export async function GET(request: NextRequest) {
     const pool = await getDwhPool();
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
+    const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
 
     if (groupBy === 'sku') {
-      const result = await pool
-        .request()
-        .input('linea', lineaParam)
-        .input('sublinea', sublineaParam)
-        .query(skuQuery(dateWhere));
+      const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
+      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
+      const result = await req.query(skuQuery(dateWhere, tiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
       breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
     } else if (groupBy === 'sublinea') {
-      const result = await pool.request().input('linea', lineaParam).query(sublineaQuery(dateWhere));
+      const req = pool.request().input('linea', lineaParam);
+      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
+      const result = await req.query(sublineaQuery(dateWhere, tiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
     } else {
-      const result = await pool.request().query(lineaQuery(dateWhere));
+      const req = pool.request();
+      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
+      const result = await req.query(lineaQuery(dateWhere, tiendaWhere));
       recordset = result.recordset;
     }
 

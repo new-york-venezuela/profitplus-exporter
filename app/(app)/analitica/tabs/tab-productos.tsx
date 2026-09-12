@@ -62,9 +62,29 @@ export default function TabProductos({
   const [groupBy, setGroupBy] = useState<ProductosGroupBy>('linea');
   const [linea, setLinea] = useState<string | null>(null);
   const [sublinea, setSublinea] = useState<string | null>(null);
+  const [tienda, setTienda] = useState<string | null>(null);
+  const [tiendas, setTiendas] = useState<{ value: string; label: string }[]>([]);
   const [data, setData] = useState<ProductosResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTiendas() {
+      try {
+        const res = await fetch('/api/dwh/productos?tiendas=1');
+        if (cancelled || !res.ok) return;
+        const body: { tiendas?: { value: string; label: string }[] } = await res.json().catch(() => ({}));
+        if (!cancelled) setTiendas(body.tiendas ?? []);
+      } catch {
+        // Non-critical — filter just stays empty if this fails.
+      }
+    }
+    loadTiendas();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +95,7 @@ export default function TabProductos({
         const params = new URLSearchParams({ dateRange, currency, groupBy });
         if (groupBy !== 'linea' && linea) params.set('linea', linea);
         if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
+        if (tienda) params.set('tienda', tienda);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -95,7 +116,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy, linea, sublinea]);
+  }, [dateRange, currency, groupBy, linea, sublinea, tienda]);
 
   function handleRowClick(row: ProductosRow) {
     if (groupBy === 'linea') {
@@ -146,7 +167,22 @@ export default function TabProductos({
       )}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h2 className="text-sm font-bold text-gray-900">Rotación y margen por producto</h2>
+        <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
+          <h2 className="text-sm font-bold text-gray-900">Rotación y margen por producto</h2>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            Tienda:
+            <select
+              value={tienda ?? ''}
+              onChange={e => setTienda(e.target.value || null)}
+              className="border border-gray-200 rounded px-2 py-1 text-sm max-w-[220px]"
+            >
+              <option value="">Todas</option>
+              {tiendas.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <p className="text-xs text-gray-500 mb-3">
           {groupBy === 'linea' && 'Ventas netas, rotación y margen por línea de producto — clic en una fila para ver sus sublíneas'}
           {groupBy === 'sublinea' && 'Sublíneas de la línea seleccionada — clic en una fila para ver sus productos'}
