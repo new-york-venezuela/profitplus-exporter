@@ -45,14 +45,22 @@ const DEFAULT_DATE_RANGE: DateRange = '12m';
 const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
 
-const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+const DATE_RANGE_OPTIONS: { value: string; label: string }[] = [
   { value: '30d', label: '30 días' },
   { value: '90d', label: '90 días' },
   { value: '12m', label: '12 meses' },
+  { value: 'custom', label: 'Personalizado' },
 ];
 
+const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+
 function isValidDateRange(value: string | null): value is DateRange {
-  return value === '30d' || value === '90d' || value === '12m' || value === 'custom';
+  if (value === '30d' || value === '90d' || value === '12m') return true;
+  return value !== null && CUSTOM_RANGE_RE.test(value);
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function isValidCurrency(value: string | null): value is Currency {
@@ -76,6 +84,14 @@ function AnaliticaClientInner() {
 
   const dateRangeParam = searchParams.get('dateRange');
   const dateRange: DateRange = isValidDateRange(dateRangeParam) ? dateRangeParam : DEFAULT_DATE_RANGE;
+  const isCustomRange = CUSTOM_RANGE_RE.test(dateRange);
+  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
+  const [customStart, setCustomStart] = useState(customMatch?.[1] ?? todayIso());
+  const [customEnd, setCustomEnd] = useState(customMatch?.[2] ?? todayIso());
+  // Selecting "Personalizado" before picking both dates has no `custom:` param
+  // yet — track that intent separately so the date inputs render immediately
+  // instead of silently falling back to another button looking "active".
+  const [customPending, setCustomPending] = useState(false);
 
   const currencyParam = searchParams.get('currency');
   // Fallback currency for when the URL has no `currency` param: seeded from
@@ -123,10 +139,29 @@ function AnaliticaClientInner() {
   );
 
   const handleDateRangeChange = useCallback(
-    (value: DateRange) => {
+    (value: string) => {
+      if (value === 'custom') {
+        setCustomPending(true);
+        updateParams({ dateRange: `custom:${customStart}:${customEnd}` });
+        return;
+      }
+      setCustomPending(false);
       updateParams({ dateRange: value });
     },
-    [updateParams]
+    [updateParams, customStart, customEnd]
+  );
+
+  const handleCustomDateChange = useCallback(
+    (which: 'start' | 'end', value: string) => {
+      const nextStart = which === 'start' ? value : customStart;
+      const nextEnd = which === 'end' ? value : customEnd;
+      if (which === 'start') setCustomStart(value);
+      else setCustomEnd(value);
+      if (nextStart && nextEnd) {
+        updateParams({ dateRange: `custom:${nextStart}:${nextEnd}` });
+      }
+    },
+    [updateParams, customStart, customEnd]
   );
 
   const handleCurrencyChange = useCallback(
@@ -155,20 +190,45 @@ function AnaliticaClientInner() {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Date range filter */}
-            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-              {DATE_RANGE_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => handleDateRangeChange(opt.value)}
-                  className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                    dateRange === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+                {DATE_RANGE_OPTIONS.map(opt => {
+                  const isActive = opt.value === 'custom' ? (isCustomRange || customPending) : dateRange === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleDateRangeChange(opt.value)}
+                      className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                        isActive ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {(isCustomRange || customPending) && (
+                <div className="flex items-center gap-1 text-sm text-gray-600">
+                  <input
+                    type="date"
+                    value={customStart}
+                    max={customEnd}
+                    onChange={e => handleCustomDateChange('start', e.target.value)}
+                    className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    aria-label="Fecha inicial"
+                  />
+                  <span className="text-gray-400">–</span>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    min={customStart}
+                    max={todayIso()}
+                    onChange={e => handleCustomDateChange('end', e.target.value)}
+                    className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    aria-label="Fecha final"
+                  />
+                </div>
+              )}
             </div>
             {/* Currency toggle */}
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">

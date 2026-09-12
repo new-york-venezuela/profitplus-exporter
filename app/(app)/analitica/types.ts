@@ -1,12 +1,14 @@
 export type Currency = 'bs' | 'usd';
-export type DateRange = '30d' | '90d' | '12m' | 'custom';
+// '30d' | '90d' | '12m' | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
+// range is encoded as a single string (not separate start/end props) so it
+// flows through every tab's existing `dateRange: DateRange` prop and query
+// param unchanged; only buildDateWhereClause parses the custom: prefix.
+export type DateRange = string;
 export type GroupBy = string; // e.g., 'mes', 'cliente', 'salesrep', 'producto', 'linea', 'sublinea', 'sku'
 
 export interface FilterParams {
   dateRange: DateRange;
   currency: Currency;
-  startDate?: string; // YYYY-MM-DD, only if custom
-  endDate?: string;
 }
 
 export interface DrillContext {

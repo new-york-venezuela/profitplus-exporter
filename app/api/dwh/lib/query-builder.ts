@@ -20,10 +20,19 @@ export async function getUsdRate(): Promise<number | null> {
   }
 }
 
+const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+
 export function buildDateWhereClause(
   dateRange: string,
   tableName: string = 'f'
 ): string {
+  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
+  if (customMatch) {
+    const [, start, end] = customMatch;
+    const startKey = start.replace(/-/g, '');
+    const endKey = end.replace(/-/g, '');
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
   const days = dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 365;
   // Adjust based on your DateKey format (if YYYYMMDD or similar)
   return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -${days}, GETDATE()), 'yyyyMMdd'))`;
