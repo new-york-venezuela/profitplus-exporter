@@ -4,7 +4,7 @@ import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
-import type { FinanzasResponse, FinanzasWaterfallStep } from '@/app/(app)/analitica/types';
+import type { FinanzasResponse, FinanzasWaterfallStep, ExpenseCategoryRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +30,33 @@ function waterfallTotalsQuery(dateWhere: string): string {
   `;
 }
 
+// Operating expenses from fact.Fact_Expenses, grouped by category — feeds both
+// the "Gastos Operativos" breakdown table and the EBITDA waterfall step.
+// Intereses/Impuestos are excluded here (informational-only, not part of
+// "Gastos Operativos") and queried separately below.
+function expenseCategoryQuery(dateWhere: string): string {
+  return `
+    SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
+    FROM fact.Fact_Expenses fe
+    JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+    WHERE fe.IsVoided = 0 AND ec.Category NOT IN ('Intereses', 'Impuestos') ${dateWhere}
+    GROUP BY ec.Category
+    ORDER BY TotalAmount DESC
+  `;
+}
+
+// Intereses/Impuestos, kept separate from Gastos Operativos so EBITDA can
+// exclude them per definition (Earnings Before Interest, Taxes, ...).
+function excludedExpenseQuery(dateWhere: string): string {
+  return `
+    SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
+    FROM fact.Fact_Expenses fe
+    JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+    WHERE fe.IsVoided = 0 AND ec.Category IN ('Intereses', 'Impuestos') ${dateWhere}
+    GROUP BY ec.Category
+  `;
+}
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -46,9 +73,12 @@ export async function GET(request: NextRequest) {
     const pool = await getDwhPool();
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
+    const expenseDateWhere = buildDateWhereClause(dateRange, 'fe');
 
-    const [totals, usdRate] = await Promise.all([
+    const [totals, categoryResult, excludedResult, usdRate] = await Promise.all([
       pool.request().query(waterfallTotalsQuery(salesDateWhere)),
+      pool.request().query(expenseCategoryQuery(expenseDateWhere)),
+      pool.request().query(excludedExpenseQuery(expenseDateWhere)),
       currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 
@@ -74,7 +104,42 @@ export async function GET(request: NextRequest) {
       { step: 'Utilidad Bruta', amount: grossProfitAmount, cumulative: grossProfitAmount },
     ];
 
-    const response: FinanzasResponse = { waterfall, usdRate };
+    const utilidadBruta = grossProfitAmount;
+
+    const expenseBreakdown: ExpenseCategoryRow[] = categoryResult.recordset.map(r => ({
+      category: String(r.Category),
+      amount: Number(r.TotalAmount),
+    }));
+
+    const gastosOperativos = expenseBreakdown.reduce((sum, r) => sum + r.amount, 0);
+    const intereses = Number(excludedResult.recordset.find(r => r.Category === 'Intereses')?.TotalAmount ?? 0);
+    const impuestos = Number(excludedResult.recordset.find(r => r.Category === 'Impuestos')?.TotalAmount ?? 0);
+
+    // EBITDA (aprox.): Utilidad Bruta - Gastos Operativos, excluding Intereses/
+    // Impuestos by definition. Labeled "aprox." because D&A is structurally
+    // unavailable in the source ERP data (no fixed-asset depreciation ledger),
+    // so this is really Utilidad Bruta - Gastos Operativos rather than a strict
+    // EBITDA computed by adding back D&A from a net-income base.
+    const ebitda = utilidadBruta - gastosOperativos;
+    const utilidadNeta = ebitda - intereses - impuestos;
+
+    waterfall.push(
+      { step: 'Gastos Operativos', amount: -gastosOperativos, cumulative: ebitda },
+      { step: 'EBITDA (aprox.)', amount: 0, cumulative: ebitda },
+      { step: 'Intereses', amount: -intereses, cumulative: ebitda - intereses },
+      { step: 'Impuestos', amount: -impuestos, cumulative: utilidadNeta },
+      { step: 'Utilidad Neta', amount: 0, cumulative: utilidadNeta },
+    );
+
+    const response: FinanzasResponse = {
+      waterfall,
+      ebitda,
+      intereses,
+      impuestos,
+      utilidadNeta,
+      expenseBreakdown,
+      usdRate,
+    };
 
     return NextResponse.json(response);
   } catch {

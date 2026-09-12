@@ -171,8 +171,18 @@ export interface FinanzasWaterfallStep {
   cumulative: number;
 }
 
+export interface ExpenseCategoryRow {
+  category: string;
+  amount: number;
+}
+
 export interface FinanzasResponse {
   waterfall: FinanzasWaterfallStep[];
+  ebitda: number;
+  intereses: number;
+  impuestos: number;
+  utilidadNeta: number;
+  expenseBreakdown: ExpenseCategoryRow[];
   usdRate: number | null;
 }
 
