@@ -89,6 +89,24 @@ function EmptyState({ message }: { message?: string }) {
 // steps (Bruto, Neto, Utilidad Bruta) amount === cumulative, so previousValue
 // is 0 and the bar is a full column from the axis; for the delta steps
 // (Descuento, COGS) it floats between the two surrounding totals.
+//
+// Color is NOT inferred purely from amount's sign. 'Descuento' and 'COGS' are
+// always-negative-by-construction in route.ts (it always negates them before
+// pushing the step), so a sign check happens to work for them today — but
+// 'Gastos Operativos' (and the Intereses/Impuestos steps split out of it) is
+// the negated SUM of category totals that can legitimately net negative for
+// a given date range (verified live 2026-09-12: fact.Fact_Expenses category
+// 'Otros' nets to -2,361,663.08 over the trailing 12 months, driven by
+// refunds/reversals coded there — a real, currently-live case, not a
+// hypothetical). If color were `amount < 0`, a negative aggregate would flip
+// `-gastosOperativos` positive and paint the expense step green, as if
+// expenses were a gain for the period. COST_STEPS names every step that is a
+// cost/reduction by definition regardless of its computed sign, so these
+// steps are always red — matching how 'Descuento'/'COGS' read today, but for
+// the right reason (what the step represents) rather than an accident of
+// always-positive inputs.
+const COST_STEPS = new Set(['Descuento', 'COGS', 'Gastos Operativos', 'Intereses', 'Impuestos']);
+
 interface WaterfallDatum {
   step: string;
   base: number;
@@ -109,7 +127,7 @@ function toWaterfallData(waterfall: FinanzasWaterfallStep[]): WaterfallDatum[] {
       value,
       amount: w.amount,
       cumulative: w.cumulative,
-      isNegative: w.amount < 0,
+      isNegative: COST_STEPS.has(w.step) || w.amount < 0,
     };
   });
 }

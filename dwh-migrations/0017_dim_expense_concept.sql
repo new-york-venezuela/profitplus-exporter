@@ -173,6 +173,29 @@ CREATE OR ALTER PROCEDURE dwh.Load_Dim_ExpenseConcept
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    -- Sanity guard: dim.ExpenseConceptSeed is a permanent, re-seedable table
+    -- (see comment above its CREATE TABLE) that this procedure LEFT JOINs
+    -- against every run, falling back to Category='Otros'/ConceptType='Gasto'
+    -- for any ConceptCode not found in the seed. That fallback exists to
+    -- classify genuinely NEW concepts Profit Plus might add — it is not meant
+    -- to cover the seed table being empty or near-empty. If the seed were
+    -- ever wiped (e.g. someone runs TRUNCATE TABLE dim.ExpenseConceptSeed
+    -- directly, or a future migration mistake clears it without
+    -- repopulating), this MERGE would silently reclassify every one of the
+    -- ~246 previously-correctly-classified concepts to Otros/Gasto,
+    -- collapsing Intereses/Impuestos into Gastos Operativos and corrupting
+    -- every EBITDA/Utilidad Neta figure with no error anywhere. 246 concepts
+    -- were seeded as of 2026-09-12 (live-verified); 200 is well under that
+    -- real count but far above what any legitimate trim of the taxonomy
+    -- would plausibly leave, so a count below it indicates the seed was
+    -- wiped, not intentionally trimmed. Abort loudly rather than proceed.
+    IF (SELECT COUNT(*) FROM dim.ExpenseConceptSeed) < 200
+    BEGIN
+        RAISERROR('Load_Dim_ExpenseConcept: dim.ExpenseConceptSeed has fewer than 200 rows (expected ~246). Aborting to avoid silently reclassifying all expense concepts to Otros/Gasto. Re-run the 0017_dim_expense_concept.sql seed INSERT to repopulate before retrying.', 16, 1);
+        RETURN;
+    END
+
     DECLARE @Watermark binary(8) = (SELECT LastValidador FROM dwh.EtlWatermark WHERE SourceTableName = 'saCuentaIngEgr');
     DECLARE @NewWatermark binary(8);
     DECLARE @RowCount int;

@@ -32,27 +32,32 @@ function waterfallTotalsQuery(dateWhere: string): string {
 
 // Operating expenses from fact.Fact_Expenses, grouped by category — feeds both
 // the "Gastos Operativos" breakdown table and the EBITDA waterfall step.
-// Intereses/Impuestos are excluded here (informational-only, not part of
-// "Gastos Operativos") and queried separately below.
+// Filters on the IsExcludedFromEbitda bit column (set by
+// dwh.Load_Dim_ExpenseConcept — see 0017_dim_expense_concept.sql) rather than
+// a Category NOT IN ('Intereses', 'Impuestos') string-literal list, so the
+// bit column is the single source of truth for this business rule instead of
+// two parallel encodings that could drift (live-verified 2026-09-12: both
+// forms return identical category totals against fact.Fact_Expenses).
 function expenseCategoryQuery(dateWhere: string): string {
   return `
     SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
     FROM fact.Fact_Expenses fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
-    WHERE fe.IsVoided = 0 AND ec.Category NOT IN ('Intereses', 'Impuestos') ${dateWhere}
+    WHERE fe.IsVoided = 0 AND ec.IsExcludedFromEbitda = 0 ${dateWhere}
     GROUP BY ec.Category
     ORDER BY TotalAmount DESC
   `;
 }
 
 // Intereses/Impuestos, kept separate from Gastos Operativos so EBITDA can
-// exclude them per definition (Earnings Before Interest, Taxes, ...).
+// exclude them per definition (Earnings Before Interest, Taxes, ...). Same
+// IsExcludedFromEbitda bit column as above, inverted.
 function excludedExpenseQuery(dateWhere: string): string {
   return `
     SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
     FROM fact.Fact_Expenses fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
-    WHERE fe.IsVoided = 0 AND ec.Category IN ('Intereses', 'Impuestos') ${dateWhere}
+    WHERE fe.IsVoided = 0 AND ec.IsExcludedFromEbitda = 1 ${dateWhere}
     GROUP BY ec.Category
   `;
 }
