@@ -80,6 +80,22 @@ function lineaQuery(dateWhere: string, returnsDateWhere: string): string {
   `;
 }
 
+// Products within a single línea (parentValue = LineCode, or the
+// 'SIN_LINEA' sentinel lineaQuery uses for products with no line assigned).
+function lineaProductBreakdownQuery(salesDateWhere: string): string {
+  return `
+    SELECT TOP 15
+      CAST(p.ProductKey AS varchar(20)) AS GroupValue,
+      ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
+      SUM(fs.NetAmount) AS SalesNet
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    WHERE fs.IsVoided = 0 AND ISNULL(p.LineCode, 'SIN_LINEA') = @parentValue ${salesDateWhere}
+    GROUP BY p.ProductKey, ISNULL(p.ProductName, p.ProductCode)
+    ORDER BY SalesNet DESC
+  `;
+}
+
 function formatYearMonth(ym: string): string {
   const [y, m] = ym.split('-');
   const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -118,6 +134,13 @@ export async function GET(request: NextRequest) {
     // (via spec.correlate), not `fr` like monthlyQuery/lineaQuery, so it needs
     // its own date-where clause built against that alias.
     const clienteReturnsDateWhere = buildDateWhereClause(dateRange, 'fr2');
+
+    if (breakdownBy && parentValue && groupByParam === 'linea') {
+      const req = pool.request();
+      req.input('parentValue', parentValue);
+      const result = await req.query(lineaProductBreakdownQuery(salesDateWhere));
+      return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })) });
+    }
 
     if (breakdownBy && parentValue) {
       const breakdownSpec = getDimensionSpec(breakdownBy);

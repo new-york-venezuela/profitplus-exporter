@@ -68,6 +68,20 @@ const BREAKDOWN_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
   { value: 'vendedor', label: 'Vendedor' },
 ];
 
+// "Por línea" has no alternate grain (unlike cliente's Entidad/Tienda), but
+// GroupedDrilldownTable requires a groupBy/groupByOptions pair — fixed to a
+// single no-op option, same pattern as tab-vendedores.tsx.
+const LINEA_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Línea' },
+];
+
+// Línea can only break down into its own products — reusing the shared
+// 'producto' Dimension as a sentinel value the API routes to a dedicated
+// línea→producto query, not the generic cliente-parent breakdown path.
+const LINEA_BREAKDOWN_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Producto' },
+];
+
 interface VentasTableRow extends VentasRow {
   label: string;
   value: string;
@@ -87,6 +101,7 @@ export default function TabVentas({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
+  const [lineaBreakdownBy, setLineaBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +177,20 @@ export default function TabVentas({
       parentValue,
     });
     if (month) params.set('month', month);
+    const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+    if (!res.ok) return [];
+    const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
+    return body.breakdown ?? [];
+  }
+
+  async function handleFetchLineaBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
+    const params = new URLSearchParams({
+      dateRange,
+      currency,
+      groupBy: 'linea',
+      breakdownBy: dimension,
+      parentValue,
+    });
     const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
     if (!res.ok) return [];
     const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
@@ -289,13 +318,28 @@ export default function TabVentas({
         />
       )}
 
-      {!loading && !error && data && groupBy !== 'cliente' && (
+      {!loading && !error && data && groupBy === 'linea' && (
+        <GroupedDrilldownTable<VentasTableRow>
+          rows={tableRows}
+          columns={clienteColumns}
+          groupByOptions={LINEA_GROUP_BY_OPTIONS}
+          groupBy="producto"
+          onGroupByChange={() => {}}
+          breakdownByOptions={LINEA_BREAKDOWN_BY_OPTIONS}
+          breakdownBy={lineaBreakdownBy}
+          onBreakdownByChange={setLineaBreakdownBy}
+          onFetchBreakdown={handleFetchLineaBreakdown}
+          formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
+        />
+      )}
+
+      {!loading && !error && data && groupBy === 'mes' && (
         <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  {groupBy === 'mes' ? 'Mes' : 'Línea'}
+                  Mes
                 </th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
