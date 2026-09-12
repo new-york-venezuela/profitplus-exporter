@@ -4,10 +4,36 @@ import { useEffect, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
-import type { Currency, DateRange, FinanzasResponse, FinanzasWaterfallStep } from '../types';
+import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import type {
+  BreakdownRow, Currency, DateRange, FinanzasResponse, FinanzasWaterfallStep, PivotDimension,
+} from '../types';
 
 const POSITIVE_COLOR = '#16a34a'; // green — revenue / profit steps
 const NEGATIVE_COLOR = '#dc2626'; // red — cost / discount steps
+
+const EBITDA_TOOLTIP = 'Ganancias antes de intereses e impuestos. No incluye ajuste por depreciación/amortización — no disponible en los datos de movimientos bancarios.';
+
+// This table has no top-level groupBy toggle — rows are always one-per-expense-
+// category. GroupedDrilldownTable requires a groupBy/groupByOptions pair, so
+// it's fixed to a single no-op option, same pattern as tab-vendedores.tsx.
+// `PivotDimension` has no member that semantically means "category"/"concepto"
+// (it's shared by the Cliente/Producto/Vendedor pivot mechanism) — reusing
+// 'producto' as a sentinel here mirrors the already-shipped línea→producto
+// precedent in tab-ventas.tsx (LINEA_GROUP_BY_OPTIONS/LINEA_BREAKDOWN_BY_OPTIONS).
+const CATEGORY_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Categoría' },
+];
+
+const CATEGORY_BREAKDOWN_OPTIONS: { value: PivotDimension; label: string }[] = [
+  { value: 'producto', label: 'Concepto' },
+];
+
+interface CategoryTableRow {
+  label: string;
+  value: string;
+  amount: number;
+}
 
 function money(n: number, currency: Currency = 'bs', rate?: number): string {
   if (currency === 'usd' && rate) {
@@ -118,6 +144,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
   const [data, setData] = useState<FinanzasResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [categoryBreakdownBy, setCategoryBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,6 +205,24 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
   const discountRate = bruto > 0 && descuento ? Math.abs(descuento.amount) / bruto : null;
   const marginRate = neto > 0 ? utilidad / neto : null;
 
+  async function handleFetchCategoryBreakdown(parentValue: string): Promise<BreakdownRow[]> {
+    const params = new URLSearchParams({ dateRange, currency, breakdownBy: 'concepto', parentValue });
+    const res = await fetch(`/api/dwh/finanzas?${params.toString()}`);
+    if (!res.ok) return [];
+    const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
+    return body.breakdown ?? [];
+  }
+
+  const categoryRows: CategoryTableRow[] = (data.expenseBreakdown ?? []).map(row => ({
+    label: row.category,
+    value: row.category,
+    amount: row.amount,
+  }));
+
+  const categoryColumns: DrilldownColumn<CategoryTableRow>[] = [
+    { key: 'amount', label: 'Monto', align: 'right', format: row => moneyLabel(row.amount, currency, rate) },
+  ];
+
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row */}
@@ -192,9 +237,22 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
         />
       </div>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div title={EBITDA_TOOLTIP} className="cursor-help">
+          <KpiCard label="EBITDA (aprox.)" value={moneyLabel(data.ebitda, currency, rate)} />
+        </div>
+        <KpiCard label="Intereses" value={moneyLabel(data.intereses, currency, rate)} />
+        <KpiCard label="Impuestos" value={moneyLabel(data.impuestos, currency, rate)} />
+        <KpiCard
+          label="Utilidad neta"
+          value={moneyLabel(data.utilidadNeta, currency, rate)}
+          tone={data.utilidadNeta < 0 ? 'warn' : 'default'}
+        />
+      </div>
+
       <ChartCard
         title="Cascada de rentabilidad"
-        subtitle={`Bruto → Descuento → Neto → COGS → Utilidad bruta${
+        subtitle={`Bruto → Descuento → Neto → COGS → Utilidad bruta → Gastos Operativos → EBITDA (aprox.) → Intereses → Impuestos → Utilidad Neta${
           discountRate !== null ? ` — descuento promedio ${pct(discountRate)}` : ''
         }`}
       >
@@ -218,6 +276,29 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
           </ResponsiveContainer>
         )}
       </ChartCard>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-bold text-gray-900">Gastos operativos por categoría</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Desglose de egresos operativos por categoría, con detalle por concepto
+        </p>
+        {categoryRows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <GroupedDrilldownTable<CategoryTableRow>
+            rows={categoryRows}
+            columns={categoryColumns}
+            groupByOptions={CATEGORY_GROUP_BY_OPTIONS}
+            groupBy="producto"
+            onGroupByChange={() => {}}
+            breakdownByOptions={CATEGORY_BREAKDOWN_OPTIONS}
+            breakdownBy={categoryBreakdownBy}
+            onBreakdownByChange={setCategoryBreakdownBy}
+            onFetchBreakdown={parentValue => handleFetchCategoryBreakdown(parentValue)}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -80,4 +80,66 @@ test.describe('analitica @mssql', () => {
 
     await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
   });
+
+  test('Finanzas tab shows the extended EBITDA waterfall and expense category drilldown', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=finanzas');
+
+    // The 5 new waterfall steps (Gastos Operativos, EBITDA (aprox.),
+    // Intereses, Impuestos, Utilidad Neta) render both as KPI cards (plain
+    // DOM <p> labels) and as recharts XAxis SVG tick text inside the
+    // "Cascada de rentabilidad" chart. The KPI card labels are reliable
+    // plain-text assertions; the SVG axis ticks are asserted via the
+    // chart's accessible text so both the KPI section and the chart itself
+    // are confirmed to have received the new waterfall steps.
+    await expect(adminPage.getByText('EBITDA (aprox.)').first()).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByText('Intereses', { exact: true }).first()).toBeVisible();
+    await expect(adminPage.getByText('Impuestos', { exact: true }).first()).toBeVisible();
+    await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
+
+    // recharts' XAxis auto-skips ticks it decides won't fit at the current
+    // width (not all 9 waterfall steps are guaranteed to render as visible
+    // tick labels), so the chart itself is only checked for the two anchor
+    // steps recharts reliably keeps (first/last of the new steps); the
+    // KPI-card assertions above are the reliable check that every new
+    // FinanzasResponse field (ebitda/intereses/impuestos/utilidadNeta)
+    // reached the page.
+    const chart = adminPage.getByRole('application');
+    await expect(chart).toBeVisible();
+    const chartText = await chart.textContent();
+    expect(chartText).toContain('EBITDA (aprox.)');
+    expect(chartText).toContain('Utilidad Neta');
+
+    // EBITDA (aprox.) KPI card carries the D&A caveat as a title tooltip.
+    await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
+
+    // Expense category breakdown table, below the waterfall — same
+    // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
+    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
+
+    const expandButton = adminPage.locator('table tbody tr').first().locator('button[aria-label="Expandir"]');
+    await expect(expandButton).toBeVisible();
+    await expandButton.click();
+
+    // Expanding a category row loads its concept-level breakdown
+    // (breakdownBy=concepto&parentValue=<category>) — assert a second row
+    // appears (the expanded concept sub-table), same assertion style as the
+    // Vendedores product-breakdown test above.
+    await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
+
+    // Regression guard for the 2026-09-11 bug class: a breakdown row that
+    // renders its metric via generic toLocaleString instead of the parent's
+    // moneyLabel/currency conversion, so a currency toggle has no effect on
+    // expanded rows. Capture the expanded concept row's amount in Bs., then
+    // toggle to USD and assert it changed (both the parent category row and
+    // the still-expanded concept row must convert).
+    const parentAmountBs = await adminPage.locator('table tbody tr').first().locator('td').last().textContent();
+    const conceptAmountBs = await adminPage.locator('table tbody tr').nth(1).locator('td').last().textContent();
+
+    await adminPage.getByRole('button', { name: 'USD' }).click();
+
+    await expect(adminPage.locator('table tbody tr').first().locator('td').last()).not.toHaveText(parentAmountBs ?? '');
+    await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).not.toHaveText(conceptAmountBs ?? '');
+    await expect(adminPage.locator('table tbody tr').first().locator('td').last()).toContainText('$');
+    await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).toContainText('$');
+  });
 });
