@@ -38,7 +38,7 @@ export function buildDateWhereClause(
   return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -${days}, GETDATE()), 'yyyyMMdd'))`;
 }
 
-export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor';
+export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';
 
 export interface DimensionSpec {
   /** SQL join fragment, assumes the base fact table is aliased `f`. */
@@ -118,6 +118,17 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
       condition: `${innerAlias}.SalesRepKey = r.SalesRepKey`,
     }),
   },
+  proveedor: {
+    joinClause: 'JOIN dim.Dim_Supplier s ON s.SupplierKey = f.SupplierKey',
+    groupByColumn: 's.SupplierKey, ISNULL(s.SupplierName, s.SupplierCode)',
+    labelExpr: 'ISNULL(s.SupplierName, s.SupplierCode)',
+    valueExpr: 'CAST(s.SupplierKey AS varchar(20))',
+    // Correlates on `s.SupplierKey` (grouped alias), not `${outerAlias}.SupplierKey`.
+    correlate: (_outerAlias, innerAlias) => ({
+      innerJoin: '',
+      condition: `${innerAlias}.SupplierKey = s.SupplierKey`,
+    }),
+  },
 };
 
 export function getDimensionSpec(dimension: Dimension): DimensionSpec {
@@ -125,7 +136,7 @@ export function getDimensionSpec(dimension: Dimension): DimensionSpec {
 }
 
 export function isDimension(value: string | null): value is Dimension {
-  return value === 'cliente_entidad' || value === 'cliente_tienda' || value === 'producto' || value === 'vendedor';
+  return value === 'cliente_entidad' || value === 'cliente_tienda' || value === 'producto' || value === 'vendedor' || value === 'proveedor';
 }
 
 /**

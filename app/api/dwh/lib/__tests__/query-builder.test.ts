@@ -28,6 +28,13 @@ describe('getDimensionSpec', () => {
     expect(spec.groupByColumn).toContain('SalesRepKey');
   });
 
+  test('proveedor dimension has correct join and grouping', () => {
+    const spec = getDimensionSpec('proveedor');
+    expect(spec.joinClause).toContain('Dim_Supplier');
+    expect(spec.groupByColumn).toContain('SupplierKey');
+    expect(isDimension('proveedor')).toBe(true);
+  });
+
   // These correlate() conditions must reference this spec's own joined dimension
   // alias (e.g. `le`, `c`, `p`, `r`) on the outer side, never the fact-table
   // alias (`outerAlias`). The outer query this correlate() is used from is
@@ -59,6 +66,7 @@ describe('isDimension', () => {
     expect(isDimension('cliente_tienda')).toBe(true);
     expect(isDimension('producto')).toBe(true);
     expect(isDimension('vendedor')).toBe(true);
+    expect(isDimension('proveedor')).toBe(true);
   });
 
   test('rejects invalid or null values', () => {
@@ -74,9 +82,10 @@ describe('isClienteDimension', () => {
     expect(isClienteDimension('cliente_tienda')).toBe(true);
   });
 
-  test('rejects producto and vendedor, even though they are valid Dimension values', () => {
+  test('rejects producto, vendedor, and proveedor, even though they are valid Dimension values', () => {
     expect(isClienteDimension('producto')).toBe(false);
     expect(isClienteDimension('vendedor')).toBe(false);
+    expect(isClienteDimension('proveedor')).toBe(false);
   });
 
   test('rejects invalid or null values', () => {
