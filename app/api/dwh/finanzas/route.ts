@@ -57,6 +57,22 @@ function excludedExpenseQuery(dateWhere: string): string {
   `;
 }
 
+// Concept-level drilldown for a single expense category (breakdownBy=concepto
+// drilldown target — clicking "Nomina" in the Gastos Operativos breakdown
+// shows its individual concepts, e.g. "Sueldos Administrativos", "Bono
+// Vacacional", etc.). Same { breakdown: BreakdownRow[] } contract as every
+// other tab's breakdown fetch (see ventas/route.ts, vendedores/route.ts).
+function conceptBreakdownQuery(dateWhere: string): string {
+  return `
+    SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount
+    FROM fact.Fact_Expenses fe
+    JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+    WHERE fe.IsVoided = 0 AND ec.Category = @category ${dateWhere}
+    GROUP BY ec.ConceptName, ec.ConceptCode
+    ORDER BY Amount DESC
+  `;
+}
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -68,12 +84,23 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const currency = searchParams.get('currency') ?? 'bs';
+  const breakdownByParam = searchParams.get('breakdownBy');
+  const parentValue = searchParams.get('parentValue');
 
   try {
     const pool = await getDwhPool();
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const expenseDateWhere = buildDateWhereClause(dateRange, 'fe');
+
+    if (breakdownByParam === 'concepto' && parentValue) {
+      const req = pool.request();
+      req.input('category', parentValue);
+      const result = await req.query(conceptBreakdownQuery(expenseDateWhere));
+      return NextResponse.json({
+        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), amount: Number(r.Amount) })),
+      });
+    }
 
     const [totals, categoryResult, excludedResult, usdRate] = await Promise.all([
       pool.request().query(waterfallTotalsQuery(salesDateWhere)),
