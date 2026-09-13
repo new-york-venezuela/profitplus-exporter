@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
   const breakdownByParam = searchParams.get('breakdownBy');
-  const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
+  const breakdownBy: Dimension | null = isDimensionForFact(breakdownByParam, 'returns') ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
 
   try {

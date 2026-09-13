@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isClienteDimension } from '../query-builder';
+import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -73,6 +73,45 @@ describe('isDimension', () => {
     expect(isDimension('mes')).toBe(false);
     expect(isDimension(null)).toBe(false);
     expect(isDimension('')).toBe(false);
+  });
+});
+
+describe('isDimensionForFact', () => {
+  test('accepts producto/vendedor against sales and returns', () => {
+    expect(isDimensionForFact('producto', 'sales')).toBe(true);
+    expect(isDimensionForFact('producto', 'returns')).toBe(true);
+    expect(isDimensionForFact('vendedor', 'sales')).toBe(true);
+    expect(isDimensionForFact('vendedor', 'returns')).toBe(true);
+  });
+
+  test('accepts cliente_entidad/cliente_tienda against sales, returns, and ar_snapshot', () => {
+    expect(isDimensionForFact('cliente_entidad', 'sales')).toBe(true);
+    expect(isDimensionForFact('cliente_entidad', 'returns')).toBe(true);
+    expect(isDimensionForFact('cliente_entidad', 'ar_snapshot')).toBe(true);
+    expect(isDimensionForFact('cliente_tienda', 'ar_snapshot')).toBe(true);
+  });
+
+  test('accepts proveedor only against purchases', () => {
+    expect(isDimensionForFact('proveedor', 'purchases')).toBe(true);
+  });
+
+  test('rejects proveedor against sales, returns, and ar_snapshot (no SupplierKey on those facts)', () => {
+    expect(isDimensionForFact('proveedor', 'sales')).toBe(false);
+    expect(isDimensionForFact('proveedor', 'returns')).toBe(false);
+    expect(isDimensionForFact('proveedor', 'ar_snapshot')).toBe(false);
+  });
+
+  test('rejects producto/vendedor/cliente dimensions against purchases (no matching key on Fact_Purchases)', () => {
+    expect(isDimensionForFact('producto', 'purchases')).toBe(false);
+    expect(isDimensionForFact('vendedor', 'purchases')).toBe(false);
+    expect(isDimensionForFact('cliente_entidad', 'purchases')).toBe(false);
+    expect(isDimensionForFact('cliente_tienda', 'purchases')).toBe(false);
+  });
+
+  test('rejects invalid or null values regardless of fact', () => {
+    expect(isDimensionForFact('mes', 'sales')).toBe(false);
+    expect(isDimensionForFact(null, 'sales')).toBe(false);
+    expect(isDimensionForFact('', 'purchases')).toBe(false);
   });
 });
 

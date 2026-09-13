@@ -5,6 +5,15 @@ import {
     buildConfig, runDwhMigrations,
 } from './migrate-dwh';
 
+// Ordering note: this script runs all dimension loads, then all fact loads
+// (dims-then-facts). The SQL Agent job built by dwh-migrations 0013/0015/
+// 0016/0019/0022 instead interleaves dim/fact pairs in the order they were
+// historically added (..., Collections, ExpenseConcept, Expenses, Supplier,
+// Purchases). These two orderings are intentionally independent and are not
+// meant to mirror each other — each is valid on its own terms as long as
+// every fact's prerequisite dimension(s) load before that fact does. Do not
+// "fix" one to match the other without re-checking both against their own
+// dependency requirements.
 const INCREMENTAL_LOAD = `
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;

@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { VentasResponse, VentasRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -119,6 +119,13 @@ export async function GET(request: NextRequest) {
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
   const breakdownByParam = searchParams.get('breakdownBy');
+  // NOT fact-aware here: for groupBy=linea, breakdownBy is only ever
+  // 'producto', used as a sentinel that routes to lineaProductBreakdownQuery
+  // below (a hardcoded línea->producto query that never calls
+  // getDimensionSpec / joins via the generic mechanism at all). The other
+  // branch below that DOES feed breakdownBy into getDimensionSpec against
+  // Fact_Sales (the generic clienteDimension-parent breakdown) re-validates
+  // with isDimensionForFact itself.
   const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
   const month = searchParams.get('month');
@@ -142,7 +149,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })) });
     }
 
-    if (breakdownBy && parentValue) {
+    // Generic clienteDimension-parent breakdown: this DOES join breakdownBy's
+    // spec against Fact_Sales via getDimensionSpec, so it's re-validated
+    // with the fact-aware guard here (unlike the línea sentinel usage above).
+    if (breakdownBy && parentValue && isDimensionForFact(breakdownBy, 'sales')) {
       const breakdownSpec = getDimensionSpec(breakdownBy);
       const parentSpec = getDimensionSpec(clienteDimension);
       const req = pool.request();

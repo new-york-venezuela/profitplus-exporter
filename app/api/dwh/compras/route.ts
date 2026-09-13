@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ComprasResponse, ComprasRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -103,6 +103,17 @@ export async function GET(request: NextRequest) {
   const groupByParam = searchParams.get('groupBy') ?? 'mes';
   const groupBy: GroupBy = groupByParam === 'proveedor' || groupByParam === 'linea' ? groupByParam : 'mes';
   const breakdownByParam = searchParams.get('breakdownBy');
+  // NOT fact-aware here: for groupBy=linea, breakdownBy is only ever
+  // 'producto', used as a sentinel that routes to lineaProductBreakdownQuery
+  // below (a hardcoded línea->producto query that never calls
+  // getDimensionSpec / joins via the generic mechanism at all) — see
+  // LINEA_BREAKDOWN_BY_OPTIONS's comment in tab-compras.tsx. 'producto' is
+  // not actually valid against Fact_Purchases via getDimensionSpec (no
+  // ProductKey-driven generic join is used for it here), so
+  // isDimensionForFact(..., 'purchases') would wrongly reject this
+  // legitimate sentinel. The one branch below that DOES feed breakdownBy
+  // into getDimensionSpec against Fact_Purchases (the proveedor-parent
+  // breakdown) re-validates with isDimensionForFact itself.
   const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
   const month = searchParams.get('month');
@@ -118,7 +129,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
     }
 
-    if (breakdownBy && parentValue) {
+    // Generic proveedor-parent breakdown: this DOES join breakdownBy's spec
+    // against Fact_Purchases via getDimensionSpec, so it's re-validated with
+    // the fact-aware guard here (unlike the sentinel usage above).
+    if (breakdownBy && parentValue && isDimensionForFact(breakdownBy, 'purchases')) {
       const breakdownSpec = getDimensionSpec(breakdownBy);
       const parentSpec = getDimensionSpec('proveedor');
       const req = pool.request();

@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { getDb } from '@/lib/db/sqlite';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { VendedoresResponse, VendedoresRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -59,22 +59,21 @@ export async function GET(request: NextRequest) {
   const currency = searchParams.get('currency') ?? 'bs';
 
   const breakdownByParam = searchParams.get('breakdownBy');
-  const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
+  const breakdownBy: Dimension | null = isDimensionForFact(breakdownByParam, 'sales') ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
-
-  if (breakdownBy && parentValue && /^\d+$/.test(parentValue)) {
-    const pool = await getDwhPool();
-    const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    const req = pool.request();
-    req.input('salesRepKey', Number(parentValue));
-    const result = await req.query(breakdownQuery(breakdownBy, salesDateWhere));
-    return NextResponse.json({
-      breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })),
-    });
-  }
 
   try {
     const pool = await getDwhPool();
+
+    if (breakdownBy && parentValue && /^\d+$/.test(parentValue)) {
+      const salesDateWhereForBreakdown = buildDateWhereClause(dateRange, 'fs');
+      const req = pool.request();
+      req.input('salesRepKey', Number(parentValue));
+      const result = await req.query(breakdownQuery(breakdownBy, salesDateWhereForBreakdown));
+      return NextResponse.json({
+        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })),
+      });
+    }
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');

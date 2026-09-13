@@ -40,6 +40,22 @@ export function buildDateWhereClause(
 
 export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';
 
+/**
+ * Short names for every fact table currently joined against via the generic
+ * dimension mechanism (getDimensionSpec/isDimension) anywhere under
+ * app/api/dwh/. Traced from actual call sites, not guessed:
+ *  - 'sales'      -> fact.Fact_Sales      (ventas, vendedores)
+ *  - 'returns'    -> fact.Fact_Returns    (devoluciones, and ventas'/
+ *                     devoluciones' correlated Fact_Returns subqueries)
+ *  - 'purchases'  -> fact.Fact_Purchases  (compras)
+ *  - 'ar_snapshot'-> fact.Fact_AR_Snapshot (cxc's topDebtorsQuery)
+ * fact.Fact_Collections and fact.Fact_Expenses are also read under
+ * app/api/dwh/, but never through getDimensionSpec/isDimension (their
+ * queries hard-code their own columns), so they're intentionally omitted
+ * here.
+ */
+export type FactTable = 'sales' | 'returns' | 'purchases' | 'ar_snapshot';
+
 export interface DimensionSpec {
   /** SQL join fragment, assumes the base fact table is aliased `f`. */
   joinClause: string;
@@ -59,10 +75,24 @@ export interface DimensionSpec {
    * with the outer query's join.
    */
   correlate: (outerAlias: string, innerAlias: string) => { innerJoin: string; condition: string };
+  /**
+   * Which fact tables this dimension is actually safe to join against (i.e.
+   * `f`/the aliased fact table in joinClause has the key column this spec
+   * joins on). Traced from real call sites under app/api/dwh/ — see
+   * FactTable's doc comment. Used by isDimensionForFact to reject a
+   * dimension that would otherwise reach the SQL layer and fail with
+   * "Invalid column name" against a fact table that doesn't have the
+   * relevant key column (e.g. 'proveedor' against Fact_Sales, which has no
+   * SupplierKey).
+   */
+  readonly validFacts: readonly FactTable[];
 }
 
 const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
   cliente_entidad: {
+    // Used against Fact_Sales/Fact_Returns (ventas, devoluciones clienteDimension)
+    // and Fact_AR_Snapshot (cxc topDebtorsQuery, via isClienteDimension).
+    validFacts: ['sales', 'returns', 'ar_snapshot'],
     joinClause: 'JOIN dim.Dim_Customer c ON c.CustomerKey = f.CustomerKey JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey',
     groupByColumn: 'le.LegalEntityKey, le.LegalEntityName',
     labelExpr: 'le.LegalEntityName',
@@ -82,6 +112,9 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     }),
   },
   cliente_tienda: {
+    // Same usage as cliente_entidad: sales/returns (ventas, devoluciones) and
+    // ar_snapshot (cxc, via isClienteDimension).
+    validFacts: ['sales', 'returns', 'ar_snapshot'],
     joinClause: 'JOIN dim.Dim_Customer c ON c.CustomerKey = f.CustomerKey',
     groupByColumn: 'c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)',
     labelExpr: 'ISNULL(c.CustomerName, c.CustomerCode)',
@@ -97,6 +130,11 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     }),
   },
   producto: {
+    // Used as breakdownBy against Fact_Sales (ventas, vendedores) and
+    // Fact_Returns (devoluciones) only — never against Fact_AR_Snapshot
+    // (cxc's topDebtorsQuery is only ever called with clienteDimension
+    // values, never producto/vendedor).
+    validFacts: ['sales', 'returns'],
     joinClause: 'JOIN dim.Dim_Product p ON p.ProductKey = f.ProductKey',
     groupByColumn: 'p.ProductKey, ISNULL(p.ProductName, p.ProductCode)',
     labelExpr: 'ISNULL(p.ProductName, p.ProductCode)',
@@ -108,6 +146,8 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     }),
   },
   vendedor: {
+    // Same usage as producto: breakdownBy against Fact_Sales/Fact_Returns only.
+    validFacts: ['sales', 'returns'],
     joinClause: 'JOIN dim.Dim_SalesRep r ON r.SalesRepKey = f.SalesRepKey',
     groupByColumn: 'r.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)',
     labelExpr: 'ISNULL(r.SalesRepName, r.SalesRepCode)',
@@ -119,6 +159,10 @@ const DIMENSION_SPECS: Record<Dimension, DimensionSpec> = {
     }),
   },
   proveedor: {
+    // Only Fact_Purchases has a SupplierKey column (confirmed live against
+    // INFORMATION_SCHEMA.COLUMNS: Fact_Sales/Fact_Returns/Fact_AR_Snapshot
+    // have none) — used only by compras.
+    validFacts: ['purchases'],
     joinClause: 'JOIN dim.Dim_Supplier s ON s.SupplierKey = f.SupplierKey',
     groupByColumn: 's.SupplierKey, ISNULL(s.SupplierName, s.SupplierCode)',
     labelExpr: 'ISNULL(s.SupplierName, s.SupplierCode)',
@@ -137,6 +181,23 @@ export function getDimensionSpec(dimension: Dimension): DimensionSpec {
 
 export function isDimension(value: string | null): value is Dimension {
   return value === 'cliente_entidad' || value === 'cliente_tienda' || value === 'producto' || value === 'vendedor' || value === 'proveedor';
+}
+
+/**
+ * Fact-aware version of isDimension: also checks that the resolved spec's
+ * validFacts includes the given fact table, so a dimension that is a valid
+ * `Dimension` member in general but not joinable against THIS fact (e.g.
+ * 'proveedor' against 'sales', which has no SupplierKey) is rejected here
+ * rather than reaching the SQL layer and throwing "Invalid column name".
+ *
+ * Use this (not the bare isDimension) at any call site that parses a
+ * breakdownBy-style query param and feeds it straight into
+ * getDimensionSpec(...).joinClause against a specific, known fact table.
+ * isDimension itself is left unchanged/unused-here for call sites that
+ * aren't tied to one fact table.
+ */
+export function isDimensionForFact(value: string | null, fact: FactTable): value is Dimension {
+  return isDimension(value) && DIMENSION_SPECS[value].validFacts.includes(fact);
 }
 
 /**
