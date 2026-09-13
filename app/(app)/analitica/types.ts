@@ -87,6 +87,21 @@ export interface VentasResponse {
   usdRate: number | null;
 }
 
+// Compras tab
+export interface ComprasRow {
+  label: string;
+  value: string;
+  purchasesNet: number;
+  avgDiscount: number | null;
+}
+
+export interface ComprasResponse {
+  rows: ComprasRow[];
+  groupBy: GroupBy;
+  breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
+  usdRate: number | null;
+}
+
 // Devoluciones tab
 export interface DevolucionesMatrixCell {
   salesRep: string;
