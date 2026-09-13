@@ -1,5 +1,4 @@
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import type { ApiQueryParams } from './types';
 
 export async function getUsdRate(): Promise<number | null> {
   try {
