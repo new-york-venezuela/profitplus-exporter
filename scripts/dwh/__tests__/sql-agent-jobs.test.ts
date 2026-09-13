@@ -55,7 +55,7 @@ describe('SQL Agent jobs', () => {
       INNER JOIN msdb.dbo.sysjobs j ON j.job_id = s.job_id
       WHERE j.name = 'DWH - Incremental Load'
     `);
-    expect(incrementalSteps.recordset[0].total).toBe(9);
+    expect(incrementalSteps.recordset[0].total).toBe(14);
 
     const snapshotSteps = await msdbPool.request().query(`
       SELECT COUNT(*) AS total FROM msdb.dbo.sysjobsteps s
@@ -74,8 +74,10 @@ describe('SQL Agent jobs', () => {
     `);
     const names = steps.recordset.map((s: { step_name: string }) => s.step_name);
     expect(names).toEqual([
-      'Load_Dim_Currency', 'Load_Fact_ExchangeRate', 'Load_Dim_Customer', 'Load_Dim_Product',
-      'Load_Dim_SalesRep', 'Load_Dim_Warehouse', 'Load_Fact_Sales', 'Load_Fact_Returns', 'Load_Fact_Collections',
+      'Load_Dim_Currency', 'Load_Fact_ExchangeRate', 'Load_Dim_Customer', 'Load_Dim_LegalEntity',
+      'Load_Dim_Product', 'Load_Dim_SalesRep', 'Load_Dim_Warehouse', 'Load_Fact_Sales', 'Load_Fact_Returns',
+      'Load_Fact_Collections', 'Load_Dim_ExpenseConcept', 'Load_Fact_Expenses', 'Load_Dim_Supplier',
+      'Load_Fact_Purchases',
     ]);
   });
 });
