@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/inventory/access';
-import { hasDwhAccess } from '@/lib/dwh/access';
-import { getDb } from '@/lib/db/sqlite';
+import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { VendedoresResponse, VendedoresRow } from '@/app/(app)/analitica/types';
@@ -47,12 +45,8 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
 }
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-
-  const db = getDb();
-  const allowed = await hasDwhAccess(db, session.sub, session.role);
-  if (!allowed) return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
+  const auth = await requireDwhAccess(request);
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/inventory/access';
-import { hasDwhAccess } from '@/lib/dwh/access';
-import { getDb } from '@/lib/db/sqlite';
+import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 
 export const dynamic = 'force-dynamic';
@@ -111,12 +109,8 @@ const EXCHANGE_RATE_QUERY = `
 `;
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-
-  const db = getDb();
-  const allowed = await hasDwhAccess(db, session.sub, session.role);
-  if (!allowed) return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
+  const auth = await requireDwhAccess(request);
+  if (!auth.ok) return auth.response;
 
   try {
     const pool = await getDwhPool();
