@@ -13,6 +13,7 @@ import TabClientes from './tabs/tab-clientes';
 import TabProductos from './tabs/tab-productos';
 import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
+import TabCompras from './tabs/tab-compras';
 import TabStub from './tabs/tab-stub';
 
 export interface TabComponentProps {
@@ -36,7 +37,7 @@ const TABS: TabDef[] = [
   { key: 'productos', label: 'Productos', component: TabProductos },
   { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
   { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
-  { key: 'compras', label: 'Compras', component: () => <TabStub title="Compras" /> },
+  { key: 'compras', label: 'Compras', component: TabCompras },
   { key: 'rutas', label: 'Rutas y Logística', component: () => <TabStub title="Rutas y Logística" /> },
 ];
 

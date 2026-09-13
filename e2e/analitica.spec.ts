@@ -142,4 +142,105 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.locator('table tbody tr').first().locator('td').last()).toContainText('$');
     await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).toContainText('$');
   });
+
+  test('Compras tab shows the monthly trend, drills into proveedores, and expands a línea breakdown', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=compras');
+
+    // Monthly chart renders by default (groupBy=mes).
+    const chart = adminPage.getByRole('application');
+    await expect(chart).toBeVisible({ timeout: 15_000 });
+
+    // Clicking a bar drills into proveedores for that month (groupBy flips to
+    // "proveedor" and a breadcrumb showing the selected month appears).
+    // Two recharts+Playwright quirks combine here: (1) the entrance
+    // animation grows each bar's height from 0 over ~1.5s, so an early click
+    // lands on a near-zero-height <path> sitting right on the baseline axis
+    // line, which Playwright's actionability check reports as "subtree
+    // intercepts pointer events" / "element is not stable"; (2) some months
+    // in the seeded data have very small purchase totals, so even after the
+    // animation settles their bar can still render at (near-)zero height,
+    // making a click on that specific bar unreliable regardless of timing.
+    // Waiting past the animation and clicking the LAST bar (chronologically
+    // most recent month, most likely to have accumulated a non-trivial
+    // total in the seeded data) avoids both issues.
+    const bars = chart.locator('.recharts-bar-rectangle path');
+    await expect(bars.first()).toBeVisible({ timeout: 15_000 });
+    await adminPage.waitForTimeout(1_500);
+    await bars.last().click({ force: true });
+
+    await expect(adminPage.getByRole('button', { name: 'Por proveedor' })).toHaveClass(/bg-blue-600/);
+    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+
+    // Proveedor view has a single grain — the "Agrupar por" select exists
+    // (GroupedDrilldownTable always renders it) but has no breakdown toggle,
+    // since suppliers don't have Ventas' Entidad/Tienda multi-store split.
+    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    await expect(groupBySelect).toBeVisible();
+    await expect(groupBySelect).toHaveValue('proveedor');
+
+    // Switch to "Por línea" and expand the first row's producto breakdown.
+    await adminPage.getByRole('button', { name: 'Por línea' }).click();
+    const outerRows = adminPage.locator('table.min-w-full.text-sm > tbody > tr');
+    await expect(outerRows.first()).toBeVisible({ timeout: 15_000 });
+
+    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
+    const firstOuterRow = outerRows.first();
+    const expandButton = firstOuterRow.locator('button[aria-label="Expandir"]');
+    await expect(expandButton).toBeVisible();
+
+    // The parent row's money cell (second-to-last <td> — "Compras netas";
+    // `.last()` would be "Desc. prom.", a currency-independent percentage
+    // that correctly does not change on toggle) is captured before
+    // expanding, since expanding inserts a sibling <tr> that would otherwise
+    // shift which row "first()" resolves to only if row identity changed
+    // (it doesn't here, but capturing pre-expand keeps the two reads
+    // unambiguous).
+    const parentMoneyCell = firstOuterRow.locator('td').nth(-2);
+    const parentAmountBs = await parentMoneyCell.textContent();
+
+    await expandButton.click();
+
+    // The breakdown renders as a nested <table> inside the sibling <tr> that
+    // follows the expanded row (see grouped-drilldown-table.tsx) — wait for
+    // that nested table's own first row specifically, rather than indexing
+    // into a flattened "table tbody tr" locator, which matches every <tr>
+    // under any <tbody> in the DOM (both outer rows AND the nested
+    // breakdown table's rows interleaved in document order) and is prone to
+    // racing the async breakdown fetch.
+    const breakdownRows = firstOuterRow.locator('xpath=following-sibling::tr[1]').locator('table tbody tr');
+    await expect(breakdownRows.first()).toBeVisible({ timeout: 15_000 });
+
+    // Regression guard for the 2026-09-11 bug class (see the Finanzas test
+    // above): the expanded producto breakdown row must apply moneyLabel /
+    // currency conversion via formatBreakdownMetric, not a raw toLocaleString
+    // that ignores the currency toggle. The breakdown row carries a single
+    // `purchasesNet` metric (see route's lineaProductBreakdownQuery), so
+    // `.last()` td there is the money cell.
+    const productoAmountBs = await breakdownRows.first().locator('td').last().textContent();
+
+    await adminPage.getByRole('button', { name: 'USD' }).click();
+
+    await expect(parentMoneyCell).not.toHaveText(parentAmountBs ?? '');
+    await expect(parentMoneyCell).toContainText('$');
+
+    // TabCompras's data-fetch effect depends on `currency`, so toggling it
+    // sets `loading` true and momentarily unmounts the whole
+    // GroupedDrilldownTable (tab-compras.tsx's `{!loading && ... &&
+    // (<GroupedDrilldownTable .../>)}` gate) while the new-currency request
+    // is in flight — the same pattern tab-ventas.tsx and tab-finanzas.tsx
+    // use. That remount resets GroupedDrilldownTable's internal
+    // `expandedValue` state, collapsing the row back to "▸" once the fetch
+    // resolves, so the breakdown must be re-expanded before its (fresh)
+    // money cell can be read and compared.
+    const expandButtonAfterToggle = outerRows.first().locator('button[aria-label="Expandir"]');
+    await expect(expandButtonAfterToggle).toBeVisible({ timeout: 15_000 });
+    await expandButtonAfterToggle.click();
+
+    const breakdownRowsAfterToggle = outerRows.first().locator('xpath=following-sibling::tr[1]').locator('table tbody tr');
+    const productoMoneyCellAfterToggle = breakdownRowsAfterToggle.first().locator('td').last();
+    await expect(productoMoneyCellAfterToggle).toBeVisible({ timeout: 15_000 });
+
+    await expect(productoMoneyCellAfterToggle).not.toHaveText(productoAmountBs ?? '');
+    await expect(productoMoneyCellAfterToggle).toContainText('$');
+  });
 });

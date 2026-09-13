@@ -16,7 +16,7 @@ export interface DrillContext {
   parentValue?: string; // e.g., salesRepKey=123 when drilling into products for that rep
 }
 
-export type PivotDimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor';
+export type PivotDimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';
 
 export interface BreakdownRow {
   label: string;
