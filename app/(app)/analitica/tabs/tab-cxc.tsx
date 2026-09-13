@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
+import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import type { Currency, CxcResponse, DateRange } from '../types';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
@@ -14,25 +15,6 @@ const BUCKET_COLORS: Record<string, string> = {
   '61-90': '#f97316',
   '>90': '#dc2626',
 };
-
-function money(n: number, currency: Currency = 'bs', rate?: number): string {
-  if (currency === 'usd' && rate) {
-    n = n / rate;
-  }
-  const format = currency === 'usd'
-    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-    : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 });
-  return format.format(n);
-}
-
-function moneyLabel(n: number, currency: Currency, rate?: number): string {
-  return `${currency === 'usd' ? '$' : 'Bs. '}${money(n, currency, rate)}`;
-}
-
-function moneyTooltip(value: unknown, currency: Currency = 'bs', rate?: number): string {
-  const numVal = Number(Array.isArray(value) ? value[0] : value);
-  return moneyLabel(numVal, currency, rate);
-}
 
 function pct(n: number | null): string {
   if (n === null) return '—';

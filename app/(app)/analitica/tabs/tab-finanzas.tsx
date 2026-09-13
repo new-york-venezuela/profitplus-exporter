@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import { money, moneyLabel } from '../lib/format';
 import type {
   BreakdownRow, Currency, DateRange, FinanzasResponse, FinanzasWaterfallStep, PivotDimension,
 } from '../types';
@@ -33,20 +34,6 @@ interface CategoryTableRow {
   label: string;
   value: string;
   amount: number;
-}
-
-function money(n: number, currency: Currency = 'bs', rate?: number): string {
-  if (currency === 'usd' && rate) {
-    n = n / rate;
-  }
-  const format = currency === 'usd'
-    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-    : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 });
-  return format.format(n);
-}
-
-function moneyLabel(n: number, currency: Currency, rate?: number): string {
-  return `${currency === 'usd' ? '$' : 'Bs. '}${money(n, currency, rate)}`;
 }
 
 function pct(n: number | null): string {

@@ -1,21 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { moneyLabel } from '../lib/format';
 import type { ClientesResponse, ClientesRow, Currency, DateRange } from '../types';
-
-function money(n: number, currency: Currency = 'bs', rate?: number): string {
-  if (currency === 'usd' && rate) {
-    n = n / rate;
-  }
-  const format = currency === 'usd'
-    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-    : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 });
-  return format.format(n);
-}
-
-function moneyLabel(n: number, currency: Currency, rate?: number): string {
-  return `${currency === 'usd' ? '$' : 'Bs. '}${money(n, currency, rate)}`;
-}
 
 function pct(n: number | null): string {
   if (n === null) return '—';
