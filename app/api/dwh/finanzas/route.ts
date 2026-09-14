@@ -88,7 +88,7 @@ function conceptBreakdownQuery(dateWhere: string): string {
     SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount
     FROM fact.Fact_CashMovements fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
-    WHERE fe.IsVoided = 0 AND ec.Category = @category ${dateWhere}
+    WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.Category = @category ${dateWhere}
     GROUP BY ec.ConceptName, ec.ConceptCode
     ORDER BY Amount DESC
   `;

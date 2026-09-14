@@ -97,6 +97,43 @@ describe('Fact_CashMovements', () => {
     expect(Number(result.recordset[0].Amount)).toBeLessThan(0);
   });
 
+  test('I-01 operating income total matches an independent ERP-side cross-check (sign and figure)', async () => {
+    await pool.request().execute('dwh.Load_Fact_CashMovements');
+
+    // Step 1: DWH-side total, same shape as route.ts's cashFlowIncomeQuery.
+    const dwhResult = await pool.request().query(`
+      SELECT SUM(-fe.Amount) AS total
+      FROM fact.Fact_CashMovements fe
+      JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+      WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Ingreso' AND ec.IsExcludedFromEbitda = 0
+    `);
+    const dwhTotal = Number(dwhResult.recordset[0].total);
+
+    // Step 2: independent ERP-side total, computed directly from the source
+    // tables without going through the DWH's negation logic -- raw
+    // monto_d - monto_h, not negated. Trim/collate pattern copied from
+    // dwh-migrations/0023_fact_cash_movements.sql's Load_Fact_CashMovements.
+    const erpResult = await erpPool.request().query(`
+      SELECT SUM(ISNULL(m.monto_d, 0) - ISNULL(m.monto_h, 0)) AS total
+      FROM (
+        SELECT monto_d, monto_h, co_cta_ingr_egr, anulado FROM saMovimientoBanco
+        UNION ALL
+        SELECT monto_d, monto_h, co_cta_ingr_egr, anulado FROM saMovimientoCaja
+      ) m
+      WHERE LTRIM(RTRIM(m.co_cta_ingr_egr)) = 'I-01' AND ISNULL(m.anulado, 0) = 0
+    `);
+    const erpRawTotal = Number(erpResult.recordset[0].total);
+
+    // The raw ERP sum nets negative for income (monto_d - monto_h); the
+    // DWH-side query already negates once, so DWH total should equal the
+    // NEGATIVE of the raw ERP sum.
+    expect(dwhTotal).toBeCloseTo(-erpRawTotal, 2);
+
+    // Catches a polarity flip even if the cross-check math above had a
+    // subtle error: I-01 operating income must be positive.
+    expect(dwhTotal).toBeGreaterThan(0);
+  });
+
   test('re-running the load is idempotent when nothing changed', async () => {
     await pool.request().execute('dwh.Load_Fact_CashMovements');
     const firstCount = await pool.request().query(`SELECT COUNT(*) AS total FROM fact.Fact_CashMovements`);
