@@ -191,12 +191,18 @@ export interface ExpenseCategoryRow {
   amount: number;
 }
 
-export interface FinanzasResponse {
-  waterfall: FinanzasWaterfallStep[];
+export interface CashFlowEbitda {
+  ingresosOperativos: number;
+  gastosOperativos: number;
   ebitda: number;
   intereses: number;
   impuestos: number;
   utilidadNeta: number;
+}
+
+export interface FinanzasResponse {
+  waterfall: FinanzasWaterfallStep[];
+  cashFlowEbitda: CashFlowEbitda;
   expenseBreakdown: ExpenseCategoryRow[];
   usdRate: number | null;
 }

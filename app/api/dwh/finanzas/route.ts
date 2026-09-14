@@ -13,7 +13,11 @@ export const dynamic = 'force-dynamic';
 // COGSAmount/GrossProfitAmount are nullable on fact.Fact_Sales (populated only
 // once a cost source is available — see dwh-migrations/0009_fact_sales.sql,
 // CostSourceFlag = 'NO_COST_DATA' otherwise), so they're ISNULL-wrapped before
-// summing to avoid a NULL total wiping out the whole aggregate.
+// summing to avoid a NULL total wiping out the whole aggregate. This means
+// utilidadBruta below is always 0 today — EBITDA is deliberately NOT derived
+// from it (see cashFlowEbitdaQuery / docs/superpowers/specs/
+// 2026-09-14-cash-movement-ebitda-design.md), only the sales waterfall still
+// uses it, for revenue/discount-rate visibility.
 
 function waterfallTotalsQuery(dateWhere: string): string {
   return `
@@ -28,20 +32,18 @@ function waterfallTotalsQuery(dateWhere: string): string {
   `;
 }
 
-// Operating expenses from fact.Fact_Expenses, grouped by category — feeds both
-// the "Gastos Operativos" breakdown table and the EBITDA waterfall step.
-// Filters on the IsExcludedFromEbitda bit column (set by
-// dwh.Load_Dim_ExpenseConcept — see 0017_dim_expense_concept.sql) rather than
-// a Category NOT IN ('Intereses', 'Impuestos') string-literal list, so the
-// bit column is the single source of truth for this business rule instead of
-// two parallel encodings that could drift (live-verified 2026-09-12: both
-// forms return identical category totals against fact.Fact_Expenses).
+// Operating expenses from fact.Fact_CashMovements, grouped by category — feeds
+// both the "Gastos Operativos" breakdown table and the EBITDA calc. Filters
+// on the IsExcludedFromEbitda bit column (set by dwh.Load_Dim_ExpenseConcept
+// — see 0017_dim_expense_concept.sql / 0023_fact_cash_movements.sql) rather
+// than a Category NOT IN (...) string-literal list, so the bit column is the
+// single source of truth for this business rule.
 function expenseCategoryQuery(dateWhere: string): string {
   return `
     SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
-    FROM fact.Fact_Expenses fe
+    FROM fact.Fact_CashMovements fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
-    WHERE fe.IsVoided = 0 AND ec.IsExcludedFromEbitda = 0 ${dateWhere}
+    WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.IsExcludedFromEbitda = 0 ${dateWhere}
     GROUP BY ec.Category
     ORDER BY TotalAmount DESC
   `;
@@ -49,14 +51,30 @@ function expenseCategoryQuery(dateWhere: string): string {
 
 // Intereses/Impuestos, kept separate from Gastos Operativos so EBITDA can
 // exclude them per definition (Earnings Before Interest, Taxes, ...). Same
-// IsExcludedFromEbitda bit column as above, inverted.
+// IsExcludedFromEbitda bit column as above, inverted, scoped to Gasto so an
+// Ingreso-side exclusion (e.g. asset sale income) never lands in this
+// Gasto-labeled Intereses/Impuestos breakout.
 function excludedExpenseQuery(dateWhere: string): string {
   return `
     SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
-    FROM fact.Fact_Expenses fe
+    FROM fact.Fact_CashMovements fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
-    WHERE fe.IsVoided = 0 AND ec.IsExcludedFromEbitda = 1 ${dateWhere}
+    WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.IsExcludedFromEbitda = 1 ${dateWhere}
     GROUP BY ec.Category
+  `;
+}
+
+// Operating income for cash-basis EBITDA: I-01 Ventas only (IsExcludedFromEbitda
+// = 0 among Ingreso concepts — every other Ingreso code is loans, asset sales,
+// interest income, receivables, FX, or tax pass-through, see spec section 3.2).
+// Amount is negated: Ingreso rows net negative under monto_d - monto_h
+// (verified live 2026-09-14), so -SUM(...) yields a positive income figure.
+function cashFlowIncomeQuery(dateWhere: string): string {
+  return `
+    SELECT SUM(-fe.Amount) AS IngresosOperativos
+    FROM fact.Fact_CashMovements fe
+    JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+    WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Ingreso' AND ec.IsExcludedFromEbitda = 0 ${dateWhere}
   `;
 }
 
@@ -68,7 +86,7 @@ function excludedExpenseQuery(dateWhere: string): string {
 function conceptBreakdownQuery(dateWhere: string): string {
   return `
     SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount
-    FROM fact.Fact_Expenses fe
+    FROM fact.Fact_CashMovements fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
     WHERE fe.IsVoided = 0 AND ec.Category = @category ${dateWhere}
     GROUP BY ec.ConceptName, ec.ConceptCode
@@ -101,10 +119,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [totals, categoryResult, excludedResult, usdRate] = await Promise.all([
+    const [totals, categoryResult, excludedResult, incomeResult, usdRate] = await Promise.all([
       pool.request().query(waterfallTotalsQuery(salesDateWhere)),
       pool.request().query(expenseCategoryQuery(expenseDateWhere)),
       pool.request().query(excludedExpenseQuery(expenseDateWhere)),
+      pool.request().query(cashFlowIncomeQuery(expenseDateWhere)),
       currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 
@@ -130,8 +149,6 @@ export async function GET(request: NextRequest) {
       { step: 'Utilidad Bruta', amount: grossProfitAmount, cumulative: grossProfitAmount },
     ];
 
-    const utilidadBruta = grossProfitAmount;
-
     const expenseBreakdown: ExpenseCategoryRow[] = categoryResult.recordset.map(r => ({
       category: String(r.Category),
       amount: Number(r.TotalAmount),
@@ -140,29 +157,28 @@ export async function GET(request: NextRequest) {
     const gastosOperativos = expenseBreakdown.reduce((sum, r) => sum + r.amount, 0);
     const intereses = Number(excludedResult.recordset.find(r => r.Category === 'Intereses')?.TotalAmount ?? 0);
     const impuestos = Number(excludedResult.recordset.find(r => r.Category === 'Impuestos')?.TotalAmount ?? 0);
+    const ingresosOperativos = Number(incomeResult.recordset[0]?.IngresosOperativos ?? 0);
 
-    // EBITDA (aprox.): Utilidad Bruta - Gastos Operativos, excluding Intereses/
-    // Impuestos by definition. Labeled "aprox." because D&A is structurally
-    // unavailable in the source ERP data (no fixed-asset depreciation ledger),
-    // so this is really Utilidad Bruta - Gastos Operativos rather than a strict
-    // EBITDA computed by adding back D&A from a net-income base.
-    const ebitda = utilidadBruta - gastosOperativos;
+    // Cash-basis EBITDA, decoupled from the Fact_Sales waterfall above (see
+    // docs/superpowers/specs/2026-09-14-cash-movement-ebitda-design.md
+    // section 2): Ingresos Operativos (I-01 Ventas from movimientos) minus
+    // Gastos Operativos (also from movimientos). Replaces the old
+    // "Utilidad Bruta - Gastos Operativos" calc, which was always exactly
+    // -gastosOperativos because Fact_Sales.GrossProfitAmount is always NULL
+    // (no cost data has ever been recorded in Profit Plus).
+    const ebitda = ingresosOperativos - gastosOperativos;
     const utilidadNeta = ebitda - intereses - impuestos;
-
-    waterfall.push(
-      { step: 'Gastos Operativos', amount: -gastosOperativos, cumulative: ebitda },
-      { step: 'EBITDA (aprox.)', amount: 0, cumulative: ebitda },
-      { step: 'Intereses', amount: -intereses, cumulative: ebitda - intereses },
-      { step: 'Impuestos', amount: -impuestos, cumulative: utilidadNeta },
-      { step: 'Utilidad Neta', amount: 0, cumulative: utilidadNeta },
-    );
 
     const response: FinanzasResponse = {
       waterfall,
-      ebitda,
-      intereses,
-      impuestos,
-      utilidadNeta,
+      cashFlowEbitda: {
+        ingresosOperativos,
+        gastosOperativos,
+        ebitda,
+        intereses,
+        impuestos,
+        utilidadNeta,
+      },
       expenseBreakdown,
       usdRate,
     };

@@ -48,7 +48,7 @@ export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'ven
  *                     devoluciones' correlated Fact_Returns subqueries)
  *  - 'purchases'  -> fact.Fact_Purchases  (compras)
  *  - 'ar_snapshot'-> fact.Fact_AR_Snapshot (cxc's topDebtorsQuery)
- * fact.Fact_Collections and fact.Fact_Expenses are also read under
+ * fact.Fact_Collections and fact.Fact_CashMovements are also read under
  * app/api/dwh/, but never through getDimensionSpec/isDimension (their
  * queries hard-code their own columns), so they're intentionally omitted
  * here.
