@@ -27,7 +27,7 @@ EXEC dwh.Load_Dim_Supplier;
 EXEC dwh.Load_Fact_Sales;
 EXEC dwh.Load_Fact_Returns;
 EXEC dwh.Load_Fact_Collections;
-EXEC dwh.Load_Fact_Expenses;
+EXEC dwh.Load_Fact_CashMovements;
 EXEC dwh.Load_Fact_Purchases;
 `;
 
