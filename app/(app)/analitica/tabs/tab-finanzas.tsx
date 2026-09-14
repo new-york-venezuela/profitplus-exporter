@@ -77,22 +77,13 @@ function EmptyState({ message }: { message?: string }) {
 // is 0 and the bar is a full column from the axis; for the delta steps
 // (Descuento, COGS) it floats between the two surrounding totals.
 //
-// Color is NOT inferred purely from amount's sign. 'Descuento' and 'COGS' are
-// always-negative-by-construction in route.ts (it always negates them before
-// pushing the step), so a sign check happens to work for them today — but
-// 'Gastos Operativos' (and the Intereses/Impuestos steps split out of it) is
-// the negated SUM of category totals that can legitimately net negative for
-// a given date range (verified live 2026-09-12: fact.Fact_Expenses category
-// 'Otros' nets to -2,361,663.08 over the trailing 12 months, driven by
-// refunds/reversals coded there — a real, currently-live case, not a
-// hypothetical). If color were `amount < 0`, a negative aggregate would flip
-// `-gastosOperativos` positive and paint the expense step green, as if
-// expenses were a gain for the period. COST_STEPS names every step that is a
-// cost/reduction by definition regardless of its computed sign, so these
-// steps are always red — matching how 'Descuento'/'COGS' read today, but for
-// the right reason (what the step represents) rather than an accident of
-// always-positive inputs.
-const COST_STEPS = new Set(['Descuento', 'COGS', 'Gastos Operativos', 'Intereses', 'Impuestos']);
+// COST_STEPS names every step that is a cost/reduction by definition
+// (Descuento, COGS) so they always render red regardless of their computed
+// sign — matters because a negative discount or COGS total is a real,
+// currently-live case (see the EBITDA cash-flow card below for the
+// Gastos-Operativos-can-net-negative case that used to live in this
+// waterfall before the 2026-09-14 EBITDA rework moved it out).
+const COST_STEPS = new Set(['Descuento', 'COGS']);
 
 interface WaterfallDatum {
   step: string;
@@ -242,22 +233,28 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
         />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div title={EBITDA_TOOLTIP} className="cursor-help">
-          <KpiCard label="EBITDA (aprox.)" value={moneyLabel(data.ebitda, currency, rate)} />
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-gray-900">EBITDA (movimientos de caja)</h2>
+          <span title={EBITDA_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
-        <KpiCard label="Intereses" value={moneyLabel(data.intereses, currency, rate)} />
-        <KpiCard label="Impuestos" value={moneyLabel(data.impuestos, currency, rate)} />
-        <KpiCard
-          label="Utilidad neta"
-          value={moneyLabel(data.utilidadNeta, currency, rate)}
-          tone={data.utilidadNeta < 0 ? 'warn' : 'default'}
-        />
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <KpiCard label="Ingresos operativos" value={moneyLabel(data.cashFlowEbitda.ingresosOperativos, currency, rate)} />
+          <KpiCard label="Gastos operativos" value={moneyLabel(data.cashFlowEbitda.gastosOperativos, currency, rate)} />
+          <KpiCard label="EBITDA" value={moneyLabel(data.cashFlowEbitda.ebitda, currency, rate)} />
+          <KpiCard label="Intereses" value={moneyLabel(data.cashFlowEbitda.intereses, currency, rate)} />
+          <KpiCard label="Impuestos" value={moneyLabel(data.cashFlowEbitda.impuestos, currency, rate)} />
+          <KpiCard
+            label="Utilidad neta"
+            value={moneyLabel(data.cashFlowEbitda.utilidadNeta, currency, rate)}
+            tone={data.cashFlowEbitda.utilidadNeta < 0 ? 'warn' : 'default'}
+          />
+        </div>
       </div>
 
       <ChartCard
         title="Cascada de rentabilidad"
-        subtitle={`Bruto → Descuento → Neto → COGS → Utilidad bruta → Gastos Operativos → EBITDA (aprox.) → Intereses → Impuestos → Utilidad Neta${
+        subtitle={`Bruto → Descuento → Neto → COGS → Utilidad bruta${
           discountRate !== null ? ` — descuento promedio ${pct(discountRate)}` : ''
         }`}
       >
