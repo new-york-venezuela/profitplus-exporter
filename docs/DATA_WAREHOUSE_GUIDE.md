@@ -556,6 +556,15 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 **Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist and are wired to auto-populate when cost data flows; currently always `NULL` with `CostSourceFlag = 'NO_COST_DATA'`.
 
+**EBITDA workaround (shipped 2026-09-14):** the Finanzas tab's EBITDA figure
+is computed from bank/cash movements (`fact.Fact_CashMovements`,
+`Ingresos Operativos − Gastos Operativos`) instead of `Fact_Sales`'s
+COGS/GrossProfit columns — see
+`docs/superpowers/specs/2026-09-14-cash-movement-ebitda-design.md`. The sales
+waterfall's `Utilidad Bruta`/`Margen bruto` figures are still driven by
+`Fact_Sales` and remain `0`/unusable for margin reporting until this gap is
+closed upstream.
+
 **Action**: Establish a costing process in Profit Plus upstream (BOM/compuestos, manual cost entry, or external costing feed) before margin dashboards can be scoped.
 
 ### 2. AR Snapshot — No Historical Backfill

@@ -81,38 +81,34 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
   });
 
-  test('Finanzas tab shows the extended EBITDA waterfall and expense category drilldown', async ({ adminPage }) => {
+  test('Finanzas tab shows the cash-flow EBITDA card and expense category drilldown', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=finanzas');
 
-    // The 5 new waterfall steps (Gastos Operativos, EBITDA (aprox.),
-    // Intereses, Impuestos, Utilidad Neta) render both as KPI cards (plain
-    // DOM <p> labels) and as recharts XAxis SVG tick text inside the
-    // "Cascada de rentabilidad" chart. The KPI card labels are reliable
-    // plain-text assertions; the SVG axis ticks are asserted via the
-    // chart's accessible text so both the KPI section and the chart itself
-    // are confirmed to have received the new waterfall steps.
-    await expect(adminPage.getByText('EBITDA (aprox.)').first()).toBeVisible({ timeout: 15_000 });
-    await expect(adminPage.getByText('Intereses', { exact: true }).first()).toBeVisible();
-    await expect(adminPage.getByText('Impuestos', { exact: true }).first()).toBeVisible();
+    // The EBITDA card is now a separate section from the sales waterfall
+    // (see docs/superpowers/specs/2026-09-14-cash-movement-ebitda-design.md)
+    // — its 6 KPI cards render as plain DOM <p> labels, no longer as
+    // waterfall chart steps.
+    await expect(adminPage.getByText('EBITDA (movimientos de caja)')).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('EBITDA', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
 
-    // recharts' XAxis auto-skips ticks it decides won't fit at the current
-    // width (not all 9 waterfall steps are guaranteed to render as visible
-    // tick labels), so the chart itself is only checked for the two anchor
-    // steps recharts reliably keeps (first/last of the new steps); the
-    // KPI-card assertions above are the reliable check that every new
-    // FinanzasResponse field (ebitda/intereses/impuestos/utilidadNeta)
-    // reached the page.
+    // The D&A caveat tooltip now lives on the card's info icon rather than
+    // the old "EBITDA (aprox.)" KPI card's title attribute.
+    await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
+
+    // Sales waterfall chart still renders (Bruto → Descuento → Neto → COGS →
+    // Utilidad Bruta only — the EBITDA-onward steps moved out of it).
     const chart = adminPage.getByRole('application');
     await expect(chart).toBeVisible();
     const chartText = await chart.textContent();
-    expect(chartText).toContain('EBITDA (aprox.)');
-    expect(chartText).toContain('Utilidad Neta');
+    expect(chartText).toContain('Utilidad Bruta');
+    expect(chartText).not.toContain('EBITDA');
 
-    // EBITDA (aprox.) KPI card carries the D&A caveat as a title tooltip.
-    await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
-
-    // Expense category breakdown table, below the waterfall — same
+    // Expense category breakdown table, below the EBITDA card — same
     // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
     await adminPage.getByLabel('Desglosar por:').selectOption('producto');
 
