@@ -556,7 +556,7 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 **Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist and are wired to auto-populate when cost data flows; currently always `NULL` with `CostSourceFlag = 'NO_COST_DATA'`.
 
-**"Margen Operativo (base caja)" workaround (shipped 2026-09-14, renamed from
+**"Margen Operativo" workaround (shipped 2026-09-14, renamed from
 "EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin
 computed from bank/cash movements (`fact.Fact_CashMovements`,
 `Ingresos Operativos − Gastos Operativos`) instead of `Fact_Sales`'s

@@ -100,4 +100,25 @@ describe('dwh.vw_GastosOperativos', () => {
     const expected = Number(purchasesTotal.recordset[0].total ?? 0) + Number(cashTotal.recordset[0].total ?? 0);
     expect(Number(viewTotal.recordset[0].total ?? 0)).toBeCloseTo(expected, 2);
   });
+
+  test('Compras (Fact_Purchases) total is materially larger than the excluded cash-ledger MateriaPrima total — the core fix this view exists to establish', async () => {
+    const viewCompras = await pool.request().query(`
+      SELECT SUM(Amount) AS total FROM dwh.vw_GastosOperativos WHERE Category = 'Compras'
+    `);
+    const cashLedgerMateriaPrima = await pool.request().query(`
+      SELECT SUM(fe.Amount) AS total
+      FROM fact.Fact_CashMovements fe
+      JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
+      WHERE fe.IsVoided = 0 AND ec.Category = 'MateriaPrima'
+    `);
+    const comprasTotal = Number(viewCompras.recordset[0].total ?? 0);
+    const materiaPrimaTotal = Number(cashLedgerMateriaPrima.recordset[0].total ?? 0);
+    // The whole reason this view replaces MateriaPrima with Fact_Purchases is
+    // that the cash ledger dramatically undercounts real purchase spend
+    // (Profit Plus records invoices reliably but not their bank settlement
+    // promptly). If a future change silently reverted to the old cash-ledger
+    // union, this ratio would collapse toward 1x and this test would catch it.
+    expect(materiaPrimaTotal).toBeGreaterThan(0); // sanity: the comparison baseline isn't itself empty/broken
+    expect(comprasTotal).toBeGreaterThan(materiaPrimaTotal * 1.5);
+  });
 });

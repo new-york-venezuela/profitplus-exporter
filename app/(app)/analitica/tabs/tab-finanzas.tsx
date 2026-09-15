@@ -247,7 +247,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-900">Margen Operativo (base caja)</h2>
+          <h2 className="text-sm font-bold text-gray-900">Margen Operativo</h2>
           <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

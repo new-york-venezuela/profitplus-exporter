@@ -89,10 +89,13 @@ test.describe('analitica @mssql', () => {
     // Cost Data Gap section), so it's labeled as a cash-basis operating
     // margin instead — its 6 KPI cards render as plain DOM <p> labels, no
     // longer as waterfall chart steps.
-    await expect(adminPage.getByText('Margen Operativo (base caja)')).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
     await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Margen Operativo', { exact: true })).toBeVisible();
+    // The section heading (<h2>) and this KPI's own label (<p>) are now both
+    // exactly "Margen Operativo" text nodes, so a bare getByText would hit
+    // both (strict-mode violation) — scope to the paragraph label.
+    await expect(adminPage.getByRole('paragraph').filter({ hasText: 'Margen Operativo' })).toBeVisible();
     await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
@@ -217,12 +220,12 @@ test.describe('analitica @mssql', () => {
     // window — assert it's visible and non-zero (the E2E suite's seeded
     // Ncake_a data is smaller-scale than production, so this checks presence
     // and a sane order of magnitude, not an exact cross-environment number).
-    // Both the card's own heading ("Margen Operativo (base caja)") and one of
-    // its KPI labels ("Margen Operativo") are present simultaneously, so
-    // `.or()` here would be a strict-mode violation (it resolves to both
-    // matching elements at once, not "whichever one exists") — assert the
-    // heading specifically.
-    await expect(adminPage.getByText('Margen Operativo (base caja)')).toBeVisible({ timeout: 15_000 });
+    // Both the card's own heading ("Margen Operativo") and one of its KPI
+    // labels (also "Margen Operativo") are present simultaneously, so a bare
+    // `getByText('Margen Operativo')` would be a strict-mode violation (it
+    // matches both the <h2> heading and the KPI <p> label) — the heading role
+    // scopes this to the <h2> only.
+    await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
     const ingresosCard = adminPage.locator('div', { has: adminPage.getByText('Ingresos operativos', { exact: true }) }).last();
     await expect(ingresosCard).toBeVisible();
     const ingresosText = await ingresosCard.textContent();

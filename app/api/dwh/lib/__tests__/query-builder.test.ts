@@ -182,6 +182,8 @@ describe('buildDateWhereClause', () => {
     );
     // 12m resolves relative to "now", so just check the shape/prefix rather
     // than a fixed value.
-    expect(buildDateWhereClause('12m', 'fe')).toMatch(/^AND fe\.DateKey >= \d{8}$/);
+    expect(buildDateWhereClause('12m', 'fe')).toBe(
+      "AND fe.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))"
+    );
   });
 });
