@@ -229,6 +229,41 @@ test.describe('analitica @mssql', () => {
     expect(ingresosText).not.toContain('Bs. 0');
   });
 
+  test('date-range picker supports month navigation and year-to-date', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=ventas');
+
+    // "Mes Actual" is not currently visible as an exact-match button label
+    // before clicking, since DATE_RANGE_OPTIONS' label IS "Mes Actual" —
+    // click it directly.
+    await adminPage.getByRole('button', { name: 'Mes Actual' }).click();
+    await expect(adminPage).toHaveURL(/dateRange=month%3A\d{4}-\d{2}/);
+
+    // Paging controls appear once a month range is active. Match `exact:
+    // true` — DATE_RANGE_OPTIONS also has a "Mes Anterior" preset button
+    // (value: 'month-prev'), which differs from this arrow's
+    // aria-label="Mes anterior" only in the capitalization of "anterior";
+    // Playwright's default accessible-name matching is case-insensitive, so
+    // without `exact` this locator resolves to both elements (strict-mode
+    // violation).
+    const prevMonthArrow = adminPage.getByRole('button', { name: 'Mes anterior', exact: true });
+    await expect(prevMonthArrow).toBeVisible();
+
+    const urlBeforePaging = adminPage.url();
+    await prevMonthArrow.click();
+    await expect(adminPage).not.toHaveURL(urlBeforePaging);
+    await expect(adminPage).toHaveURL(/dateRange=month%3A\d{4}-\d{2}/);
+
+    // Switching to "Año Actual" removes the month paging arrows and encodes
+    // a ytd: param instead.
+    await adminPage.getByRole('button', { name: 'Año Actual' }).click();
+    await expect(adminPage).toHaveURL(/dateRange=ytd%3A\d{4}/);
+    await expect(prevMonthArrow).not.toBeVisible();
+
+    // "30 días"/"90 días" no longer exist as options anywhere on the page.
+    await expect(adminPage.getByRole('button', { name: '30 días' })).toHaveCount(0);
+    await expect(adminPage.getByRole('button', { name: '90 días' })).toHaveCount(0);
+  });
+
   test('Compras tab shows the monthly trend, drills into proveedores, and expands a línea breakdown', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=compras');
 
