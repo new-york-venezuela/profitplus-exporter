@@ -13,7 +13,18 @@ import type {
 const POSITIVE_COLOR = '#16a34a'; // green — revenue / profit steps
 const NEGATIVE_COLOR = '#dc2626'; // red — cost / discount steps
 
-const EBITDA_TOOLTIP = 'Ganancias antes de intereses e impuestos. No incluye ajuste por depreciación/amortización — no disponible en los datos de movimientos bancarios.';
+// Not labeled "EBITDA" — investigated 2026-09-14 whether Gastos Operativos
+// could be split by cost center (to isolate production cost, a prerequisite
+// for a real EBITDA/margin figure) and found the source data can't support
+// it: saMovimientoBanco's dis_cen cost-center field is NULL on 100% of rows
+// checked, and Ncake_a's dedicated cost-distribution table has 0 rows. Only
+// concept-NAME keywords ("Nomina Produc" vs "Nomina personal administrativo")
+// give any signal, and that covers just 6.6% of Nomina volume by amount (see
+// 0024_nomina_cost_center.sql) — the other 93.4%, including the single
+// largest Nomina line, is unclassifiable. So this is a real cash-basis
+// operating margin, not EBITDA: it does NOT isolate production payroll from
+// admin/sales payroll, on top of the pre-existing D&A gap.
+const MARGIN_TOOLTIP = 'Ingresos y gastos operativos desde movimientos bancarios/caja. No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
 
 // This table has no top-level groupBy toggle — rows are always one-per-expense-
 // category. GroupedDrilldownTable requires a groupBy/groupByOptions pair, so
@@ -235,13 +246,13 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-900">EBITDA (movimientos de caja)</h2>
-          <span title={EBITDA_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
+          <h2 className="text-sm font-bold text-gray-900">Margen Operativo (base caja)</h2>
+          <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <KpiCard label="Ingresos operativos" value={moneyLabel(data.cashFlowEbitda.ingresosOperativos, currency, rate)} />
           <KpiCard label="Gastos operativos" value={moneyLabel(data.cashFlowEbitda.gastosOperativos, currency, rate)} />
-          <KpiCard label="EBITDA" value={moneyLabel(data.cashFlowEbitda.ebitda, currency, rate)} />
+          <KpiCard label="Margen Operativo" value={moneyLabel(data.cashFlowEbitda.ebitda, currency, rate)} />
           <KpiCard label="Intereses" value={moneyLabel(data.cashFlowEbitda.intereses, currency, rate)} />
           <KpiCard label="Impuestos" value={moneyLabel(data.cashFlowEbitda.impuestos, currency, rate)} />
           <KpiCard

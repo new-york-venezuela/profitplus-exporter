@@ -556,8 +556,9 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 **Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist and are wired to auto-populate when cost data flows; currently always `NULL` with `CostSourceFlag = 'NO_COST_DATA'`.
 
-**EBITDA workaround (shipped 2026-09-14):** the Finanzas tab's EBITDA figure
-is computed from bank/cash movements (`fact.Fact_CashMovements`,
+**"Margen Operativo (base caja)" workaround (shipped 2026-09-14, renamed from
+"EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin
+computed from bank/cash movements (`fact.Fact_CashMovements`,
 `Ingresos Operativos − Gastos Operativos`) instead of `Fact_Sales`'s
 COGS/GrossProfit columns — see
 `docs/superpowers/specs/2026-09-14-cash-movement-ebitda-design.md`. The sales
@@ -565,7 +566,30 @@ waterfall's `Utilidad Bruta`/`Margen bruto` figures are still driven by
 `Fact_Sales` and remain `0`/unusable for margin reporting until this gap is
 closed upstream.
 
-**Action**: Establish a costing process in Profit Plus upstream (BOM/compuestos, manual cost entry, or external costing feed) before margin dashboards can be scoped.
+Deliberately **not** labeled EBITDA: it cannot isolate production cost from
+admin/sales cost, so it is not "earnings before" anything in the accounting
+sense — see the cost-center gap below.
+
+**Cost-center gap (found 2026-09-14):** Gastos Operativos cannot be split by
+cost center (production vs. administration vs. sales), which would be
+required to compute a true operating margin that excludes non-production
+payroll. Investigated: `saMovimientoBanco.dis_cen` (an XML column meant for
+cost-center distribution, referencing real cost centers in
+`Ncake_a.dbo.scCentro`) is `NULL` on 100% of Nomina-category rows checked,
+including rows whose concept name explicitly says "Produccion" —
+`saDistribCosto` (the dedicated cost-distribution table) has 0 rows. Neither
+mechanism has ever been used in this installation, same pattern as the
+cost-of-goods gap above. The only usable signal is the expense concept's
+NAME (`dim.Dim_ExpenseConcept.CostCenter`, seeded in
+`dwh-migrations/0024_nomina_cost_center.sql` from keyword matches like
+"Nomina Produc" vs. "Nomina personal administrativo") — that covers only
+6.6% of Nomina volume; the remaining 93.4%, including the single largest
+Nomina line ("NOMINA POR PAGAR", ~38% of Nomina by itself), is a generic
+payable/clearing concept with no cost-center signal anywhere in the source
+data and is shown as "Sin clasificar" in the Finanzas tab's Nomina
+drilldown.
+
+**Action**: Establish a costing process in Profit Plus upstream (BOM/compuestos, manual cost entry, or external costing feed) before margin dashboards can be scoped. A true production-cost split additionally requires this installation to start actually populating `dis_cen`/`saDistribCosto` (or an equivalent payroll cost-allocation process) — the schema support already exists, it's simply never been used.
 
 ### 2. AR Snapshot — No Historical Backfill
 **Impact**: DSO and aging-trend dashboards only show data from DWH go-live date forward.

@@ -83,13 +83,19 @@ function cashFlowIncomeQuery(dateWhere: string): string {
 // shows its individual concepts, e.g. "Sueldos Administrativos", "Bono
 // Vacacional", etc.). Same { breakdown: BreakdownRow[] } contract as every
 // other tab's breakdown fetch (see ventas/route.ts, vendedores/route.ts).
+// CostCenter (Produccion/Administracion/Ventas, NULL otherwise) is only ever
+// set on Category = 'Nomina' concepts — see 0024_nomina_cost_center.sql for
+// why 93.4% of Nomina volume has no cost-center signal in the source data
+// and is deliberately left NULL rather than guessed. Selected unconditionally
+// here (not just for the Nomina category) since it's harmless/always NULL
+// for every other category — no need to branch this query by @category.
 function conceptBreakdownQuery(dateWhere: string): string {
   return `
-    SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount
+    SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount, ec.CostCenter AS CostCenter
     FROM fact.Fact_CashMovements fe
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
     WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.Category = @category ${dateWhere}
-    GROUP BY ec.ConceptName, ec.ConceptCode
+    GROUP BY ec.ConceptName, ec.ConceptCode, ec.CostCenter
     ORDER BY Amount DESC
   `;
 }
@@ -114,8 +120,22 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('category', parentValue);
       const result = await req.query(conceptBreakdownQuery(expenseDateWhere));
+      // costCenter is only included when drilling into the Nomina category —
+      // it's the only Category where Dim_ExpenseConcept ever sets a non-NULL
+      // CostCenter (see 0024_nomina_cost_center.sql), so every other
+      // category's breakdown rows come back without the field entirely,
+      // and GroupedDrilldownTable (which renders one column per row key)
+      // doesn't grow a meaningless column for them. Within Nomina, a NULL
+      // CostCenter still surfaces as "Sin clasificar" (not omitted) — that
+      // gap is the whole point of showing this column at all.
+      const isNomina = parentValue === 'Nomina';
       return NextResponse.json({
-        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), amount: Number(r.Amount) })),
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          amount: Number(r.Amount),
+          ...(isNomina ? { costCenter: r.CostCenter ? String(r.CostCenter) : 'Sin clasificar' } : {}),
+        })),
       });
     }
 
