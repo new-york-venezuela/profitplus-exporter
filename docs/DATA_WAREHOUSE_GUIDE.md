@@ -556,7 +556,7 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 **Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist and are wired to auto-populate when cost data flows; currently always `NULL` with `CostSourceFlag = 'NO_COST_DATA'`.
 
-**"Margen Operativo (base caja)" workaround (shipped 2026-09-14, renamed from
+**"Margen Operativo" workaround (shipped 2026-09-14, renamed from
 "EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin
 computed from bank/cash movements (`fact.Fact_CashMovements`,
 `Ingresos Operativos − Gastos Operativos`) instead of `Fact_Sales`'s
@@ -565,6 +565,17 @@ COGS/GrossProfit columns — see
 waterfall's `Utilidad Bruta`/`Margen bruto` figures are still driven by
 `Fact_Sales` and remain `0`/unusable for margin reporting until this gap is
 closed upstream.
+
+**Accrual revision (2026-09-15):** the cash-ledger-only calculation above
+understated real operating expense by ~4.5x (live-verified: 90-day cash-ledger
+Gastos ~7.26M vs. `Fact_Purchases.NetAmount` ~32.6M for the same window) —
+Profit Plus records purchase invoices reliably but not their eventual bank
+settlement promptly. Margen Operativo now sources Ingresos from
+`Fact_Sales.NetAmount − Fact_Returns.NetAmount` and Gastos Operativos from
+`dwh.vw_GastosOperativos` (`dwh-migrations/0026_gastos_operativos_view.sql`),
+a view unioning `Fact_Purchases` ("Compras") with non-`MateriaPrima`
+`Fact_CashMovements` Gasto categories — see
+`docs/superpowers/specs/2026-09-15-margen-operativo-accrual-design.md`.
 
 Deliberately **not** labeled EBITDA: it cannot isolate production cost from
 admin/sales cost, so it is not "earnings before" anything in the accounting

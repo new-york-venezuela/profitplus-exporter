@@ -20,7 +20,21 @@ export async function getUsdRate(): Promise<number | null> {
 }
 
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
+const YTD_RANGE_RE = /^ytd:(\d{4})$/;
 
+function dateKey(d: Date): number {
+  return parseInt(
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+  );
+}
+
+// No hardcoded "no data before <year>" or similar installation-specific
+// boundary anywhere here — an out-of-range month/year simply produces a
+// DateKey window a fact table has no matching rows in, which is the correct,
+// portable behavior for any installation's actual data range (see
+// docs/superpowers/specs/2026-09-15-margen-operativo-accrual-design.md
+// section 2.5).
 export function buildDateWhereClause(
   dateRange: string,
   tableName: string = 'f'
@@ -32,9 +46,37 @@ export function buildDateWhereClause(
     const endKey = end.replace(/-/g, '');
     return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
   }
-  const days = dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 365;
-  // Adjust based on your DateKey format (if YYYYMMDD or similar)
-  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -${days}, GETDATE()), 'yyyyMMdd'))`;
+
+  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
+  if (monthMatch) {
+    const [, yearStr, monthStr] = monthMatch;
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr); // 1-indexed
+    const startKey = dateKey(new Date(Date.UTC(year, month - 1, 1)));
+    // Day 0 of the NEXT month is the last day of THIS month — this
+    // automatically handles 28/29/30/31-day months and leap years without
+    // a lookup table.
+    const endKey = dateKey(new Date(Date.UTC(year, month, 0)));
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  const ytdMatch = YTD_RANGE_RE.exec(dateRange);
+  if (ytdMatch) {
+    const year = parseInt(ytdMatch[1]);
+    const startKey = year * 10000 + 101; // YYYY0101
+    const currentYear = new Date().getUTCFullYear();
+    const endKey = year === currentYear
+      ? parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''))
+      : year * 10000 + 1231; // YYYY1231
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  // '30d'/'90d' were removed from the UI (analitica-client.tsx) in favor of
+  // month/YTD navigation — any value this function doesn't otherwise
+  // recognize (including a stale bookmarked '30d'/'90d' URL) falls through
+  // to the 365-day default rather than throwing, so an old link degrades
+  // gracefully instead of erroring.
+  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
 }
 
 export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';

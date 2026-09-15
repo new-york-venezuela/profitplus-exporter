@@ -16,15 +16,16 @@ const NEGATIVE_COLOR = '#dc2626'; // red — cost / discount steps
 // Not labeled "EBITDA" — investigated 2026-09-14 whether Gastos Operativos
 // could be split by cost center (to isolate production cost, a prerequisite
 // for a real EBITDA/margin figure) and found the source data can't support
-// it: saMovimientoBanco's dis_cen cost-center field is NULL on 100% of rows
-// checked, and Ncake_a's dedicated cost-distribution table has 0 rows. Only
-// concept-NAME keywords ("Nomina Produc" vs "Nomina personal administrativo")
-// give any signal, and that covers just 6.6% of Nomina volume by amount (see
-// 0024_nomina_cost_center.sql) — the other 93.4%, including the single
-// largest Nomina line, is unclassifiable. So this is a real cash-basis
-// operating margin, not EBITDA: it does NOT isolate production payroll from
-// admin/sales payroll, on top of the pre-existing D&A gap.
-const MARGIN_TOOLTIP = 'Ingresos y gastos operativos desde movimientos bancarios/caja. No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
+// it for Nomina specifically (see docs/DATA_WAREHOUSE_GUIDE.md's Cost Data
+// Gap section) — concept-name keywords cover only 6.6% of Nomina volume by
+// amount. So this is a real operating margin, not EBITDA: it does not
+// isolate production payroll from admin/sales payroll, on top of the
+// pre-existing D&A gap. As of 2026-09-15 the calc itself moved to accrual
+// sources (Fact_Sales/Fact_Returns for income, Fact_Purchases + non-payroll
+// cash-ledger categories for expense — see docs/superpowers/specs/
+// 2026-09-15-margen-operativo-accrual-design.md) instead of the pure
+// cash-ledger calc this tooltip used to describe.
+const MARGIN_TOOLTIP = 'Ingresos netos (ventas menos devoluciones) menos gastos operativos (compras más nómina y otros gastos desde movimientos bancarios/caja). No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
 
 // This table has no top-level groupBy toggle — rows are always one-per-expense-
 // category. GroupedDrilldownTable requires a groupBy/groupByOptions pair, so
@@ -246,7 +247,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-900">Margen Operativo (base caja)</h2>
+          <h2 className="text-sm font-bold text-gray-900">Margen Operativo</h2>
           <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -293,7 +294,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-bold text-gray-900">Gastos operativos por categoría</h2>
         <p className="text-xs text-gray-500 mb-3">
-          Desglose de egresos operativos por categoría, con detalle por concepto
+          Desglose de egresos operativos por categoría, con detalle por concepto (o por proveedor en Compras)
         </p>
         {categoryRows.length === 0 ? (
           <EmptyState />

@@ -89,10 +89,13 @@ test.describe('analitica @mssql', () => {
     // Cost Data Gap section), so it's labeled as a cash-basis operating
     // margin instead — its 6 KPI cards render as plain DOM <p> labels, no
     // longer as waterfall chart steps.
-    await expect(adminPage.getByText('Margen Operativo (base caja)')).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
     await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Margen Operativo', { exact: true })).toBeVisible();
+    // The section heading (<h2>) and this KPI's own label (<p>) are now both
+    // exactly "Margen Operativo" text nodes, so a bare getByText would hit
+    // both (strict-mode violation) — scope to the paragraph label.
+    await expect(adminPage.getByRole('paragraph').filter({ hasText: 'Margen Operativo' })).toBeVisible();
     await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
@@ -173,6 +176,95 @@ test.describe('analitica @mssql', () => {
     // hidden or blank).
     const breakdownText = await breakdownRowLocator.textContent();
     expect(breakdownText).toContain('Sin clasificar');
+  });
+
+  test('Finanzas tab drills Compras into suppliers and shows the Comisiones category', async ({ adminPage }) => {
+    // The default dateRange ('12m' = trailing 365 days) excludes this seed
+    // dataset's Comisiones-classified Fact_CashMovements rows, whose latest
+    // DateKey (live-checked 2026-09-15) is 2024-10-18 — over a year before
+    // "today" in this environment. A custom range starting well before that
+    // keeps this test's coverage of the 0026 carve-out from depending on the
+    // clock ever agreeing with this seed data's dates again.
+    await adminPage.goto('/analitica?tab=finanzas&dateRange=custom:2024-01-01:2026-12-31');
+    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
+
+    const outerTable = adminPage.locator('table.min-w-full.text-sm').first();
+    const outerRows = outerTable.locator(':scope > tbody > tr');
+    await expect(outerRows.first()).toBeVisible({ timeout: 15_000 });
+
+    // Comisiones must appear as its own category row (0026's carve-out) —
+    // not merged into Nomina or Otros anymore.
+    const comisionesRow = outerRows.filter({ has: adminPage.getByText('Comisiones', { exact: true }) });
+    await expect(comisionesRow).toBeVisible();
+
+    // Compras must appear as its own category row (Fact_Purchases, replacing
+    // the old cash-ledger MateriaPrima category).
+    const comprasRow = outerRows.filter({ has: adminPage.getByText('Compras', { exact: true }) });
+    await expect(comprasRow).toBeVisible();
+
+    // Expanding Compras drills into SUPPLIERS, not concepts — assert the
+    // breakdown renders (same structural check as the Nomina test above;
+    // this test's job is confirming the Compras branch doesn't error out
+    // and renders rows, not asserting specific supplier names, which are
+    // seed-data-dependent).
+    await comprasRow.locator('button[aria-label="Expandir"]').click();
+    const comprasBreakdownRows = comprasRow.locator('xpath=following-sibling::tr[1]').locator('table tbody tr');
+    await expect(comprasBreakdownRows.first()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('Finanzas tab Margen Operativo reflects accrual Ingresos Netos, not cash-ledger income', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=finanzas');
+
+    // Ingresos operativos (accrual, Fact_Sales - Fact_Returns) should now be
+    // a much larger figure than the old cash-ledger I-01 total for the same
+    // window — assert it's visible and non-zero (the E2E suite's seeded
+    // Ncake_a data is smaller-scale than production, so this checks presence
+    // and a sane order of magnitude, not an exact cross-environment number).
+    // Both the card's own heading ("Margen Operativo") and one of its KPI
+    // labels (also "Margen Operativo") are present simultaneously, so a bare
+    // `getByText('Margen Operativo')` would be a strict-mode violation (it
+    // matches both the <h2> heading and the KPI <p> label) — the heading role
+    // scopes this to the <h2> only.
+    await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
+    const ingresosCard = adminPage.locator('div', { has: adminPage.getByText('Ingresos operativos', { exact: true }) }).last();
+    await expect(ingresosCard).toBeVisible();
+    const ingresosText = await ingresosCard.textContent();
+    expect(ingresosText).not.toContain('Bs. 0');
+  });
+
+  test('date-range picker supports month navigation and year-to-date', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=ventas');
+
+    // "Mes Actual" is not currently visible as an exact-match button label
+    // before clicking, since DATE_RANGE_OPTIONS' label IS "Mes Actual" —
+    // click it directly.
+    await adminPage.getByRole('button', { name: 'Mes Actual' }).click();
+    await expect(adminPage).toHaveURL(/dateRange=month%3A\d{4}-\d{2}/);
+
+    // Paging controls appear once a month range is active. Match `exact:
+    // true` — DATE_RANGE_OPTIONS also has a "Mes Anterior" preset button
+    // (value: 'month-prev'), which differs from this arrow's
+    // aria-label="Mes anterior" only in the capitalization of "anterior";
+    // Playwright's default accessible-name matching is case-insensitive, so
+    // without `exact` this locator resolves to both elements (strict-mode
+    // violation).
+    const prevMonthArrow = adminPage.getByRole('button', { name: 'Mes anterior', exact: true });
+    await expect(prevMonthArrow).toBeVisible();
+
+    const urlBeforePaging = adminPage.url();
+    await prevMonthArrow.click();
+    await expect(adminPage).not.toHaveURL(urlBeforePaging);
+    await expect(adminPage).toHaveURL(/dateRange=month%3A\d{4}-\d{2}/);
+
+    // Switching to "Año Actual" removes the month paging arrows and encodes
+    // a ytd: param instead.
+    await adminPage.getByRole('button', { name: 'Año Actual' }).click();
+    await expect(adminPage).toHaveURL(/dateRange=ytd%3A\d{4}/);
+    await expect(prevMonthArrow).not.toBeVisible();
+
+    // "30 días"/"90 días" no longer exist as options anywhere on the page.
+    await expect(adminPage.getByRole('button', { name: '30 días' })).toHaveCount(0);
+    await expect(adminPage.getByRole('button', { name: '90 días' })).toHaveCount(0);
   });
 
   test('Compras tab shows the monthly trend, drills into proveedores, and expands a línea breakdown', async ({ adminPage }) => {

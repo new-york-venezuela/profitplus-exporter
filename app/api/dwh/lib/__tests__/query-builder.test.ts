@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension } from '../query-builder';
+import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -131,5 +131,59 @@ describe('isClienteDimension', () => {
     expect(isClienteDimension('mes')).toBe(false);
     expect(isClienteDimension(null)).toBe(false);
     expect(isClienteDimension('')).toBe(false);
+  });
+});
+
+describe('buildDateWhereClause', () => {
+  test('month:YYYY-MM resolves to the first and last day of that month', () => {
+    const clause = buildDateWhereClause('month:2026-02', 'fe');
+    expect(clause).toBe('AND fe.DateKey >= 20260201 AND fe.DateKey <= 20260228');
+  });
+
+  test('month:YYYY-MM handles a 31-day month correctly', () => {
+    const clause = buildDateWhereClause('month:2026-01', 'fe');
+    expect(clause).toBe('AND fe.DateKey >= 20260101 AND fe.DateKey <= 20260131');
+  });
+
+  test('month:YYYY-MM handles a leap-year February correctly', () => {
+    const clause = buildDateWhereClause('month:2024-02', 'fe');
+    expect(clause).toBe('AND fe.DateKey >= 20240201 AND fe.DateKey <= 20240229');
+  });
+
+  test('ytd:YYYY for a past year spans the full calendar year', () => {
+    const pastYear = new Date().getFullYear() - 1;
+    const clause = buildDateWhereClause(`ytd:${pastYear}`, 'fe');
+    expect(clause).toBe(`AND fe.DateKey >= ${pastYear}0101 AND fe.DateKey <= ${pastYear}1231`);
+  });
+
+  test('ytd:YYYY for the current year spans Jan 1 through today', () => {
+    const currentYear = new Date().getFullYear();
+    const todayKey = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+    const clause = buildDateWhereClause(`ytd:${currentYear}`, 'fe');
+    expect(clause).toBe(`AND fe.DateKey >= ${currentYear}0101 AND fe.DateKey <= ${todayKey}`);
+  });
+
+  test('30d and 90d are no longer recognized as rolling windows — they fall through to the 12m default', () => {
+    // 30d/90d are removed from the UI (analitica-client.tsx) but the function
+    // must not throw or silently mishandle a stale/bookmarked URL still
+    // carrying one of these values — falling through to the 365-day (12m)
+    // default is the safe, unsurprising behavior for a value this function
+    // no longer specifically recognizes.
+    const clause30 = buildDateWhereClause('30d', 'fe');
+    const clause90 = buildDateWhereClause('90d', 'fe');
+    const clause12m = buildDateWhereClause('12m', 'fe');
+    expect(clause30).toBe(clause12m);
+    expect(clause90).toBe(clause12m);
+  });
+
+  test('12m and custom:start:end are unchanged', () => {
+    expect(buildDateWhereClause('custom:2026-01-01:2026-01-31', 'fe')).toBe(
+      'AND fe.DateKey >= 20260101 AND fe.DateKey <= 20260131'
+    );
+    // 12m resolves relative to "now", so just check the shape/prefix rather
+    // than a fixed value.
+    expect(buildDateWhereClause('12m', 'fe')).toBe(
+      "AND fe.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))"
+    );
   });
 });
