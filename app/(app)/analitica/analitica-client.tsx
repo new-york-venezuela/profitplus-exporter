@@ -47,17 +47,45 @@ const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
 
 const DATE_RANGE_OPTIONS: { value: string; label: string }[] = [
-  { value: '30d', label: '30 días' },
-  { value: '90d', label: '90 días' },
+  { value: 'month', label: 'Mes Actual' },
+  { value: 'month-prev', label: 'Mes Anterior' },
+  { value: 'ytd', label: 'Año Actual' },
   { value: '12m', label: '12 meses' },
   { value: 'custom', label: 'Personalizado' },
 ];
 
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
+const YTD_RANGE_RE = /^ytd:(\d{4})$/;
 
 function isValidDateRange(value: string | null): value is DateRange {
-  if (value === '30d' || value === '90d' || value === '12m') return true;
-  return value !== null && CUSTOM_RANGE_RE.test(value);
+  if (value === '12m') return true;
+  if (value === null) return false;
+  return CUSTOM_RANGE_RE.test(value) || MONTH_RANGE_RE.test(value) || YTD_RANGE_RE.test(value);
+}
+
+function currentMonthKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentYtdKey(): string {
+  return String(new Date().getFullYear());
+}
+
+// Adds or subtracts whole months from a "YYYY-MM" key, wrapping year
+// boundaries correctly (e.g. 2026-01 minus 1 month = 2025-12).
+function shiftMonthKey(monthKey: string, delta: number): string {
+  const [yearStr, monthStr] = monthKey.split('-');
+  const d = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [yearStr, monthStr] = monthKey.split('-');
+  const d = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, 1));
+  const formatted = new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
 function todayIso(): string {
@@ -93,6 +121,9 @@ function AnaliticaClientInner() {
   // yet — track that intent separately so the date inputs render immediately
   // instead of silently falling back to another button looking "active".
   const [customPending, setCustomPending] = useState(false);
+  const isMonthRange = MONTH_RANGE_RE.test(dateRange);
+  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
+  const isYtdRange = YTD_RANGE_RE.test(dateRange);
 
   const currencyParam = searchParams.get('currency');
   // Fallback currency for when the URL has no `currency` param: seeded from
@@ -147,9 +178,30 @@ function AnaliticaClientInner() {
         return;
       }
       setCustomPending(false);
+      if (value === 'month') {
+        updateParams({ dateRange: `month:${currentMonthKey()}` });
+        return;
+      }
+      if (value === 'month-prev') {
+        updateParams({ dateRange: `month:${shiftMonthKey(currentMonthKey(), -1)}` });
+        return;
+      }
+      if (value === 'ytd') {
+        updateParams({ dateRange: `ytd:${currentYtdKey()}` });
+        return;
+      }
       updateParams({ dateRange: value });
     },
     [updateParams, customStart, customEnd]
+  );
+
+  const handleMonthPage = useCallback(
+    (delta: number) => {
+      if (!monthMatch) return;
+      const currentKey = `${monthMatch[1]}-${monthMatch[2]}`;
+      updateParams({ dateRange: `month:${shiftMonthKey(currentKey, delta)}` });
+    },
+    [updateParams, monthMatch]
   );
 
   const handleCustomDateChange = useCallback(
@@ -194,7 +246,15 @@ function AnaliticaClientInner() {
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
                 {DATE_RANGE_OPTIONS.map(opt => {
-                  const isActive = opt.value === 'custom' ? (isCustomRange || customPending) : dateRange === opt.value;
+                  const isActive = opt.value === 'custom'
+                    ? (isCustomRange || customPending)
+                    : opt.value === 'month'
+                      ? isMonthRange && `${monthMatch?.[1]}-${monthMatch?.[2]}` === currentMonthKey()
+                      : opt.value === 'month-prev'
+                        ? isMonthRange && `${monthMatch?.[1]}-${monthMatch?.[2]}` === shiftMonthKey(currentMonthKey(), -1)
+                        : opt.value === 'ytd'
+                          ? isYtdRange
+                          : dateRange === opt.value;
                   return (
                     <button
                       key={opt.value}
@@ -208,6 +268,25 @@ function AnaliticaClientInner() {
                   );
                 })}
               </div>
+              {isMonthRange && monthMatch && (
+                <div className="flex items-center gap-1 text-sm text-gray-600">
+                  <button
+                    onClick={() => handleMonthPage(-1)}
+                    className="px-2 py-1 rounded hover:bg-gray-100"
+                    aria-label="Mes anterior"
+                  >
+                    ◀
+                  </button>
+                  <span className="min-w-[10rem] text-center">{formatMonthLabel(`${monthMatch[1]}-${monthMatch[2]}`)}</span>
+                  <button
+                    onClick={() => handleMonthPage(1)}
+                    className="px-2 py-1 rounded hover:bg-gray-100"
+                    aria-label="Mes siguiente"
+                  >
+                    ▶
+                  </button>
+                </div>
+              )}
               {(isCustomRange || customPending) && (
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <input
