@@ -81,34 +81,34 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
   });
 
-  test('Finanzas tab shows the cash-flow EBITDA card and expense category drilldown', async ({ adminPage }) => {
+  test('Finanzas tab shows the cash-flow margin card and expense category drilldown', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=finanzas');
 
-    // The EBITDA card is now a separate section from the sales waterfall
-    // (see docs/superpowers/specs/2026-09-14-cash-movement-ebitda-design.md)
-    // — its 6 KPI cards render as plain DOM <p> labels, no longer as
-    // waterfall chart steps.
-    await expect(adminPage.getByText('EBITDA (movimientos de caja)')).toBeVisible({ timeout: 15_000 });
+    // Renamed from "EBITDA" 2026-09-14: the metric can't isolate production
+    // payroll from admin/sales payroll (see docs/DATA_WAREHOUSE_GUIDE.md's
+    // Cost Data Gap section), so it's labeled as a cash-basis operating
+    // margin instead — its 6 KPI cards render as plain DOM <p> labels, no
+    // longer as waterfall chart steps.
+    await expect(adminPage.getByText('Margen Operativo (base caja)')).toBeVisible({ timeout: 15_000 });
     await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('EBITDA', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Margen Operativo', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
     await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
 
-    // The D&A caveat tooltip now lives on the card's info icon rather than
-    // the old "EBITDA (aprox.)" KPI card's title attribute.
+    // The D&A/cost-center caveat tooltip lives on the card's info icon.
     await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
 
     // Sales waterfall chart still renders (Bruto → Descuento → Neto → COGS →
-    // Utilidad Bruta only — the EBITDA-onward steps moved out of it).
+    // Utilidad Bruta only — the margin card's steps are not part of it).
     const chart = adminPage.getByRole('application');
     await expect(chart).toBeVisible();
     const chartText = await chart.textContent();
     expect(chartText).toContain('Utilidad Bruta');
     expect(chartText).not.toContain('EBITDA');
 
-    // Expense category breakdown table, below the EBITDA card — same
+    // Expense category breakdown table, below the margin card — same
     // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
     await adminPage.getByLabel('Desglosar por:').selectOption('producto');
 
@@ -137,6 +137,42 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).not.toHaveText(conceptAmountBs ?? '');
     await expect(adminPage.locator('table tbody tr').first().locator('td').last()).toContainText('$');
     await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).toContainText('$');
+  });
+
+  test('Finanzas tab shows the Nomina cost-center split, including unclassified concepts', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=finanzas');
+
+    // Expand the "Nomina" category row specifically (not "the first row" —
+    // Nomina isn't necessarily the highest-amount category) and confirm its
+    // concept-level drilldown carries the CostCenter column added in
+    // 0024_nomina_cost_center.sql: classified concepts show their cost
+    // center, the rest show "Sin clasificar" rather than being hidden —
+    // see docs/DATA_WAREHOUSE_GUIDE.md's Cost Data Gap section for why most
+    // of Nomina has no cost-center signal in the source data at all.
+    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
+
+    // Match on the category <td> exactly ("Nomina"), not `hasText` on the
+    // whole <tr> — a row-level hasText filter matches descendant text too
+    // (once expanded, the Nomina row's accessible text includes its nested
+    // breakdown table's "NOMINA POR PAGAR" concept row), which made this
+    // locator ambiguous. `has: page.getByText('Nomina', { exact: true })`
+    // only matches the row whose own cell text is exactly "Nomina".
+    const outerRows = adminPage.locator('table.min-w-full.text-sm').first().locator(':scope > tbody > tr');
+    await expect(outerRows.first()).toBeVisible({ timeout: 15_000 });
+    const nominaRow = outerRows.filter({ has: adminPage.getByText('Nomina', { exact: true }) });
+    await expect(nominaRow).toBeVisible();
+
+    await nominaRow.locator('button[aria-label="Expandir"]').click();
+
+    const breakdownRowLocator = nominaRow.locator('xpath=following-sibling::tr[1]');
+    const breakdownRows = breakdownRowLocator.locator('table tbody tr');
+    await expect(breakdownRows.first()).toBeVisible({ timeout: 15_000 });
+
+    // "Sin clasificar" must appear (93.4% of Nomina volume is unclassifiable
+    // per the live 2026-09-14 investigation — this must not be silently
+    // hidden or blank).
+    const breakdownText = await breakdownRowLocator.textContent();
+    expect(breakdownText).toContain('Sin clasificar');
   });
 
   test('Compras tab shows the monthly trend, drills into proveedores, and expands a línea breakdown', async ({ adminPage }) => {
