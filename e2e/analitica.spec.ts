@@ -40,15 +40,18 @@ test.describe('analitica @mssql', () => {
     // The cliente section's own "Agrupar por" <select> (GroupedDrilldownTable)
     // still toggles Entidad/Tienda grain, same underlying mechanism as before
     // flattening — just no longer gated behind a separate view-selector click.
-    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    // With all three sections rendered at once, "Por línea" has its own
+    // "Agrupar por" select too, so scope to the cliente section specifically.
+    const clienteSection = adminPage.locator('section', { has: adminPage.getByRole('heading', { name: 'Por cliente' }) });
+    const groupBySelect = clienteSection.getByLabel('Agrupar por:');
     await expect(groupBySelect).toBeVisible();
     await expect(groupBySelect).toHaveValue('cliente_entidad');
-    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
-    const entidadRowCount = await adminPage.locator('table tbody tr').count();
+    await expect(clienteSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+    const entidadRowCount = await clienteSection.locator('table tbody tr').count();
 
     await groupBySelect.selectOption('cliente_tienda');
-    await expect(adminPage.locator('table tbody tr')).not.toHaveCount(0);
-    const tiendaRowCount = await adminPage.locator('table tbody tr').count();
+    await expect(clienteSection.locator('table tbody tr')).not.toHaveCount(0);
+    const tiendaRowCount = await clienteSection.locator('table tbody tr').count();
     expect(tiendaRowCount).toBeGreaterThanOrEqual(entidadRowCount);
   });
 
@@ -94,26 +97,41 @@ test.describe('analitica @mssql', () => {
     // margin instead — its 6 KPI cards render as plain DOM <p> labels, no
     // longer as waterfall chart steps.
     await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
-    await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
-    // The section heading (<h2>) and this KPI's own label (<p>) are now both
-    // exactly "Margen Operativo" text nodes, so a bare getByText would hit
-    // both (strict-mode violation) — scope to the paragraph label.
-    await expect(adminPage.getByRole('paragraph').filter({ hasText: 'Margen Operativo' })).toBeVisible();
-    await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
+    // Task 7's proxy KPI row (above this card) also has its own "Ingresos
+    // operativos" tile, so scope these assertions to the Margen Operativo
+    // card section specifically, not the whole page. Both the card's own
+    // bg-white wrapper <div> and its nested header-row flex <div> match a
+    // bare `div` `has:` filter (ambiguous ordering), so target the card's
+    // own wrapper class directly instead of relying on .first()/.last().
+    const margenCard = adminPage.locator('div.bg-white', { has: adminPage.getByRole('heading', { name: 'Margen Operativo' }) });
+    await expect(margenCard.getByText('Ingresos operativos', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Gastos operativos', { exact: true })).toBeVisible();
+    // The section heading (<h2>), this KPI's own label (<p>), and Task 7's
+    // new "Margen Operativo %" label are all "Margen Operativo" text nodes
+    // or superstrings of it — scope to the paragraph label with an exact
+    // match to avoid matching "Margen Operativo %" too.
+    await expect(margenCard.getByText('Margen Operativo', { exact: true }).and(adminPage.locator('p'))).toBeVisible();
+    await expect(margenCard.getByText('Intereses', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Impuestos', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Utilidad neta', { exact: true })).toBeVisible();
 
     // The D&A/cost-center caveat tooltip lives on the card's info icon.
     await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
 
-    // Sales waterfall chart still renders (Bruto → Descuento → Neto → COGS →
-    // Utilidad Bruta only — the margin card's steps are not part of it).
+    // Proxy gross-margin waterfall renders (Part 2 of docs/superpowers/specs/
+    // 2026-09-15-analitica-ui-and-margin-design.md — Ingresos → Compras →
+    // Utilidad Bruta → Otros Gastos Operativos → Margen Operativo; the old
+    // always-0 Fact_Sales-based Bruto/Descuento/Neto/COGS waterfall is gone).
     const chart = adminPage.getByRole('application');
     await expect(chart).toBeVisible();
     const chartText = await chart.textContent();
+    expect(chartText).toContain('Ingresos');
+    expect(chartText).toContain('Compras');
     expect(chartText).toContain('Utilidad Bruta');
+    expect(chartText).toContain('Otros Gastos Operativos');
+    expect(chartText).toContain('Margen Operativo');
     expect(chartText).not.toContain('EBITDA');
+    expect(chartText).not.toContain('Descuento');
 
     // Expense category breakdown table, below the margin card — same
     // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
@@ -180,6 +198,27 @@ test.describe('analitica @mssql', () => {
     // hidden or blank).
     const breakdownText = await breakdownRowLocator.textContent();
     expect(breakdownText).toContain('Sin clasificar');
+  });
+
+  test('Finanzas tab shows Utilidad Bruta (proxy) and Margen Operativo % with the proxy tooltip note', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=finanzas&dateRange=custom:2024-01-01:2026-12-31');
+
+    // New KPI cards from the Part 2 restructure.
+    await expect(adminPage.getByText('Utilidad bruta (proxy)', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByText('Margen bruto (proxy)', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Margen Operativo %', { exact: true })).toBeVisible();
+
+    // Both KPI cards render a "%" value next to their amount, per the
+    // spec's "KPI cards show % next to both Utilidad Bruta and Margen
+    // Operativo amounts" requirement — assert the cards' own values contain
+    // a percent sign (not just presence of the label).
+    const margenBrutoCard = adminPage.locator('div', { has: adminPage.getByText('Margen bruto (proxy)', { exact: true }) }).last();
+    await expect(margenBrutoCard).toContainText('%');
+    const margenOperativoPctCard = adminPage.locator('div', { has: adminPage.getByText('Margen Operativo %', { exact: true }) }).last();
+    await expect(margenOperativoPctCard).toContainText('%');
+
+    // The inline proxy note is visible near the waterfall.
+    await expect(adminPage.getByText('Compras se usa como proxy de costo directo', { exact: false })).toBeVisible();
   });
 
   test('Finanzas tab drills Compras into suppliers and shows the Comisiones category', async ({ adminPage }) => {
@@ -298,7 +337,9 @@ test.describe('analitica @mssql', () => {
     await expect(proveedorSection.getByRole('heading')).toContainText('Por proveedor —');
     await expect(proveedorSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
 
-    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    // "Por línea" has its own "Agrupar por" select too, so scope to the
+    // proveedor section specifically.
+    const groupBySelect = proveedorSection.getByLabel('Agrupar por:');
     await expect(groupBySelect).toBeVisible();
     await expect(groupBySelect).toHaveValue('proveedor');
 
