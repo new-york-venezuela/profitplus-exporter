@@ -188,6 +188,10 @@ export async function GET(request: NextRequest) {
     const topDebtorsMapped: DebtorRow[] = topDebtors.map(r => ({
       name: r.Name,
       outstanding: Number(r.Outstanding),
+      // Resumen's summary view doesn't compute this (CxC's route does,
+      // for its own dedicated top-debtors table) — DebtorRow is shared
+      // between the two responses.
+      avgDaysToPay: null,
     }));
 
     const response: ResumenResponse = {
