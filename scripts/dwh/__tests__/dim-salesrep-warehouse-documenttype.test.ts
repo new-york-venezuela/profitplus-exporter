@@ -3,6 +3,14 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { runDwhMigrations, dwhDatabaseName } from '../../migrate-dwh';
 
+// Runs against a dedicated throwaway database, never the real local/shared
+// DWH_AlimentosNY -- afterAll drops this database unconditionally, which
+// would otherwise wipe a real dev DWH someone else migrated/loaded.
+// dwhDatabaseName() reads DW_NAME, so setting it before calling
+// runDwhMigrations() routes every migrate-dwh.ts call in this file at the
+// throwaway DB instead.
+process.env.DW_NAME = `DWH_AlimentosNY_Test_dim_salesrep_warehouse_documenttype_${Date.now()}`;
+
 function testConfig(database: string): sql.config {
   return {
     server: process.env.DW_SERVER ?? process.env.DB_SERVER!,
@@ -25,7 +33,7 @@ describe('Dim_SalesRep, Dim_Warehouse, Dim_DocumentType', () => {
     await runDwhMigrations();
     pool = await new sql.ConnectionPool(testConfig(dwhDatabaseName())).connect();
     erpPool = await new sql.ConnectionPool(testConfig(process.env.DB_NAME!)).connect();
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await pool.close();

@@ -2,6 +2,14 @@ import { describe, test, expect, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { runDwhMigrations, dwhDatabaseName } from '../../migrate-dwh';
 
+// Runs against a dedicated throwaway database, never the real local/shared
+// DWH_AlimentosNY -- afterAll drops this database unconditionally, which
+// would otherwise wipe a real dev DWH someone else migrated/loaded.
+// dwhDatabaseName() reads DW_NAME, so setting it before calling
+// runDwhMigrations() routes every migrate-dwh.ts call in this file at the
+// throwaway DB instead.
+process.env.DW_NAME = `DWH_AlimentosNY_Test_migrate_dwh_${Date.now()}`;
+
 function testConfig(database: string): sql.config {
   return {
     server: process.env.DW_SERVER ?? process.env.DB_SERVER!,
@@ -48,5 +56,5 @@ describe('migrate-dwh', () => {
 
     const secondRun = await runDwhMigrations();
     expect(secondRun).toEqual([]);
-  });
+  }, 60_000); // full migration run (all files) against a fresh DB, twice, exceeds bun's 5s default
 });
