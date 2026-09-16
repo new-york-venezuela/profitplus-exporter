@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  LineChart, Line, AreaChart, Area, Legend,
 } from 'recharts';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import type { Currency, CxcResponse, DateRange } from '../types';
@@ -188,6 +189,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                   <tr className="border-b border-gray-200">
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
                     <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Saldo</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Días prom. de pago</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -197,6 +199,9 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                       <td className="px-3 py-2 text-right font-medium text-gray-900">
                         {moneyLabel(d.outstanding, currency, rate)}
                       </td>
+                      <td className="px-3 py-2 text-right text-gray-600">
+                        {d.avgDaysToPay !== null ? d.avgDaysToPay.toFixed(1) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -205,6 +210,89 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
           )}
         </div>
       </div>
+
+      {/* Weekday x vencimiento */}
+      <ChartCard
+        title="Cobros por día de semana y estado de vencimiento"
+        subtitle="Monto cobrado, agrupado por día de la semana del pago y si la factura ya había vencido en ese momento"
+      >
+        {data.weekdayVencimiento.length === 0 ? (
+          <EmptyState message="Sin cobros con fecha de vencimiento resolvible todavía." />
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={data.weekdayVencimiento}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="weekday" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="noVencida" name="Aún no vencía" stackId="v" fill="#16a34a" />
+              <Bar dataKey="venceHoy" name="Vencía ese día" stackId="v" fill="#eab308" />
+              <Bar dataKey="vencida" name="Ya estaba vencida" stackId="v" fill="#dc2626" />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* DSO trend */}
+      <ChartCard
+        title="Tendencia de DSO (Days Sales Outstanding)"
+        subtitle="Saldo de cartera al cierre de cada mes con snapshot / ventas netas de los 90 días previos × 90"
+      >
+        {data.dsoTrend.filter(d => d.dso !== null).length === 0 ? (
+          <EmptyState message="Se necesita más de un snapshot de cuentas por cobrar (fact.Fact_AR_Snapshot) para trazar una tendencia." />
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={data.dsoTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip formatter={(val: unknown) => (val === null ? 'Sin datos' : `${Number(val).toFixed(1)} días`)} />
+              <Line type="monotone" dataKey="dso" name="DSO (días)" stroke="#2563eb" strokeWidth={2} dot connectNulls={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* Aging trend */}
+      <ChartCard
+        title="Tendencia de antigüedad de saldos"
+        subtitle="Misma clasificación (Current/1-30/31-60/61-90/>90) que el corte actual, trazada mes a mes"
+      >
+        {data.agingTrend.length === 0 ? (
+          <EmptyState message="Se necesita al menos un snapshot de cuentas por cobrar (fact.Fact_AR_Snapshot) para trazar esta tendencia." />
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart
+              data={data.agingTrend.map(row => {
+                const flat: Record<string, string | number> = { yearMonth: row.yearMonth };
+                for (const bucket of BUCKET_ORDER) {
+                  flat[bucket] = row.buckets.find(b => b.bucket === bucket)?.amount ?? 0;
+                }
+                return flat;
+              })}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {BUCKET_ORDER.map(bucket => (
+                <Area
+                  key={bucket}
+                  type="monotone"
+                  dataKey={bucket}
+                  name={bucket}
+                  stackId="aging"
+                  stroke={BUCKET_COLORS[bucket]}
+                  fill={BUCKET_COLORS[bucket]}
+                  fillOpacity={0.7}
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
     </div>
   );
 }
