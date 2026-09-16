@@ -214,7 +214,7 @@ This installation has **never recorded production/manufacturing cost** for any f
 - `saArtCompuesto` (BOM): zero finished-goods articles modeled as compuestos
 - `saArticulo.tipo_cos` is set to `'1'` (Último Costo/Last Cost) for all 65 active articles, but no cost values exist
 
-**Impact**: Margin dashboards (Gross Margin Waterfall, Margin by Product) **cannot be built from ERP data as it exists today**. The `UnitCost`/`COGSAmount`/`GrossProfitAmount` columns are wired into the schema and will populate automatically when cost data starts flowing, but do not build margin dashboards until this gap is resolved. See design spec §2 and §8 for details.
+**Impact**: Margin dashboards (Gross Margin Waterfall, Margin by Product) **cannot be built from ERP data as it exists today**. The `UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist as a reserved-but-unwired schema slot for a future cost source — `dwh.Load_Fact_Sales` currently inserts them as hardcoded `NULL, NULL, NULL, 'NO_COST_DATA'` with no join to any cost table at all (`dwh-migrations/0009_fact_sales.sql:117-122`), so nothing will populate them automatically; an upstream costing process AND a corresponding `Load_Fact_Sales` code change are both required before these columns hold real data. Do not build margin dashboards until this gap is resolved. See design spec §2 and §8 for details. (2026-09-15: the Finanzas tab's Margen Operativo now uses a Compras-based proxy for gross margin instead of waiting on this column — see the "Margen Operativo" workaround section below.)
 
 #### Fact_Returns
 **Grain**: 1 row per return line (`saDevolucionClienteReng`)  
@@ -554,7 +554,7 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 - `saArtCompuesto` (BOM): zero finished-goods articles modeled as compuestos
 - No recipe-cost or costing workflow exists
 
-**Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist and are wired to auto-populate when cost data flows; currently always `NULL` with `CostSourceFlag = 'NO_COST_DATA'`.
+**Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist as a reserved schema slot for a future cost source but are **not** wired to any live data path — `dwh.Load_Fact_Sales` inserts them as hardcoded `NULL, NULL, NULL, 'NO_COST_DATA'` (`dwh-migrations/0009_fact_sales.sql:117-122`), with no join to any cost table. Populating them for real requires both an upstream costing process in Profit Plus AND a `Load_Fact_Sales` code change — this is not automatic.
 
 **"Margen Operativo" workaround (shipped 2026-09-14, renamed from
 "EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin
@@ -576,6 +576,23 @@ settlement promptly. Margen Operativo now sources Ingresos from
 a view unioning `Fact_Purchases` ("Compras") with non-`MateriaPrima`
 `Fact_CashMovements` Gasto categories — see
 `docs/superpowers/specs/2026-09-15-margen-operativo-accrual-design.md`.
+
+**Utilidad Bruta (proxy) addition (2026-09-15):** the Finanzas tab's old
+`Fact_Sales`-based waterfall (`Bruto → Descuento → Neto → COGS → Utilidad
+Bruta`) was always `0`/unusable for margin reporting, for the same Cost Data
+Gap reason documented above — it has been removed. In its place, the
+waterfall now shows a **proxy** gross margin using Compras as a stand-in for
+COGS: `Utilidad Bruta (proxy) = Ingresos Operativos − Compras` (where
+Compras is the `dwh.vw_GastosOperativos` `'Compras'` category, i.e.
+`Fact_Purchases`), with `Margen Bruto % = Utilidad Bruta / Ingresos`. This is
+explicitly a proxy (Compras ≠ COGS — it includes non-resold purchases and
+excludes labor/overhead), distinct from Margen Operativo (which nets against
+*all* of `dwh.vw_GastosOperativos`, not just Compras): `Margen Operativo =
+Utilidad Bruta (proxy) − Otros Gastos Operativos` (`dwh.vw_GastosOperativos`
+minus its Compras rows), with `Margen Operativo % = Margen Operativo /
+Ingresos`. Both percentages are new fields on the Finanzas API response
+(`FinanzasResponse.margenProxy`) — see
+`docs/superpowers/specs/2026-09-15-analitica-ui-and-margin-design.md` Part 2.
 
 Deliberately **not** labeled EBITDA: it cannot isolate production cost from
 admin/sales cost, so it is not "earnings before" anything in the accounting
