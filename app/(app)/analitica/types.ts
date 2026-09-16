@@ -191,6 +191,23 @@ export interface ExpenseCategoryRow {
   amount: number;
 }
 
+// Proxy gross-margin waterfall (Part 2 of docs/superpowers/specs/
+// 2026-09-15-analitica-ui-and-margin-design.md): Compras stands in for COGS
+// since Fact_Sales has never recorded real product cost (see
+// docs/DATA_WAREHOUSE_GUIDE.md's Cost Data Gap section) — this is
+// deliberately a proxy, not exact COGS-based gross margin, and distinct
+// from Margen Operativo (which nets against ALL operating expenses, not
+// just Compras).
+export interface MargenProxy {
+  ingresos: number;
+  compras: number;
+  utilidadBruta: number; // ingresos - compras
+  margenBrutoRate: number | null; // utilidadBruta / ingresos
+  otrosGastosOperativos: number; // gastosOperativos - compras
+  margenOperativo: number; // utilidadBruta - otrosGastosOperativos (equals cashFlowEbitda.ebitda)
+  margenOperativoRate: number | null; // margenOperativo / ingresos
+}
+
 export interface CashFlowEbitda {
   ingresosOperativos: number;
   gastosOperativos: number;
@@ -203,6 +220,7 @@ export interface CashFlowEbitda {
 export interface FinanzasResponse {
   waterfall: FinanzasWaterfallStep[];
   cashFlowEbitda: CashFlowEbitda;
+  margenProxy: MargenProxy;
   expenseBreakdown: ExpenseCategoryRow[];
   usdRate: number | null;
 }

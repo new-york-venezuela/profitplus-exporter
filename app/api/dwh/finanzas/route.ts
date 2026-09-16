@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause, getDimensionSpec, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
-import type { FinanzasResponse, FinanzasWaterfallStep, ExpenseCategoryRow } from '@/app/(app)/analitica/types';
+import type { FinanzasResponse, FinanzasWaterfallStep, ExpenseCategoryRow, MargenProxy } from '@/app/(app)/analitica/types';
+import { computeMargenProxy } from './margen-proxy';
 
 export const dynamic = 'force-dynamic';
 
@@ -218,6 +219,13 @@ export async function GET(request: NextRequest) {
     const ebitda = ingresosOperativos - gastosOperativos;
     const utilidadNeta = ebitda - intereses - impuestos;
 
+    // comprasAmount pulled from the same expenseBreakdown array already
+    // computed above (one row per dwh.vw_GastosOperativos Category,
+    // 'Compras' among them) — no extra query needed, matching the spec's
+    // "No new SQL view needed" note.
+    const comprasAmount = expenseBreakdown.find(r => r.category === 'Compras')?.amount ?? 0;
+    const margenProxy = computeMargenProxy({ ingresos: ingresosOperativos, compras: comprasAmount, gastosOperativos });
+
     const response: FinanzasResponse = {
       waterfall,
       cashFlowEbitda: {
@@ -228,6 +236,7 @@ export async function GET(request: NextRequest) {
         impuestos,
         utilidadNeta,
       },
+      margenProxy,
       expenseBreakdown,
       usdRate,
     };
