@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
-import type { BreakdownRow, ComprasResponse, ComprasRow, Currency, DateRange, GroupBy, PivotDimension } from '../types';
+import type { BreakdownRow, ComprasResponse, ComprasRow, Currency, DateRange, PivotDimension } from '../types';
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -26,12 +26,6 @@ function EmptyState({ message }: { message?: string }) {
     </div>
   );
 }
-
-const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
-  { value: 'mes', label: 'Por mes' },
-  { value: 'proveedor', label: 'Por proveedor' },
-  { value: 'linea', label: 'Por línea' },
-];
 
 // "Por proveedor" has a single grain (unlike Ventas' cliente Entidad/Tienda
 // toggle) — suppliers don't have the multi-store fragmentation problem
@@ -65,72 +59,124 @@ export default function TabCompras({
   dateRange: DateRange;
   currency: Currency;
 }) {
-  const [groupBy, setGroupBy] = useState<GroupBy>('mes');
+  const [mesData, setMesData] = useState<ComprasResponse | null>(null);
+  const [mesLoading, setMesLoading] = useState<boolean>(true);
+  const [mesError, setMesError] = useState<string | null>(null);
+
   const [month, setMonth] = useState<string | null>(null);
-  const [data, setData] = useState<ComprasResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [proveedorData, setProveedorData] = useState<ComprasResponse | null>(null);
+  const [proveedorLoading, setProveedorLoading] = useState<boolean>(true);
+  const [proveedorError, setProveedorError] = useState<string | null>(null);
+
+  const [lineaData, setLineaData] = useState<ComprasResponse | null>(null);
+  const [lineaLoading, setLineaLoading] = useState<boolean>(true);
+  const [lineaError, setLineaError] = useState<string | null>(null);
   const [lineaBreakdownBy, setLineaBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setError(null);
-      setLoading(true);
+      setMesError(null);
+      setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy });
-        if (groupBy === 'proveedor' && month) params.set('month', month);
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'mes' });
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
+          setMesError(body.error ?? 'Error desconocido');
           return;
         }
-        const body: ComprasResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
+        setMesData(await res.json());
       } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
+        if (!cancelled) setMesError('No se pudo conectar con el servidor');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setMesLoading(false);
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy, month]);
+  }, [dateRange, currency]);
 
-  function handleGroupByChange(next: GroupBy) {
-    if (next !== 'proveedor') setMonth(null);
-    setGroupBy(next);
-  }
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setProveedorError(null);
+      setProveedorLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'proveedor' });
+        if (month) params.set('month', month);
+        const res = await fetch(`/api/dwh/compras?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setProveedorError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setProveedorData(await res.json());
+      } catch {
+        if (!cancelled) setProveedorError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setProveedorLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, month]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLineaError(null);
+      setLineaLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'linea' });
+        const res = await fetch(`/api/dwh/compras?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setLineaError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setLineaData(await res.json());
+      } catch {
+        if (!cancelled) setLineaError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setLineaLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency]);
 
   function handleBarClick(value: string) {
-    if (groupBy === 'mes') {
-      setMonth(value);
-      setGroupBy('proveedor');
-    }
+    setMonth(value);
+    document.getElementById('compras-proveedor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  function handleBreadcrumbClick(index: number, crumbGroupBy: GroupBy) {
-    if (index === 0) {
-      setMonth(null);
-    }
-    setGroupBy(crumbGroupBy);
-  }
-
-  const rate = data?.usdRate ?? undefined;
-  const chartData = (data?.rows ?? []).map(r => ({
+  const mesRate = mesData?.usdRate ?? undefined;
+  const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
     value: String(r.value),
     purchasesNet: r.purchasesNet,
   }));
 
-  const tableRows: ComprasTableRow[] = useMemo(
-    () => (data?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
-    [data]
+  const proveedorRate = proveedorData?.usdRate ?? undefined;
+  const proveedorTableRows: ComprasTableRow[] = useMemo(
+    () => (proveedorData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
+    [proveedorData]
+  );
+
+  const lineaRate = lineaData?.usdRate ?? undefined;
+  const lineaTableRows: ComprasTableRow[] = useMemo(
+    () => (lineaData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
+    [lineaData]
   );
 
   async function handleFetchLineaBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
@@ -141,12 +187,12 @@ export default function TabCompras({
     return body.breakdown ?? [];
   }
 
-  const columns: DrilldownColumn<ComprasTableRow>[] = [
+  const proveedorColumns: DrilldownColumn<ComprasTableRow>[] = [
     {
       key: 'purchasesNet',
       label: 'Compras netas',
       align: 'right',
-      format: row => moneyLabel(row.purchasesNet, currency, rate),
+      format: row => moneyLabel(row.purchasesNet, currency, proveedorRate),
     },
     {
       key: 'avgDiscount',
@@ -156,114 +202,103 @@ export default function TabCompras({
     },
   ];
 
-  const subtitleByGroupBy: Record<GroupBy, string> = {
-    mes: 'Compras netas por mes — clic en una barra para ver proveedores de ese mes',
-    proveedor: month ? 'Top proveedores del mes seleccionado' : 'Top proveedores por monto',
-    linea: 'Compras netas por línea de producto',
-  };
+  const lineaColumns: DrilldownColumn<ComprasTableRow>[] = [
+    {
+      key: 'purchasesNet',
+      label: 'Compras netas',
+      align: 'right',
+      format: row => moneyLabel(row.purchasesNet, currency, lineaRate),
+    },
+    {
+      key: 'avgDiscount',
+      label: 'Desc. prom.',
+      align: 'right',
+      format: row => (row.avgDiscount !== null ? `${(row.avgDiscount * 100).toFixed(1)}%` : '—'),
+    },
+  ];
 
   return (
-    <div className="p-6 max-w-7xl space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-          {GROUP_BY_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => handleGroupByChange(opt.value)}
-              className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                groupBy === opt.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {data && data.breadcrumb.length > 0 && (
-          <nav className="flex items-center gap-1 text-sm text-gray-500">
-            {data.breadcrumb.map((crumb, i) => (
-              <span key={`${crumb.groupBy}-${i}`} className="flex items-center gap-1">
-                {i > 0 && <span className="text-gray-300">/</span>}
-                {i === data.breadcrumb.length - 1 ? (
-                  <span className="font-medium text-gray-800">{crumb.label}</span>
-                ) : (
-                  <button
-                    onClick={() => handleBreadcrumbClick(i, crumb.groupBy)}
-                    className="hover:text-blue-600 hover:underline"
-                  >
-                    {crumb.label}
-                  </button>
-                )}
-              </span>
-            ))}
-          </nav>
+    <div className="p-6 max-w-7xl space-y-8">
+      {/* Por mes */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por mes</h3>
+        {mesLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+        {!mesLoading && mesError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
-      </div>
+        {!mesLoading && !mesError && (
+          <ChartCard title="Tendencia de compras" subtitle="Compras netas por mes — clic en una barra para ver proveedores de ese mes">
+            {chartData.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart data={chartData} margin={{ top: 8, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, mesRate)} />
+                  <Tooltip formatter={val => moneyTooltip(val, currency, mesRate)} />
+                  <Bar
+                    dataKey="purchasesNet"
+                    fill="#2563eb"
+                    radius={[3, 3, 0, 0]}
+                    cursor="pointer"
+                    onClick={(entry: any) => handleBarClick(entry.payload?.value)}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+        )}
+      </section>
 
-      {loading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+      {/* Por proveedor */}
+      <section id="compras-proveedor-section">
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+          Por proveedor{month ? ` — ${month}` : ''}
+        </h3>
+        {proveedorLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+        {!proveedorLoading && proveedorError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{proveedorError}</p>
+        )}
+        {!proveedorLoading && !proveedorError && proveedorData && (
+          <GroupedDrilldownTable<ComprasTableRow>
+            rows={proveedorTableRows}
+            columns={proveedorColumns}
+            groupByOptions={PROVEEDOR_GROUP_BY_OPTIONS}
+            groupBy="proveedor"
+            onGroupByChange={() => {}}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, proveedorRate) : String(value ?? '—'))}
+          />
+        )}
+        {month && (
+          <button onClick={() => setMonth(null)} className="mt-2 text-xs text-blue-600 hover:underline">
+            Quitar filtro de mes
+          </button>
+        )}
+      </section>
 
-      {!loading && error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
-      )}
-
-      {!loading && !error && (
-        <ChartCard title="Tendencia de compras" subtitle={subtitleByGroupBy[groupBy]}>
-          {chartData.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <ResponsiveContainer width="100%" height={380}>
-              <BarChart data={chartData} layout={groupBy === 'mes' ? 'horizontal' : 'vertical'} margin={{ top: 8, left: groupBy === 'mes' ? 0 : 24 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                {groupBy === 'mes' ? (
-                  <>
-                    <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-                  </>
-                ) : (
-                  <>
-                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money(v, currency, rate)} />
-                    <YAxis type="category" dataKey="label" width={200} tick={{ fontSize: 11 }} />
-                  </>
-                )}
-                <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
-                <Bar
-                  dataKey="purchasesNet"
-                  fill="#2563eb"
-                  radius={groupBy === 'mes' ? [3, 3, 0, 0] : [0, 3, 3, 0]}
-                  cursor={groupBy === 'mes' ? 'pointer' : undefined}
-                  onClick={groupBy === 'mes' ? (entry: any) => handleBarClick(entry.payload?.value) : undefined}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-      )}
-
-      {!loading && !error && data && groupBy === 'proveedor' && (
-        <GroupedDrilldownTable<ComprasTableRow>
-          rows={tableRows}
-          columns={columns}
-          groupByOptions={PROVEEDOR_GROUP_BY_OPTIONS}
-          groupBy="proveedor"
-          onGroupByChange={() => {}}
-          formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
-        />
-      )}
-
-      {!loading && !error && data && groupBy === 'linea' && (
-        <GroupedDrilldownTable<ComprasTableRow>
-          rows={tableRows}
-          columns={columns}
-          groupByOptions={LINEA_GROUP_BY_OPTIONS}
-          groupBy="producto"
-          onGroupByChange={() => {}}
-          breakdownByOptions={LINEA_BREAKDOWN_BY_OPTIONS}
-          breakdownBy={lineaBreakdownBy}
-          onBreakdownByChange={setLineaBreakdownBy}
-          onFetchBreakdown={handleFetchLineaBreakdown}
-          formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
-        />
-      )}
+      {/* Por línea */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por línea</h3>
+        {lineaLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+        {!lineaLoading && lineaError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{lineaError}</p>
+        )}
+        {!lineaLoading && !lineaError && lineaData && (
+          <GroupedDrilldownTable<ComprasTableRow>
+            rows={lineaTableRows}
+            columns={lineaColumns}
+            groupByOptions={LINEA_GROUP_BY_OPTIONS}
+            groupBy="producto"
+            onGroupByChange={() => {}}
+            breakdownByOptions={LINEA_BREAKDOWN_BY_OPTIONS}
+            breakdownBy={lineaBreakdownBy}
+            onBreakdownByChange={setLineaBreakdownBy}
+            onFetchBreakdown={handleFetchLineaBreakdown}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, lineaRate) : String(value ?? '—'))}
+          />
+        )}
+      </section>
     </div>
   );
 }
