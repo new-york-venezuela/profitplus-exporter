@@ -212,12 +212,6 @@ export interface ProductosResponse {
 }
 
 // Finanzas tab
-export interface FinanzasWaterfallStep {
-  step: string; // 'Bruto' → 'Descuento' → 'Neto' → 'COGS' → 'Utilidad'
-  amount: number;
-  cumulative: number;
-}
-
 export interface ExpenseCategoryRow {
   category: string;
   amount: number;
@@ -250,7 +244,6 @@ export interface CashFlowEbitda {
 }
 
 export interface FinanzasResponse {
-  waterfall: FinanzasWaterfallStep[];
   cashFlowEbitda: CashFlowEbitda;
   margenProxy: MargenProxy;
   expenseBreakdown: ExpenseCategoryRow[];
