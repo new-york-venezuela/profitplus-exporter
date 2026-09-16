@@ -151,10 +151,47 @@ Add a "Días promedio de pago" column to the existing top-debtors table
 each debtor's `Fact_Collections` rows (once 3a lands). Debtors with no resolvable
 due-date rows show "—".
 
+## Part 4 — Cleanup
+
+Investigated (`app/api/dwh/finanzas/route.ts`, `app/api/dwh/productos/route.ts`,
+migrations, docs) what removing/changing here touches elsewhere:
+`GrossProfitAmount` also backs the Productos tab's margin column
+(`tab-productos.tsx:210`, always "—" today, same root cause). Decision: **keep the
+`Fact_Sales` cost columns in the schema** — they're the intended slot for real
+cost data once an upstream costing process exists in Profit Plus, and Productos
+still legitimately wants that margin column then. Cleanup here is code-level only,
+scoped to Finanzas.
+
+- **Dead code (Finanzas)**: remove the old `Fact_Sales.GrossProfitAmount`/
+  `COGSAmount`-reading waterfall-building code in `app/api/dwh/finanzas/route.ts`
+  (the `cogsAmount`/`grossProfitAmount` reads and the old `Bruto`/`Descuento`/
+  `Neto`/`COGS`/`Utilidad Bruta` waterfall steps, replaced by Part 2's proxy
+  steps) and any now-unused fields on `FinanzasResponse`/`FinanzasWaterfallStep`
+  in `types.ts`.
+- **Dead code (view-selectors)**: remove the old `groupBy` state, button rows,
+  and now-redundant conditional render branches in `tab-ventas.tsx`,
+  `tab-compras.tsx`, `tab-devoluciones.tsx` once flattened (Part 1) — no leftover
+  unused state/props.
+- **Doc corrections**: update `docs/DATA_WAREHOUSE_GUIDE.md`'s Finanzas/waterfall
+  section to describe the new Compras-proxy calc instead of the old
+  `Fact_Sales`-based one (the "Cost Data Gap" callout itself stays — it's still
+  accurate — but the "Margen Operativo workaround" prose needs the Utilidad
+  Bruta proxy addition). Also correct the "wired to auto-populate when cost data
+  flows" language (`DATA_WAREHOUSE_GUIDE.md:557`, `dwh-migrations/README.md:28`,
+  `docs/superpowers/specs/2026-08-25-sales-margin-collections-dwh-design.md:82`) —
+  investigation found `Load_Fact_Sales` inserts these columns as hardcoded
+  `NULL, NULL, NULL, 'NO_COST_DATA'` with no join to any cost source table
+  (`dwh-migrations/0009_fact_sales.sql:117-121`) — there is no live plumbing
+  today, only a placeholder schema slot. Correct this to describe accurately as a
+  reserved-but-unwired column, not "wired."
+- **No schema/ETL changes** to `Fact_Sales` cost columns — out of scope, see below.
+
 ## Out of scope
 
-- Any change to `Fact_Sales.GrossProfitAmount`/true COGS — still blocked on an
-  upstream Profit Plus costing process (unchanged known limitation).
+- Any change to `Fact_Sales.GrossProfitAmount`/true COGS, or removing those
+  columns — still blocked on an upstream Profit Plus costing process (unchanged
+  known limitation); Productos tab still depends on the column existing.
+- Productos tab's dead margin column — same root cause, left as-is.
 - Nómina cost-center split (production vs. admin) — unchanged known limitation
   (93.4% unclassifiable, documented).
 - Re-verifying Nómina totals against production — separate future task if needed.
