@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause } from '../query-builder';
+import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -185,5 +185,24 @@ describe('buildDateWhereClause', () => {
     expect(buildDateWhereClause('12m', 'fe')).toBe(
       "AND fe.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))"
     );
+  });
+});
+
+describe('jsonWithCache', () => {
+  test('sets Cache-Control: private, max-age=900 on the response', () => {
+    const res = jsonWithCache({ ok: true });
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=900');
+  });
+
+  test('still serializes the given body as JSON', async () => {
+    const res = jsonWithCache({ foo: 'bar', n: 42 });
+    const body = await res.json();
+    expect(body).toEqual({ foo: 'bar', n: 42 });
+  });
+
+  test('preserves a caller-supplied status via init', () => {
+    const res = jsonWithCache({ ok: true }, { status: 201 });
+    expect(res.status).toBe(201);
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=900');
   });
 });

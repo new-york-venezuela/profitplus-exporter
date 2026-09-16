@@ -8,4 +8,10 @@ describe('GET /api/dwh/finanzas', () => {
     const res = await GET(req);
     expect(res.status).toBe(401);
   });
+
+  test('the 401 auth-rejection response is never cached', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/finanzas?dateRange=12m');
+    const res = await GET(req);
+    expect(res.headers.get('Cache-Control')).not.toBe('private, max-age=900');
+  });
 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
         GROUP BY ${breakdownSpec.groupByColumn}
         ORDER BY ReturnsNet DESC
       `);
-      return NextResponse.json({
+      return jsonWithCache({
         breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), returnsNet: Number(r.ReturnsNet) })),
       });
     }
@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
       usdRate,
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

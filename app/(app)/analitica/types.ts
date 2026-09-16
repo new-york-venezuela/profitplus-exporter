@@ -57,6 +57,11 @@ export interface AgingBucketRow {
 export interface DebtorRow {
   name: string;
   outstanding: number;
+  // Average (DateKey - DueDateKey) in days across this debtor's
+  // Fact_Collections rows with a resolvable DueDateKey (0027's join) — null
+  // when the debtor has no such rows (shown as "—" in the UI). Positive =
+  // paid late on average, negative = paid early on average.
+  avgDaysToPay: number | null;
 }
 
 export interface ResumenResponse {
@@ -123,12 +128,39 @@ export interface DevolucionesResponse {
 }
 
 // CXC tab
+// Part 3b of docs/superpowers/specs/2026-09-15-analitica-ui-and-margin-design.md:
+// one row per weekday (Lun-Dom), 3 amounts per row for the 3
+// vencimiento-status series at time of payment.
+export interface WeekdayVencimientoRow {
+  weekday: string; // 'Lun' | 'Mar' | ... | 'Dom'
+  venceHoy: number; // DateKey == DueDateKey
+  vencida: number; // DateKey > DueDateKey
+  noVencida: number; // DateKey < DueDateKey
+}
+
+// Part 3c: monthly DSO, independent of the CxC tab's own snapshot-only date
+// handling — one point per month that has at least one Fact_AR_Snapshot run.
+export interface DsoTrendRow {
+  yearMonth: string;
+  dso: number | null;
+}
+
+// Part 3d: existing aging buckets (Current/1-30/31-60/61-90/>90), trended
+// monthly instead of a single MAX(SnapshotDateKey) snapshot.
+export interface AgingTrendRow {
+  yearMonth: string;
+  buckets: AgingBucketRow[];
+}
+
 export interface CxcResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors: DebtorRow[];
   overdueShare: number | null;
   snapshotDateKey: number | null;
   usdRate: number | null;
+  weekdayVencimiento: WeekdayVencimientoRow[];
+  dsoTrend: DsoTrendRow[];
+  agingTrend: AgingTrendRow[];
 }
 
 // Vendedores tab
@@ -180,15 +212,26 @@ export interface ProductosResponse {
 }
 
 // Finanzas tab
-export interface FinanzasWaterfallStep {
-  step: string; // 'Bruto' → 'Descuento' → 'Neto' → 'COGS' → 'Utilidad'
-  amount: number;
-  cumulative: number;
-}
-
 export interface ExpenseCategoryRow {
   category: string;
   amount: number;
+}
+
+// Proxy gross-margin waterfall (Part 2 of docs/superpowers/specs/
+// 2026-09-15-analitica-ui-and-margin-design.md): Compras stands in for COGS
+// since Fact_Sales has never recorded real product cost (see
+// docs/DATA_WAREHOUSE_GUIDE.md's Cost Data Gap section) — this is
+// deliberately a proxy, not exact COGS-based gross margin, and distinct
+// from Margen Operativo (which nets against ALL operating expenses, not
+// just Compras).
+export interface MargenProxy {
+  ingresos: number;
+  compras: number;
+  utilidadBruta: number; // ingresos - compras
+  margenBrutoRate: number | null; // utilidadBruta / ingresos
+  otrosGastosOperativos: number; // gastosOperativos - compras
+  margenOperativo: number; // utilidadBruta - otrosGastosOperativos (equals cashFlowEbitda.ebitda)
+  margenOperativoRate: number | null; // margenOperativo / ingresos
 }
 
 export interface CashFlowEbitda {
@@ -201,8 +244,8 @@ export interface CashFlowEbitda {
 }
 
 export interface FinanzasResponse {
-  waterfall: FinanzasWaterfallStep[];
   cashFlowEbitda: CashFlowEbitda;
+  margenProxy: MargenProxy;
   expenseBreakdown: ExpenseCategoryRow[];
   usdRate: number | null;
 }

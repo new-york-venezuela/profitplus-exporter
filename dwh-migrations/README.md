@@ -25,7 +25,7 @@ The runner connects to `master` first to create the database if it doesn't exist
 
 ## Margin/cost data — deferred
 
-`Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` are wired into the schema but always `NULL` (`CostSourceFlag = 'NO_COST_DATA'`) as of this plan. See `docs/superpowers/specs/2026-08-25-sales-margin-collections-dwh-design.md` §1/§2/§8 — no finished-goods production cost has ever been recorded in Profit Plus for this installation. Do not build a margin dashboard against these columns until that upstream gap is resolved and this note is removed.
+`Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` exist in the schema as a reserved-but-unwired slot, always `NULL` (`CostSourceFlag = 'NO_COST_DATA'`) — `dwh.Load_Fact_Sales` inserts them as hardcoded `NULL, NULL, NULL, 'NO_COST_DATA'` with no join to any cost source (`0009_fact_sales.sql:117-122`), not "wired" to anything that would populate them automatically. See `docs/superpowers/specs/2026-08-25-sales-margin-collections-dwh-design.md` §1/§2/§8 — no finished-goods production cost has ever been recorded in Profit Plus for this installation. Do not build a margin dashboard against these columns until that upstream gap is resolved and this note is removed. (The Finanzas tab's Margen Operativo instead uses a Compras-based proxy for gross margin — see `docs/DATA_WAREHOUSE_GUIDE.md`'s Cost Data Gap section.)
 
 ## Incremental watermark strategy
 

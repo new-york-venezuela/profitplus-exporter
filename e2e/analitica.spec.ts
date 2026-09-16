@@ -27,42 +27,49 @@ import { test, expect } from './fixtures';
 // userPage, to reach the page at all.
 
 test.describe('analitica @mssql', () => {
-  test('toggling Entidad/Tienda changes the Ventas top-clientes list', async ({ adminPage }) => {
+  test('Ventas tab renders all three sections at once and Entidad/Tienda toggles the cliente section', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=ventas');
-    await expect(adminPage.getByRole('button', { name: 'Por cliente' })).toBeVisible({ timeout: 15_000 });
-    await adminPage.getByRole('button', { name: 'Por cliente' }).click();
 
-    // Ventas' cliente view uses GroupedDrilldownTable's own "Agrupar por"
-    // <select> for the Entidad/Tienda toggle (tab-ventas.tsx no longer
-    // renders a separate hand-rolled button toggle — removed as redundant
-    // duplicate UI). Default dimension is "Entidad" (cliente_entidad) once
-    // groupBy=cliente.
-    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    // Part 1 flattening: all three sections render immediately, no toggle
+    // click required. Assert all three section headings are visible
+    // simultaneously (not one-at-a-time behind a button).
+    await expect(adminPage.getByRole('heading', { name: 'Por mes' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Por cliente' })).toBeVisible();
+    await expect(adminPage.getByRole('heading', { name: 'Por línea' })).toBeVisible();
+
+    // The cliente section's own "Agrupar por" <select> (GroupedDrilldownTable)
+    // still toggles Entidad/Tienda grain, same underlying mechanism as before
+    // flattening — just no longer gated behind a separate view-selector click.
+    // With all three sections rendered at once, "Por línea" has its own
+    // "Agrupar por" select too, so scope to the cliente section specifically.
+    const clienteSection = adminPage.locator('section', { has: adminPage.getByRole('heading', { name: 'Por cliente' }) });
+    const groupBySelect = clienteSection.getByLabel('Agrupar por:');
     await expect(groupBySelect).toBeVisible();
     await expect(groupBySelect).toHaveValue('cliente_entidad');
-    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
-    const entidadRowCount = await adminPage.locator('table tbody tr').count();
+    await expect(clienteSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+    const entidadRowCount = await clienteSection.locator('table tbody tr').count();
 
     await groupBySelect.selectOption('cliente_tienda');
-    await expect(adminPage.locator('table tbody tr')).not.toHaveCount(0);
-    // Store grain should show at least as many rows as entity grain: every
-    // multi-store chain expands into multiple rows, standalone customers
-    // are unchanged.
-    const tiendaRowCount = await adminPage.locator('table tbody tr').count();
+    await expect(clienteSection.locator('table tbody tr')).not.toHaveCount(0);
+    const tiendaRowCount = await clienteSection.locator('table tbody tr').count();
     expect(tiendaRowCount).toBeGreaterThanOrEqual(entidadRowCount);
   });
 
-  test('a multi-store chain appears as a single row in Devoluciones entity mode', async ({ adminPage }) => {
+  test('Devoluciones tab renders all three sections at once and the cliente section supports Entidad grain', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=devoluciones');
-    await expect(adminPage.getByRole('button', { name: 'Por Cliente' })).toBeVisible({ timeout: 15_000 });
-    await adminPage.getByRole('button', { name: 'Por Cliente' }).click();
-    await expect(adminPage.getByRole('button', { name: 'Entidad' })).toBeVisible();
-    await adminPage.getByRole('button', { name: 'Entidad' }).click();
 
-    // Assert the table renders without error and has at least one row -
-    // exact chain names depend on whatever ERP test data is loaded, so this
-    // checks structure/non-emptiness rather than a hardcoded name.
-    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+    // Part 1 flattening: no "Por Cliente" button to click — all three
+    // sections (vendedor/producto/cliente) render immediately.
+    await expect(adminPage.getByRole('heading', { name: 'Por vendedor' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Por producto' })).toBeVisible();
+    await expect(adminPage.getByRole('heading', { name: 'Por cliente' })).toBeVisible();
+
+    // The cliente section defaults to Entidad grain already (same default as
+    // before flattening) — assert the table renders without error and has
+    // at least one row, same structural check as the original test (exact
+    // chain names depend on whatever ERP test data is loaded).
+    const clienteSection = adminPage.locator('section', { has: adminPage.getByRole('heading', { name: 'Por cliente' }) });
+    await expect(clienteSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('expanding a Vendedores row loads a product breakdown', async ({ adminPage }) => {
@@ -90,26 +97,41 @@ test.describe('analitica @mssql', () => {
     // margin instead — its 6 KPI cards render as plain DOM <p> labels, no
     // longer as waterfall chart steps.
     await expect(adminPage.getByRole('heading', { name: 'Margen Operativo' })).toBeVisible({ timeout: 15_000 });
-    await expect(adminPage.getByText('Ingresos operativos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Gastos operativos', { exact: true })).toBeVisible();
-    // The section heading (<h2>) and this KPI's own label (<p>) are now both
-    // exactly "Margen Operativo" text nodes, so a bare getByText would hit
-    // both (strict-mode violation) — scope to the paragraph label.
-    await expect(adminPage.getByRole('paragraph').filter({ hasText: 'Margen Operativo' })).toBeVisible();
-    await expect(adminPage.getByText('Intereses', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Impuestos', { exact: true })).toBeVisible();
-    await expect(adminPage.getByText('Utilidad neta', { exact: true })).toBeVisible();
+    // Task 7's proxy KPI row (above this card) also has its own "Ingresos
+    // operativos" tile, so scope these assertions to the Margen Operativo
+    // card section specifically, not the whole page. Both the card's own
+    // bg-white wrapper <div> and its nested header-row flex <div> match a
+    // bare `div` `has:` filter (ambiguous ordering), so target the card's
+    // own wrapper class directly instead of relying on .first()/.last().
+    const margenCard = adminPage.locator('div.bg-white', { has: adminPage.getByRole('heading', { name: 'Margen Operativo' }) });
+    await expect(margenCard.getByText('Ingresos operativos', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Gastos operativos', { exact: true })).toBeVisible();
+    // The section heading (<h2>), this KPI's own label (<p>), and Task 7's
+    // new "Margen Operativo %" label are all "Margen Operativo" text nodes
+    // or superstrings of it — scope to the paragraph label with an exact
+    // match to avoid matching "Margen Operativo %" too.
+    await expect(margenCard.getByText('Margen Operativo', { exact: true }).and(adminPage.locator('p'))).toBeVisible();
+    await expect(margenCard.getByText('Intereses', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Impuestos', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Utilidad neta', { exact: true })).toBeVisible();
 
     // The D&A/cost-center caveat tooltip lives on the card's info icon.
     await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();
 
-    // Sales waterfall chart still renders (Bruto → Descuento → Neto → COGS →
-    // Utilidad Bruta only — the margin card's steps are not part of it).
+    // Proxy gross-margin waterfall renders (Part 2 of docs/superpowers/specs/
+    // 2026-09-15-analitica-ui-and-margin-design.md — Ingresos → Compras →
+    // Utilidad Bruta → Otros Gastos Operativos → Margen Operativo; the old
+    // always-0 Fact_Sales-based Bruto/Descuento/Neto/COGS waterfall is gone).
     const chart = adminPage.getByRole('application');
     await expect(chart).toBeVisible();
     const chartText = await chart.textContent();
+    expect(chartText).toContain('Ingresos');
+    expect(chartText).toContain('Compras');
     expect(chartText).toContain('Utilidad Bruta');
+    expect(chartText).toContain('Otros Gastos Operativos');
+    expect(chartText).toContain('Margen Operativo');
     expect(chartText).not.toContain('EBITDA');
+    expect(chartText).not.toContain('Descuento');
 
     // Expense category breakdown table, below the margin card — same
     // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
@@ -176,6 +198,27 @@ test.describe('analitica @mssql', () => {
     // hidden or blank).
     const breakdownText = await breakdownRowLocator.textContent();
     expect(breakdownText).toContain('Sin clasificar');
+  });
+
+  test('Finanzas tab shows Utilidad Bruta (proxy) and Margen Operativo % with the proxy tooltip note', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=finanzas&dateRange=custom:2024-01-01:2026-12-31');
+
+    // New KPI cards from the Part 2 restructure.
+    await expect(adminPage.getByText('Utilidad bruta (proxy)', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByText('Margen bruto (proxy)', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Margen Operativo %', { exact: true })).toBeVisible();
+
+    // Both KPI cards render a "%" value next to their amount, per the
+    // spec's "KPI cards show % next to both Utilidad Bruta and Margen
+    // Operativo amounts" requirement — assert the cards' own values contain
+    // a percent sign (not just presence of the label).
+    const margenBrutoCard = adminPage.locator('div', { has: adminPage.getByText('Margen bruto (proxy)', { exact: true }) }).last();
+    await expect(margenBrutoCard).toContainText('%');
+    const margenOperativoPctCard = adminPage.locator('div', { has: adminPage.getByText('Margen Operativo %', { exact: true }) }).last();
+    await expect(margenOperativoPctCard).toContainText('%');
+
+    // The inline proxy note is visible near the waterfall.
+    await expect(adminPage.getByText('Compras se usa como proxy de costo directo', { exact: false })).toBeVisible();
   });
 
   test('Finanzas tab drills Compras into suppliers and shows the Comisiones category', async ({ adminPage }) => {
@@ -267,79 +310,57 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage.getByRole('button', { name: '90 días' })).toHaveCount(0);
   });
 
-  test('Compras tab shows the monthly trend, drills into proveedores, and expands a línea breakdown', async ({ adminPage }) => {
+  test('Compras tab renders all three sections at once, month-click filters proveedores, and a línea breakdown expands', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=compras');
 
-    // Monthly chart renders by default (groupBy=mes).
+    // Part 1 flattening: all three sections render immediately.
+    await expect(adminPage.getByRole('heading', { name: 'Por mes' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Por proveedor' })).toBeVisible();
+    await expect(adminPage.getByRole('heading', { name: 'Por línea' })).toBeVisible();
+
     const chart = adminPage.getByRole('application');
     await expect(chart).toBeVisible({ timeout: 15_000 });
 
-    // Clicking a bar drills into proveedores for that month (groupBy flips to
-    // "proveedor" and a breadcrumb showing the selected month appears).
-    // Two recharts+Playwright quirks combine here: (1) the entrance
-    // animation grows each bar's height from 0 over ~1.5s, so an early click
-    // lands on a near-zero-height <path> sitting right on the baseline axis
-    // line, which Playwright's actionability check reports as "subtree
-    // intercepts pointer events" / "element is not stable"; (2) some months
-    // in the seeded data have very small purchase totals, so even after the
-    // animation settles their bar can still render at (near-)zero height,
-    // making a click on that specific bar unreliable regardless of timing.
-    // Waiting past the animation and clicking the LAST bar (chronologically
-    // most recent month, most likely to have accumulated a non-trivial
-    // total in the seeded data) avoids both issues.
+    // Same two recharts+Playwright quirks as the original test: the entrance
+    // animation grows each bar from 0 height over ~1.5s, and some months in
+    // the seeded data have near-zero totals — wait past the animation and
+    // click the last (most recent, most likely non-trivial) bar.
     const bars = chart.locator('.recharts-bar-rectangle path');
     await expect(bars.first()).toBeVisible({ timeout: 15_000 });
     await adminPage.waitForTimeout(1_500);
     await bars.last().click({ force: true });
 
-    await expect(adminPage.getByRole('button', { name: 'Por proveedor' })).toHaveClass(/bg-blue-600/);
-    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+    // Clicking a month bar no longer swaps sections (there's only one
+    // layout) — it scopes+scrolls to the always-visible "Por proveedor"
+    // section, whose heading now shows the selected month.
+    const proveedorSection = adminPage.locator('section#compras-proveedor-section');
+    await expect(proveedorSection.getByRole('heading')).toContainText('Por proveedor —');
+    await expect(proveedorSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
 
-    // Proveedor view has a single grain — the "Agrupar por" select exists
-    // (GroupedDrilldownTable always renders it) but has no breakdown toggle,
-    // since suppliers don't have Ventas' Entidad/Tienda multi-store split.
-    const groupBySelect = adminPage.getByLabel('Agrupar por:');
+    // "Por línea" has its own "Agrupar por" select too, so scope to the
+    // proveedor section specifically.
+    const groupBySelect = proveedorSection.getByLabel('Agrupar por:');
     await expect(groupBySelect).toBeVisible();
     await expect(groupBySelect).toHaveValue('proveedor');
 
-    // Switch to "Por línea" and expand the first row's producto breakdown.
-    await adminPage.getByRole('button', { name: 'Por línea' }).click();
-    const outerRows = adminPage.locator('table.min-w-full.text-sm > tbody > tr');
+    // "Por línea" section — expand the first row's producto breakdown.
+    const lineaSection = adminPage.locator('section', { has: adminPage.getByRole('heading', { name: 'Por línea' }) });
+    const outerRows = lineaSection.locator('table.min-w-full.text-sm > tbody > tr');
     await expect(outerRows.first()).toBeVisible({ timeout: 15_000 });
 
-    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
+    await lineaSection.getByLabel('Desglosar por:').selectOption('producto');
     const firstOuterRow = outerRows.first();
     const expandButton = firstOuterRow.locator('button[aria-label="Expandir"]');
     await expect(expandButton).toBeVisible();
 
-    // The parent row's money cell (second-to-last <td> — "Compras netas";
-    // `.last()` would be "Desc. prom.", a currency-independent percentage
-    // that correctly does not change on toggle) is captured before
-    // expanding, since expanding inserts a sibling <tr> that would otherwise
-    // shift which row "first()" resolves to only if row identity changed
-    // (it doesn't here, but capturing pre-expand keeps the two reads
-    // unambiguous).
     const parentMoneyCell = firstOuterRow.locator('td').nth(-2);
     const parentAmountBs = await parentMoneyCell.textContent();
 
     await expandButton.click();
 
-    // The breakdown renders as a nested <table> inside the sibling <tr> that
-    // follows the expanded row (see grouped-drilldown-table.tsx) — wait for
-    // that nested table's own first row specifically, rather than indexing
-    // into a flattened "table tbody tr" locator, which matches every <tr>
-    // under any <tbody> in the DOM (both outer rows AND the nested
-    // breakdown table's rows interleaved in document order) and is prone to
-    // racing the async breakdown fetch.
     const breakdownRows = firstOuterRow.locator('xpath=following-sibling::tr[1]').locator('table tbody tr');
     await expect(breakdownRows.first()).toBeVisible({ timeout: 15_000 });
 
-    // Regression guard for the 2026-09-11 bug class (see the Finanzas test
-    // above): the expanded producto breakdown row must apply moneyLabel /
-    // currency conversion via formatBreakdownMetric, not a raw toLocaleString
-    // that ignores the currency toggle. The breakdown row carries a single
-    // `purchasesNet` metric (see route's lineaProductBreakdownQuery), so
-    // `.last()` td there is the money cell.
     const productoAmountBs = await breakdownRows.first().locator('td').last().textContent();
 
     await adminPage.getByRole('button', { name: 'USD' }).click();
@@ -347,15 +368,10 @@ test.describe('analitica @mssql', () => {
     await expect(parentMoneyCell).not.toHaveText(parentAmountBs ?? '');
     await expect(parentMoneyCell).toContainText('$');
 
-    // TabCompras's data-fetch effect depends on `currency`, so toggling it
-    // sets `loading` true and momentarily unmounts the whole
-    // GroupedDrilldownTable (tab-compras.tsx's `{!loading && ... &&
-    // (<GroupedDrilldownTable .../>)}` gate) while the new-currency request
-    // is in flight — the same pattern tab-ventas.tsx and tab-finanzas.tsx
-    // use. That remount resets GroupedDrilldownTable's internal
-    // `expandedValue` state, collapsing the row back to "▸" once the fetch
-    // resolves, so the breakdown must be re-expanded before its (fresh)
-    // money cell can be read and compared.
+    // Toggling currency remounts each section's GroupedDrilldownTable while
+    // its own fetch is in flight (same effect-dependency-on-currency pattern
+    // as every other tab), collapsing the expanded row — re-expand before
+    // reading its fresh money cell.
     const expandButtonAfterToggle = outerRows.first().locator('button[aria-label="Expandir"]');
     await expect(expandButtonAfterToggle).toBeVisible({ timeout: 15_000 });
     await expandButtonAfterToggle.click();
@@ -366,5 +382,31 @@ test.describe('analitica @mssql', () => {
 
     await expect(productoMoneyCellAfterToggle).not.toHaveText(productoAmountBs ?? '');
     await expect(productoMoneyCellAfterToggle).toContainText('$');
+  });
+
+  test('CxC tab renders the weekday, DSO trend, aging trend charts and the avg-días-de-pago debtor column', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=cxc');
+
+    // Existing AR aging chart + top-debtors table still render (baseline,
+    // unaffected by this task's additions).
+    await expect(adminPage.getByRole('heading', { name: 'Antigüedad de saldos (AR Aging)' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Mayor concentración de crédito' })).toBeVisible();
+
+    // New top-debtors column (Part 3e) — header always renders even when
+    // the table has 0 rows in a given seed, so this doesn't depend on
+    // topDebtors being non-empty.
+    await expect(adminPage.getByRole('columnheader', { name: 'Días prom. de pago' })).toBeVisible();
+
+    // New weekday x vencimiento chart (Part 3b) — always renders its
+    // ChartCard heading; the chart itself may show an EmptyState if no
+    // Fact_Collections row has a resolvable DueDateKey in this seed, so this
+    // asserts the heading and card presence rather than bar content.
+    await expect(adminPage.getByRole('heading', { name: 'Cobros por día de semana y estado de vencimiento' })).toBeVisible();
+
+    // New DSO trend chart (Part 3c).
+    await expect(adminPage.getByRole('heading', { name: 'Tendencia de DSO (Days Sales Outstanding)' })).toBeVisible();
+
+    // New aging bucket trend chart (Part 3d).
+    await expect(adminPage.getByRole('heading', { name: 'Tendencia de antigüedad de saldos' })).toBeVisible();
   });
 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -188,6 +188,10 @@ export async function GET(request: NextRequest) {
     const topDebtorsMapped: DebtorRow[] = topDebtors.map(r => ({
       name: r.Name,
       outstanding: Number(r.Outstanding),
+      // Resumen's summary view doesn't compute this (CxC's route does,
+      // for its own dedicated top-debtors table) — DebtorRow is shared
+      // between the two responses.
+      avgDaysToPay: null,
     }));
 
     const response: ResumenResponse = {
@@ -207,7 +211,7 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,7 +146,7 @@ export async function GET(request: NextRequest) {
 
     const usdRate = exchangeRates.recordset[0]?.ExchangeRate ?? null;
 
-    return NextResponse.json({
+    return jsonWithCache({
       monthlyTrend: trend.recordset.map(r => ({
         yearMonth: r.YearMonth,
         salesNet: Number(r.SalesNet),

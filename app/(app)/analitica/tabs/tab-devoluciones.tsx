@@ -3,15 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
-import type { BreakdownRow, Currency, DateRange, DevolucionesResponse, GroupBy, PivotDimension } from '../types';
-
-type DevolucionesGroupBy = 'salesrep' | 'producto' | 'cliente';
-
-const GROUP_OPTIONS: { value: DevolucionesGroupBy; label: string }[] = [
-  { value: 'salesrep', label: 'Vendedor' },
-  { value: 'producto', label: 'Producto' },
-  { value: 'cliente', label: 'Cliente' },
-];
+import type { BreakdownRow, Currency, DateRange, DevolucionesMatrixCell, DevolucionesResponse, PivotDimension } from '../types';
 
 // Cliente view groups by cliente_entidad/cliente_tienda (existing toggle) and
 // breaks down by producto/vendedor — mirrors tab-ventas.tsx's wiring exactly;
@@ -53,53 +45,108 @@ export default function TabDevoluciones({
   dateRange: DateRange;
   currency: Currency;
 }) {
-  const [groupBy, setGroupBy] = useState<DevolucionesGroupBy>('salesrep');
+  const [salesrepData, setSalesrepData] = useState<DevolucionesResponse | null>(null);
+  const [salesrepLoading, setSalesrepLoading] = useState<boolean>(true);
+  const [salesrepError, setSalesrepError] = useState<string | null>(null);
+
+  const [productoData, setProductoData] = useState<DevolucionesResponse | null>(null);
+  const [productoLoading, setProductoLoading] = useState<boolean>(true);
+  const [productoError, setProductoError] = useState<string | null>(null);
+
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
-  const [data, setData] = useState<DevolucionesResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [clienteData, setClienteData] = useState<DevolucionesResponse | null>(null);
+  const [clienteLoading, setClienteLoading] = useState<boolean>(true);
+  const [clienteError, setClienteError] = useState<string | null>(null);
   const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setError(null);
-      setLoading(true);
+      setSalesrepError(null);
+      setSalesrepLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy });
-        if (groupBy === 'cliente') {
-          params.set('clienteDimension', clienteDimension);
-        }
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'salesrep' });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
+          setSalesrepError(body.error ?? 'Error desconocido');
           return;
         }
-        const body: DevolucionesResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
+        setSalesrepData(await res.json());
       } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
+        if (!cancelled) setSalesrepError('No se pudo conectar con el servidor');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setSalesrepLoading(false);
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy, clienteDimension]);
+  }, [dateRange, currency]);
 
-  const rate = data?.usdRate ?? undefined;
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setProductoError(null);
+      setProductoLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'producto' });
+        const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setProductoError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setProductoData(await res.json());
+      } catch {
+        if (!cancelled) setProductoError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setProductoLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency]);
 
-  const groupLabel = (gb: GroupBy): string =>
-    GROUP_OPTIONS.find(o => o.value === gb)?.label ?? gb;
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setClienteError(null);
+      setClienteLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, groupBy: 'cliente', clienteDimension });
+        const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setClienteError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setClienteData(await res.json());
+      } catch {
+        if (!cancelled) setClienteError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setClienteLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, clienteDimension]);
+
+  const salesrepRate = salesrepData?.usdRate ?? undefined;
+  const productoRate = productoData?.usdRate ?? undefined;
+  const clienteRate = clienteData?.usdRate ?? undefined;
 
   const clienteRows: DevolucionesTableRow[] = useMemo(() => {
-    if (!data || groupBy !== 'cliente') return [];
-    return data.rows
+    if (!clienteData) return [];
+    return clienteData.rows
       .filter(r => r.clienteValue !== null)
       .map(r => ({
         label: r.cliente,
@@ -107,7 +154,7 @@ export default function TabDevoluciones({
         ratioDevolucion: r.ratioDevolucion,
         amountNet: r.amountNet,
       }));
-  }, [data, groupBy]);
+  }, [clienteData]);
 
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({
@@ -129,7 +176,7 @@ export default function TabDevoluciones({
       key: 'amountNet',
       label: 'Monto neto',
       align: 'right',
-      format: row => moneyLabel(row.amountNet, currency, rate),
+      format: row => moneyLabel(row.amountNet, currency, clienteRate),
     },
     {
       key: 'ratioDevolucion',
@@ -139,121 +186,109 @@ export default function TabDevoluciones({
     },
   ];
 
-  return (
-    <div className="p-6 max-w-7xl space-y-6">
-      {/* Header + groupBy toggle */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Devoluciones</h2>
-          <p className="text-sm text-gray-500">
-            Matriz de devoluciones y tasa de devolución (devoluciones / ventas)
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-            {GROUP_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setGroupBy(opt.value)}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                  groupBy === opt.value
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Por {opt.label}
-              </button>
+  function MatrixTable({
+    rows,
+    rate,
+    nameColumnLabel,
+    nameOf,
+  }: {
+    rows: DevolucionesMatrixCell[];
+    rate: number | undefined;
+    nameColumnLabel: string;
+    nameOf: (row: DevolucionesMatrixCell) => string;
+  }) {
+    if (rows.length === 0) return <EmptyState />;
+    return (
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">{nameColumnLabel}</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Monto neto</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((row, i) => (
+              <tr key={`${nameOf(row)}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
+                <td className="px-3 py-2 text-gray-800">{nameOf(row)}</td>
+                <td
+                  className={`px-3 py-2 text-right ${
+                    row.ratioDevolucion !== null && row.ratioDevolucion > 0.05 ? 'text-orange-600 font-medium' : 'text-gray-600'
+                  }`}
+                >
+                  {pct(row.ratioDevolucion)}
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(row.amountNet, currency, rate)}</td>
+              </tr>
             ))}
-          </div>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
 
-          {groupBy === 'cliente' && (
-            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-              <button
-                onClick={() => setClienteDimension('cliente_entidad')}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                Entidad
-              </button>
-              <button
-                onClick={() => setClienteDimension('cliente_tienda')}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                Tienda
-              </button>
-            </div>
+  return (
+    <div className="p-6 max-w-7xl space-y-8">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Devoluciones</h2>
+        <p className="text-sm text-gray-500">Matriz de devoluciones y tasa de devolución (devoluciones / ventas)</p>
+      </div>
+
+      {/* Por vendedor */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por vendedor</h3>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          {salesrepLoading ? (
+            <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+          ) : salesrepError ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{salesrepError}</p>
+          ) : (
+            <MatrixTable rows={salesrepData?.rows ?? []} rate={salesrepRate} nameColumnLabel="Vendedor" nameOf={row => row.salesRep} />
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Breadcrumb */}
-      {data && data.breadcrumb.length > 0 && (
-        <nav className="text-xs text-gray-500">
-          {data.breadcrumb.map((b, i) => (
-            <span key={`${b.groupBy}-${i}`}>
-              {i > 0 && <span className="mx-1">/</span>}
-              {groupLabel(b.groupBy)}
-            </span>
-          ))}
-        </nav>
-      )}
+      {/* Por producto */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por producto</h3>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          {productoLoading ? (
+            <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+          ) : productoError ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{productoError}</p>
+          ) : (
+            <MatrixTable rows={productoData?.rows ?? []} rate={productoRate} nameColumnLabel="Producto" nameOf={row => row.producto} />
+          )}
+        </div>
+      </section>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        {loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
-        ) : !data || data.rows.length === 0 ? (
-          <EmptyState />
-        ) : groupBy === 'cliente' ? (
-          <GroupedDrilldownTable<DevolucionesTableRow>
-            rows={clienteRows}
-            columns={clienteColumns}
-            groupByOptions={CLIENTE_GROUP_BY_OPTIONS}
-            groupBy={clienteDimension}
-            onGroupByChange={next => setClienteDimension(next as 'cliente_entidad' | 'cliente_tienda')}
-            breakdownByOptions={BREAKDOWN_BY_OPTIONS}
-            breakdownBy={breakdownBy}
-            onBreakdownByChange={setBreakdownBy}
-            onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Vendedor</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Producto</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Monto neto</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.rows.map((row, i) => (
-                  <tr key={`${row.salesRep}-${row.producto}-${row.cliente}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                    <td className="px-3 py-2 text-gray-800">{row.salesRep}</td>
-                    <td className="px-3 py-2 text-gray-800">{row.producto}</td>
-                    <td className="px-3 py-2 text-gray-800">{row.cliente}</td>
-                    <td
-                      className={`px-3 py-2 text-right ${
-                        row.ratioDevolucion !== null && row.ratioDevolucion > 0.05
-                          ? 'text-orange-600 font-medium'
-                          : 'text-gray-600'
-                      }`}
-                    >
-                      {pct(row.ratioDevolucion)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(row.amountNet, currency, rate)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* Por cliente */}
+      <section>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por cliente</h3>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          {clienteLoading ? (
+            <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+          ) : clienteError ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{clienteError}</p>
+          ) : clienteRows.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <GroupedDrilldownTable<DevolucionesTableRow>
+              rows={clienteRows}
+              columns={clienteColumns}
+              groupByOptions={CLIENTE_GROUP_BY_OPTIONS}
+              groupBy={clienteDimension}
+              onGroupByChange={next => setClienteDimension(next as 'cliente_entidad' | 'cliente_tienda')}
+              breakdownByOptions={BREAKDOWN_BY_OPTIONS}
+              breakdownBy={breakdownBy}
+              onBreakdownByChange={setBreakdownBy}
+              onFetchBreakdown={handleFetchBreakdown}
+              formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, clienteRate) : String(value ?? '—'))}
+            />
+          )}
+        </div>
+      </section>
     </div>
   );
 }

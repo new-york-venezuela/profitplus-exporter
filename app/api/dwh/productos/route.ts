@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import type { ProductosResponse, ProductosRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     try {
       const pool = await getDwhPool();
       const result = await pool.request().query(tiendasQuery());
-      return NextResponse.json({
+      return jsonWithCache({
         tiendas: result.recordset.map(r => ({ value: String(r.CustomerKey), label: r.CustomerName })),
       });
     } catch {
@@ -176,7 +176,7 @@ export async function GET(request: NextRequest) {
       usdRate,
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }
