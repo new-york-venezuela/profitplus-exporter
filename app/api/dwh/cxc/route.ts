@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, getDimensionSpec, isClienteDimension, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, getDimensionSpec, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { CxcResponse, AgingBucketRow, DebtorRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
       usdRate,
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

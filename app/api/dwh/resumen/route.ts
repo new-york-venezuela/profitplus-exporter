@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

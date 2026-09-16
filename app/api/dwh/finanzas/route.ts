@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import type { FinanzasResponse, FinanzasWaterfallStep, ExpenseCategoryRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
     if (breakdownByParam === 'concepto' && parentValue) {
       if (parentValue === 'Compras') {
         const result = await pool.request().query(comprasSupplierBreakdownQuery(purchasesDateWhere));
-        return NextResponse.json({
+        return jsonWithCache({
           breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), amount: Number(r.Amount) })),
         });
       }
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
       req.input('category', parentValue);
       const result = await req.query(conceptBreakdownQuery(expenseDateWhere));
       const isNomina = parentValue === 'Nomina';
-      return NextResponse.json({
+      return jsonWithCache({
         breakdown: result.recordset.map(r => ({
           label: r.GroupLabel,
           value: String(r.GroupValue),
@@ -232,7 +232,7 @@ export async function GET(request: NextRequest) {
       usdRate,
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

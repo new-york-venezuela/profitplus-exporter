@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ComprasResponse, ComprasRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(lineaProductBreakdownQuery(purchasesDateWhere));
-      return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
+      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
     }
 
     // Generic proveedor-parent breakdown: this DOES join breakdownBy's spec
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
         GROUP BY ${breakdownSpec.groupByColumn}
         ORDER BY PurchasesNet DESC
       `);
-      return NextResponse.json({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
+      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
     }
 
     let recordset: Record<string, unknown>[];
@@ -187,7 +187,7 @@ export async function GET(request: NextRequest) {
       usdRate,
     };
 
-    return NextResponse.json(response);
+    return jsonWithCache(response);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }
