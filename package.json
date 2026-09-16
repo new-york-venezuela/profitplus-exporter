@@ -19,6 +19,7 @@
     "migrate": "bun --bun run scripts/migrate.ts",
     "migrate:mssql": "bun --bun run scripts/migrate-mssql.ts",
     "migrate:dwh": "bun --bun run scripts/migrate-dwh.ts",
+    "migrate:all": "bun run migrate && bun run migrate:mssql && bun run migrate:dwh",
     "send-invoice-reminders": "bun --bun run scripts/send-invoice-reminders.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
