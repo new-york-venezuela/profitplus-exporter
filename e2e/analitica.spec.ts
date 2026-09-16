@@ -383,4 +383,30 @@ test.describe('analitica @mssql', () => {
     await expect(productoMoneyCellAfterToggle).not.toHaveText(productoAmountBs ?? '');
     await expect(productoMoneyCellAfterToggle).toContainText('$');
   });
+
+  test('CxC tab renders the weekday, DSO trend, aging trend charts and the avg-días-de-pago debtor column', async ({ adminPage }) => {
+    await adminPage.goto('/analitica?tab=cxc');
+
+    // Existing AR aging chart + top-debtors table still render (baseline,
+    // unaffected by this task's additions).
+    await expect(adminPage.getByRole('heading', { name: 'Antigüedad de saldos (AR Aging)' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('heading', { name: 'Mayor concentración de crédito' })).toBeVisible();
+
+    // New top-debtors column (Part 3e) — header always renders even when
+    // the table has 0 rows in a given seed, so this doesn't depend on
+    // topDebtors being non-empty.
+    await expect(adminPage.getByRole('columnheader', { name: 'Días prom. de pago' })).toBeVisible();
+
+    // New weekday x vencimiento chart (Part 3b) — always renders its
+    // ChartCard heading; the chart itself may show an EmptyState if no
+    // Fact_Collections row has a resolvable DueDateKey in this seed, so this
+    // asserts the heading and card presence rather than bar content.
+    await expect(adminPage.getByRole('heading', { name: 'Cobros por día de semana y estado de vencimiento' })).toBeVisible();
+
+    // New DSO trend chart (Part 3c).
+    await expect(adminPage.getByRole('heading', { name: 'Tendencia de DSO (Days Sales Outstanding)' })).toBeVisible();
+
+    // New aging bucket trend chart (Part 3d).
+    await expect(adminPage.getByRole('heading', { name: 'Tendencia de antigüedad de saldos' })).toBeVisible();
+  });
 });
