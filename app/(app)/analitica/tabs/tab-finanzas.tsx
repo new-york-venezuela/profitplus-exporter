@@ -7,7 +7,7 @@ import {
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel } from '../lib/format';
 import type {
-  BreakdownRow, Currency, DateRange, FinanzasResponse, FinanzasWaterfallStep, PivotDimension,
+  BreakdownRow, Currency, DateRange, FinanzasResponse, PivotDimension,
 } from '../types';
 
 const POSITIVE_COLOR = '#16a34a'; // green — revenue / profit steps
@@ -26,6 +26,8 @@ const NEGATIVE_COLOR = '#dc2626'; // red — cost / discount steps
 // 2026-09-15-margen-operativo-accrual-design.md) instead of the pure
 // cash-ledger calc this tooltip used to describe.
 const MARGIN_TOOLTIP = 'Ingresos netos (ventas menos devoluciones) menos gastos operativos (compras más nómina y otros gastos desde movimientos bancarios/caja). No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
+
+const PROXY_TOOLTIP = 'Utilidad Bruta (proxy) = Ingresos operativos − Compras. Profit Plus no registra costo de producto (Fact_Sales.GrossProfitAmount siempre es NULL), así que Compras se usa como aproximación de costo directo — no es un margen bruto exacto basado en COGS real. Distinto de Margen Operativo, que resta TODOS los gastos operativos, no solo Compras.';
 
 // This table has no top-level groupBy toggle — rows are always one-per-expense-
 // category. GroupedDrilldownTable requires a groupBy/groupByOptions pair, so
@@ -81,22 +83,6 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
-// Waterfall rendering: every step's own {amount, cumulative} pair is enough to
-// derive its bar's floating range — no need to look at neighboring steps.
-// `previousValue` is the level the bar starts from (cumulative minus this
-// step's own delta); the bar then spans up to `cumulative`. For the anchor
-// steps (Bruto, Neto, Utilidad Bruta) amount === cumulative, so previousValue
-// is 0 and the bar is a full column from the axis; for the delta steps
-// (Descuento, COGS) it floats between the two surrounding totals.
-//
-// COST_STEPS names every step that is a cost/reduction by definition
-// (Descuento, COGS) so they always render red regardless of their computed
-// sign — matters because a negative discount or COGS total is a real,
-// currently-live case (see the EBITDA cash-flow card below for the
-// Gastos-Operativos-can-net-negative case that used to live in this
-// waterfall before the 2026-09-14 EBITDA rework moved it out).
-const COST_STEPS = new Set(['Descuento', 'COGS']);
-
 interface WaterfallDatum {
   step: string;
   base: number;
@@ -104,22 +90,6 @@ interface WaterfallDatum {
   amount: number;
   cumulative: number;
   isNegative: boolean;
-}
-
-function toWaterfallData(waterfall: FinanzasWaterfallStep[]): WaterfallDatum[] {
-  return waterfall.map(w => {
-    const previousValue = w.cumulative - w.amount;
-    const base = Math.min(previousValue, w.cumulative);
-    const value = Math.abs(w.amount);
-    return {
-      step: w.step,
-      base,
-      value,
-      amount: w.amount,
-      cumulative: w.cumulative,
-      isNegative: COST_STEPS.has(w.step) || w.amount < 0,
-    };
-  });
 }
 
 function WaterfallTooltip({
@@ -203,15 +173,29 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
   }
 
   const rate = data.usdRate ?? undefined;
-  const chartData = toWaterfallData(data.waterfall);
+  const margenProxy = data.margenProxy;
 
-  const bruto = data.waterfall.find(w => w.step === 'Bruto')?.cumulative ?? 0;
-  const descuento = data.waterfall.find(w => w.step === 'Descuento');
-  const neto = data.waterfall.find(w => w.step === 'Neto')?.cumulative ?? 0;
-  const utilidad = data.waterfall.find(w => w.step === 'Utilidad Bruta')?.cumulative ?? 0;
-
-  const discountRate = bruto > 0 && descuento ? Math.abs(descuento.amount) / bruto : null;
-  const marginRate = neto > 0 ? utilidad / neto : null;
+  const proxyWaterfallData: WaterfallDatum[] = [
+    { step: 'Ingresos', base: 0, value: margenProxy.ingresos, amount: margenProxy.ingresos, cumulative: margenProxy.ingresos, isNegative: false },
+    {
+      step: 'Compras',
+      base: Math.min(margenProxy.utilidadBruta, margenProxy.ingresos),
+      value: margenProxy.compras,
+      amount: -margenProxy.compras,
+      cumulative: margenProxy.utilidadBruta,
+      isNegative: true,
+    },
+    { step: 'Utilidad Bruta', base: 0, value: margenProxy.utilidadBruta, amount: margenProxy.utilidadBruta, cumulative: margenProxy.utilidadBruta, isNegative: margenProxy.utilidadBruta < 0 },
+    {
+      step: 'Otros Gastos Operativos',
+      base: Math.min(margenProxy.margenOperativo, margenProxy.utilidadBruta),
+      value: Math.abs(margenProxy.otrosGastosOperativos),
+      amount: -margenProxy.otrosGastosOperativos,
+      cumulative: margenProxy.margenOperativo,
+      isNegative: margenProxy.otrosGastosOperativos >= 0,
+    },
+    { step: 'Margen Operativo', base: 0, value: margenProxy.margenOperativo, amount: margenProxy.margenOperativo, cumulative: margenProxy.margenOperativo, isNegative: margenProxy.margenOperativo < 0 },
+  ];
 
   async function handleFetchCategoryBreakdown(parentValue: string): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({ dateRange, currency, breakdownBy: 'concepto', parentValue });
@@ -233,17 +217,22 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      {/* KPI row */}
+      {/* KPI row — Utilidad Bruta (proxy) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Ventas brutas" value={moneyLabel(bruto, currency, rate)} />
-        <KpiCard label="Ventas netas" value={moneyLabel(neto, currency, rate)} />
-        <KpiCard label="Utilidad bruta" value={moneyLabel(utilidad, currency, rate)} />
+        <KpiCard label="Ingresos operativos" value={moneyLabel(margenProxy.ingresos, currency, rate)} />
+        <KpiCard label="Compras" value={moneyLabel(margenProxy.compras, currency, rate)} />
+        <KpiCard label="Utilidad bruta (proxy)" value={moneyLabel(margenProxy.utilidadBruta, currency, rate)} />
         <KpiCard
-          label="Margen bruto"
-          value={pct(marginRate)}
-          tone={marginRate !== null && marginRate < 0 ? 'warn' : 'default'}
+          label="Margen bruto (proxy)"
+          value={pct(margenProxy.margenBrutoRate)}
+          tone={margenProxy.margenBrutoRate !== null && margenProxy.margenBrutoRate < 0 ? 'warn' : 'default'}
         />
       </div>
+
+      <p className="text-xs text-gray-500 flex items-center gap-1">
+        <span title={PROXY_TOOLTIP} className="cursor-help text-gray-400">ⓘ</span>
+        Compras se usa como proxy de costo directo — Profit Plus no registra costo de producto (ver Data Warehouse Guide).
+      </p>
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
@@ -254,6 +243,11 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
           <KpiCard label="Ingresos operativos" value={moneyLabel(data.cashFlowEbitda.ingresosOperativos, currency, rate)} />
           <KpiCard label="Gastos operativos" value={moneyLabel(data.cashFlowEbitda.gastosOperativos, currency, rate)} />
           <KpiCard label="Margen Operativo" value={moneyLabel(data.cashFlowEbitda.ebitda, currency, rate)} />
+          <KpiCard
+            label="Margen Operativo %"
+            value={pct(margenProxy.margenOperativoRate)}
+            tone={margenProxy.margenOperativoRate !== null && margenProxy.margenOperativoRate < 0 ? 'warn' : 'default'}
+          />
           <KpiCard label="Intereses" value={moneyLabel(data.cashFlowEbitda.intereses, currency, rate)} />
           <KpiCard label="Impuestos" value={moneyLabel(data.cashFlowEbitda.impuestos, currency, rate)} />
           <KpiCard
@@ -265,24 +259,21 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
       </div>
 
       <ChartCard
-        title="Cascada de rentabilidad"
-        subtitle={`Bruto → Descuento → Neto → COGS → Utilidad bruta${
-          discountRate !== null ? ` — descuento promedio ${pct(discountRate)}` : ''
-        }`}
+        title="Cascada de rentabilidad (proxy)"
+        subtitle={`Ingresos → Compras → Utilidad Bruta → Otros Gastos Operativos → Margen Operativo — margen bruto ${pct(margenProxy.margenBrutoRate)}, margen operativo ${pct(margenProxy.margenOperativoRate)}`}
       >
-        {chartData.length === 0 || bruto === 0 ? (
+        {margenProxy.ingresos === 0 ? (
           <EmptyState />
         ) : (
           <ResponsiveContainer width="100%" height={340}>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+            <BarChart data={proxyWaterfallData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="step" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="step" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(Number(v), currency, rate)} />
               <Tooltip content={<WaterfallTooltip currency={currency} rate={rate} />} />
-              {/* Invisible spacer bar that lifts the visible bar to its floating start point */}
               <Bar dataKey="base" stackId="waterfall" fill="transparent" isAnimationActive={false} />
               <Bar dataKey="value" stackId="waterfall" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {chartData.map(d => (
+                {proxyWaterfallData.map(d => (
                   <Cell key={d.step} fill={d.isNegative ? NEGATIVE_COLOR : POSITIVE_COLOR} />
                 ))}
               </Bar>
