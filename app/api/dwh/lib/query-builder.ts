@@ -1,4 +1,26 @@
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { NextResponse } from 'next/server';
+
+// Every Analítica tab now renders its full report immediately on tab-mount
+// (Part 1 of docs/superpowers/specs/2026-09-15-analitica-ui-and-margin-design.md
+// — no more hidden-until-toggled sections), so every dwh/* route's success
+// response should carry a short private HTTP cache window: 15 minutes is
+// long enough to dedupe the burst of near-simultaneous requests a single
+// tab-mount now fires (one per stacked section) and short enough that a
+// user won't see meaningfully stale data. `private` (not `public`) because
+// responses are gated by requireDwhAccess and must never be cached by a
+// shared/proxy cache. Error responses (500s from a route's catch block)
+// intentionally do NOT go through this helper — call NextResponse.json
+// directly for those, so a transient DB error is never cached. This header
+// is independent of each route's `export const dynamic = 'force-dynamic'`
+// — that only disables Next.js's own server-side route-segment cache (no
+// ISR/static generation); it does not touch the Cache-Control header sent
+// to the browser, so this header reaches the client as intended.
+export function jsonWithCache<T>(body: T, init?: ResponseInit): NextResponse {
+  const response = NextResponse.json(body, init);
+  response.headers.set('Cache-Control', 'private, max-age=900');
+  return response;
+}
 
 export async function getUsdRate(): Promise<number | null> {
   try {
