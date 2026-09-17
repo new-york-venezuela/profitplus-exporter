@@ -127,4 +127,74 @@ describe('Dim_LegalEntity', () => {
 
     expect(secondCount.recordset[0].total).toBe(firstCount.recordset[0].total);
   });
+
+  // Regression test for the production gap fixed by
+  // 0028_backfill_matriz_code.sql: Load_Dim_Customer's SCD2 diff only
+  // touches a current row when its source saCliente.validador has advanced
+  // past the stored watermark, so a row loaded before MatrizCode existed
+  // (and whose source row hasn't changed since) never gets MatrizCode
+  // populated by the normal incremental load, no matter how many times it
+  // runs. Reproduces that exact stuck state, proves Load_Dim_Customer alone
+  // cannot fix it, then proves 0028's backfill statement can.
+  test('a customer row stuck with NULL MatrizCode from before 0014 is fixed by the 0028 backfill, not by re-running the incremental load', async () => {
+    const chain = (await erpPool.request().query(`
+      SELECT TOP 1 LTRIM(RTRIM(matriz)) AS parentCode, LTRIM(RTRIM(co_cli)) AS childCode
+      FROM saCliente
+      WHERE matriz IS NOT NULL AND LTRIM(RTRIM(matriz)) <> ''
+    `)).recordset[0];
+    expect(chain).toBeDefined();
+
+    // Simulate the pre-0014 stuck state: MatrizCode/LegalEntityKey wiped
+    // back to NULL on an already-current row, as if it had been inserted
+    // before the column existed.
+    await pool.request()
+      .input('childCode', sql.Char(16), chain.childCode)
+      .query(`
+        UPDATE dim.Dim_Customer
+        SET MatrizCode = NULL, LegalEntityKey = NULL
+        WHERE RTRIM(CustomerCode) = @childCode AND IsCurrent = 1
+      `);
+
+    // The normal incremental load path cannot repair this: the source row's
+    // validador hasn't changed, so Load_Dim_Customer's SCD2 diff never
+    // fires for it, no matter how many times it runs. Load_Dim_LegalEntity
+    // still assigns *some* LegalEntityKey on every run (its own UPDATE isn't
+    // watermark-gated), but with MatrizCode NULL it falls back to treating
+    // the child as its own standalone root -- the wrong entity, not the
+    // parent chain's.
+    await pool.request().execute('dwh.Load_Dim_Customer');
+    await pool.request().execute('dwh.Load_Dim_LegalEntity');
+    const stillStuck = await pool.request()
+      .input('childCode', sql.Char(16), chain.childCode)
+      .query(`
+        SELECT MatrizCode, le.RootCustomerCode
+        FROM dim.Dim_Customer c
+        JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+        WHERE RTRIM(c.CustomerCode) = @childCode AND c.IsCurrent = 1
+      `);
+    expect(stillStuck.recordset[0].MatrizCode).toBeNull();
+    expect(stillStuck.recordset[0].RootCustomerCode.trim()).toBe(chain.childCode);
+
+    // 0028's backfill statement (re-applied here the same way the migration
+    // runner would apply it) repairs it directly from the source, bypassing
+    // the watermark gate entirely.
+    await pool.request().query(`
+      UPDATE tgt
+      SET tgt.MatrizCode = NULLIF(RTRIM(src.matriz), '')
+      FROM dim.Dim_Customer tgt
+      INNER JOIN Ncake_a.dbo.saCliente src ON RTRIM(src.co_cli) COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(tgt.CustomerCode)
+      WHERE tgt.IsCurrent = 1
+        AND ISNULL(RTRIM(tgt.MatrizCode), '') <> ISNULL(RTRIM(src.matriz), '') COLLATE SQL_Latin1_General_CP1_CI_AS
+    `);
+    await pool.request().execute('dwh.Load_Dim_LegalEntity');
+
+    const fixed = await pool.request()
+      .input('childCode', sql.Char(16), chain.childCode)
+      .query(`
+        SELECT RTRIM(MatrizCode) AS matrizCode, LegalEntityKey FROM dim.Dim_Customer
+        WHERE RTRIM(CustomerCode) = @childCode AND IsCurrent = 1
+      `);
+    expect(fixed.recordset[0].matrizCode).toBe(chain.parentCode);
+    expect(fixed.recordset[0].LegalEntityKey).not.toBeNull();
+  });
 });
