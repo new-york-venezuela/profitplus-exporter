@@ -51,6 +51,28 @@ table has a real `validador` column before assuming it does — if it doesn't, f
 two-column, two-row pattern rather than trying to force a rowversion watermark onto a table that
 doesn't have one.
 
+## SCD2 vs. structural/relational columns on Dim_Customer
+
+`Load_Dim_Customer` is SCD2 (Type 2): any tracked attribute change closes out
+the current row and inserts a new one with a new `CustomerKey`. That's
+correct for descriptive attributes (`CustomerName`, `CreditLimit`, etc.), but
+it is **wrong** for a column another dimension's identity depends on, like
+`MatrizCode` (which `Dim_LegalEntity`/`LegalEntityKey` resolves against).
+0030 fixed a real production bug from this: setting `saCliente.matriz` on an
+existing customer minted a new `CustomerKey`, and since
+`Load_Dim_LegalEntity`'s own resolution only ever touches `IsCurrent = 1`
+rows, the closed-out row's `LegalEntityKey` stayed `NULL` forever — every
+fact row still pointing at that old key then silently dropped out of every
+`cliente_entidad`-grouped report.
+
+`MatrizCode` is therefore intentionally excluded from `Load_Dim_Customer`'s
+SCD2 diff and instead kept in sync with an unconditional in-place `UPDATE`
+inside that same procedure (see `0030_fix_matriz_scd2_and_repair_split_customers.sql`).
+If you add another column to `Dim_Customer` (or any other SCD2 dimension)
+that a different dimension/rollup resolves its own identity against, follow
+this same pattern — update in place, don't version — rather than defaulting
+to the existing SCD2 diff shape.
+
 ## Performance note
 
 All timing/performance data referenced in this plan and its task reports (load procedure runtimes,
