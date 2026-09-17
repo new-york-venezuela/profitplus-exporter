@@ -24,7 +24,8 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "dwh:incremental-load": "bun --run run scripts/dwh-incremental-load.ts",
-    "dwh:snapshot-load": "bun --run run scripts/dwh-snapshot-load.ts"
+    "dwh:snapshot-load": "bun --run run scripts/dwh-snapshot-load.ts",
+    "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts"
   },
   "dependencies": {
     "@types/handlebars": "^4.1.0",
