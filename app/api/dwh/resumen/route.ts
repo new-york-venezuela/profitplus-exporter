@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { getUsdRate, buildDateWhereClause, getDimensionSpec, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -35,15 +35,21 @@ function monthlyTrendQuery(dateWhere: string): string {
   `;
 }
 
+// Grouped by legal entity (cliente_entidad), not individual store/tienda —
+// same "por cliente" grain every other analitica tab (Ventas, Devoluciones,
+// CxC) uses by default, via the shared dimension mechanism in
+// query-builder.ts. A chain's stores should roll up into one bar here, not
+// fragment the top-10 list across its own children.
 function topCustomersQuery(dateWhere: string): string {
+  const spec = getDimensionSpec('cliente_entidad');
   return `
     SELECT TOP 10
-      ISNULL(c.CustomerName, c.CustomerCode) AS Name,
+      ${spec.labelExpr} AS Name,
       SUM(fs.NetAmount) AS NetRevenue
     FROM fact.Fact_Sales fs
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${dateWhere}
-    GROUP BY ISNULL(c.CustomerName, c.CustomerCode)
+    GROUP BY ${spec.groupByColumn}
     ORDER BY NetRevenue DESC
   `;
 }
@@ -91,17 +97,22 @@ const AGING_BUCKETS_QUERY = `
   GROUP BY AgingBucket
 `;
 
-const TOP_DEBTORS_QUERY = `
-  SELECT TOP 10
-    ISNULL(c.CustomerName, c.CustomerCode) AS Name,
-    SUM(a.OutstandingBalance) AS Outstanding
-  FROM fact.Fact_AR_Snapshot a
-  JOIN dim.Dim_Customer c ON c.CustomerKey = a.CustomerKey
-  WHERE a.SnapshotDateKey = @snapshotDateKey
-  GROUP BY ISNULL(c.CustomerName, c.CustomerCode)
-  HAVING SUM(a.OutstandingBalance) > 0
-  ORDER BY Outstanding DESC
-`;
+// Same cliente_entidad grain as topCustomersQuery above — a chain's
+// outstanding balance across all its stores should roll up to one row.
+function topDebtorsQuery(): string {
+  const spec = getDimensionSpec('cliente_entidad');
+  return `
+    SELECT TOP 10
+      ${spec.labelExpr} AS Name,
+      SUM(a.OutstandingBalance) AS Outstanding
+    FROM fact.Fact_AR_Snapshot a
+    ${spec.joinClause.replace(/\bf\b/g, 'a')}
+    WHERE a.SnapshotDateKey = @snapshotDateKey
+    GROUP BY ${spec.groupByColumn}
+    HAVING SUM(a.OutstandingBalance) > 0
+    ORDER BY Outstanding DESC
+  `;
+}
 
 function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectionsDateWhere: string): string {
   return `
@@ -148,7 +159,7 @@ export async function GET(request: NextRequest) {
     if (snapshotDateKey !== null) {
       const [aging, debtors] = await Promise.all([
         pool.request().input('snapshotDateKey', snapshotDateKey).query(AGING_BUCKETS_QUERY),
-        pool.request().input('snapshotDateKey', snapshotDateKey).query(TOP_DEBTORS_QUERY),
+        pool.request().input('snapshotDateKey', snapshotDateKey).query(topDebtorsQuery()),
       ]);
       agingBuckets = aging.recordset;
       topDebtors = debtors.recordset;

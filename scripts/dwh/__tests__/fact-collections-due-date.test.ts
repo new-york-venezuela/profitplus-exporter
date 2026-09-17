@@ -99,4 +99,71 @@ describe('fact.Fact_Collections.DueDateKey', () => {
     const after = await pool.request().query(`SELECT COUNT(*) AS total FROM fact.Fact_Collections`);
     expect(Number(after.recordset[0].total)).toBe(Number(before.recordset[0].total));
   });
+
+  // Regression test for the production gap fixed by
+  // 0029_backfill_fact_collections_due_date.sql: Load_Fact_Collections's
+  // MERGE only touches a row when its source saCobroDocReng.fe_us_mo or
+  // saCobro.validador has advanced past the stored watermark, so a row
+  // loaded before DueDateKey existed (and whose source row hasn't changed
+  // since) never gets it populated by the normal incremental load, no
+  // matter how many times it runs. cxc's WEEKDAY_VENCIMIENTO_QUERY filters
+  // WHERE DueDateKey IS NOT NULL, so this stuck state silently excludes
+  // historical collections from that chart in production.
+  test('a collections row stuck with NULL DueDateKey from before 0027 is fixed by the 0029 backfill, not by re-running the incremental load', async () => {
+    const target = (await pool.request().query(`
+      SELECT TOP 1 ReceiptNumber, LineNumber, InvoiceNumber
+      FROM fact.Fact_Collections WHERE DueDateKey IS NOT NULL
+    `)).recordset[0];
+    expect(target).toBeDefined();
+
+    // Simulate the pre-0027 stuck state: DueDateKey wiped back to NULL on an
+    // already-loaded row, as if it had been inserted before the column
+    // existed.
+    await pool.request()
+      .input('receiptNumber', target.ReceiptNumber)
+      .input('lineNumber', target.LineNumber)
+      .query(`
+        UPDATE fact.Fact_Collections SET DueDateKey = NULL
+        WHERE ReceiptNumber = @receiptNumber AND LineNumber = @lineNumber
+      `);
+
+    // The normal incremental load path cannot repair this: the source row's
+    // fe_us_mo/validador haven't changed, so Load_Fact_Collections's MERGE
+    // never re-touches it, no matter how many times it runs.
+    await pool.request().execute('dwh.Load_Fact_Collections');
+    const stillStuck = await pool.request()
+      .input('receiptNumber', target.ReceiptNumber)
+      .input('lineNumber', target.LineNumber)
+      .query(`
+        SELECT DueDateKey FROM fact.Fact_Collections
+        WHERE ReceiptNumber = @receiptNumber AND LineNumber = @lineNumber
+      `);
+    expect(stillStuck.recordset[0].DueDateKey).toBeNull();
+
+    // 0029's backfill statement (re-applied here the same way the migration
+    // runner would apply it) repairs it directly from the source, bypassing
+    // the watermark gate entirely.
+    await pool.request().query(`
+      ;WITH DedupedDocumentoVenta AS (
+          SELECT nro_doc, fec_venc,
+              ROW_NUMBER() OVER (PARTITION BY RTRIM(nro_doc) ORDER BY fec_venc DESC) AS rn
+          FROM Ncake_a.dbo.saDocumentoVenta
+      )
+      UPDATE tgt
+      SET tgt.DueDateKey = dd.DateKey
+      FROM fact.Fact_Collections tgt
+      INNER JOIN DedupedDocumentoVenta dv ON RTRIM(dv.nro_doc) = RTRIM(tgt.InvoiceNumber) COLLATE SQL_Latin1_General_CP1_CI_AS AND dv.rn = 1
+      INNER JOIN dim.Dim_Date dd ON dd.DateKey = CONVERT(int, FORMAT(dv.fec_venc, 'yyyyMMdd'))
+      WHERE tgt.DueDateKey IS NULL
+    `);
+
+    const fixed = await pool.request()
+      .input('receiptNumber', target.ReceiptNumber)
+      .input('lineNumber', target.LineNumber)
+      .query(`
+        SELECT DueDateKey FROM fact.Fact_Collections
+        WHERE ReceiptNumber = @receiptNumber AND LineNumber = @lineNumber
+      `);
+    expect(fixed.recordset[0].DueDateKey).not.toBeNull();
+  });
 });
