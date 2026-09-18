@@ -1,8 +1,11 @@
 -- Per-product metrics since June (current year): avg monthly production (units),
--- avg price, distinct entidades (legal entities) and tiendas (customer/store records),
+-- avg price (USD), distinct entidades (legal entities) and tiendas (customer/store records),
 -- avg return rate. Voided documents excluded from both sales and returns.
 -- AvgMonthlyProduction only counts complete months (Jun-Aug); the current,
 -- still-in-progress month is excluded so it doesn't drag the average down.
+-- Bs amounts are converted to USD per line (using each document's own DocumentExchangeRate)
+-- BEFORE any aggregation — Bs has devalued fast since June, so averaging/summing Bs first
+-- and converting once at the end would badly distort the result.
 DECLARE @StartDateKey int = CONVERT(int, FORMAT(DATEFROMPARTS(YEAR(GETDATE()), 6, 1), 'yyyyMMdd'));
 
 WITH SalesFiltered AS (
@@ -12,12 +15,13 @@ WITH SalesFiltered AS (
         cust.LegalEntityKey,
         d.YearMonth,
         fs.QuantitySold,
-        fs.NetAmount
+        fs.NetAmount / fs.DocumentExchangeRate AS NetAmountUsd
     FROM fact.Fact_Sales fs
     INNER JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     INNER JOIN dim.Dim_Customer cust ON cust.CustomerKey = fs.CustomerKey
     WHERE fs.DateKey >= @StartDateKey
       AND fs.IsVoided = 0
+      AND fs.DocumentExchangeRate > 0
 ),
 ReturnsFiltered AS (
     SELECT
@@ -41,7 +45,7 @@ SalesAgg AS (
     SELECT
         ProductKey,
         SUM(QuantitySold)                    AS TotalQtySold,
-        SUM(NetAmount)                        AS TotalNetAmount,
+        SUM(NetAmountUsd)                     AS TotalNetAmountUsd,
         COUNT(DISTINCT CustomerKey)           AS StoreCount,
         COUNT(DISTINCT LegalEntityKey)        AS EntidadCount
     FROM SalesFiltered
@@ -66,7 +70,7 @@ SELECT
     p.ProductCode,
     p.ProductName,
     prod.AvgMonthlyProduction,
-    CASE WHEN s.TotalQtySold > 0 THEN s.TotalNetAmount / s.TotalQtySold ELSE NULL END AS AvgPrice,
+    CASE WHEN s.TotalQtySold > 0 THEN s.TotalNetAmountUsd / s.TotalQtySold ELSE NULL END AS AvgPriceUsd,
     s.EntidadCount,
     s.StoreCount,
     CASE WHEN s.TotalQtySold > 0
