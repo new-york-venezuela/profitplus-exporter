@@ -1,8 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 import { moneyLabel } from '../lib/format';
-import type { Currency, DateRange, ProductosResponse, ProductosRow } from '../types';
+import type {
+  Currency, DateRange, ProductosResponse, ProductosRow,
+  ProfundidadLineaResponse, UnitsByLineaResponse,
+} from '../types';
+
+// Stable palette cycled across whatever líneas a given date range/tienda
+// filter surfaces — "Otras" (always last in `lineas`, see route.ts) gets the
+// trailing gray so it reads as a catch-all rather than another real línea.
+const LINEA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#6b7280'];
+
+function lineaColor(linea: string, lineas: string[]): string {
+  if (linea === 'Otras') return '#9ca3af';
+  const idx = lineas.indexOf(linea);
+  return LINEA_COLORS[idx % LINEA_COLORS.length];
+}
 
 type ProductosGroupBy = 'linea' | 'sublinea' | 'sku';
 
@@ -19,6 +36,17 @@ function EmptyState({ message }: { message?: string }) {
   return (
     <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">
       {message ?? 'Sin datos disponibles todavía.'}
+    </div>
+  );
+}
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+      {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
+      {!subtitle && <div className="mb-3" />}
+      {children}
     </div>
   );
 }
@@ -54,6 +82,14 @@ export default function TabProductos({
   const [data, setData] = useState<ProductosResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [profundidadData, setProfundidadData] = useState<ProfundidadLineaResponse | null>(null);
+  const [profundidadLoading, setProfundidadLoading] = useState<boolean>(true);
+  const [profundidadError, setProfundidadError] = useState<string | null>(null);
+
+  const [porLineaMesData, setPorLineaMesData] = useState<UnitsByLineaResponse | null>(null);
+  const [porLineaMesLoading, setPorLineaMesLoading] = useState<boolean>(true);
+  const [porLineaMesError, setPorLineaMesError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +141,62 @@ export default function TabProductos({
     };
   }, [dateRange, currency, groupBy, linea, sublinea, tienda]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setProfundidadError(null);
+      setProfundidadLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'profundidad' });
+        if (tienda) params.set('tienda', tienda);
+        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setProfundidadError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setProfundidadData(await res.json());
+      } catch {
+        if (!cancelled) setProfundidadError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setProfundidadLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, tienda]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setPorLineaMesError(null);
+      setPorLineaMesLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'porLineaMes' });
+        if (tienda) params.set('tienda', tienda);
+        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setPorLineaMesError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setPorLineaMesData(await res.json());
+      } catch {
+        if (!cancelled) setPorLineaMesError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setPorLineaMesLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, tienda]);
+
   function handleRowClick(row: ProductosRow) {
     if (groupBy === 'linea') {
       setLinea(row.linea);
@@ -127,8 +219,23 @@ export default function TabProductos({
     }
   }
 
+  // Clicking a línea's segment within a month's stacked bar drills the
+  // existing línea/sublínea/sku table straight to that línea's sublíneas
+  // (reusing handleRowClick's own state-setting logic) and scrolls it into
+  // view — "Otras" isn't a real línea (see route.ts), so it isn't drillable.
+  function handleStackSegmentClick(lineaName: string) {
+    if (lineaName === 'Otras') return;
+    setLinea(lineaName);
+    setSublinea(null);
+    setGroupBy('sublinea');
+    document.getElementById('productos-drilldown-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   const rate = data?.usdRate ?? undefined;
   const drillable = groupBy !== 'sku';
+  const profundidadRate = profundidadData?.usdRate ?? undefined;
+  const porLineaMesRate = porLineaMesData?.usdRate ?? undefined;
+  const porLineaMesChartData = (porLineaMesData?.rows ?? []).map(r => ({ ...r.units, yearMonth: r.yearMonth, yearMonthValue: r.yearMonthValue }));
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -153,7 +260,7 @@ export default function TabProductos({
         </nav>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div id="productos-drilldown-section" className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
           <h2 className="text-sm font-bold text-gray-900">Rotación y margen por producto</h2>
           <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -191,6 +298,7 @@ export default function TabProductos({
                     {COLUMN_LABEL[groupBy]}
                   </th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">% del total</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Cantidad</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Margen %</th>
                 </tr>
@@ -206,8 +314,100 @@ export default function TabProductos({
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
                       {moneyLabel(row.salesNet, currency, rate)}
                     </td>
+                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.salesShare)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{qty(row.rotacion)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(row.margin)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Unidades vendidas por mes, apiladas por línea */}
+      <ChartCard
+        title="Unidades vendidas por mes, por línea"
+        subtitle="Clic en un segmento para ver las sublíneas de esa línea"
+      >
+        {porLineaMesLoading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : porLineaMesError ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{porLineaMesError}</p>
+        ) : !porLineaMesData || porLineaMesChartData.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height={380}>
+            <BarChart data={porLineaMesChartData} margin={{ top: 8, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => qty(Number(v))} />
+              <Tooltip
+                formatter={(value, name, entry) => {
+                  const row = porLineaMesData.rows.find(r => r.yearMonth === (entry.payload as { yearMonth: string })?.yearMonth);
+                  const lineaName = String(name);
+                  const salesNet = row?.salesNet[lineaName] ?? 0;
+                  const share = row && row.totalSalesNet > 0 ? salesNet / row.totalSalesNet : null;
+                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNet, currency, porLineaMesRate)} (${pct(share)} del mes)`, lineaName];
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {porLineaMesData.lineas.map(lineaName => (
+                <Bar
+                  key={lineaName}
+                  dataKey={lineaName}
+                  stackId="lineas"
+                  fill={lineaColor(lineaName, porLineaMesData.lineas)}
+                  cursor={lineaName === 'Otras' ? 'default' : 'pointer'}
+                  onClick={() => handleStackSegmentClick(lineaName)}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* Profundidad de Línea */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-bold text-gray-900 mb-1">Profundidad de Línea</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Top 15 productos por ventas netas — presencia en clientes y tiendas, precio y unidades promedio mensuales, tasa de devolución
+        </p>
+
+        {profundidadLoading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : profundidadError ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
+        ) : !profundidadData || profundidadData.rows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Producto</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Clientes</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tiendas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Precio prom./mes</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Unidades prom./mes</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {profundidadData.rows.map((row, i) => (
+                  <tr key={`${row.sku}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
+                    <td className="px-3 py-2 text-gray-800">{row.sku}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">
+                      {qty(row.clientCount)} <span className="text-gray-400">({pct(row.clientShare)})</span>
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-600">
+                      {qty(row.storeCount)} <span className="text-gray-400">({pct(row.storeShare)})</span>
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-600">
+                      {moneyLabel(row.avgMonthlyPrice, currency, profundidadRate)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-600">{qty(row.avgMonthlyUnits)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.returnRate)}</td>
                   </tr>
                 ))}
               </tbody>

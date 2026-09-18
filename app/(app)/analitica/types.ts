@@ -202,12 +202,47 @@ export interface ProductosRow {
   rotacion: number; // QuantitySold * GrossProfitAmount or similar metric
   salesNet: number;
   margin: number | null; // GrossProfitAmount / NetAmount
+  salesShare: number | null; // salesNet / sum(salesNet) across all rows at this drill level
 }
 
 export interface ProductosResponse {
   rows: ProductosRow[];
   groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
+  usdRate: number | null;
+}
+
+// Productos tab — Profundidad de Línea table (top-15 SKUs by sales, flat
+// leaderboard, independent of the línea/sublínea/sku drill-down above).
+export interface ProfundidadLineaRow {
+  sku: string;
+  clientCount: number;
+  clientShare: number | null; // clientCount / total distinct clients active in range
+  storeCount: number;
+  storeShare: number | null; // storeCount / total distinct stores active in range
+  avgMonthlyPrice: number; // avg NetAmount per unit, averaged over months with sales
+  avgMonthlyUnits: number; // QuantitySold / distinct months with sales in range
+  returnRate: number | null;
+}
+
+export interface ProfundidadLineaResponse {
+  rows: ProfundidadLineaRow[];
+  usdRate: number | null;
+}
+
+// Productos tab — units sold by month, stacked by línea (top lines by
+// volume; the rest bucketed as "Otras" to keep the stack legible).
+export interface UnitsByLineaMonthRow {
+  yearMonth: string; // formatted label, e.g. "Ene 26"
+  yearMonthValue: string; // raw YYYY-MM, used for drill-down filters
+  units: Record<string, number>; // línea name -> units sold that month
+  salesNet: Record<string, number>; // línea name -> sales net that month (for % of total)
+  totalSalesNet: number; // sum of salesNet across all líneas that month
+}
+
+export interface UnitsByLineaResponse {
+  rows: UnitsByLineaMonthRow[];
+  lineas: string[]; // ordered list of línea names present (series keys), "Otras" last if present
   usdRate: number | null;
 }
 
