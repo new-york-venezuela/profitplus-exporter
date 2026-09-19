@@ -52,8 +52,11 @@ BEGIN
         END
 
         -- Log every row that will change, BEFORE the UPDATE, so fec_venc_old
-        -- reflects the pre-fix value.
+        -- reflects the pre-fix value. OUTPUT captures exactly the rows this
+        -- INSERT wrote, regardless of statement duration or repeat calls —
+        -- more reliable than filtering the audit table by a time window.
         INSERT INTO dbo.__exporter_invoice_due_date_fixes (co_cli, nro_doc, fec_venc_old, fec_venc_new, co_us_in)
+        OUTPUT INSERTED.nro_doc, INSERTED.fec_venc_old, INSERTED.fec_venc_new
         SELECT
             d.co_cli,
             d.nro_doc,
@@ -79,11 +82,6 @@ BEGIN
           AND d.fec_venc = d.fec_emis;
 
         COMMIT TRAN;
-
-        SELECT nro_doc, fec_venc_old, fec_venc_new
-        FROM dbo.__exporter_invoice_due_date_fixes
-        WHERE co_cli = @sCoCli AND fixed_at_utc >= DATEADD(second, -5, SYSUTCDATETIME())
-        ORDER BY nro_doc;
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
