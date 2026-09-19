@@ -6,7 +6,7 @@ import {
   LineChart, Line, AreaChart, Area, Legend,
 } from 'recharts';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
-import type { Currency, CxcResponse, DateRange } from '../types';
+import type { Currency, CxcResponse, DateRange, DebtConcentrationResponse } from '../types';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
 const BUCKET_COLORS: Record<string, string> = {
@@ -61,6 +61,9 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
+  const [debtConcentration, setDebtConcentration] = useState<DebtConcentrationResponse | null>(null);
+  const [debtConcentrationLoading, setDebtConcentrationLoading] = useState<boolean>(true);
+  const [debtConcentrationError, setDebtConcentrationError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +86,33 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
         if (!cancelled) setError('No se pudo conectar con el servidor');
       } finally {
         if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [currency, clienteDimension]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setDebtConcentrationError(null);
+      setDebtConcentrationLoading(true);
+      try {
+        const params = new URLSearchParams({ currency, clienteDimension, section: 'debtConcentration' });
+        const res = await fetch(`/api/dwh/cxc?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setDebtConcentrationError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setDebtConcentration(await res.json());
+      } catch {
+        if (!cancelled) setDebtConcentrationError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setDebtConcentrationLoading(false);
       }
     }
     load();
@@ -290,6 +320,43 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                 />
               ))}
             </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* Debt concentration by customer */}
+      <ChartCard
+        title="Concentración de deuda por cliente"
+        subtitle="Top 15 clientes por saldo pendiente, desglosado por antigüedad — para priorizar cobranza"
+      >
+        {debtConcentrationLoading ? (
+          <div className="h-64 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : debtConcentrationError ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{debtConcentrationError}</p>
+        ) : !debtConcentration || debtConcentration.rows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(320, debtConcentration.rows.length * 32)}>
+            <BarChart
+              data={debtConcentration.rows.map(row => {
+                const flat: Record<string, string | number> = { name: row.name };
+                for (const bucket of BUCKET_ORDER) {
+                  flat[bucket] = row.buckets.find(b => b.bucket === bucket)?.amount ?? 0;
+                }
+                return flat;
+              })}
+              layout="vertical"
+              margin={{ left: 24 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={180} />
+              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {BUCKET_ORDER.map(bucket => (
+                <Bar key={bucket} dataKey={bucket} name={bucket} stackId="debt" fill={BUCKET_COLORS[bucket]} />
+              ))}
+            </BarChart>
           </ResponsiveContainer>
         )}
       </ChartCard>
