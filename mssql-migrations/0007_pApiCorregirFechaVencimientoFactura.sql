@@ -66,7 +66,7 @@ BEGIN
         FROM saDocumentoVenta d
         WHERE d.co_cli = @sCoCli
           AND d.co_tipo_doc = 'FACT'
-          AND d.anulado = 0
+          AND ISNULL(d.anulado, 0) = 0
           AND d.saldo <> 0
           AND CAST(d.fec_emis AS date) BETWEEN @dFecDesde AND @dFecHasta
           AND d.fec_venc = d.fec_emis;
@@ -76,7 +76,7 @@ BEGIN
         FROM saDocumentoVenta d
         WHERE d.co_cli = @sCoCli
           AND d.co_tipo_doc = 'FACT'
-          AND d.anulado = 0
+          AND ISNULL(d.anulado, 0) = 0
           AND d.saldo <> 0
           AND CAST(d.fec_emis AS date) BETWEEN @dFecDesde AND @dFecHasta
           AND d.fec_venc = d.fec_emis;

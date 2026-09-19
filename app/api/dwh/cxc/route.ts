@@ -44,7 +44,7 @@ function topDebtorsQuery(dimension: Dimension): string {
       ) AS AvgDaysToPay
     FROM fact.Fact_AR_Snapshot a
     ${spec.joinClause.replace(/\bf\b/g, 'a')}
-    WHERE a.SnapshotDateKey = @snapshotDateKey
+    WHERE a.SnapshotDateKey = @snapshotDateKey AND a.IsCreditNote = 0
     GROUP BY ${spec.groupByColumn}
     HAVING SUM(a.OutstandingBalance) > 0
     ORDER BY Outstanding DESC

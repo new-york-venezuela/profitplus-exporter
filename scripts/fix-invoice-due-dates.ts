@@ -73,7 +73,7 @@ async function preview(pool: Awaited<ReturnType<typeof getPool>>, options: FixOp
       INNER JOIN saCondicionPago cp ON cp.co_cond = c.cond_pag
       WHERE d.co_cli = @coCli
         AND d.co_tipo_doc = 'FACT'
-        AND d.anulado = 0
+        AND ISNULL(d.anulado, 0) = 0
         AND d.saldo <> 0
         AND CAST(d.fec_emis AS date) BETWEEN @fecDesde AND @fecHasta
         AND d.fec_venc = d.fec_emis
