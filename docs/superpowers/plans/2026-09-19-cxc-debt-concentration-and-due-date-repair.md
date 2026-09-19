@@ -690,11 +690,18 @@ export async function runFix(options: FixOptions): Promise<void> {
       return;
     }
 
+    // .input() labels here bind BY NAME over the TDS RPC wire protocol
+    // (mssql/tedious write "@<label>" for every parameter on .execute()) —
+    // unlike .query(), where the label is just the placeholder text you
+    // write into the SQL string yourself. These four labels must match the
+    // stored procedure's actual declared parameter names exactly (no
+    // leading @, the driver adds it), or SQL Server rejects the call before
+    // any statement runs.
     const result = await pool.request()
-      .input('coCli', options.customer)
-      .input('fecDesde', options.from)
-      .input('fecHasta', options.to)
-      .input('coUsIn', 'SYSTEM')
+      .input('sCoCli', options.customer)
+      .input('dFecDesde', options.from)
+      .input('dFecHasta', options.to)
+      .input('sCoUsIn', 'SYSTEM')
       .execute('pApiCorregirFechaVencimientoFactura');
 
     console.log(`\nApplied. ${result.recordset.length} invoice(s) updated:`);
@@ -764,4 +771,4 @@ EOF
 
 - **Spec coverage**: Part 1 (chart) → Tasks 1-2. Part 2 (stored procedure + audit table + CLI) → Tasks 3-4. Every spec section has a task.
 - **Placeholder scan**: no TBD/TODO; every step has literal code.
-- **Type consistency**: `DebtConcentrationRow`/`DebtConcentrationResponse` (Task 1) are the exact names consumed in Task 2's `import type` line. `FixOptions`/`parseArgs`/`runFix` (Task 4) are the exact names the test imports. `pApiCorregirFechaVencimientoFactura`'s parameter names (`@sCoCli`, `@dFecDesde`, `@dFecHasta`, `@sCoUsIn`) match the `.input('coCli', ...)` etc. calls in Task 4's `runFix` (mssql's `.input()` name doesn't need to match the SQL `@param` name exactly since it's positional-by-declared-param-order in `.execute()`, but kept aligned for clarity).
+- **Type consistency**: `DebtConcentrationRow`/`DebtConcentrationResponse` (Task 1) are the exact names consumed in Task 2's `import type` line. `FixOptions`/`parseArgs`/`runFix` (Task 4) are the exact names the test imports. `pApiCorregirFechaVencimientoFactura`'s parameter names (`@sCoCli`, `@dFecDesde`, `@dFecHasta`, `@sCoUsIn`) MUST match the `.input('sCoCli', ...)` etc. labels in Task 4's `runFix` `.execute()` call exactly (no leading `@`) — corrected during implementation review: `mssql`'s `.execute()` binds parameters BY NAME over the TDS RPC protocol, not positionally, so a label mismatch fails the call at the RPC layer before any statement in the procedure runs. (`.input()` calls used with `.query()`, in `checkGuardrail`/`preview`, are unaffected by this — there the label is simply the placeholder text referenced in the SQL string itself, correct as originally written.)
