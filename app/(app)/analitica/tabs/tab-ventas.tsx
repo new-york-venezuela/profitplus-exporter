@@ -3,10 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, Legend,
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
-import type { BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow } from '../types';
+import type {
+  BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow,
+  VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse,
+} from '../types';
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -23,6 +27,109 @@ function EmptyState({ message }: { message?: string }) {
   return (
     <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">
       {message ?? 'Sin datos disponibles todavía.'}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, delta }: { label: string; value: string; delta?: { pct: number | null; label: string } }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      {delta && (
+        <p className={`text-xs mt-1 font-medium ${delta.pct === null ? 'text-gray-400' : delta.pct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          {delta.pct === null ? '—' : `${delta.pct >= 0 ? '▲' : '▼'} ${Math.abs(delta.pct * 100).toFixed(1)}%`} {delta.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const COMPARISON_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626'];
+
+// Multi-select comparison chart (línea or cliente/cadena): up to 4 checkbox
+// options, each toggled series becomes one <Line>. Shared between the
+// "Por línea" and "Por cadena" comparison sections below — they differ only
+// in which options/section param they fetch.
+function ComparisonChart({
+  options,
+  selected,
+  onToggle,
+  data,
+  loading,
+  error,
+  currency,
+  rate,
+  maxSelected = 4,
+}: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  data: VentasComparisonResponse | null;
+  loading: boolean;
+  error: string | null;
+  currency: Currency;
+  rate?: number;
+  maxSelected?: number;
+}) {
+  const chartData = (data?.rows ?? []).map(row => ({ yearMonth: row.yearMonth, ...row.values }));
+  const labelFor = (value: string) => options.find(o => o.value === value)?.label ?? value;
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {options.map(opt => {
+          const isSelected = selected.includes(opt.value);
+          const disabled = !isSelected && selected.length >= maxSelected;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => onToggle(opt.value)}
+              disabled={disabled}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : disabled
+                  ? 'bg-gray-50 border-gray-200 text-gray-300 cursor-not-allowed'
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      {selected.length === 0 ? (
+        <EmptyState message="Selecciona entre 1 y 4 opciones para comparar." />
+      ) : loading ? (
+        <div className="h-64 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+      ) : error ? (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
+      ) : chartData.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <ResponsiveContainer width="100%" height={320}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
+            <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+            <Legend wrapperStyle={{ fontSize: 12 }} formatter={(value: string) => labelFor(value)} />
+            {selected.map((key, i) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={key}
+                stroke={COMPARISON_COLORS[i % COMPARISON_COLORS.length]}
+                strokeWidth={2}
+                dot
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }
@@ -90,6 +197,22 @@ export default function TabVentas({
   const [lineaLoading, setLineaLoading] = useState<boolean>(true);
   const [lineaError, setLineaError] = useState<string | null>(null);
   const [lineaBreakdownBy, setLineaBreakdownBy] = useState<PivotDimension | null>(null);
+
+  const [kpisData, setKpisData] = useState<VentasKpisResponse | null>(null);
+  const [kpisLoading, setKpisLoading] = useState<boolean>(true);
+  const [kpisError, setKpisError] = useState<string | null>(null);
+
+  const [comparisonOptions, setComparisonOptions] = useState<ComparisonOptionsResponse | null>(null);
+
+  const [lineaCompareKeys, setLineaCompareKeys] = useState<string[]>([]);
+  const [lineaCompareData, setLineaCompareData] = useState<VentasComparisonResponse | null>(null);
+  const [lineaCompareLoading, setLineaCompareLoading] = useState<boolean>(false);
+  const [lineaCompareError, setLineaCompareError] = useState<string | null>(null);
+
+  const [clienteCompareKeys, setClienteCompareKeys] = useState<string[]>([]);
+  const [clienteCompareData, setClienteCompareData] = useState<VentasComparisonResponse | null>(null);
+  const [clienteCompareLoading, setClienteCompareLoading] = useState<boolean>(false);
+  const [clienteCompareError, setClienteCompareError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +295,137 @@ export default function TabVentas({
       cancelled = true;
     };
   }, [dateRange, currency]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setKpisError(null);
+      setKpisLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'kpis' });
+        const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setKpisError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setKpisData(await res.json());
+      } catch {
+        if (!cancelled) setKpisError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setKpisLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency]);
+
+  // Comparison option catalogs (top líneas / top cadenas by sales in range)
+  // — refetched whenever dateRange changes so the multi-select always offers
+  // series that actually have data in the current window; selections are
+  // reset when the option list changes underneath them (handled in the
+  // effect below) rather than left pointing at now-irrelevant keys.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonOptions' });
+        const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+        if (cancelled || !res.ok) return;
+        const body: ComparisonOptionsResponse = await res.json();
+        if (cancelled) return;
+        setComparisonOptions(body);
+        setLineaCompareKeys(prev => {
+          const valid = new Set(body.lineas.map(o => o.value));
+          const kept = prev.filter(k => valid.has(k));
+          return kept.length > 0 ? kept : body.lineas.slice(0, 2).map(o => o.value);
+        });
+        setClienteCompareKeys(prev => {
+          const valid = new Set(body.clientes.map(o => o.value));
+          const kept = prev.filter(k => valid.has(k));
+          return kept.length > 0 ? kept : body.clientes.slice(0, 2).map(o => o.value);
+        });
+      } catch {
+        // Non-critical for the rest of the tab — comparison charts simply
+        // stay empty if this fails; no dedicated error state needed here.
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
+
+  useEffect(() => {
+    // No fetch when nothing is selected — ComparisonChart already renders
+    // its own "select 1-4 options" empty state from `selected.length === 0`
+    // regardless of stale `data`, so there's nothing to clear here.
+    if (lineaCompareKeys.length === 0) return;
+    let cancelled = false;
+    async function load() {
+      setLineaCompareError(null);
+      setLineaCompareLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonLinea', keys: lineaCompareKeys.join(',') });
+        const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setLineaCompareError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setLineaCompareData(await res.json());
+      } catch {
+        if (!cancelled) setLineaCompareError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setLineaCompareLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, lineaCompareKeys]);
+
+  useEffect(() => {
+    if (clienteCompareKeys.length === 0) return;
+    let cancelled = false;
+    async function load() {
+      setClienteCompareError(null);
+      setClienteCompareLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonCliente', keys: clienteCompareKeys.join(',') });
+        const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setClienteCompareError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setClienteCompareData(await res.json());
+      } catch {
+        if (!cancelled) setClienteCompareError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setClienteCompareLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, clienteCompareKeys]);
+
+  function toggleLineaCompare(value: string) {
+    setLineaCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
+  }
+
+  function toggleClienteCompare(value: string) {
+    setClienteCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
+  }
 
   // Clicking a month bar no longer swaps which section is visible (there is
   // only one layout now) — it just scopes the always-visible cliente
@@ -272,8 +526,38 @@ export default function TabVentas({
     },
   ];
 
+  const kpisRate = kpisData?.usdRate ?? undefined;
+  const kpis = kpisData?.kpis;
+  const salesDelta = kpis && kpis.salesNetPrevPeriod !== null && kpis.salesNetPrevPeriod !== 0
+    ? (kpis.salesNet - kpis.salesNetPrevPeriod) / kpis.salesNetPrevPeriod
+    : null;
+
   return (
     <div className="p-6 max-w-7xl space-y-8">
+      {/* KPIs */}
+      <section>
+        {kpisLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+        {!kpisLoading && kpisError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{kpisError}</p>
+        )}
+        {!kpisLoading && !kpisError && kpis && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <KpiCard
+              label="Ventas netas"
+              value={moneyLabel(kpis.salesNet, currency, kpisRate)}
+              delta={{ pct: salesDelta, label: 'vs. período anterior' }}
+            />
+            <KpiCard label="Clientes activos" value={kpis.activeClients.toLocaleString('es-VE')} />
+            <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency, kpisRate) : '—'} />
+            <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} />
+            <KpiCard
+              label="Ventas por cliente activo"
+              value={kpis.salesPerActiveClient !== null ? moneyLabel(kpis.salesPerActiveClient, currency, kpisRate) : '—'}
+            />
+          </div>
+        )}
+      </section>
+
       {/* Por mes */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por mes</h3>
@@ -361,6 +645,34 @@ export default function TabVentas({
           />
         )}
       </section>
+
+      {/* Comparación por línea */}
+      <ChartCard title="Comparar ventas por línea" subtitle="Selecciona hasta 4 líneas para comparar su tendencia mensual de ventas netas">
+        <ComparisonChart
+          options={comparisonOptions?.lineas ?? []}
+          selected={lineaCompareKeys}
+          onToggle={toggleLineaCompare}
+          data={lineaCompareData}
+          loading={lineaCompareLoading}
+          error={lineaCompareError}
+          currency={currency}
+          rate={lineaCompareData?.usdRate ?? undefined}
+        />
+      </ChartCard>
+
+      {/* Comparación por cadena */}
+      <ChartCard title="Comparar ventas por cadena" subtitle="Selecciona hasta 4 clientes (entidad/cadena) para comparar su tendencia mensual de ventas netas">
+        <ComparisonChart
+          options={comparisonOptions?.clientes ?? []}
+          selected={clienteCompareKeys}
+          onToggle={toggleClienteCompare}
+          data={clienteCompareData}
+          loading={clienteCompareLoading}
+          error={clienteCompareError}
+          currency={currency}
+          rate={clienteCompareData?.usdRate ?? undefined}
+        />
+      </ChartCard>
     </div>
   );
 }

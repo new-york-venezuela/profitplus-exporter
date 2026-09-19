@@ -92,6 +92,48 @@ export interface VentasResponse {
   usdRate: number | null;
 }
 
+// Ventas tab — KPI row, scoped to dateRange/currency like every other
+// section, computed directly off Fact_Sales (no margin/profit field: DWH
+// has no reliable cost data, see AGENTS.md).
+export interface VentasKpis {
+  salesNet: number;
+  salesNetPrevPeriod: number | null; // same-length immediately-preceding period, for the Δ%
+  activeClients: number; // distinct Dim_LegalEntity with >=1 sale in range
+  avgTicket: number | null; // salesNet / distinct invoices (null if no invoices)
+  unitsSold: number;
+  salesPerActiveClient: number | null; // salesNet / activeClients (null if activeClients = 0)
+}
+
+export interface VentasKpisResponse {
+  kpis: VentasKpis;
+  usdRate: number | null;
+}
+
+// Ventas tab — dynamic sales comparison charts (two independent charts: by
+// línea and by cliente/cadena). Each chart lets the user pick 2-4 series
+// from a fixed catalog (top N by sales in range) and shows salesNet per
+// month per series, pivoted so Recharts can render one <Line> per series.
+export interface ComparisonOption {
+  value: string; // LineCode or LegalEntityKey, used as the series-select key
+  label: string;
+}
+
+export interface ComparisonOptionsResponse {
+  lineas: ComparisonOption[];
+  clientes: ComparisonOption[];
+}
+
+export interface ComparisonSeriesMonthRow {
+  yearMonth: string; // formatted label, e.g. "Ene 26"
+  yearMonthValue: string; // raw YYYY-MM
+  values: Record<string, number>; // series value (LineCode or LegalEntityKey) -> salesNet that month
+}
+
+export interface VentasComparisonResponse {
+  rows: ComparisonSeriesMonthRow[];
+  usdRate: number | null;
+}
+
 // Compras tab
 export interface ComprasRow {
   label: string;
