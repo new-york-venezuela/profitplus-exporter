@@ -47,6 +47,14 @@ async function checkGuardrail(pool: Awaited<ReturnType<typeof getPool>>, custome
       `Cliente ${customer} tiene condición de pago Contado (000001) — corrija el cliente en Profit Plus antes de ejecutar esta reparación`
     );
   }
+
+  const condResult = await pool.request()
+    .input('coCond', row.cond_pag)
+    .query(`SELECT dias_cred FROM saCondicionPago WHERE co_cond = @coCond`);
+  const condRow = condResult.recordset[0] as { dias_cred: number | null } | undefined;
+  if (!condRow) {
+    throw new Error(`Condición de pago ${row.cond_pag} del cliente ${customer} no existe en saCondicionPago`);
+  }
 }
 
 async function preview(pool: Awaited<ReturnType<typeof getPool>>, options: FixOptions): Promise<PreviewRow[]> {
@@ -106,16 +114,24 @@ export async function runFix(options: FixOptions): Promise<void> {
       return;
     }
 
+    // .input() labels here bind BY NAME over the TDS RPC wire protocol
+    // (mssql/tedious write "@<label>" for every parameter on .execute()) —
+    // unlike .query(), where the label is just the placeholder text you
+    // write into the SQL string yourself. These four labels must match the
+    // stored procedure's actual declared parameter names exactly (no
+    // leading @, the driver adds it), or SQL Server rejects the call before
+    // any statement runs.
+    //
     // result.recordset resolves to the stored procedure's OUTPUT clause (the
     // only result-producing statement it runs, since SET NOCOUNT ON
     // suppresses the rest) — if a future edit to the procedure adds another
     // result-producing statement before that OUTPUT, this would silently
     // start reporting the wrong rows.
     const result = await pool.request()
-      .input('coCli', options.customer)
-      .input('fecDesde', options.from)
-      .input('fecHasta', options.to)
-      .input('coUsIn', 'SYSTEM')
+      .input('sCoCli', options.customer)
+      .input('dFecDesde', options.from)
+      .input('dFecHasta', options.to)
+      .input('sCoUsIn', 'SYSTEM')
       .execute('pApiCorregirFechaVencimientoFactura');
 
     console.log(`\nApplied. ${result.recordset.length} invoice(s) updated:`);
