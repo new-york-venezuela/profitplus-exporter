@@ -194,6 +194,16 @@ export interface AgingTrendRow {
   buckets: AgingBucketRow[];
 }
 
+export interface DebtConcentrationRow {
+  name: string; // LegalEntityName or CustomerName, per clienteDimension
+  buckets: AgingBucketRow[]; // same 5-bucket shape as AgingTrendRow.buckets
+}
+
+export interface DebtConcentrationResponse {
+  rows: DebtConcentrationRow[];
+  usdRate: number | null;
+}
+
 export interface CxcResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors: DebtorRow[];

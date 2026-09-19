@@ -3,7 +3,7 @@ import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, getDimensionSpec, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
-  CxcResponse, AgingBucketRow, DebtorRow, WeekdayVencimientoRow, DsoTrendRow, AgingTrendRow,
+  CxcResponse, AgingBucketRow, DebtorRow, WeekdayVencimientoRow, DsoTrendRow, AgingTrendRow, DebtConcentrationRow, DebtConcentrationResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +48,31 @@ function topDebtorsQuery(dimension: Dimension): string {
     GROUP BY ${spec.groupByColumn}
     HAVING SUM(a.OutstandingBalance) > 0
     ORDER BY Outstanding DESC
+  `;
+}
+
+// Part 3e: top 15 customers by total outstanding balance at the latest
+// snapshot, broken out by AgingBucket — same bucket set as the aging chart,
+// but per-customer instead of aggregated, to show where overdue debt
+// concentrates. Reuses the same dimension spec as topDebtorsQuery so the
+// Entidad/Tienda toggle applies here too.
+function debtConcentrationQuery(dimension: Dimension): string {
+  const spec = getDimensionSpec(dimension);
+  return `
+    SELECT TOP 15 ${spec.labelExpr} AS Name, a.AgingBucket, SUM(a.OutstandingBalance) AS Amount
+    FROM fact.Fact_AR_Snapshot a
+    ${spec.joinClause.replace(/\bf\b/g, 'a')}
+    WHERE a.SnapshotDateKey = @snapshotDateKey AND a.IsCreditNote = 0
+      AND ${spec.groupByColumn.split(',')[0].trim()} IN (
+        SELECT TOP 15 ${spec.groupByColumn.split(',')[0].trim()}
+        FROM fact.Fact_AR_Snapshot a2
+        ${spec.joinClause.replace(/\bf\b/g, 'a2')}
+        WHERE a2.SnapshotDateKey = @snapshotDateKey AND a2.IsCreditNote = 0
+        GROUP BY ${spec.groupByColumn}
+        ORDER BY SUM(a2.OutstandingBalance) DESC
+      )
+    GROUP BY ${spec.groupByColumn}, a.AgingBucket
+    ORDER BY ${spec.groupByColumn.split(',')[0].trim()}
   `;
 }
 
@@ -123,6 +148,27 @@ const AGING_TREND_QUERY = `
   ORDER BY a.SnapshotDateKey
 `;
 
+async function handleDebtConcentration(snapshotDateKey: number, clienteDimension: Dimension, currency: string) {
+  const pool = await getDwhPool();
+  const [result, usdRate] = await Promise.all([
+    pool.request().input('snapshotDateKey', snapshotDateKey).query(debtConcentrationQuery(clienteDimension)),
+    currency === 'usd' ? getUsdRate() : Promise.resolve(null),
+  ]);
+
+  const byName = new Map<string, DebtConcentrationRow>();
+  for (const r of result.recordset as { Name: string; AgingBucket: string; Amount: number }[]) {
+    let entry = byName.get(r.Name);
+    if (!entry) {
+      entry = { name: r.Name, buckets: [] };
+      byName.set(r.Name, entry);
+    }
+    entry.buckets.push({ bucket: r.AgingBucket, amount: Number(r.Amount) });
+  }
+
+  const response: DebtConcentrationResponse = { rows: Array.from(byName.values()), usdRate };
+  return jsonWithCache(response);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -141,6 +187,14 @@ export async function GET(request: NextRequest) {
     ]);
 
     const snapshotDateKey: number | null = latestSnapshot.recordset[0]?.SnapshotDateKey ?? null;
+
+    const section = searchParams.get('section');
+    if (section === 'debtConcentration') {
+      if (snapshotDateKey === null) {
+        return jsonWithCache({ rows: [], usdRate: null } satisfies DebtConcentrationResponse);
+      }
+      return await handleDebtConcentration(snapshotDateKey, clienteDimension, currency);
+    }
 
     let agingBuckets: { AgingBucket: string; Amount: number }[] = [];
     let topDebtors: { Name: string; Outstanding: number; AvgDaysToPay: number | null }[] = [];

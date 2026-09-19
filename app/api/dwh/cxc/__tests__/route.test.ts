@@ -8,4 +8,10 @@ describe('GET /api/dwh/cxc', () => {
     const res = await GET(req);
     expect(res.status).toBe(401);
   });
+
+  test('rejects unauthenticated requests with 401 for section=debtConcentration', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/cxc?section=debtConcentration');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
 });
