@@ -225,6 +225,21 @@ Module-gated API route
   → getSessionFromRequest(request) → has<Module>Access(db, sub, role) → 403 if false
 ```
 
+## Product Analytics (PostHog)
+
+`lib/analytics/posthog.ts` exports `captureEvent(distinctId, event, properties?)`
+and `captureException(error, distinctId, properties?)` — both server-side
+(posthog-node), both no-ops if `NEXT_PUBLIC_POSTHOG_KEY` is unset. Call
+`captureEvent` right before an API route's success `return`, using
+`session.sub` as `distinctId` so it matches the client-side identify call.
+Call `captureException` in `catch` blocks alongside the existing
+`console.error`. Client-side, `components/posthog-provider.tsx` wraps
+`app/(app)/layout.tsx`, initializes `posthog-js` with autocapture
+(pageviews/clicks — no manual event needed for those), and calls
+`posthog.identify(session.sub, ...)`. For a UI-only signal with no server
+round-trip (e.g. a client-side tab switch), call `posthog.capture(...)`
+directly from the client component instead of adding a server event.
+
 ## Code Conventions
 
 - **No date library** — use `lib/dates.ts` for all date math

@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { hasInventoryAccess } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { Sidebar }    from '@/components/sidebar';
+import { PostHogProvider } from '@/components/posthog-provider';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +17,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const canSeeAnalitica  = await hasDwhAccess(db, session.sub, session.role);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar user={session} canSeeInventory={canSeeInventory} canSeeAnalitica={canSeeAnalitica} />
-      <main className="flex-1 overflow-auto bg-gray-50">
-        {children}
-      </main>
-    </div>
+    <PostHogProvider user={session}>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar user={session} canSeeInventory={canSeeInventory} canSeeAnalitica={canSeeAnalitica} />
+        <main className="flex-1 overflow-auto bg-gray-50">
+          {children}
+        </main>
+      </div>
+    </PostHogProvider>
   );
 }

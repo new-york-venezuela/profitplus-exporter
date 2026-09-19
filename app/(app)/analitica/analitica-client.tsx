@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, useCallback, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import posthog from 'posthog-js';
 import type { Currency, DateRange } from './types';
 import TabResumen from './tabs/tab-resumen';
 import TabVentas from './tabs/tab-ventas';
@@ -151,6 +152,10 @@ function AnaliticaClientInner() {
       return next;
     });
   }
+
+  useEffect(() => {
+    posthog.capture('analytics_tab_viewed', { tab: activeTab });
+  }, [activeTab]);
 
   const updateParams = useCallback(
     (updates: Record<string, string>) => {

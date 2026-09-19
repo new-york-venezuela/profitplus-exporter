@@ -9,6 +9,7 @@ import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { mapComprasRows, buildComprasCsv } from '@/lib/routes/api/reports/compras-csv';
+import { captureEvent, captureException } from '@/lib/analytics/posthog';
 
 function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | null) {
   if (colsParam) {
@@ -57,6 +58,15 @@ export async function GET(
     );
   }
 
+  const track = (rowCount: number) =>
+    captureEvent(session.sub, 'report_exported', {
+      report: reportId,
+      format,
+      startDate: start,
+      endDate: end,
+      rowCount,
+    });
+
   try {
     const pool = await getPool();
     let rows: Record<string, unknown>[];
@@ -84,6 +94,8 @@ export async function GET(
       if (reportId === 'compras') {
         const comprasRows = mapComprasRows(rows);
 
+        track(comprasRows.length);
+
         if (format === 'xlsx') {
           const buffer = buildXlsx(cols, comprasRows);
           return new NextResponse(new Uint8Array(buffer), {
@@ -108,6 +120,8 @@ export async function GET(
       }
     }
 
+    track(rows.length);
+
     if (format === 'xlsx') {
       const buffer = buildXlsx(cols, rows);
       const filename = `${reportId}_${start}_${end}.xlsx`;
@@ -130,6 +144,7 @@ export async function GET(
     });
   } catch (error) {
     console.error('Export error:', error);
+    captureException(error, session.sub, { report: reportId, format });
     return NextResponse.json({ error: 'Error al consultar la base de datos' }, { status: 500 });
   }
 }

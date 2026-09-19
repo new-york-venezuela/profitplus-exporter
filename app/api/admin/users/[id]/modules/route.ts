@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getSessionFromRequest } from '@/lib/inventory/access';
 import { getDb } from '@/lib/db/sqlite';
 import { users, userModules } from '@/lib/db/schema';
+import { captureEvent } from '@/lib/analytics/posthog';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,7 @@ export async function PUT(
       db.insert(userModules).values({ userId, module: moduleName as 'inventory' | 'dwh' }).run();
     }
 
+    captureEvent(session.sub, 'admin_module_granted', { targetUserId: userId, modules });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });

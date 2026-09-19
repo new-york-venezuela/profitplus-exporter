@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { getSessionFromRequest } from '@/lib/inventory/access';
 import { getDb } from '@/lib/db/sqlite';
 import { users, userModules } from '@/lib/db/schema';
+import { captureEvent } from '@/lib/analytics/posthog';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +88,10 @@ export async function POST(request: NextRequest) {
       .returning({ id: users.id })
       .get();
 
+    captureEvent(auth.session.sub, 'admin_user_created', {
+      targetUserId: result?.id,
+      role: body.role,
+    });
     return NextResponse.json({ id: result?.id }, { status: 201 });
   } catch {
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });

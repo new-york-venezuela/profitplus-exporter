@@ -5,6 +5,8 @@ import { getDb } from '@/lib/db/sqlite';
 import { inventoryWarehouses } from '@/lib/db/schema';
 import { getPool } from '@/lib/db/mssql';
 import { PRODUCTION_TIPO_AJUSTE_CODES } from '@/lib/inventory/tipo-ajuste';
+import { captureEvent, captureException } from '@/lib/analytics/posthog';
+import type { SessionPayload } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,7 +88,7 @@ function isRaisedError500(error: unknown): { message: string } | null {
   return null;
 }
 
-async function handleRecount(body: RecountBody) {
+async function handleRecount(body: RecountBody, session: SessionPayload) {
   const { coArt, coAlma, countedStock } = body;
   if (typeof coArt !== 'string' || coArt.trim() === '') {
     return NextResponse.json({ error: 'Artículo requerido' }, { status: 400 });
@@ -131,16 +133,20 @@ async function handleRecount(body: RecountBody) {
       total_art: Math.abs(delta), permitir_negativo: false,
     }]);
 
+    captureEvent(session.sub, 'inventory_adjustment_created', {
+      kind: 'recount', coAlma, tipo, delta, ajueNum,
+    });
     return NextResponse.json({ ok: true, ajueNum, delta });
   } catch (error) {
     const raised = isRaisedError500(error);
     if (raised) return NextResponse.json({ error: raised.message }, { status: 400 });
     console.error('Inventory adjustment error:', error);
+    captureException(error, session.sub, { kind: 'recount' });
     return NextResponse.json({ error: 'Error al registrar el ajuste en Profit Plus' }, { status: 500 });
   }
 }
 
-async function handleSimpleAjuste(body: SimpleAjusteBody) {
+async function handleSimpleAjuste(body: SimpleAjusteBody, session: SessionPayload) {
   const { coTipo, coArt, coAlma, cantidad } = body;
   if (typeof coTipo !== 'string' || !SIMPLE_AJUSTE_TIPOS.has(coTipo)) {
     return NextResponse.json({ error: 'Motivo inválido' }, { status: 400 });
@@ -180,11 +186,15 @@ async function handleSimpleAjuste(body: SimpleAjusteBody) {
       total_art: cantidad, permitir_negativo: false,
     }]);
 
+    captureEvent(session.sub, 'inventory_adjustment_created', {
+      kind: 'simple', coAlma, coTipo, cantidad, ajueNum,
+    });
     return NextResponse.json({ ok: true, ajueNum });
   } catch (error) {
     const raised = isRaisedError500(error);
     if (raised) return NextResponse.json({ error: raised.message }, { status: 400 });
     console.error('Inventory simple ajuste error:', error);
+    captureException(error, session.sub, { kind: 'simple' });
     return NextResponse.json({ error: 'Error al registrar el ajuste en Profit Plus' }, { status: 500 });
   }
 }
@@ -203,7 +213,7 @@ export async function POST(request: NextRequest) {
   }
 
   if ('coTipo' in body) {
-    return handleSimpleAjuste(body as SimpleAjusteBody);
+    return handleSimpleAjuste(body as SimpleAjusteBody, session);
   }
-  return handleRecount(body as RecountBody);
+  return handleRecount(body as RecountBody, session);
 }
