@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
+import posthog from 'posthog-js';
 import type { SessionPayload } from '@/lib/auth/session';
 
 interface Props {
@@ -26,6 +27,7 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    posthog.reset();
     router.push('/login');
     router.refresh();
   }

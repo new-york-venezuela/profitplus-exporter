@@ -240,6 +240,19 @@ Call `captureException` in `catch` blocks alongside the existing
 round-trip (e.g. a client-side tab switch), call `posthog.capture(...)`
 directly from the client component instead of adding a server event.
 
+Two client-side host vars, both required for the reverse-proxy setup:
+`NEXT_PUBLIC_POSTHOG_HOST` is the ingestion endpoint (`api_host` client-side,
+`host` server-side) — point it at the proxy domain. `NEXT_PUBLIC_POSTHOG_UI_HOST`
+is only for the PostHog app itself (toolbar, links) since a proxy/custom
+`api_host` can't serve the UI — client-only, `posthog-node` has no
+equivalent. `PostHogProvider`'s `useEffect` re-runs `identify()` on every
+mount, which covers a fresh page load while already logged in (mounting
+`(app)/layout.tsx` for the first time reads the session server-side either
+way). The one thing that needs an explicit call is logout: `posthog.reset()`
+in `components/sidebar.tsx`'s `handleLogout()`, before redirecting to
+`/login` — without it, a second user logging in on the same browser could
+briefly inherit the previous user's identified state.
+
 ## Code Conventions
 
 - **No date library** — use `lib/dates.ts` for all date math

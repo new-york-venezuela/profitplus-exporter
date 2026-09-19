@@ -20,6 +20,7 @@ export function PostHogProvider({
     if (!initialized) {
       posthog.init(key, {
         api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+        ui_host:  process.env.NEXT_PUBLIC_POSTHOG_UI_HOST ?? 'https://eu.posthog.com',
         person_profiles: 'identified_only',
         capture_pageview: true,
       });
