@@ -53,7 +53,7 @@ test.describe('admin user management', () => {
     await expect(adminPage.getByRole('cell', { name: 'Module Grant Target' })).toBeVisible();
 
     const row = adminPage.getByRole('row', { name: /Module Grant Target/ });
-    const inventoryCheckbox = row.getByRole('checkbox');
+    const inventoryCheckbox = row.getByLabel('Inventario');
     await expect(inventoryCheckbox).not.toBeChecked();
 
     // The checkbox is a fully controlled component: it only reflects the
@@ -69,12 +69,12 @@ test.describe('admin user management', () => {
     await expect(inventoryCheckbox).toBeChecked();
     // Persisted server-side, not just local state.
     await adminPage.reload();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).toBeChecked();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByLabel('Inventario')).toBeChecked();
 
-    await adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox').click();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+    await adminPage.getByRole('row', { name: /Module Grant Target/ }).getByLabel('Inventario').click();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByLabel('Inventario')).not.toBeChecked();
     await adminPage.reload();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByLabel('Inventario')).not.toBeChecked();
   });
 
   test('admin can reset another user\'s password', async ({ adminPage }) => {
