@@ -7,7 +7,7 @@ import { captureEvent } from '@/lib/analytics/posthog';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_MODULES = ['inventory', 'dwh'] as const;
+const VALID_MODULES = ['inventory', 'dwh', 'recipes'] as const;
 
 export async function PUT(
   request: NextRequest,
@@ -39,7 +39,7 @@ export async function PUT(
 
     db.delete(userModules).where(eq(userModules.userId, userId)).run();
     for (const moduleName of modules) {
-      db.insert(userModules).values({ userId, module: moduleName as 'inventory' | 'dwh' }).run();
+      db.insert(userModules).values({ userId, module: moduleName as 'inventory' | 'dwh' | 'recipes' }).run();
     }
 
     captureEvent(session.sub, 'admin_module_granted', { targetUserId: userId, modules });
