@@ -34,11 +34,28 @@ function formatSnapshotDate(key: number | null): string {
   return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
-function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
+function KpiCard({
+  label,
+  value,
+  tone,
+  delta,
+}: {
+  label: string;
+  value: string;
+  tone?: 'default' | 'warn';
+  delta?: { pct: number | null; label: string; goodDirection?: 'up' | 'down' };
+}) {
+  const isGood =
+    delta && delta.pct !== null && ((delta.goodDirection ?? 'up') === 'up' ? delta.pct >= 0 : delta.pct <= 0);
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
+      {delta && (
+        <p className={`text-xs mt-1 font-medium ${delta.pct === null ? 'text-gray-400' : isGood ? 'text-green-600' : 'text-red-600'}`}>
+          {delta.pct === null ? '—' : `${delta.pct >= 0 ? '▲' : '▼'} ${Math.abs(delta.pct * 100).toFixed(1)}%`} {delta.label}
+        </p>
+      )}
     </div>
   );
 }
@@ -139,10 +156,15 @@ export default function TabResumen({
     return total > 0 ? overdue / total : null;
   })();
 
+  const activeCustomersDelta =
+    data.kpis.activeCustomersPrevPeriod !== null && data.kpis.activeCustomersPrevPeriod > 0
+      ? (data.kpis.activeCustomers - data.kpis.activeCustomersPrevPeriod) / data.kpis.activeCustomersPrevPeriod
+      : null;
+
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesNet12mo, currency, rate)} />
         <KpiCard label="Devoluciones (12m)" value={moneyLabel(data.kpis.returnsNet12mo, currency, rate)} />
         <KpiCard
@@ -151,6 +173,16 @@ export default function TabResumen({
           tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
         />
         <KpiCard label="Cobrado (12m)" value={moneyLabel(data.kpis.collected12mo, currency, rate)} />
+        <KpiCard
+          label="Clientes activos"
+          value={data.kpis.activeCustomers.toLocaleString('es-VE')}
+          delta={{ pct: activeCustomersDelta, label: 'vs. período anterior' }}
+        />
+        <KpiCard
+          label="Tasa de abandono"
+          value={pct(data.kpis.churnRate)}
+          tone={data.kpis.churnRate !== null && data.kpis.churnRate > 0.2 ? 'warn' : 'default'}
+        />
       </div>
 
       {/* Sales & returns trend */}

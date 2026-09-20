@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
-import type { ClientesResponse, ClientesRow } from '@/app/(app)/analitica/types';
+import type { ClientesResponse, ClientesRow, ClientesTrendResponse, ClientesTrendRow } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,116 @@ export const dynamic = 'force-dynamic';
 // then bucketed by cumulative share of total net sales. A = top 20% of
 // cumulative sales, B = next 30% (up to 50% cumulative), C = the rest.
 const PARETO_THRESHOLDS = { a: 0.2, b: 0.5 };
+
+function formatYearMonth(ym: string): string {
+  const [y, m] = ym.split('-');
+  const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const idx = parseInt(m, 10) - 1;
+  return names[idx] ? `${names[idx]} ${y.slice(2)}` : ym;
+}
+
+const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
+const YTD_RANGE_RE = /^ytd:(\d{4})$/;
+
+function dateKey(d: Date): number {
+  return parseInt(`${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`);
+}
+
+function toYearMonth(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+// Mirrors buildDateWhereClause's own per-kind start-date parsing (see
+// query-builder.ts), but returns that start date rather than a ready-made
+// WHERE clause — trendQuery needs the raw date to (a) widen the fact-table
+// window back by one calendar month, so the first requested month has a
+// prior month to diff churn against, and (b) know the real requested
+// start's YearMonth, to trim that extra leading month back off before
+// returning rows.
+function rangeStart(dateRange: string): Date {
+  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
+  if (customMatch) return new Date(`${customMatch[1]}T00:00:00Z`);
+
+  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
+  if (monthMatch) {
+    const [, yearStr, monthStr] = monthMatch;
+    return new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, 1));
+  }
+
+  const ytdMatch = YTD_RANGE_RE.exec(dateRange);
+  if (ytdMatch) return new Date(Date.UTC(parseInt(ytdMatch[1]), 0, 1));
+
+  // Trailing-365-day default — same fallback as buildDateWhereClause.
+  return new Date(Date.now() - 365 * 86_400_000);
+}
+
+function widenedDateWhereClause(dateRange: string): string {
+  const start = rangeStart(dateRange);
+  const widenedStartKey = dateKey(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1)));
+  const endWhere = buildDateWhereClause(dateRange, 'fs').match(/AND fs\.DateKey <= \d+/)?.[0] ?? '';
+  return `AND fs.DateKey >= ${widenedStartKey} ${endWhere}`;
+}
+
+// Monthly active-customers + churn trend. CustomerMonth is the distinct
+// (YearMonth, EntityKey) grain — one row per customer (at whichever grain
+// `dimension` resolves to — legal entity/cadena, or individual tienda) per
+// month they bought anything — built from a widened window (widenedDateWhere)
+// that starts one calendar month before the requested range, purely so the
+// FIRST in-range month has a preceding month to diff against for its churn
+// figure; the final WHERE cm.YearMonth >= @minYearMonth then drops that
+// extra leading month from the emitted rows. Churn for month M = customers
+// present in M-1 but absent in M, as a share of M-1's total — the same
+// "prior active, gone now" definition used by activeCustomersQuery in
+// ../resumen/route.ts, just walked forward month-by-month instead of
+// collapsed to a single before/after pair. EntityKey is whatever
+// spec.valueExpr resolves to (LegalEntityKey for cliente_entidad,
+// CustomerKey for cliente_tienda) — this is what lets a cadena that opens a
+// new tienda (same LegalEntityKey, new CustomerKey) show up as "no churn,
+// same customer" at the Entidad grain but as a new/incremental customer at
+// the Tienda grain, per the actual business distinction being asked for.
+function trendQuery(dimension: Dimension, widenedDateWhere: string): string {
+  const spec = getDimensionSpec(dimension);
+  return `
+    WITH CustomerMonth AS (
+      SELECT DISTINCT d.YearMonth, ${spec.valueExpr} AS EntityKey
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      ${spec.joinClause.replace(/\bf\b/g, 'fs')}
+      WHERE fs.IsVoided = 0 ${widenedDateWhere}
+    ),
+    MonthList AS (
+      SELECT DISTINCT YearMonth FROM CustomerMonth
+    ),
+    PrevMonth AS (
+      SELECT
+        m.YearMonth,
+        (SELECT MAX(m2.YearMonth) FROM MonthList m2 WHERE m2.YearMonth < m.YearMonth) AS PrevYearMonth
+      FROM MonthList m
+    )
+    SELECT
+      cm.YearMonth,
+      COUNT(DISTINCT cm.EntityKey) AS ActiveCustomers,
+      pm.PrevYearMonth,
+      (SELECT COUNT(DISTINCT prev.EntityKey)
+         FROM CustomerMonth prev
+         WHERE prev.YearMonth = pm.PrevYearMonth
+      ) AS ActiveCustomersPrevMonth,
+      (SELECT COUNT(DISTINCT prev.EntityKey)
+         FROM CustomerMonth prev
+         WHERE prev.YearMonth = pm.PrevYearMonth
+           AND NOT EXISTS (
+             SELECT 1 FROM CustomerMonth cur
+             WHERE cur.YearMonth = cm.YearMonth AND cur.EntityKey = prev.EntityKey
+           )
+      ) AS ChurnedCustomers
+    FROM CustomerMonth cm
+    JOIN PrevMonth pm ON pm.YearMonth = cm.YearMonth
+    WHERE cm.YearMonth >= @minYearMonth
+    GROUP BY cm.YearMonth, pm.PrevYearMonth
+    ORDER BY cm.YearMonth
+  `;
+}
 
 function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDateWhere: string): string {
   const spec = getDimensionSpec(dimension);
@@ -35,6 +145,31 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
   `;
 }
 
+async function handleTrend(dimension: Dimension, dateRange: string) {
+  const pool = await getDwhPool();
+  const minYearMonth = toYearMonth(rangeStart(dateRange));
+  const result = await pool
+    .request()
+    .input('minYearMonth', minYearMonth)
+    .query(trendQuery(dimension, widenedDateWhereClause(dateRange)));
+
+  const rows: ClientesTrendRow[] = result.recordset.map(r => {
+    const activeCustomersPrevMonth = r.ActiveCustomersPrevMonth === null ? null : Number(r.ActiveCustomersPrevMonth);
+    const churnedCustomers = r.ChurnedCustomers === null ? null : Number(r.ChurnedCustomers);
+    return {
+      yearMonth: formatYearMonth(String(r.YearMonth)),
+      activeCustomers: Number(r.ActiveCustomers),
+      churnRate:
+        activeCustomersPrevMonth !== null && activeCustomersPrevMonth > 0 && churnedCustomers !== null
+          ? churnedCustomers / activeCustomersPrevMonth
+          : null,
+    };
+  });
+
+  const response: ClientesTrendResponse = { rows };
+  return jsonWithCache(response);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -44,6 +179,14 @@ export async function GET(request: NextRequest) {
   const currency = searchParams.get('currency') ?? 'bs';
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+
+  if (searchParams.get('section') === 'trend') {
+    try {
+      return await handleTrend(clienteDimension, dateRange);
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
 
   try {
     const pool = await getDwhPool();

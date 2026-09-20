@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 import { moneyLabel } from '../lib/format';
-import type { ClientesResponse, ClientesRow, Currency, DateRange } from '../types';
+import type { ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
@@ -15,6 +18,54 @@ function EmptyState({ message }: { message?: string }) {
       {message ?? 'Sin datos disponibles todavía.'}
     </div>
   );
+}
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+      {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
+      {!subtitle && <div className="mb-3" />}
+      {children}
+    </div>
+  );
+}
+
+function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+  const [data, setData] = useState<ClientesTrendResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setError(null);
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'trend' });
+        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setError(body.error ?? 'Error desconocido');
+          return;
+        }
+        const body: ClientesTrendResponse = await res.json();
+        if (cancelled) return;
+        setData(body);
+      } catch {
+        if (!cancelled) setError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, clienteDimension]);
+
+  return { data, loading, error };
 }
 
 type Segment = ClientesRow['pareto'];
@@ -89,6 +140,7 @@ export default function TabClientes({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
+  const trend = useClientesTrend(dateRange, clienteDimension);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,8 +231,67 @@ export default function TabClientes({
     { A: 0, B: 0, C: 0 }
   );
 
+  const trendData = (trend.data?.rows ?? []).map(r => ({
+    label: r.yearMonth,
+    'Clientes activos': r.activeCustomers,
+    'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
+  }));
+
   return (
     <div className="p-6 max-w-7xl space-y-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-200 rounded-lg p-4">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Nivel de análisis</h2>
+          <p className="text-xs text-gray-500">
+            Aplica a todo lo de abajo — Entidad agrupa por cadena/razón social, Tienda por punto de venta individual.
+          </p>
+        </div>
+        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+          <button
+            onClick={() => setClienteDimension('cliente_entidad')}
+            className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            Entidad
+          </button>
+          <button
+            onClick={() => setClienteDimension('cliente_tienda')}
+            className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            Tienda
+          </button>
+        </div>
+      </div>
+
+      <ChartCard
+        title="Clientes activos y tasa de abandono"
+        subtitle={`Por mes — grano: ${clienteDimension === 'cliente_entidad' ? 'Entidad (cadena)' : 'Tienda'}`}
+      >
+        {trend.loading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : trend.error ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{trend.error}</p>
+        ) : trendData.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={trendData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={v => `${v}%`} />
+              <Tooltip
+                formatter={(val: unknown, name: unknown) =>
+                  val === null ? '—' : name === 'Tasa de abandono' ? `${Number(val).toFixed(1)}%` : String(val)
+                }
+              />
+              <Legend />
+              <Line yAxisId="left" type="monotone" dataKey="Clientes activos" stroke="#2563eb" strokeWidth={2} dot={false} />
+              <Line yAxisId="right" type="monotone" dataKey="Tasa de abandono" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div>
@@ -192,20 +303,6 @@ export default function TabClientes({
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-              <button
-                onClick={() => setClienteDimension('cliente_entidad')}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                Entidad
-              </button>
-              <button
-                onClick={() => setClienteDimension('cliente_tienda')}
-                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                Tienda
-              </button>
-            </div>
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               {SEGMENT_FILTER_OPTIONS.map(opt => (
                 <button

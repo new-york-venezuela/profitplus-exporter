@@ -30,6 +30,15 @@ export interface ResumenKPIs {
   returnsNet12mo: number;
   returnRate: number | null;
   collected12mo: number;
+  // Distinct Dim_LegalEntity with >=1 sale in range, and the same-length
+  // immediately-preceding period's count, for the Δ card — same
+  // activeClients/prevPeriod convention as Ventas' VentasKpis.
+  activeCustomers: number;
+  activeCustomersPrevPeriod: number | null;
+  // Share of the previous period's active customers that placed no order
+  // in the current period. Null when the previous period had zero active
+  // customers (nothing to churn from).
+  churnRate: number | null;
 }
 
 export interface MonthlyTrendRow {
@@ -244,6 +253,22 @@ export interface ClientesResponse {
   rows: ClientesRow[];
   paretoThresholds: { a: number; b: number }; // cumulative % for A and B segments
   usdRate: number | null;
+}
+
+// Clientes tab — monthly trend of active customers and churn rate, one
+// point per month that had >=1 sale in dateRange (plus the one month
+// immediately before it, needed to compute the first point's churn).
+export interface ClientesTrendRow {
+  yearMonth: string; // formatted, e.g. "Ene 26"
+  activeCustomers: number;
+  // Share of the PREVIOUS month's active customers absent this month. Null
+  // for a month whose preceding month had zero active customers (nothing
+  // to churn from) or isn't available (the very first month of history).
+  churnRate: number | null;
+}
+
+export interface ClientesTrendResponse {
+  rows: ClientesTrendRow[];
 }
 
 // Productos tab

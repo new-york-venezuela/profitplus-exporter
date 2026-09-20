@@ -126,6 +126,103 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
   `;
 }
 
+// Same-length period immediately preceding `dateRange`, for the active-
+// customers Δ card and churn rate — same convention (and deliberately NOT
+// year-over-year, for the same reason) as Ventas'
+// buildPrevPeriodDateWhereClause in ../ventas/route.ts. Duplicated rather
+// than shared because that's this codebase's existing per-route convention
+// for this helper.
+const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
+const YTD_RANGE_RE = /^ytd:(\d{4})$/;
+
+function toDateKey(d: Date): number {
+  return parseInt(`${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`);
+}
+
+function dateKeyToDate(key: number): Date {
+  const s = String(key);
+  return new Date(Date.UTC(parseInt(s.slice(0, 4)), parseInt(s.slice(4, 6)) - 1, parseInt(s.slice(6, 8))));
+}
+
+function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): string | null {
+  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
+  if (monthMatch) {
+    const [, yearStr, monthStr] = monthMatch;
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr); // 1-indexed
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const startKey = toDateKey(new Date(Date.UTC(prevYear, prevMonth - 1, 1)));
+    const endKey = toDateKey(new Date(Date.UTC(prevYear, prevMonth, 0)));
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  const ytdMatch = YTD_RANGE_RE.exec(dateRange);
+  if (ytdMatch) {
+    const year = parseInt(ytdMatch[1]) - 1;
+    const startKey = year * 10000 + 101;
+    const currentYear = new Date().getUTCFullYear();
+    const currentMonthDay = parseInt(new Date().toISOString().slice(5, 10).replace('-', ''));
+    const endKey = year * 10000 + currentMonthDay;
+    if (ytdMatch[1] !== String(currentYear)) return null; // a past, already-closed YTD year has no well-defined "same elapsed days" prior year
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
+  if (customMatch) {
+    const [, start, end] = customMatch;
+    const startDate = new Date(`${start}T00:00:00Z`);
+    const endDate = new Date(`${end}T00:00:00Z`);
+    const days = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+    const prevEndKey = toDateKey(new Date(startDate.getTime() - 86_400_000));
+    const prevStartKey = toDateKey(new Date(dateKeyToDate(prevEndKey).getTime() - (days - 1) * 86_400_000));
+    return `AND ${tableName}.DateKey >= ${prevStartKey} AND ${tableName}.DateKey <= ${prevEndKey}`;
+  }
+
+  // Trailing-365-day default (buildDateWhereClause's own fallback): the
+  // previous period is the 365 days immediately before that window.
+  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -730, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
+}
+
+// Active customers in the current range, plus how many of the PREVIOUS
+// period's active customers placed no order in the current range (churn).
+// Built as one query so the "did this prior customer come back" check runs
+// against the same current-period customer set the headline count uses.
+// Takes the current-period where-clause built against BOTH the `fs` alias
+// (for the outer query) and `fs2` (for the NOT EXISTS lookup nested two
+// levels deep inside the prev-period subquery) — reusing the `fs`-aliased
+// clause there would reference the outer query's own `fs` from inside a
+// nested subquery under an aggregate with no GROUP BY, which SQL Server
+// rejects with "invalid in the select list" (confirmed live against DWH_AlimentosNY).
+function activeCustomersQuery(salesDateWhere: string, salesDateWhereFs2: string, prevSalesDateWhere: string): string {
+  return `
+    SELECT
+      COUNT(DISTINCT le.LegalEntityKey) AS ActiveCustomers,
+      (SELECT COUNT(DISTINCT prev_le.LegalEntityKey)
+         FROM fact.Fact_Sales prev_fs
+         JOIN dim.Dim_Customer prev_c ON prev_c.CustomerKey = prev_fs.CustomerKey
+         JOIN dim.Dim_LegalEntity prev_le ON prev_le.LegalEntityKey = prev_c.LegalEntityKey
+         WHERE prev_fs.IsVoided = 0 ${prevSalesDateWhere}
+      ) AS ActiveCustomersPrevPeriod,
+      (SELECT COUNT(DISTINCT prev_le.LegalEntityKey)
+         FROM fact.Fact_Sales prev_fs
+         JOIN dim.Dim_Customer prev_c ON prev_c.CustomerKey = prev_fs.CustomerKey
+         JOIN dim.Dim_LegalEntity prev_le ON prev_le.LegalEntityKey = prev_c.LegalEntityKey
+         WHERE prev_fs.IsVoided = 0 ${prevSalesDateWhere}
+           AND NOT EXISTS (
+             SELECT 1 FROM fact.Fact_Sales fs2
+             JOIN dim.Dim_Customer c2 ON c2.CustomerKey = fs2.CustomerKey
+             WHERE fs2.IsVoided = 0 ${salesDateWhereFs2} AND c2.LegalEntityKey = prev_le.LegalEntityKey
+           )
+      ) AS ChurnedCustomers
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    WHERE fs.IsVoided = 0 ${salesDateWhere}
+  `;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -140,14 +237,32 @@ export async function GET(request: NextRequest) {
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
+    // activeCustomersQuery's prev-period subqueries alias Fact_Sales as
+    // `prev_fs`, not `fs` — reusing an `fs`-aliased clause there would
+    // reference the OUTER query's `fs` from inside a subquery under an
+    // aggregate with no GROUP BY, which SQL Server rejects with "invalid in
+    // the select list" (confirmed live against DWH_AlimentosNY). Same
+    // reasoning as salesDateWhereFs2 below, just for the previous period.
+    const prevSalesDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'prev_fs');
+    // Same current-period bounds as salesDateWhere, built against the `fs2`
+    // alias activeCustomersQuery's nested NOT EXISTS lookup uses — see that
+    // function's doc comment for why it can't just reuse salesDateWhere.
+    const salesDateWhereFs2 = buildDateWhereClause(dateRange, 'fs2');
 
-    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, usdRate] = await Promise.all([
+    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult, usdRate] = await Promise.all([
       pool.request().query(monthlyTrendQuery(salesDateWhere)),
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
       pool.request().query(salesRepQuery(salesDateWhere, returnsDateWhere)),
       pool.request().query(LATEST_SNAPSHOT_QUERY),
       pool.request().query(totalsQuery(salesDateWhere, returnsDateWhere, collectionsDateWhere)),
+      prevSalesDateWhere !== null
+        ? pool.request().query(activeCustomersQuery(salesDateWhere, salesDateWhereFs2, prevSalesDateWhere))
+        : pool.request().query(`SELECT COUNT(DISTINCT le.LegalEntityKey) AS ActiveCustomers, NULL AS ActiveCustomersPrevPeriod, NULL AS ChurnedCustomers
+            FROM fact.Fact_Sales fs
+            JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+            JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+            WHERE fs.IsVoided = 0 ${salesDateWhere}`),
       currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 
@@ -168,6 +283,20 @@ export async function GET(request: NextRequest) {
     const totalsRow = totals.recordset[0] ?? { SalesNet12mo: 0, ReturnsNet12mo: 0, Collected12mo: 0 };
     const salesNet = Number(totalsRow.SalesNet12mo);
     const returnsNet = Number(totalsRow.ReturnsNet12mo);
+
+    const activeCustomersRow = activeCustomersResult.recordset[0] ?? {
+      ActiveCustomers: 0,
+      ActiveCustomersPrevPeriod: null,
+      ChurnedCustomers: null,
+    };
+    const activeCustomers = Number(activeCustomersRow.ActiveCustomers ?? 0);
+    const activeCustomersPrevPeriod =
+      activeCustomersRow.ActiveCustomersPrevPeriod === null ? null : Number(activeCustomersRow.ActiveCustomersPrevPeriod);
+    const churnedCustomers = activeCustomersRow.ChurnedCustomers === null ? null : Number(activeCustomersRow.ChurnedCustomers);
+    const churnRate =
+      activeCustomersPrevPeriod !== null && activeCustomersPrevPeriod > 0 && churnedCustomers !== null
+        ? churnedCustomers / activeCustomersPrevPeriod
+        : null;
 
     const monthlyTrend: MonthlyTrendRow[] = trend.recordset.map(r => ({
       yearMonth: r.YearMonth,
@@ -219,6 +348,9 @@ export async function GET(request: NextRequest) {
         returnsNet12mo: returnsNet,
         returnRate: salesNet > 0 ? returnsNet / salesNet : null,
         collected12mo: Number(totalsRow.Collected12mo),
+        activeCustomers,
+        activeCustomersPrevPeriod,
+        churnRate,
       },
     };
 
