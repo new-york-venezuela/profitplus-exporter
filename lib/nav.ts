@@ -5,6 +5,7 @@ export interface NavAccess {
   inventory: boolean;
   dwh: boolean;
   geo: boolean;
+  recipes: boolean;
   pricing: PricingAccessLevel;
 }
 
@@ -64,6 +65,13 @@ const NAV_SECTIONS: NavSectionDef[] = [
       { href: '/inventario/dashboard', label: 'Panel', description: 'Estado del stock y alertas.' },
       { href: '/inventario/articulos', label: 'Artículos', description: 'Consulta y edita artículos.' },
       { href: '/inventario/ajustes', label: 'Ajustes', description: 'Registra y consulta ajustes de inventario.' },
+    ],
+  },
+  {
+    title: 'Recetas',
+    visible: a => a.recipes,
+    links: [
+      { href: '/recetas', label: 'Recetas', description: 'Recetas y costo de producto FIFO en USD.' },
     ],
   },
   {

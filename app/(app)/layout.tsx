@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { hasInventoryAccess } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { hasGeoAccess } from '@/lib/geo/access';
+import { hasRecipesAccess } from '@/lib/recipes/access';
 import { getPricingAccessLevel } from '@/lib/pricing/access';
 import { Sidebar }    from '@/components/sidebar';
 import { PostHogProvider } from '@/components/posthog-provider';
@@ -18,6 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const canSeeInventory = await hasInventoryAccess(db, session.sub, session.role);
   const canSeeAnalitica  = await hasDwhAccess(db, session.sub, session.role);
   const canSeeMapa = await hasGeoAccess(db, session.sub, session.role);
+  const canSeeRecipes = await hasRecipesAccess(db, session.sub, session.role);
   const pricingAccessLevel = await getPricingAccessLevel(db, session.sub, session.role);
 
   return (
@@ -34,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         2026-09-27-seller-360-dashboard-design.md Section 9.
       */}
       <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
-        <Sidebar user={session} canSeeInventory={canSeeInventory} canSeeAnalitica={canSeeAnalitica} canSeeMapa={canSeeMapa} pricingAccessLevel={pricingAccessLevel} />
+        <Sidebar user={session} canSeeInventory={canSeeInventory} canSeeAnalitica={canSeeAnalitica} canSeeMapa={canSeeMapa} canSeeRecipes={canSeeRecipes} pricingAccessLevel={pricingAccessLevel} />
         <main className="flex-1 overflow-auto bg-gray-50 print:overflow-visible print:h-auto">
           {children}
         </main>
