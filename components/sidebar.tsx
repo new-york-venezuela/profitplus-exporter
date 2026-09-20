@@ -10,6 +10,7 @@ interface Props {
   user: SessionPayload;
   canSeeInventory: boolean;
   canSeeAnalitica: boolean;
+  canSeeRecipes: boolean;
 }
 
 const NAV_REPORTS = [
@@ -21,7 +22,7 @@ const NAV_TOOLS = [
     { href: '/firmas', label: 'Firma Corporativa' },
 ]
 
-export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
+export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeRecipes }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -93,6 +94,17 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
             </Link>
             <Link href="/inventario/ajustes" className={navClass('/inventario/ajustes')}>
               Ajustes
+            </Link>
+          </>
+        )}
+
+        {canSeeRecipes && (
+          <>
+            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Recetas
+            </p>
+            <Link href="/recetas" className={navClass('/recetas')}>
+              Recetas
             </Link>
           </>
         )}
