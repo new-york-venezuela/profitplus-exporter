@@ -32,6 +32,12 @@
 
 - [ ] **Step 1: Add the schema to `lib/db/schema.ts`**
 
+Update the top-of-file import to add `real` (needed for `quantity`/`manualUnitCostUsd` below):
+
+```ts
+import { sqliteTable, integer, text, real } from 'drizzle-orm/sqlite-core';
+```
+
 Change the `userModules` enum:
 
 ```ts
