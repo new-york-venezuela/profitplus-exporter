@@ -147,7 +147,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Mapa', 'Recetas', 'Precios', 'Creado', 'Acciones'].map(h => (
+              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Mapa', 'Precios', 'Recetas', 'Creado', 'Acciones'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold
                                        text-gray-600 uppercase tracking-wider">
                   {h}
