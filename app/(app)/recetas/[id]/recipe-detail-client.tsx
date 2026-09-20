@@ -93,6 +93,7 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
           const items: { coArt: string; artDes: string; unidad: string | null }[] = await itemsRes.json();
           setArticles(items);
         }
+        if (!cancelled) await loadCost();
       } catch {
         if (!cancelled) setLoadError('No se pudo conectar con el servidor');
       } finally {
@@ -101,11 +102,7 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [recipeId]);
-
-  useEffect(() => {
-    if (recipe) loadCost();
-  }, [recipe, loadCost]);
+  }, [recipeId, loadCost]);
 
   function updateLine(index: number, patch: Partial<Line>) {
     setLines(prev => prev.map((l, i) => i === index ? { ...l, ...patch } : l));
