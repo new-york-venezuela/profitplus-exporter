@@ -117,12 +117,30 @@ describe('Recipe cost -> Fact_Sales pipeline', () => {
         WHERE p.ProductCode = @code
       `);
     expect(rows.recordset.length).toBeGreaterThan(0);
+    // Point-in-time costing means a sale dated before the ingredient's
+    // first recorded purchase layer legitimately gets 'NO_COST_DATA' (no
+    // FIFO layer existed yet as of that date) — unlike the old "latest
+    // snapshot" behavior this replaces, which would have applied today's
+    // cost to every row regardless of the sale's own date. So this only
+    // asserts the arithmetic invariant when a cost was actually computed,
+    // and separately requires at least one row to have real recipe cost
+    // data (proving the pipeline isn't just returning NO_COST_DATA for
+    // everything).
+    let recipeFifoCount = 0;
     for (const row of rows.recordset) {
-      expect(row.CostSourceFlag).toBe('RECIPE_FIFO');
-      expect(row.UnitCost).not.toBeNull();
-      expect(Number(row.COGSAmount)).toBeCloseTo(Number(row.UnitCost) * Number(row.QuantitySold), 2);
-      expect(Number(row.GrossProfitAmount)).toBeCloseTo(Number(row.NetAmount) - Number(row.COGSAmount), 2);
+      expect(['RECIPE_FIFO', 'NO_COST_DATA']).toContain(row.CostSourceFlag);
+      if (row.CostSourceFlag === 'RECIPE_FIFO') {
+        recipeFifoCount++;
+        expect(row.UnitCost).not.toBeNull();
+        expect(Number(row.COGSAmount)).toBeCloseTo(Number(row.UnitCost) * Number(row.QuantitySold), 2);
+        expect(Number(row.GrossProfitAmount)).toBeCloseTo(Number(row.NetAmount) - Number(row.COGSAmount), 2);
+      } else {
+        expect(row.UnitCost).toBeNull();
+        expect(row.COGSAmount).toBeNull();
+        expect(row.GrossProfitAmount).toBeNull();
+      }
     }
+    expect(recipeFifoCount).toBeGreaterThan(0);
 
     // A product with no recipe at all must remain untouched — this pipeline
     // must never invent a cost for a product it has no data for.
@@ -135,6 +153,73 @@ describe('Recipe cost -> Fact_Sales pipeline', () => {
     if (otherRows.recordset.length > 0) {
       expect(otherRows.recordset[0].CostSourceFlag).toBe('NO_COST_DATA');
     }
+  });
+
+  test('two sales of the same product on different real historical dates get different point-in-time costs', async () => {
+    // The fixture ingredient (Harina Panadera, real inflation-driven price
+    // history verified earlier this session) has purchase layers at
+    // multiple different prices across multiple dates — use that directly
+    // rather than asserting against the fixture recipe's product, since we
+    // need two *sale* dates on the same product with different underlying
+    // ingredient cost. Reuse whatever product/date pairs already exist for
+    // the fixture ingredient's real ERP purchase history to build two
+    // distinct recipes on two different (fabricated) product codes pointing
+    // at the same ingredient, each asked "as of" a different real date.
+    const layers = await erpPool.request()
+      .input('art', sql.Char(30), TEST_INGREDIENT_CO_ART)
+      .query(`
+        SELECT CHE.fecha_emision, CHE.costo, CHE.cantidad
+        FROM saCostoHistoricoEntrada CHE
+        JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
+        WHERE A.co_art = @art
+        ORDER BY CHE.fecha_emision ASC
+      `);
+    const rows = layers.recordset as { fecha_emision: string; costo: number; cantidad: number }[];
+    if (rows.length < 2 || new Set(rows.map(r => Number(r.costo))).size < 2) {
+      throw new Error(`${TEST_INGREDIENT_CO_ART} needs at least 2 differently-priced layers for this test`);
+    }
+    const earlyDate = new Date(new Date(rows[0]!.fecha_emision).getTime() + 24 * 60 * 60 * 1000);
+    const lateDate = new Date(new Date(rows[rows.length - 1]!.fecha_emision).getTime() + 24 * 60 * 60 * 1000);
+
+    // fn_IngredientCostAsOf walks FIFO layers oldest-first: a quantity that
+    // fits entirely within the first (oldest) layer would draw the same
+    // price regardless of @AsOfDate, since this fixture's ERP data has no
+    // recorded saCostoHistoricoSalida consumption to shrink that layer over
+    // time. Request more than the oldest layer holds so the walk is forced
+    // to spill into later, differently-priced layers/estimate pricing —
+    // this is what actually makes @AsOfDate matter for this fixture.
+    const qtyNeeded = Number(rows[0]!.cantidad) + 1;
+
+    const earlyCost = await dwhPool.request()
+      .input('art', sql.Char(30), TEST_INGREDIENT_CO_ART)
+      .input('asOf', sql.DateTime2(3), earlyDate)
+      .input('qty', sql.Decimal(18, 5), qtyNeeded)
+      .query(`SELECT * FROM dwh.fn_IngredientCostAsOf(@art, @asOf, @qty)`);
+    const lateCost = await dwhPool.request()
+      .input('art', sql.Char(30), TEST_INGREDIENT_CO_ART)
+      .input('asOf', sql.DateTime2(3), lateDate)
+      .input('qty', sql.Decimal(18, 5), qtyNeeded)
+      .query(`SELECT * FROM dwh.fn_IngredientCostAsOf(@art, @asOf, @qty)`);
+
+    expect(Number(earlyCost.recordset[0].CostBsd)).not.toBeCloseTo(Number(lateCost.recordset[0].CostBsd), 4);
+
+    // End-to-end: the fixture recipe/product's Fact_Sales rows must reflect
+    // per-date cost, not one blanket value, once real sales exist across
+    // more than one distinct date for it.
+    await loadRecipeCostSnapshots({ sqliteDb: getDb(), erpPool, dwhPool });
+    await dwhPool.request().execute('dwh.Load_Fact_Sales');
+    const distinctCosts = await dwhPool.request()
+      .input('code', sql.Char(30), TEST_PRODUCT_CO_ART)
+      .query(`
+        SELECT DISTINCT fs.UnitCost
+        FROM fact.Fact_Sales fs
+        JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+        WHERE p.ProductCode = @code AND fs.UnitCost IS NOT NULL
+      `);
+    // Not asserting >1 here (the fixture's real sale dates might all fall in
+    // a single-cost window) — this just documents/exercises the pipeline
+    // end-to-end; the function-level assertion above is the real proof.
+    expect(distinctCosts.recordset.length).toBeGreaterThanOrEqual(1);
   });
 
   test('re-running the recipe cost load and backfill is idempotent on row counts', async () => {

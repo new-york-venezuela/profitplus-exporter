@@ -87,21 +87,21 @@ RETURN
 );
 GO
 
--- Wires stg.RecipeCostSnapshot (0031) into dwh.Load_Fact_Sales, populating
+-- Wires point-in-time recipe/FIFO costing into dwh.Load_Fact_Sales, populating
 -- UnitCost/COGSAmount/GrossProfitAmount/CostSourceFlag instead of the
 -- hardcoded NULL/NULL/NULL/'NO_COST_DATA' every row got since 0009. This is
 -- the upstream costing process docs/DATA_WAREHOUSE_GUIDE.md and
 -- dwh-migrations/README.md's "Margin/cost data — deferred" note said would
--- need to exist before these columns could be wired up — it now does
--- (recipes + live FIFO costing, lib/costing/*.ts), so this migration removes
--- that deferral.
+-- need to exist before these columns could be wired up — it now does.
 --
--- Cost source: the LATEST stg.RecipeCostSnapshot row per product, regardless
--- of the sale's own date. This is a deliberate, honest simplification, not
--- an oversight: computeProductCost's FIFO walk has no historical/point-in-time
--- mode either (see 0031's comment) — it always answers "what does this cost
--- right now", so there is no more-accurate "cost as of the sale date" to sub
--- in instead. CostSourceFlag distinguishes what's actually knowable:
+-- Cost source: each sale's cost is computed AS OF THE SALE'S OWN DATE, not
+-- from "the latest snapshot" applied retroactively. For every (product, sale
+-- date) pair with a mirrored recipe (stg.RecipeLine, 0032/Task 2), this walks
+-- each ingredient line through dwh.fn_IngredientCostAsOf (0032/Task 1), which
+-- reconstructs FIFO layers as they stood on that date, sums per product/date,
+-- NULL-propagates if any line lacks cost data, and converts BSD to USD once
+-- per date via the nearest saTasa rate on/before that date. CostSourceFlag
+-- distinguishes what's actually knowable:
 --   'RECIPE_FIFO'      — a recipe exists, every ERP ingredient had cost data, not flagged as estimated
 --   'RECIPE_ESTIMATED' — a recipe exists but at least one line's cost is a FIFO fallback/estimate
 --   'NO_COST_DATA'      — no recipe, or the recipe's raw-material cost itself is null ("Sin datos")
@@ -137,10 +137,31 @@ BEGIN
         INNER JOIN Ncake_a.dbo.saFacturaVenta f ON f.doc_num = r.doc_num
         WHERE r.fe_us_mo > @DetailWatermark OR f.validador > @HeaderWatermark
     ),
-    LatestSnapshot AS (
-        SELECT ProductCode, RawMaterialCostUsd, RawMaterialEstimated,
-               ROW_NUMBER() OVER (PARTITION BY ProductCode ORDER BY SnapshotAtUtc DESC) AS rn
-        FROM stg.RecipeCostSnapshot
+    ProductDatePairs AS (
+        SELECT DISTINCT c.co_art, CAST(c.fec_emis AS date) AS AsOfDate
+        FROM Changed c
+        WHERE EXISTS (SELECT 1 FROM stg.RecipeLine rl WHERE RTRIM(rl.ProductCode) COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(c.co_art) AND rl.LineType = 'erp_article')
+    ),
+    LineCosts AS (
+        SELECT pdp.co_art, pdp.AsOfDate, ic.CostBsd, ic.HasData, ic.Estimated
+        FROM ProductDatePairs pdp
+        JOIN stg.RecipeLine rl ON RTRIM(rl.ProductCode) COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(pdp.co_art) AND rl.LineType = 'erp_article'
+        CROSS APPLY dwh.fn_IngredientCostAsOf(rl.IngredientCode, CAST(pdp.AsOfDate AS datetime2(3)), rl.Quantity) ic
+    ),
+    ProductDateCost AS (
+        SELECT co_art, AsOfDate,
+            CASE WHEN MIN(CASE WHEN HasData = 0 THEN 0 ELSE 1 END) = 0 THEN NULL ELSE SUM(CostBsd) END AS RawMaterialCostBsd,
+            MAX(CAST(Estimated AS INT)) AS RawMaterialEstimatedInt
+        FROM LineCosts
+        GROUP BY co_art, AsOfDate
+    ),
+    ProductDateCostUsd AS (
+        SELECT pdc.co_art, pdc.AsOfDate, pdc.RawMaterialEstimatedInt,
+            CASE WHEN pdc.RawMaterialCostBsd IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / r.tasa_v END AS RawMaterialCostUsd
+        FROM ProductDateCost pdc
+        CROSS APPLY (
+            SELECT TOP 1 tasa_v FROM Ncake_a.dbo.saTasa WHERE co_mone = 'USD' AND fecha <= CAST(pdc.AsOfDate AS datetime2(3)) ORDER BY fecha DESC
+        ) r
     )
     MERGE fact.Fact_Sales AS tgt
     USING (
@@ -151,12 +172,12 @@ BEGIN
             (c.total_art * c.prec_vta) AS GrossAmount,
             c.DiscountAmount, c.TaxAmount, c.reng_neto AS NetAmount,
             c.tasa AS DocumentExchangeRate, c.anulado AS IsVoided,
-            rc.RawMaterialCostUsd AS UnitCost,
-            CASE WHEN rc.RawMaterialCostUsd IS NOT NULL THEN rc.RawMaterialCostUsd * c.total_art END AS COGSAmount,
-            CASE WHEN rc.RawMaterialCostUsd IS NOT NULL THEN c.reng_neto - (rc.RawMaterialCostUsd * c.total_art) END AS GrossProfitAmount,
+            pdcu.RawMaterialCostUsd AS UnitCost,
+            CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN pdcu.RawMaterialCostUsd * c.total_art END AS COGSAmount,
+            CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN c.reng_neto - (pdcu.RawMaterialCostUsd * c.total_art) END AS GrossProfitAmount,
             CASE
-                WHEN rc.RawMaterialCostUsd IS NULL THEN 'NO_COST_DATA'
-                WHEN rc.RawMaterialEstimated = 1 THEN 'RECIPE_ESTIMATED'
+                WHEN pdcu.RawMaterialCostUsd IS NULL THEN 'NO_COST_DATA'
+                WHEN pdcu.RawMaterialEstimatedInt = 1 THEN 'RECIPE_ESTIMATED'
                 ELSE 'RECIPE_FIFO'
             END AS CostSourceFlag
         FROM Changed c
@@ -165,7 +186,7 @@ BEGIN
         LEFT JOIN dim.Dim_SalesRep rep ON RTRIM(rep.SalesRepCode) = RTRIM(c.co_ven) COLLATE SQL_Latin1_General_CP1_CI_AS
         LEFT JOIN dim.Dim_Warehouse wh ON RTRIM(wh.WarehouseCode) = RTRIM(c.co_alma) COLLATE SQL_Latin1_General_CP1_CI_AS
         LEFT JOIN dim.Dim_Currency cur ON RTRIM(cur.CurrencyCode) = RTRIM(c.co_mone) COLLATE SQL_Latin1_General_CP1_CI_AS
-        LEFT JOIN LatestSnapshot rc ON RTRIM(rc.ProductCode) = RTRIM(c.co_art) COLLATE SQL_Latin1_General_CP1_CI_AS AND rc.rn = 1
+        LEFT JOIN ProductDateCostUsd pdcu ON RTRIM(pdcu.co_art) = RTRIM(c.co_art) COLLATE SQL_Latin1_General_CP1_CI_AS AND pdcu.AsOfDate = CAST(c.fec_emis AS date)
         CROSS APPLY (SELECT CONVERT(int, FORMAT(c.fec_emis, 'yyyyMMdd')) AS DateKey) dk
         WHERE cust.CustomerKey IS NOT NULL AND prod.ProductKey IS NOT NULL
     ) AS src
