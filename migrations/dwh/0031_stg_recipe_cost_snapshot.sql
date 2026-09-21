@@ -24,9 +24,16 @@
 -- date filter (only the BSD->USD rate lookup is date-aware). So there is no
 -- way to compute "what this recipe would have cost on 2026-07-10" — only
 -- "what it costs right now". Keeping a timestamped history here at least
--- lets a future analysis see how a recipe's cost has moved over time, even
--- though dwh.Load_Fact_Sales (0032) can only ever join sales to the LATEST
--- snapshot as a current-cost proxy, not a true point-in-time cost.
+-- lets a future analysis see how a recipe's cost has moved over time.
+--
+-- dwh.Load_Fact_Sales/dwh.Backfill_Fact_Sales_RecipeCost (0032) do NOT read
+-- from this table for Fact_Sales's cost columns — that computation uses
+-- stg.RecipeLine (below) + dwh.fn_IngredientCostAsOf to get a true
+-- point-in-time cost per (product, sale date) pair, not a current-cost
+-- proxy. stg.RecipeCostSnapshot's own purpose is unchanged from what's
+-- described above: it continues to serve the Analytics "latest cost per
+-- product" column and a future cost-over-time chart, neither of which need
+-- per-sale historical precision.
 IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'stg')
 BEGIN
     EXEC('CREATE SCHEMA stg');
