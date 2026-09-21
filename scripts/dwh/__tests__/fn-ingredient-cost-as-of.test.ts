@@ -142,7 +142,7 @@ describe('dwh.fn_IngredientCostAsOf', () => {
     // Use enough quantity to span multiple layers so point-in-time differences show
     // (at dayAfterEarliest, second layer doesn't exist yet, so shortfall is estimated;
     // at now, second layer exists and may have different price)
-    let totalFirstLayer = Number(layers[0]!.cantidad);
+    const totalFirstLayer = Number(layers[0]!.cantidad);
     const quantity = layers.length > 1
       ? totalFirstLayer + Number(layers[1]!.cantidad) / 2
       : totalFirstLayer;
