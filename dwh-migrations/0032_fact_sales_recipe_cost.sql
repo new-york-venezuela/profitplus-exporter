@@ -263,19 +263,43 @@ CREATE OR ALTER PROCEDURE dwh.Backfill_Fact_Sales_RecipeCost
 AS
 BEGIN
     SET NOCOUNT ON;
-    ;WITH LatestSnapshot AS (
-        SELECT ProductCode, RawMaterialCostUsd, RawMaterialEstimated,
-               ROW_NUMBER() OVER (PARTITION BY ProductCode ORDER BY SnapshotAtUtc DESC) AS rn
-        FROM stg.RecipeCostSnapshot
+    ;WITH ProductDatePairs AS (
+        SELECT DISTINCT p.ProductCode, d.FullDate AS AsOfDate
+        FROM fact.Fact_Sales fs
+        JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+        JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+        WHERE EXISTS (SELECT 1 FROM stg.RecipeLine rl WHERE RTRIM(rl.ProductCode) = RTRIM(p.ProductCode) AND rl.LineType = 'erp_article')
+    ),
+    LineCosts AS (
+        SELECT pdp.ProductCode, pdp.AsOfDate, ic.CostBsd, ic.HasData, ic.Estimated
+        FROM ProductDatePairs pdp
+        JOIN stg.RecipeLine rl ON RTRIM(rl.ProductCode) = RTRIM(pdp.ProductCode) AND rl.LineType = 'erp_article'
+        CROSS APPLY dwh.fn_IngredientCostAsOf(rl.IngredientCode, CAST(pdp.AsOfDate AS datetime2(3)), rl.Quantity) ic
+    ),
+    ProductDateCost AS (
+        SELECT ProductCode, AsOfDate,
+            CASE WHEN MIN(CASE WHEN HasData = 0 THEN 0 ELSE 1 END) = 0 THEN NULL ELSE SUM(CostBsd) END AS RawMaterialCostBsd,
+            MAX(CAST(Estimated AS INT)) AS RawMaterialEstimatedInt
+        FROM LineCosts
+        GROUP BY ProductCode, AsOfDate
+    ),
+    ProductDateCostUsd AS (
+        SELECT pdc.ProductCode, pdc.AsOfDate, pdc.RawMaterialEstimatedInt,
+            CASE WHEN pdc.RawMaterialCostBsd IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / r.tasa_v END AS RawMaterialCostUsd
+        FROM ProductDateCost pdc
+        CROSS APPLY (
+            SELECT TOP 1 tasa_v FROM Ncake_a.dbo.saTasa WHERE co_mone = 'USD' AND fecha <= CAST(pdc.AsOfDate AS datetime2(3)) ORDER BY fecha DESC
+        ) r
     )
     UPDATE fs SET
-        fs.UnitCost = rc.RawMaterialCostUsd,
-        fs.COGSAmount = rc.RawMaterialCostUsd * fs.QuantitySold,
-        fs.GrossProfitAmount = fs.NetAmount - (rc.RawMaterialCostUsd * fs.QuantitySold),
-        fs.CostSourceFlag = CASE WHEN rc.RawMaterialEstimated = 1 THEN 'RECIPE_ESTIMATED' ELSE 'RECIPE_FIFO' END
+        fs.UnitCost = pdcu.RawMaterialCostUsd,
+        fs.COGSAmount = pdcu.RawMaterialCostUsd * fs.QuantitySold,
+        fs.GrossProfitAmount = fs.NetAmount - (pdcu.RawMaterialCostUsd * fs.QuantitySold),
+        fs.CostSourceFlag = CASE WHEN pdcu.RawMaterialEstimatedInt = 1 THEN 'RECIPE_ESTIMATED' ELSE 'RECIPE_FIFO' END
     FROM fact.Fact_Sales fs
-    INNER JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    INNER JOIN LatestSnapshot rc ON RTRIM(rc.ProductCode) = RTRIM(p.ProductCode) AND rc.rn = 1
-    WHERE rc.RawMaterialCostUsd IS NOT NULL;
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+    JOIN ProductDateCostUsd pdcu ON RTRIM(pdcu.ProductCode) = RTRIM(p.ProductCode) AND pdcu.AsOfDate = d.FullDate
+    WHERE pdcu.RawMaterialCostUsd IS NOT NULL;
 END
 GO
