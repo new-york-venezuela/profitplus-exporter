@@ -8,4 +8,10 @@ describe('GET /api/dwh/clientes', () => {
     const res = await GET(req);
     expect(res.status).toBe(401);
   });
+
+  test('rejects unauthenticated churned-list requests with 401', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/clientes?section=churned&clienteDimension=cliente_tienda');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
 });

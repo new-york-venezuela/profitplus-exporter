@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
-import type { ClientesResponse, ClientesRow, ClientesTrendResponse, ClientesTrendRow } from '@/app/(app)/analitica/types';
+import type {
+  ClientesResponse,
+  ClientesRow,
+  ClientesTrendResponse,
+  ClientesTrendRow,
+  ClientesChurnedResponse,
+  ClientesChurnedRow,
+} from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +70,109 @@ function widenedDateWhereClause(dateRange: string): string {
   const widenedStartKey = dateKey(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1)));
   const endWhere = buildDateWhereClause(dateRange, 'fs').match(/AND fs\.DateKey <= \d+/)?.[0] ?? '';
   return `AND fs.DateKey >= ${widenedStartKey} ${endWhere}`;
+}
+
+// Same-length period immediately preceding `dateRange`, for the churned-
+// customers list. Duplicated from ../resumen/route.ts's function of the
+// same name/body rather than shared — that's this codebase's existing
+// per-route convention for this helper (see that file's own copy).
+function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): string | null {
+  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
+  if (monthMatch) {
+    const [, yearStr, monthStr] = monthMatch;
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr); // 1-indexed
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const startKey = dateKey(new Date(Date.UTC(prevYear, prevMonth - 1, 1)));
+    const endKey = dateKey(new Date(Date.UTC(prevYear, prevMonth, 0)));
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  const ytdMatch = YTD_RANGE_RE.exec(dateRange);
+  if (ytdMatch) {
+    const year = parseInt(ytdMatch[1]) - 1;
+    const startKey = year * 10000 + 101;
+    const currentYear = new Date().getUTCFullYear();
+    const currentMonthDay = parseInt(new Date().toISOString().slice(5, 10).replace('-', ''));
+    const endKey = year * 10000 + currentMonthDay;
+    if (ytdMatch[1] !== String(currentYear)) return null; // a past, already-closed YTD year has no well-defined "same elapsed days" prior year
+    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+  }
+
+  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
+  if (customMatch) {
+    const [, start, end] = customMatch;
+    const startDate = new Date(`${start}T00:00:00Z`);
+    const endDate = new Date(`${end}T00:00:00Z`);
+    const days = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+    const prevEndKey = dateKey(new Date(startDate.getTime() - 86_400_000));
+    const prevStartDate = new Date(startDate.getTime() - days * 86_400_000);
+    const prevStartKey = dateKey(prevStartDate);
+    return `AND ${tableName}.DateKey >= ${prevStartKey} AND ${tableName}.DateKey <= ${prevEndKey}`;
+  }
+
+  // Trailing-365-day default (buildDateWhereClause's own fallback): the
+  // previous period is the 365 days immediately before that window.
+  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -730, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
+}
+
+// Customers/stores (at whichever grain `dimension` resolves to) with >=1
+// sale in the PRIOR period but none in the current period — the row-level
+// detail behind ClientesTrendRow.churnRate's aggregate percentage. Grouped
+// by the prior period's own EntityKey so a customer who churned still shows
+// their prior name/activity even if Dim_Customer's current row has since
+// changed (SCD2) — labelExpr/valueExpr are evaluated against the SAME
+// joined alias the NOT EXISTS lookup correlates on, so this doesn't need a
+// separate "used to be called X" concept.
+function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWhere: string): string {
+  const spec = getDimensionSpec(dimension);
+  const { innerJoin, condition } = spec.correlate('fs', 'fs2');
+  return `
+    SELECT TOP 200
+      ${spec.labelExpr} AS Name,
+      MAX(fs.DateKey) AS LastPurchaseDateKey,
+      SUM(fs.NetAmount) AS LostRevenue
+    FROM fact.Fact_Sales fs
+    ${spec.joinClause.replace(/\bf\b/g, 'fs')}
+    WHERE fs.IsVoided = 0 ${prevDateWhere}
+      AND NOT EXISTS (
+        SELECT 1 FROM fact.Fact_Sales fs2
+        ${innerJoin}
+        WHERE fs2.IsVoided = 0 ${currentDateWhere} AND ${condition}
+      )
+    GROUP BY ${spec.groupByColumn}
+    ORDER BY LostRevenue DESC
+  `;
+}
+
+async function handleChurned(dimension: Dimension, dateRange: string, currency: string) {
+  const prevSalesDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
+  if (prevSalesDateWhere === null) {
+    const response: ClientesChurnedResponse = { rows: [], available: false, usdRate: null };
+    return jsonWithCache(response);
+  }
+
+  const pool = await getDwhPool();
+  // churnedQuery's correlated NOT EXISTS lookup aliases Fact_Sales as `fs2`
+  // (via spec.correlate), not `fs`, so it needs its own current-period
+  // where-clause built against that alias — same reasoning as
+  // salesDateWhereFs2 in the main GET handler below.
+  const currentSalesDateWhere = buildDateWhereClause(dateRange, 'fs2');
+
+  const [churned, usdRate] = await Promise.all([
+    pool.request().query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere)),
+    currency === 'usd' ? getUsdRate() : Promise.resolve(null),
+  ]);
+
+  const rows: ClientesChurnedRow[] = churned.recordset.map(r => ({
+    name: r.Name,
+    lastPurchaseDateKey: Number(r.LastPurchaseDateKey),
+    lostRevenue: Number(r.LostRevenue),
+  }));
+
+  const response: ClientesChurnedResponse = { rows, available: true, usdRate };
+  return jsonWithCache(response);
 }
 
 // Monthly active-customers + churn trend. CustomerMonth is the distinct
@@ -183,6 +293,14 @@ export async function GET(request: NextRequest) {
   if (searchParams.get('section') === 'trend') {
     try {
       return await handleTrend(clienteDimension, dateRange);
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
+  if (searchParams.get('section') === 'churned') {
+    try {
+      return await handleChurned(clienteDimension, dateRange, currency);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }

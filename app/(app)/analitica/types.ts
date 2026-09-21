@@ -271,6 +271,25 @@ export interface ClientesTrendResponse {
   rows: ClientesTrendRow[];
 }
 
+// Clientes tab — row-level detail for customers/stores that were active in
+// the period immediately before dateRange but placed no order during
+// dateRange itself. Same "prior active, gone now" definition as
+// ClientesTrendRow.churnRate, just listing WHO instead of just the rate.
+export interface ClientesChurnedRow {
+  name: string;
+  lastPurchaseDateKey: number; // YYYYMMDD, latest DateKey with a sale in the prior period
+  lostRevenue: number; // their NetAmount sum in the prior period — what "came back" would recover
+}
+
+export interface ClientesChurnedResponse {
+  rows: ClientesChurnedRow[];
+  // Null when the previous period isn't well-defined for this dateRange
+  // (mirrors buildPrevPeriodDateWhereClause's own null case) — the UI
+  // should show "no disponible" rather than an empty table in that case.
+  available: boolean;
+  usdRate: number | null;
+}
+
 // Productos tab
 export interface ProductosRow {
   sku: string;

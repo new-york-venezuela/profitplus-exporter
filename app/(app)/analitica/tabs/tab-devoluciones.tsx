@@ -38,6 +38,117 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
+type MatrixSortKey = 'name' | 'ratioDevolucion' | 'amountNet';
+
+function SortableHeader({
+  sortKeyValue,
+  currentSortKey,
+  sortDir,
+  label,
+  align,
+  onSort,
+}: {
+  sortKeyValue: MatrixSortKey;
+  currentSortKey: MatrixSortKey;
+  sortDir: 'asc' | 'desc';
+  label: string;
+  align: 'left' | 'right';
+  onSort: (key: MatrixSortKey) => void;
+}) {
+  return (
+    <th
+      onClick={() => onSort(sortKeyValue)}
+      className={`px-3 py-2 text-xs font-semibold text-gray-600 uppercase cursor-pointer select-none hover:text-gray-900 ${
+        align === 'right' ? 'text-right' : 'text-left'
+      }`}
+    >
+      {label}
+      {currentSortKey === sortKeyValue && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+    </th>
+  );
+}
+
+// Declared at module scope (not inside TabDevoluciones) so its internal sort
+// state isn't reset on every parent re-render — takes `currency` as a prop
+// rather than reading it from the parent's closure for the same reason.
+function MatrixTable({
+  rows,
+  rate,
+  currency,
+  nameColumnLabel,
+  nameOf,
+  defaultSortKey = 'amountNet',
+}: {
+  rows: DevolucionesMatrixCell[];
+  rate: number | undefined;
+  currency: Currency;
+  nameColumnLabel: string;
+  nameOf: (row: DevolucionesMatrixCell) => string;
+  // "Por cliente" defaults to ratioDevolucion so the worst-offender store
+  // surfaces first without a click — the other two sections keep sorting
+  // by returns volume (amountNet), matching the API's own ORDER BY so
+  // their initial render matches what the server already sent.
+  defaultSortKey?: MatrixSortKey;
+}) {
+  const [sortKey, setSortKey] = useState<MatrixSortKey>(defaultSortKey);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const sortedRows = useMemo(() => {
+    const withName = rows.map(row => ({ row, name: nameOf(row) }));
+    withName.sort((a, b) => {
+      let cmp: number;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === 'ratioDevolucion') {
+        cmp = (a.row.ratioDevolucion ?? -Infinity) - (b.row.ratioDevolucion ?? -Infinity);
+      } else {
+        cmp = a.row.amountNet - b.row.amountNet;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return withName.map(x => x.row);
+  }, [rows, sortKey, sortDir, nameOf]);
+
+  function handleSort(key: MatrixSortKey) {
+    if (key === sortKey) {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'name' ? 'asc' : 'desc');
+    }
+  }
+
+  if (rows.length === 0) return <EmptyState />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200">
+            <SortableHeader sortKeyValue="name" currentSortKey={sortKey} sortDir={sortDir} label={nameColumnLabel} align="left" onSort={handleSort} />
+            <SortableHeader sortKeyValue="ratioDevolucion" currentSortKey={sortKey} sortDir={sortDir} label="Tasa dev." align="right" onSort={handleSort} />
+            <SortableHeader sortKeyValue="amountNet" currentSortKey={sortKey} sortDir={sortDir} label="Monto neto" align="right" onSort={handleSort} />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {sortedRows.map((row, i) => (
+            <tr key={`${nameOf(row)}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
+              <td className="px-3 py-2 text-gray-800">{nameOf(row)}</td>
+              <td
+                className={`px-3 py-2 text-right ${
+                  row.ratioDevolucion !== null && row.ratioDevolucion > 0.05 ? 'text-orange-600 font-medium' : 'text-gray-600'
+                }`}
+              >
+                {pct(row.ratioDevolucion)}
+              </td>
+              <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(row.amountNet, currency, rate)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function TabDevoluciones({
   dateRange,
   currency,
@@ -53,11 +164,20 @@ export default function TabDevoluciones({
   const [productoLoading, setProductoLoading] = useState<boolean>(true);
   const [productoError, setProductoError] = useState<string | null>(null);
 
-  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
+  // Defaults to Tienda (not Entidad, unlike Clientes/Ventas tabs) — this
+  // section exists to answer "where to cut sales", which is a per-store
+  // decision: a chain's aggregate Entidad rate can hide one branch driving
+  // most of its returns.
+  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_tienda');
   const [clienteData, setClienteData] = useState<DevolucionesResponse | null>(null);
   const [clienteLoading, setClienteLoading] = useState<boolean>(true);
   const [clienteError, setClienteError] = useState<string | null>(null);
   const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
+  // GroupedDrilldownTable (unlike MatrixTable above) has no built-in sort —
+  // it's shared with tab-ventas.tsx and changing its sort behavior there is
+  // out of scope, so sorting-by-return-rate is done here instead, before
+  // rows are handed to it.
+  const [clienteSortByRate, setClienteSortByRate] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,7 +266,7 @@ export default function TabDevoluciones({
 
   const clienteRows: DevolucionesTableRow[] = useMemo(() => {
     if (!clienteData) return [];
-    return clienteData.rows
+    const rows = clienteData.rows
       .filter(r => r.clienteValue !== null)
       .map(r => ({
         label: r.cliente,
@@ -154,7 +274,12 @@ export default function TabDevoluciones({
         ratioDevolucion: r.ratioDevolucion,
         amountNet: r.amountNet,
       }));
-  }, [clienteData]);
+    if (clienteSortByRate) {
+      rows.sort((a, b) => (b.ratioDevolucion ?? -Infinity) - (a.ratioDevolucion ?? -Infinity));
+    }
+    // else: keep the API's own ORDER BY ReturnsNet DESC (returns volume).
+    return rows;
+  }, [clienteData, clienteSortByRate]);
 
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({
@@ -186,48 +311,6 @@ export default function TabDevoluciones({
     },
   ];
 
-  function MatrixTable({
-    rows,
-    rate,
-    nameColumnLabel,
-    nameOf,
-  }: {
-    rows: DevolucionesMatrixCell[];
-    rate: number | undefined;
-    nameColumnLabel: string;
-    nameOf: (row: DevolucionesMatrixCell) => string;
-  }) {
-    if (rows.length === 0) return <EmptyState />;
-    return (
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">{nameColumnLabel}</th>
-              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
-              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Monto neto</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {rows.map((row, i) => (
-              <tr key={`${nameOf(row)}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                <td className="px-3 py-2 text-gray-800">{nameOf(row)}</td>
-                <td
-                  className={`px-3 py-2 text-right ${
-                    row.ratioDevolucion !== null && row.ratioDevolucion > 0.05 ? 'text-orange-600 font-medium' : 'text-gray-600'
-                  }`}
-                >
-                  {pct(row.ratioDevolucion)}
-                </td>
-                <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(row.amountNet, currency, rate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 max-w-7xl space-y-8">
       <div>
@@ -244,7 +327,7 @@ export default function TabDevoluciones({
           ) : salesrepError ? (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{salesrepError}</p>
           ) : (
-            <MatrixTable rows={salesrepData?.rows ?? []} rate={salesrepRate} nameColumnLabel="Vendedor" nameOf={row => row.salesRep} />
+            <MatrixTable rows={salesrepData?.rows ?? []} rate={salesrepRate} currency={currency} nameColumnLabel="Vendedor" nameOf={row => row.salesRep} />
           )}
         </div>
       </section>
@@ -258,14 +341,30 @@ export default function TabDevoluciones({
           ) : productoError ? (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{productoError}</p>
           ) : (
-            <MatrixTable rows={productoData?.rows ?? []} rate={productoRate} nameColumnLabel="Producto" nameOf={row => row.producto} />
+            <MatrixTable rows={productoData?.rows ?? []} rate={productoRate} currency={currency} nameColumnLabel="Producto" nameOf={row => row.producto} />
           )}
         </div>
       </section>
 
       {/* Por cliente */}
       <section>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por cliente</h3>
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Por cliente</h3>
+          <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
+            <button
+              onClick={() => setClienteSortByRate(true)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${clienteSortByRate ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              Ordenar por tasa dev.
+            </button>
+            <button
+              onClick={() => setClienteSortByRate(false)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${!clienteSortByRate ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              Ordenar por monto
+            </button>
+          </div>
+        </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           {clienteLoading ? (
             <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>

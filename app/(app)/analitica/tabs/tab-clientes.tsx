@@ -5,11 +5,19 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { moneyLabel } from '../lib/format';
-import type { ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
+import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
+}
+
+// DateKey is YYYYMMDD (see dwh-migrations' Dim_Date) — formatted locally
+// here rather than in lib/format.ts since this is the only tab that renders
+// a raw DateKey rather than a pre-aggregated monthly/period figure.
+function formatDateKey(dateKey: number): string {
+  const s = String(dateKey);
+  return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
 function EmptyState({ message }: { message?: string }) {
@@ -64,6 +72,43 @@ function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entid
       cancelled = true;
     };
   }, [dateRange, clienteDimension]);
+
+  return { data, loading, error };
+}
+
+function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+  const [data, setData] = useState<ClientesChurnedResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setError(null);
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, currency, clienteDimension, section: 'churned' });
+        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setError(body.error ?? 'Error desconocido');
+          return;
+        }
+        const body: ClientesChurnedResponse = await res.json();
+        if (cancelled) return;
+        setData(body);
+      } catch {
+        if (!cancelled) setError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, currency, clienteDimension]);
 
   return { data, loading, error };
 }
@@ -141,6 +186,7 @@ export default function TabClientes({
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const trend = useClientesTrend(dateRange, clienteDimension);
+  const churned = useClientesChurned(dateRange, currency, clienteDimension);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +337,56 @@ export default function TabClientes({
           </ResponsiveContainer>
         )}
       </ChartCard>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-bold text-gray-900">
+          {clienteDimension === 'cliente_entidad' ? 'Clientes' : 'Tiendas'} perdidos
+        </h2>
+        <p className="text-xs text-gray-500 mb-3">
+          {clienteDimension === 'cliente_entidad' ? 'Clientes' : 'Tiendas'} con compras en el período anterior que no
+          compraron en el período actual — ordenados por ingreso perdido.
+        </p>
+        {churned.loading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : churned.error ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{churned.error}</p>
+        ) : churned.data && !churned.data.available ? (
+          <EmptyState message="No disponible para este rango de fechas." />
+        ) : !churned.data || churned.data.rows.length === 0 ? (
+          <EmptyState message="Sin clientes perdidos en este período." />
+        ) : (
+          (() => {
+            const churnedRows = churned.data.rows;
+            const churnedRate = churned.data.usdRate ?? undefined;
+            return (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
+                        {clienteDimension === 'cliente_entidad' ? 'Cliente' : 'Tienda'}
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Última compra</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ingreso perdido</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {churnedRows.map((r, i) => (
+                      <tr key={`${r.name}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
+                        <td className="px-3 py-2 text-gray-800">{r.name}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{formatDateKey(r.lastPurchaseDateKey)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">
+                          {moneyLabel(r.lostRevenue, currency, churnedRate)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()
+        )}
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
