@@ -114,17 +114,15 @@ describe('dwh.fn_IngredientCostAsOf', () => {
   });
 
   test('an earlier as-of date excludes later purchase layers, producing a different cost than "now"', async () => {
-    // Find an article with multiple purchase layers
     const candidate = await erpPool.request().query(`
       SELECT TOP 1 A.co_art
       FROM saCostoHistoricoEntrada CHE
       JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
       GROUP BY A.co_art
-      HAVING COUNT(DISTINCT CHE.fecha_emision) >= 2
-      ORDER BY MAX(CHE.fecha_emision) DESC
+      HAVING COUNT(DISTINCT CHE.fecha_emision) >= 2 AND COUNT(DISTINCT CHE.costo) >= 2
     `);
     if (candidate.recordset.length === 0) {
-      throw new Error('No article with multiple purchase layers found for this test');
+      throw new Error('No article with multiple differently-priced purchase layers found for this test');
     }
     const coArt = (candidate.recordset[0].co_art as string).trim();
 
@@ -138,26 +136,20 @@ describe('dwh.fn_IngredientCostAsOf', () => {
         ORDER BY CHE.fecha_emision ASC
       `);
     const layers = layersResult.recordset as { fecha_emision: string; cantidad: number; costo: number }[];
+    const earliestDate = new Date(layers[0]!.fecha_emision);
+    const dayAfterEarliest = new Date(earliestDate.getTime() + 24 * 60 * 60 * 1000);
 
-    if (layers.length < 2) {
-      throw new Error(`Expected at least 2 layers for article ${coArt}, got ${layers.length}`);
-    }
+    // Use enough quantity to span multiple layers so point-in-time differences show
+    // (at dayAfterEarliest, second layer doesn't exist yet, so shortfall is estimated;
+    // at now, second layer exists and may have different price)
+    let totalFirstLayer = Number(layers[0]!.cantidad);
+    const quantity = layers.length > 1
+      ? totalFirstLayer + Number(layers[1]!.cantidad) / 2
+      : totalFirstLayer;
 
-    // Pick a date between first and second layer (if exists)
-    const firstDate = new Date(layers[0]!.fecha_emision);
-    const middleDate = layers.length >= 2
-      ? new Date(new Date(firstDate.getTime() + (new Date(layers[1]!.fecha_emision).getTime() - firstDate.getTime()) / 2))
-      : new Date(firstDate.getTime() + 1000);
-
-    // Use a small quantity to test that point-in-time queries work
-    const quantity = 1;
-
-    // Call function at the middle date and as of now
-    const asOfMiddle = await callFn(dwhPool, coArt, middleDate, quantity);
+    const asOfEarly = await callFn(dwhPool, coArt, dayAfterEarliest, quantity);
     const asOfNow = await callFn(dwhPool, coArt, new Date(), quantity);
 
-    // Verify both queries return data (the function works for point-in-time)
-    expect(asOfMiddle.HasData).toBe(true);
-    expect(asOfNow.HasData).toBe(true);
+    expect(Number(asOfEarly.CostBsd)).not.toBeCloseTo(Number(asOfNow.CostBsd), 2);
   });
 });
