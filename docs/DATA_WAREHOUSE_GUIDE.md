@@ -546,7 +546,7 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 ## Known Limitations & Gaps
 
 ### 1. Cost Data Gap — partially resolved (2026-09-20) ⚠️
-**Impact**: Per-product Margin dashboards (Gross Margin Waterfall, Margin by Product) can now be built **for products with an active recipe** — see the `Fact_Sales` "Cost Data Gap" note above for the full mechanism (`stg.RecipeCostSnapshot`, `dwh.Load_Fact_Sales`, `dwh.Backfill_Fact_Sales_RecipeCost`). Products without a recipe still have no cost data (`CostSourceFlag = 'NO_COST_DATA'`), and even covered products only ever get a *current*-cost proxy, not true point-in-time historical cost.
+**Impact**: Per-product Margin dashboards (Gross Margin Waterfall, Margin by Product) can now be built **for products with an active recipe** — see the `Fact_Sales` "Cost Data Gap" note above for the full mechanism (`stg.RecipeLine`, `dwh.fn_IngredientCostAsOf`, `dwh.Load_Fact_Sales`, `dwh.Backfill_Fact_Sales_RecipeCost`). Products without a recipe still have no cost data (`CostSourceFlag = 'NO_COST_DATA'`), and coverage is otherwise partial by nature — but point-in-time accuracy is no longer a limitation: covered products get a true point-in-time FIFO cost as of each sale's own date, not a current-cost proxy applied retroactively.
 
 **Original finding, still true of Profit Plus itself**: no production/manufacturing cost has ever been recorded in this Profit Plus installation:
 - `saCostoHistoricoSalida`: 100% of rows have `costo_pro = 0`
@@ -555,7 +555,7 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 What resolved it wasn't a change in Profit Plus — it's the exporter app's own Recipes module computing cost from real raw-material purchase layers (which do exist) and feeding that into the DWH. Coverage grows as more products get recipes defined; it will never be automatic/complete the way a native ERP costing process would be.
 
-**Relationship to the Finanzas Compras-proxy below**: this per-product mechanism and the Finanzas tab's portfolio-level Compras-proxy margin are two separate, non-overlapping workarounds for the same underlying ERP gap — this section wires real (if partial and current-only) cost into `Fact_Sales` at the line-item grain; the proxy below estimates aggregate margin without needing per-product cost at all. Neither replaces the other today; a future iteration could blend them (e.g. use real recipe cost where available, fall back to the proxy elsewhere) but that blending does not exist yet.
+**Relationship to the Finanzas Compras-proxy below**: this per-product mechanism and the Finanzas tab's portfolio-level Compras-proxy margin are two separate, non-overlapping workarounds for the same underlying ERP gap — this section wires real (if partial) point-in-time cost into `Fact_Sales` at the line-item grain; the proxy below estimates aggregate margin without needing per-product cost at all. Neither replaces the other today; a future iteration could blend them (e.g. use real recipe cost where available, fall back to the proxy elsewhere) but that blending does not exist yet.
 
 **"Margen Operativo" workaround (shipped 2026-09-14, renamed from
 "EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin

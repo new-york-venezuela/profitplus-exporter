@@ -157,9 +157,9 @@ BEGIN
     ),
     ProductDateCostUsd AS (
         SELECT pdc.co_art, pdc.AsOfDate, pdc.RawMaterialEstimatedInt,
-            CASE WHEN pdc.RawMaterialCostBsd IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / r.tasa_v END AS RawMaterialCostUsd
+            CASE WHEN pdc.RawMaterialCostBsd IS NULL OR r.tasa_v IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / NULLIF(r.tasa_v, 0) END AS RawMaterialCostUsd
         FROM ProductDateCost pdc
-        CROSS APPLY (
+        OUTER APPLY (
             SELECT TOP 1 tasa_v FROM Ncake_a.dbo.saTasa WHERE co_mone = 'USD' AND fecha <= CAST(pdc.AsOfDate AS datetime2(3)) ORDER BY fecha DESC
         ) r
     )
@@ -251,14 +251,19 @@ GO
 -- for a brand-new recipe's past sales and for cost changes on existing
 -- recipes, with no separate manual step.
 --
--- Unconditional refresh (not just rows still at 'NO_COST_DATA'): a
--- product's latest snapshot cost can change between loader runs (new FIFO
--- layers, corrected recipe lines, etc.), and already-'RECIPE_FIFO'/
--- 'RECIPE_ESTIMATED' rows need to pick that up too. If a product's latest
--- snapshot ever has a NULL RawMaterialCostUsd ("Sin datos" - e.g. its only
--- recipe was deleted, or a raw material lost all cost history), rows keep
--- their last-known-good cost rather than reverting to NULL — treated as an
--- acceptable last-known-good default rather than manufacturing a new gap.
+-- Unconditional refresh (not just rows still at 'NO_COST_DATA'): every
+-- product/date pair with a stg.RecipeLine row gets its point-in-time cost
+-- recomputed on every backfill run, exactly like dwh.Load_Fact_Sales does
+-- for newly-loaded rows. This includes going BACK to NULL/'NO_COST_DATA' if
+-- no FIFO layer existed as of that date — e.g. a recipe line was corrected
+-- to reference an ingredient with no purchase history yet, or a previously
+-- available layer was found to be a data-entry error and removed upstream.
+-- Mirrors dwh.Load_Fact_Sales's NULL handling exactly (same CASE shapes for
+-- UnitCost/COGSAmount/GrossProfitAmount/CostSourceFlag) so the same
+-- Fact_Sales row can never end up in a different state depending on which
+-- of the two procedures last touched it. NULL never means "leave the old
+-- value in place" here — this module's central invariant is that missing
+-- data is NULL, never $0 and never stale.
 CREATE OR ALTER PROCEDURE dwh.Backfill_Fact_Sales_RecipeCost
 AS
 BEGIN
@@ -285,21 +290,23 @@ BEGIN
     ),
     ProductDateCostUsd AS (
         SELECT pdc.ProductCode, pdc.AsOfDate, pdc.RawMaterialEstimatedInt,
-            CASE WHEN pdc.RawMaterialCostBsd IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / r.tasa_v END AS RawMaterialCostUsd
+            CASE WHEN pdc.RawMaterialCostBsd IS NULL OR r.tasa_v IS NULL THEN NULL ELSE pdc.RawMaterialCostBsd / NULLIF(r.tasa_v, 0) END AS RawMaterialCostUsd
         FROM ProductDateCost pdc
-        CROSS APPLY (
+        OUTER APPLY (
             SELECT TOP 1 tasa_v FROM Ncake_a.dbo.saTasa WHERE co_mone = 'USD' AND fecha <= CAST(pdc.AsOfDate AS datetime2(3)) ORDER BY fecha DESC
         ) r
     )
     UPDATE fs SET
         fs.UnitCost = pdcu.RawMaterialCostUsd,
-        fs.COGSAmount = pdcu.RawMaterialCostUsd * fs.QuantitySold,
-        fs.GrossProfitAmount = fs.NetAmount - (pdcu.RawMaterialCostUsd * fs.QuantitySold),
-        fs.CostSourceFlag = CASE WHEN pdcu.RawMaterialEstimatedInt = 1 THEN 'RECIPE_ESTIMATED' ELSE 'RECIPE_FIFO' END
+        fs.COGSAmount = CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN pdcu.RawMaterialCostUsd * fs.QuantitySold END,
+        fs.GrossProfitAmount = CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN fs.NetAmount - (pdcu.RawMaterialCostUsd * fs.QuantitySold) END,
+        fs.CostSourceFlag = CASE
+            WHEN pdcu.RawMaterialCostUsd IS NULL THEN 'NO_COST_DATA'
+            WHEN pdcu.RawMaterialEstimatedInt = 1 THEN 'RECIPE_ESTIMATED'
+            ELSE 'RECIPE_FIFO' END
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    JOIN ProductDateCostUsd pdcu ON RTRIM(pdcu.ProductCode) = RTRIM(p.ProductCode) AND pdcu.AsOfDate = d.FullDate
-    WHERE pdcu.RawMaterialCostUsd IS NOT NULL;
+    JOIN ProductDateCostUsd pdcu ON RTRIM(pdcu.ProductCode) = RTRIM(p.ProductCode) AND pdcu.AsOfDate = d.FullDate;
 END
 GO

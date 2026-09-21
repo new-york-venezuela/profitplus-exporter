@@ -25,7 +25,8 @@
     "db:studio": "drizzle-kit studio",
     "dwh:incremental-load": "bun --run run scripts/dwh-incremental-load.ts",
     "dwh:snapshot-load": "bun --run run scripts/dwh-snapshot-load.ts",
-    "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts"
+    "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts",
+    "dwh:recipe-cost-load": "bun --bun run scripts/dwh-recipe-cost-load.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
