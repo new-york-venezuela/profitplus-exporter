@@ -197,24 +197,24 @@ DWH_AlimentosNY (new database, same SQL Server instance as ERP)
 | `DiscountAmount` | decimal(18,2) | `saFacturaVentaReng.monto_desc` + prorated `monto_desc_glob` | — |
 | `TaxAmount` | decimal(18,2) | `monto_imp` + `monto_imp2` + `monto_imp3` | — |
 | `NetAmount` | decimal(18,2) | `saFacturaVentaReng.reng_neto` | Net revenue (this row's contribution) |
-| `UnitCost` | decimal(18,5) | `saCostoHistoricoSalida.costo_pro` | **Currently always `NULL`** — see "Cost Data Gap" below |
-| `COGSAmount` | decimal(18,2) | `UnitCost × QuantitySold` | **Currently always `NULL`** |
-| `GrossProfitAmount` | decimal(18,2) | `NetAmount - COGSAmount` | **Currently always `NULL`** |
-| `CostSourceFlag` | varchar(20) | `'HISTORY'` or `'NO_COST_DATA'` | `'NO_COST_DATA'` for all rows (no cost data in ERP) |
+| `UnitCost` | decimal(18,5) | `dwh.fn_IngredientCostAsOf` (point-in-time FIFO, as of the sale's own date) | `NULL` for any product with no recipe/no `stg.RecipeLine` rows, or whose raw-material cost is itself "Sin datos" as of that date |
+| `COGSAmount` | decimal(18,2) | `UnitCost × QuantitySold` | `NULL` when `UnitCost` is `NULL` |
+| `GrossProfitAmount` | decimal(18,2) | `NetAmount - COGSAmount` | `NULL` when `COGSAmount` is `NULL` |
+| `CostSourceFlag` | varchar(20) | `'RECIPE_FIFO'`, `'RECIPE_ESTIMATED'`, or `'NO_COST_DATA'` | `'RECIPE_ESTIMATED'` when any raw-material line fell back to an estimate (see recipes' FIFO invariants in `AGENTS.md`); `'NO_COST_DATA'` when no recipe/cost data exists for the product |
 | `DocumentExchangeRate` | decimal(21,8) | `saFacturaVenta.tasa` | Exchange rate baked into document (for reconciliation) |
 | `IsVoided` | bit | `saFacturaVenta.anulado` | 0=real, 1=voided (kept at load time; BI layer filters) |
 | `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | DWH load timestamp |
 
 **Unique constraint**: `(InvoiceNumber, LineNumber)` — one row per source line, ensuring idempotent upserts.
 
-**Cost Data Gap** ⚠️  
-This installation has **never recorded production/manufacturing cost** for any finished good in Profit Plus. Verified findings:
-- `saCostoHistoricoSalida`: 4,618 of 4,618 rows have `costo_pro = 0` (100% zero)
-- `saCostoHistoricoEntrada`: 291 of 292 type-V rows are `costo = 0`
-- `saArtCompuesto` (BOM): zero finished-goods articles modeled as compuestos
-- `saArticulo.tipo_cos` is set to `'1'` (Último Costo/Last Cost) for all 65 active articles, but no cost values exist
+**Cost Data Gap — partially resolved (2026-09-20)** ⚠️  
+Profit Plus itself has **never recorded production/manufacturing cost** for any finished good (verified: `saCostoHistoricoSalida`/`saCostoHistoricoEntrada` cost columns are 0 for finished goods, `saArtCompuesto` BOM is empty). That ERP-native gap still stands and is not what changed.
 
-**Impact**: Margin dashboards (Gross Margin Waterfall, Margin by Product) **cannot be built from ERP data as it exists today**. The `UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist as a reserved-but-unwired schema slot for a future cost source — `dwh.Load_Fact_Sales` currently inserts them as hardcoded `NULL, NULL, NULL, 'NO_COST_DATA'` with no join to any cost table at all (`dwh-migrations/0009_fact_sales.sql:117-122`), so nothing will populate them automatically; an upstream costing process AND a corresponding `Load_Fact_Sales` code change are both required before these columns hold real data. Do not build margin dashboards until this gap is resolved. See design spec §2 and §8 for details. (2026-09-15: the Finanzas tab's Margen Operativo now uses a Compras-based proxy for gross margin instead of waiting on this column — see the "Margen Operativo" workaround section below.)
+What changed: the exporter app's own **Recipes** module (`recipes`/`recipe_lines` in its SQLite DB, `lib/costing/*.ts`) now lets a user define a recipe per finished good and computes its cost live via a FIFO walk over `saCostoHistoricoEntrada`'s real raw-material purchase layers (which *are* populated — raw materials just aren't costed through the finished-goods path Profit Plus itself would use). `scripts/dwh-recipe-cost-load.ts` (invoked automatically by `dwh:incremental-load`, or standalone via `dwh:recipe-cost-load`) is the DWH's first non-T-SQL data source: it reads recipes from the app's SQLite DB, computes cost via the ERP pool, and writes timestamped snapshots into `stg.RecipeCostSnapshot` (`dwh-migrations/0031`). `dwh.Load_Fact_Sales` (`dwh-migrations/0032`) joins each sale to the **latest** snapshot for that product and populates `UnitCost`/`COGSAmount`/`GrossProfitAmount`/`CostSourceFlag`; `dwh.Backfill_Fact_Sales_RecipeCost` (called by the same loader) keeps already-loaded historical rows in sync too, since the normal watermark-gated MERGE never revisits unchanged ERP rows on its own.
+
+**One real limitation to know about, not a bug**: only products with an active recipe (and now, `stg.RecipeLine` rows) get real cost data — everything else stays `'NO_COST_DATA'`. Point-in-time accuracy is no longer a limitation: `dwh.fn_IngredientCostAsOf` (`dwh-migrations/0032`) reconstructs each ingredient's remaining FIFO layers as of the sale's own date from `saCostoHistoricoSalida`'s timestamped consumption ledger, rather than applying today's cost retroactively. This does still assume a recipe's ingredient list/quantities were constant over time — no recipe versioning exists, so it computes "what today's recipe formula would have cost on that historical date," not "what the recipe as it was actually defined back then would have cost."
+
+See `AGENTS.md`'s "Recipes / Product Costing (FIFO)" section for the recipe cost invariants (always USD, missing data is `NULL` not `$0`, estimated costs flagged) — they hold end-to-end through this pipeline. (2026-09-15: the Finanzas tab's Margen Operativo separately uses a Compras-based proxy for cash-basis operating margin, unrelated to this per-product mechanism — see the "Margen Operativo" workaround section below.)
 
 #### Fact_Returns
 **Grain**: 1 row per return line (`saDevolucionClienteReng`)  
@@ -545,16 +545,17 @@ After migrations complete, run all load procedures **in SQL** (see "Step 2: Popu
 
 ## Known Limitations & Gaps
 
-### 1. Cost Data Gap ⚠️
-**Impact**: Margin dashboards (Gross Margin Waterfall, Margin by Product) cannot be built.
+### 1. Cost Data Gap — partially resolved (2026-09-20) ⚠️
+**Impact**: Per-product Margin dashboards (Gross Margin Waterfall, Margin by Product) can now be built **for products with an active recipe** — see the `Fact_Sales` "Cost Data Gap" note above for the full mechanism (`stg.RecipeLine`, `dwh.fn_IngredientCostAsOf`, `dwh.Load_Fact_Sales`, `dwh.Backfill_Fact_Sales_RecipeCost`). Products without a recipe still have no cost data (`CostSourceFlag = 'NO_COST_DATA'`), and coverage is otherwise partial by nature — but point-in-time accuracy is no longer a limitation: covered products get a true point-in-time FIFO cost as of each sale's own date, not a current-cost proxy applied retroactively.
 
-**Finding**: No production/manufacturing cost has ever been recorded in this Profit Plus installation:
+**Original finding, still true of Profit Plus itself**: no production/manufacturing cost has ever been recorded in this Profit Plus installation:
 - `saCostoHistoricoSalida`: 100% of rows have `costo_pro = 0`
 - `saCostoHistoricoEntrada`: 99% of type-V rows are `costo = 0`
 - `saArtCompuesto` (BOM): zero finished-goods articles modeled as compuestos
-- No recipe-cost or costing workflow exists
 
-**Workaround**: `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` columns exist as a reserved schema slot for a future cost source but are **not** wired to any live data path — `dwh.Load_Fact_Sales` inserts them as hardcoded `NULL, NULL, NULL, 'NO_COST_DATA'` (`dwh-migrations/0009_fact_sales.sql:117-122`), with no join to any cost table. Populating them for real requires both an upstream costing process in Profit Plus AND a `Load_Fact_Sales` code change — this is not automatic.
+What resolved it wasn't a change in Profit Plus — it's the exporter app's own Recipes module computing cost from real raw-material purchase layers (which do exist) and feeding that into the DWH. Coverage grows as more products get recipes defined; it will never be automatic/complete the way a native ERP costing process would be.
+
+**Relationship to the Finanzas Compras-proxy below**: this per-product mechanism and the Finanzas tab's portfolio-level Compras-proxy margin are two separate, non-overlapping workarounds for the same underlying ERP gap — this section wires real (if partial) point-in-time cost into `Fact_Sales` at the line-item grain; the proxy below estimates aggregate margin without needing per-product cost at all. Neither replaces the other today; a future iteration could blend them (e.g. use real recipe cost where available, fall back to the proxy elsewhere) but that blending does not exist yet.
 
 **"Margen Operativo" workaround (shipped 2026-09-14, renamed from
 "EBITDA" 2026-09-14):** the Finanzas tab shows a cash-basis operating margin

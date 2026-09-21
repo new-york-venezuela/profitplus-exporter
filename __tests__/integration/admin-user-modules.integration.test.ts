@@ -54,6 +54,30 @@ describe('PUT /api/admin/users/:id/modules', () => {
     expect(grants.map(g => g.module)).toEqual(['inventory']);
   });
 
+  test('admin can grant the recipes module to a user', async () => {
+    const db = getDb();
+    const admin = db.insert(users).values({
+      email: 'admin5@x.com', name: 'Admin', passwordHash: 'x',
+      role: 'admin', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+    const target = db.insert(users).values({
+      email: 'target5@x.com', name: 'Target', passwordHash: 'x',
+      role: 'user', createdAt: Date.now(),
+    }).returning({ id: users.id }).get()!;
+
+    const token = await signToken({ sub: String(admin.id), role: 'admin', name: 'Admin' });
+    const request = buildRequest(token, {
+      method: 'PUT',
+      body: JSON.stringify({ modules: ['recipes'] }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: String(target.id) }) });
+    expect(response.status).toBe(200);
+
+    const grants = db.select().from(userModules).where(eq(userModules.userId, target.id)).all();
+    expect(grants.map(g => g.module)).toEqual(['recipes']);
+  });
+
   test('non-admin gets 403', async () => {
     const db = getDb();
     const nonAdmin = db.insert(users).values({

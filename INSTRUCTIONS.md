@@ -135,16 +135,17 @@ table without a `validador` rowversion column (`saFacturaVentaReng` and
 friends — see that file's "Incremental watermark strategy" section before
 assuming `validador` exists on a new source table).
 
-## Granting Module Access (Inventory / Analítica)
+## Granting Module Access (Inventory / Analítica / Recetas)
 
-Both the inventory module (`/inventario/*`) and the analytics dashboard
-(`/analitica`) are gated behind a per-user module grant, not just role.
-Admins (`role = 'admin'`) always have access to both; regular users need an
-explicit grant from `/admin/users` (checkbox per user, per module) or via:
+The inventory module (`/inventario/*`), the analytics dashboard
+(`/analitica`), and recipe/product-costing (`/recetas`) are each gated
+behind a per-user module grant, not just role. Admins (`role = 'admin'`)
+always have access to all three; regular users need an explicit grant from
+`/admin/users` (checkbox per user, per module) or via:
 
 ```
 PUT /api/admin/users/:id/modules
-Body: { "modules": ["inventory", "dwh"] }
+Body: { "modules": ["inventory", "dwh", "recipes"] }
 ```
 
 See `AGENTS.md` → "Module-Based Permissions" for how this is enforced at

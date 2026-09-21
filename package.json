@@ -25,9 +25,13 @@
     "db:studio": "drizzle-kit studio",
     "dwh:incremental-load": "bun --run run scripts/dwh-incremental-load.ts",
     "dwh:snapshot-load": "bun --run run scripts/dwh-snapshot-load.ts",
-    "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts"
+    "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts",
+    "dwh:recipe-cost-load": "bun --bun run scripts/dwh-recipe-cost-load.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@types/handlebars": "^4.1.0",
     "@types/nodemailer": "^8.0.1",
     "bcrypt": "^6.0.0",
@@ -43,6 +47,7 @@
     "prompts": "^2.4.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.10.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
