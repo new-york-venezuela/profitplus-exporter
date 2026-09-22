@@ -35,7 +35,10 @@ test.describe('analitica @mssql', () => {
     // simultaneously (not one-at-a-time behind a button).
     await expect(adminPage.getByRole('heading', { name: 'Por mes' })).toBeVisible({ timeout: 15_000 });
     await expect(adminPage.getByRole('heading', { name: 'Por cliente' })).toBeVisible();
-    await expect(adminPage.getByRole('heading', { name: 'Por línea' })).toBeVisible();
+    // exact: true — a later "Comparar ventas por línea" chart section (not
+    // present when this assertion was first written) also has a heading
+    // whose text contains "por línea", making the loose match ambiguous.
+    await expect(adminPage.getByRole('heading', { name: 'Por línea', exact: true })).toBeVisible();
 
     // The cliente section's own "Agrupar por" <select> (GroupedDrilldownTable)
     // still toggles Entidad/Tienda grain, same underlying mechanism as before
