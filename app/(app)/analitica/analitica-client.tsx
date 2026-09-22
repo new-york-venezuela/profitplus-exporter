@@ -12,6 +12,7 @@ import TabCxc from './tabs/tab-cxc';
 import TabVendedores from './tabs/tab-vendedores';
 import TabClientes from './tabs/tab-clientes';
 import TabProductos from './tabs/tab-productos';
+import TabProfundidad from './tabs/tab-profundidad';
 import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
@@ -36,6 +37,7 @@ const TABS: TabDef[] = [
   { key: 'vendedores', label: 'Vendedores', component: TabVendedores },
   { key: 'clientes', label: 'Clientes', component: TabClientes },
   { key: 'productos', label: 'Productos', component: TabProductos },
+  { key: 'profundidad', label: 'Profundidad de Línea', component: TabProfundidad },
   { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
   { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
   { key: 'compras', label: 'Compras', component: TabCompras },
