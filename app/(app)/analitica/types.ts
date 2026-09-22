@@ -419,6 +419,10 @@ export interface DepthMatrixResponse {
   groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
   usdRate: number | null;
+  // Echoes the salesRepKey filter applied, if any — lets the UI label the
+  // matrix clearly ("Mostrando solo clientes de: Juan Pérez") when scoped.
+  // See docs/superpowers/specs/2026-09-21-seller-depth-of-line-coverage-design.md.
+  scopedToSalesRepName: string | null;
 }
 
 export interface DepthGapEntity {
@@ -431,4 +435,21 @@ export interface DepthGapResponse {
   entities: DepthGapEntity[];
   segment: CustomerSegment;
   productLabel: string;
+}
+
+// Seller coverage leaderboard — one row per seller, comparing their own
+// pooled penetration (over entities/products they personally touched)
+// against the company-wide baseline from the unscoped matrix.
+export interface SellerCoverageRow {
+  salesRepKey: string;
+  salesRepName: string;
+  entitiesServed: number;
+  ownPenetration: number | null;      // this seller's pooled penetration across their own entities
+  baselinePenetration: number | null; // company-wide pooled penetration, for comparison
+  gapVsBaseline: number | null;       // ownPenetration - baselinePenetration; negative = underperforming
+}
+
+export interface SellerCoverageResponse {
+  rows: SellerCoverageRow[];
+  usdRate: number | null;
 }
