@@ -47,7 +47,7 @@ function cadenceQuery(dateWhere: string): string {
     JOIN PurchaseDays pd ON pd.LegalEntityKey = le.LegalEntityKey
     LEFT JOIN Gaps g ON g.LegalEntityKey = le.LegalEntityKey AND g.GapDays IS NOT NULL
     GROUP BY le.LegalEntityKey, le.LegalEntityName
-    ORDER BY DaysSinceLastPurchase DESC
+    ORDER BY DaysSinceLastPurchase DESC, le.LegalEntityKey
   `;
 }
 

@@ -30,7 +30,13 @@ export default function TabCadencia({ dateRange }: { dateRange: DateRange; curre
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`/api/dwh/cadencia?dateRange=${dateRange}`);
+      // no-store: the route sends a 15-minute Cache-Control (shared by every
+      // dwh/* route, to dedupe a tab-mount's burst of near-simultaneous
+      // requests) — fine everywhere else, but this tab also reloads right
+      // after saving a target via a mutating POST to a different endpoint,
+      // and a same-URL GET within that window would otherwise serve the
+      // pre-save cached response, showing a stale "Sin meta" after a save.
+      const res = await fetch(`/api/dwh/cadencia?dateRange=${dateRange}`, { cache: 'no-store' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error ?? 'Error desconocido');
