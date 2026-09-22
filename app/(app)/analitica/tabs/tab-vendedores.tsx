@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
-import type { BreakdownRow, Currency, DateRange, PivotDimension, VendedoresResponse, VendedoresRow } from '../types';
+import type { BreakdownRow, Currency, DateRange, PivotDimension, VendedoresResponse, VendedoresRow, VendedoresExcludedResponse } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
@@ -45,6 +45,26 @@ export default function TabVendedores({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
+  const [excludedExpandedFor, setExcludedExpandedFor] = useState<string | null>(null);
+  const [excludedData, setExcludedData] = useState<VendedoresExcludedResponse | null>(null);
+  const [excludedLoading, setExcludedLoading] = useState(false);
+
+  async function handleToggleExcluded(salesRepValue: string) {
+    if (excludedExpandedFor === salesRepValue) {
+      setExcludedExpandedFor(null);
+      return;
+    }
+    setExcludedExpandedFor(salesRepValue);
+    setExcludedData(null);
+    setExcludedLoading(true);
+    try {
+      const params = new URLSearchParams({ dateRange, currency, section: 'excluded', parentValue: salesRepValue });
+      const res = await fetch(`/api/dwh/vendedores?${params.toString()}`);
+      if (res.ok) setExcludedData(await res.json());
+    } finally {
+      setExcludedLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +165,8 @@ export default function TabVendedores({
     );
   }
 
+  const rowsWithExclusions = rows.filter(r => r.excludedSalesNet > 0);
+
   return (
     <div className="p-6 max-w-7xl space-y-6">
       <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -169,6 +191,59 @@ export default function TabVendedores({
           />
         )}
       </div>
+
+      {rowsWithExclusions.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="text-sm font-bold text-gray-900 mb-1">Facturas excluidas — patrón de consignación</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Estas facturas se facturaron de forma agregada a nivel de cadena (no por tienda individual),
+            por lo que no es posible atribuir de forma confiable qué vendedor generó la venta. Se
+            excluyen de las ventas/cobranza del vendedor arriba en vez de estimarse.
+          </p>
+          <ul className="space-y-2">
+            {rowsWithExclusions.map(row => (
+              <li key={row.value} className="text-sm">
+                <button
+                  onClick={() => handleToggleExcluded(row.value)}
+                  className="text-amber-700 hover:text-amber-900 underline"
+                >
+                  {row.name}: {moneyLabel(row.excludedSalesNet, currency, rate)} excluidos ({row.excludedInvoiceCount} facturas)
+                </button>
+                {excludedExpandedFor === row.value && (
+                  <div className="mt-2 ml-4 text-xs">
+                    {excludedLoading ? (
+                      <div className="text-gray-400 py-1">Cargando…</div>
+                    ) : !excludedData || excludedData.invoices.length === 0 ? (
+                      <div className="text-gray-400 py-1">Sin facturas.</div>
+                    ) : (
+                      <table className="min-w-full">
+                        <thead>
+                          <tr className="text-gray-500">
+                            <th className="text-left pr-4 py-1">Entidad</th>
+                            <th className="text-left pr-4 py-1">Factura</th>
+                            <th className="text-left pr-4 py-1">Fecha</th>
+                            <th className="text-right py-1">Monto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {excludedData.invoices.map((inv, i) => (
+                            <tr key={`${inv.invoiceNumber}-${i}`} className="text-gray-700">
+                              <td className="pr-4 py-1">{inv.legalEntityName}</td>
+                              <td className="pr-4 py-1">{inv.invoiceNumber}</td>
+                              <td className="pr-4 py-1">{inv.invoiceDate}</td>
+                              <td className="text-right py-1">{moneyLabel(inv.amountNet, currency, rate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
