@@ -3,8 +3,10 @@ import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import { classifyTier, DEFAULT_TIER_THRESHOLDS, type TierThresholds } from './tier';
+import { computeGapVsBaseline } from './seller-coverage';
 import type {
   DepthMatrixRow, DepthMatrixResponse, DepthGapEntity, DepthGapResponse, CustomerSegment, GroupBy,
+  SellerCoverageRow, SellerCoverageResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -69,6 +71,39 @@ function activeTotalsBySegmentQuery(dateWhere: string, scopeWhere: string): stri
   `;
 }
 
+// Same shape as matrixQuery, but scoped to one seller's own sales — used
+// when salesRepKey is present. See docs/superpowers/specs/
+// 2026-09-21-seller-depth-of-line-coverage-design.md.
+function matrixQueryForSeller(groupBy: DepthGroupBy, dateWhere: string, scopeWhere: string): string {
+  const labelExpr = labelExprFor(groupBy);
+  return `
+    SELECT
+      ${labelExpr} AS GroupLabel,
+      c.SegmentCode AS SegmentCode,
+      COUNT(DISTINCT c.LegalEntityKey) AS EntitiesBuying,
+      SUM(fs.NetAmount) AS SalesNet
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.SegmentCode IN ('CADENA', 'INDEPENDIENTES') ${dateWhere} ${scopeWhere}
+    GROUP BY ${labelExpr}, c.SegmentCode
+  `;
+}
+
+// Denominator when scoped to a seller: entities THIS SELLER sold anything
+// to (any product) in range, per segment — not the whole segment's active
+// entities. This is what makes the scoped view answer "am I covering my
+// own accounts well" rather than "am I covering the whole market."
+function activeTotalsBySegmentForSellerQuery(dateWhere: string): string {
+  return `
+    SELECT c.SegmentCode AS SegmentCode, COUNT(DISTINCT c.LegalEntityKey) AS TotalEntities
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.SegmentCode IN ('CADENA', 'INDEPENDIENTES') ${dateWhere}
+    GROUP BY c.SegmentCode
+  `;
+}
+
 function gapQuery(dateWhere: string, scopeWhere: string): string {
   return `
     SELECT le.LegalEntityKey, le.LegalEntityName, SUM(fs.NetAmount) AS TotalSalesNet
@@ -129,11 +164,14 @@ async function handleMatrix(
   sublinea: string | null,
   currency: string,
   thresholds: TierThresholds,
+  salesRepKey: number | null,
+  salesRepName: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   let scopeWhere = '';
   const scopeReq = pool.request();
+  if (salesRepKey !== null) scopeReq.input('salesRepKey', salesRepKey);
   if (groupBy === 'sublinea') {
     scopeReq.input('linea', linea ?? '');
     scopeWhere = `AND ISNULL(p.LineName, '${NO_LINEA}') = @linea`;
@@ -143,9 +181,12 @@ async function handleMatrix(
     scopeWhere = `AND ISNULL(p.LineName, '${NO_LINEA}') = @linea AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea`;
   }
 
+  const totalsReq = pool.request();
+  if (salesRepKey !== null) totalsReq.input('salesRepKey', salesRepKey);
+
   const [matrixResult, totalsResult] = await Promise.all([
-    scopeReq.query(matrixQuery(groupBy, dateWhere, scopeWhere)),
-    pool.request().query(activeTotalsBySegmentQuery(dateWhere, '')),
+    scopeReq.query(salesRepKey !== null ? matrixQueryForSeller(groupBy, dateWhere, scopeWhere) : matrixQuery(groupBy, dateWhere, scopeWhere)),
+    totalsReq.query(salesRepKey !== null ? activeTotalsBySegmentForSellerQuery(dateWhere) : activeTotalsBySegmentQuery(dateWhere, '')),
   ]);
 
   const totalsBySegment = new Map<string, number>();
@@ -194,7 +235,96 @@ async function handleMatrix(
   if (groupBy === 'sublinea' || groupBy === 'sku') breadcrumb.push({ label: linea as string, groupBy: 'sublinea' });
   if (groupBy === 'sku') breadcrumb.push({ label: sublinea as string, groupBy: 'sku' });
 
-  const response: DepthMatrixResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb, usdRate };
+  const response: DepthMatrixResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb, usdRate, scopedToSalesRepName: salesRepName };
+  return jsonWithCache(response);
+}
+
+// Seller leaderboard: for each seller, how many of their own (entity,
+// tiered product) pairs are actually covered, against the tiered product
+// set computed from the UNSCOPED matrix (passed in as tieredLineNames —
+// the caller runs the unscoped handleMatrix-equivalent computation first
+// and extracts which línea labels classify as primera/segunda).
+function sellerCoverageQuery(dateWhere: string, tieredLineNames: string[]): string {
+  const linePlaceholders = tieredLineNames.map((_, i) => `@tieredLine${i}`).join(', ');
+  return `
+    SELECT
+      CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKey,
+      ISNULL(r.SalesRepName, r.SalesRepCode) AS SalesRepName,
+      COUNT(DISTINCT c.LegalEntityKey) AS EntitiesServed,
+      COUNT(DISTINCT CONCAT(c.LegalEntityKey, '|', p.ProductKey)) AS TieredProductsCovered
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    WHERE fs.IsVoided = 0 AND ISNULL(p.LineName, '${NO_LINEA}') IN (${linePlaceholders}) ${dateWhere}
+    GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
+  `;
+}
+
+async function handleLeaderboard(dateWhere: string, currency: string, thresholds: TierThresholds): Promise<NextResponse> {
+  const pool = await getDwhPool();
+
+  // Step 1: compute the unscoped, línea-level matrix to find the tiered line set.
+  const unscopedResult = await pool.request().query(matrixQuery('linea', dateWhere, ''));
+  const totalsResult = await pool.request().query(activeTotalsBySegmentQuery(dateWhere, ''));
+  const totalsBySegment = new Map<string, number>();
+  for (const r of totalsResult.recordset) totalsBySegment.set(String(r.SegmentCode), Number(r.TotalEntities));
+  const totalEntitiesActive = SEGMENTS.reduce((sum, s) => sum + (totalsBySegment.get(s) ?? 0), 0);
+
+  const byLinea = new Map<string, { entitiesBuying: number; salesNet: number }>();
+  for (const r of unscopedResult.recordset) {
+    const label = String(r.GroupLabel);
+    const entry = byLinea.get(label) ?? { entitiesBuying: 0, salesNet: 0 };
+    entry.entitiesBuying += Number(r.EntitiesBuying);
+    entry.salesNet += Number(r.SalesNet);
+    byLinea.set(label, entry);
+  }
+
+  const tieredLineNames: string[] = [];
+  let baselinePenetrationSum = 0;
+  let baselineCount = 0;
+  for (const [label, entry] of byLinea) {
+    const penetration = totalEntitiesActive > 0 ? entry.entitiesBuying / totalEntitiesActive : null;
+    const tier = classifyTier(penetration, entry.salesNet > 0, thresholds);
+    if (tier === 'primera' || tier === 'segunda') {
+      tieredLineNames.push(label);
+      if (penetration !== null) {
+        baselinePenetrationSum += penetration;
+        baselineCount += 1;
+      }
+    }
+  }
+  const baselinePenetration = baselineCount > 0 ? baselinePenetrationSum / baselineCount : null;
+
+  if (tieredLineNames.length === 0) {
+    const usdRate = currency === 'usd' ? await getUsdRate() : null;
+    const response: SellerCoverageResponse = { rows: [], usdRate };
+    return jsonWithCache(response);
+  }
+
+  // Step 2: for each seller, how many (entity, tiered-line-product) pairs did they cover.
+  const req = pool.request();
+  tieredLineNames.forEach((name, i) => req.input(`tieredLine${i}`, name));
+  const sellerResult = await req.query(sellerCoverageQuery(dateWhere, tieredLineNames));
+
+  const rows: SellerCoverageRow[] = sellerResult.recordset.map(r => {
+    const entitiesServed = Number(r.EntitiesServed);
+    const tieredProductsCovered = Number(r.TieredProductsCovered);
+    const maxPossible = entitiesServed * tieredLineNames.length;
+    const ownPenetration = maxPossible > 0 ? tieredProductsCovered / maxPossible : null;
+    return {
+      salesRepKey: String(r.SalesRepKey),
+      salesRepName: String(r.SalesRepName),
+      entitiesServed,
+      ownPenetration,
+      baselinePenetration,
+      gapVsBaseline: computeGapVsBaseline(ownPenetration, baselinePenetration),
+    };
+  }).filter(row => row.entitiesServed > 0)
+    .sort((a, b) => (a.gapVsBaseline ?? 0) - (b.gapVsBaseline ?? 0));
+
+  const usdRate = currency === 'usd' ? await getUsdRate() : null;
+  const response: SellerCoverageResponse = { rows, usdRate };
   return jsonWithCache(response);
 }
 
@@ -220,9 +350,17 @@ export async function GET(request: NextRequest) {
     secondLineMinPenetration: Number.isFinite(secondLineMinPenetration) ? secondLineMinPenetration : DEFAULT_TIER_THRESHOLDS.secondLineMinPenetration,
   };
 
+  const salesRepKeyParam = searchParams.get('salesRepKey');
+  const salesRepKey = salesRepKeyParam && /^\d+$/.test(salesRepKeyParam) ? Number(salesRepKeyParam) : null;
+  const salesRepName = searchParams.get('salesRepName');
+
   const dateWhere = buildDateWhereClause(dateRange, 'fs');
 
   try {
+    if (searchParams.get('section') === 'leaderboard') {
+      return await handleLeaderboard(dateWhere, currency, thresholds);
+    }
+
     if (searchParams.get('section') === 'gap') {
       const segmentParam = searchParams.get('segment');
       const productLabel = searchParams.get('productLabel');
@@ -235,7 +373,7 @@ export async function GET(request: NextRequest) {
       return await handleGap(dateWhere, groupBy, lineaParam, sublineaParam, segmentParam, productLabel);
     }
 
-    return await handleMatrix(dateWhere, groupBy, lineaParam, sublineaParam, currency, thresholds);
+    return await handleMatrix(dateWhere, groupBy, lineaParam, sublineaParam, currency, thresholds, salesRepKey, salesRepName);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }
