@@ -98,35 +98,20 @@ independent of the raw ERP tables the rest of the app queries.
 # 1. Apply all DWH schema migrations (creates the database if it doesn't exist)
 bun run migrate:dwh
 
-# 2. Populate it by running each Load_*/Snapshot_Fact_AR procedure once,
-#    in dependency order (dims before facts; see dwh-migrations/README.md
-#    "Layout" section for the full list). There's no single "load everything"
-#    script outside of Task 11's disabled-by-default SQL Agent job — for
-#    local dev, run them directly against the DWH pool, e.g. via a throwaway
-#    tsx script or SSMS:
-```
-
-```sql
-EXEC dwh.Load_Dim_Currency;
-EXEC dwh.Load_Fact_ExchangeRate;
-EXEC dwh.Load_Dim_Customer;
-EXEC dwh.Load_Dim_Product;
-EXEC dwh.Load_Dim_SalesRep;
-EXEC dwh.Load_Dim_Warehouse;
-EXEC dwh.Load_Fact_Sales;
-EXEC dwh.Load_Fact_Returns;
-EXEC dwh.Load_Fact_Collections;
-EXEC dwh.Snapshot_Fact_AR;   -- @SnapshotDate defaults to today (UTC)
+# 2. Populate it by running every Load_*/Snapshot_Fact_AR procedure once, in
+#    dependency order (dims before facts; see dwh-migrations/README.md
+#    "Layout" section for the full list):
+bun run dwh:incremental-load
+bun run dwh:snapshot-load   # AR snapshot; @SnapshotDate defaults to today (UTC)
 ```
 
 Without this, `/analitica` will 500 with "Invalid object name" (schema
 exists, tables are empty/absent depending on which step was skipped) or
 render empty charts (tables exist but have no rows).
 
-For real production-cadence loading, see `dwh-migrations/README.md` →
-"Enabling the SQL Agent jobs" — the two jobs (`DWH - Incremental Load`,
-`DWH - Daily AR Snapshot`) are created disabled by migration `0013` and
-need a schedule decided before enabling.
+For production-cadence loading, trigger these same two scripts externally
+(cron, a scheduled task, CI, etc.) — an earlier SQL Agent job-based approach
+was removed (see git history, "Remove job agents").
 
 **Adding a new migration**: see `dwh-migrations/README.md` for numbering,
 idempotency (`IF NOT EXISTS` / `CREATE OR ALTER`), and the two-column
@@ -396,14 +381,14 @@ Open `http://<server-ip>` in a browser — you should see the ProfitPlus login p
 `migrate:dwh` (Step 4) only creates schema. To populate it and keep it
 current, either:
 
-- **One-off load**: run each `dwh.Load_*` procedure and
+- **One-off load**: `bun run dwh:incremental-load` and
+  `bun run dwh:snapshot-load` (or run each `dwh.Load_*` procedure and
   `dwh.Snapshot_Fact_AR` directly via SSMS, in the dependency order listed
-  in "Setting Up the DWH Locally" above, or
-- **Scheduled load (recommended for production)**: enable the two SQL
-  Agent jobs created (disabled) by `dwh-migrations/0013_sql_agent_jobs.sql`
-  — `DWH - Incremental Load` and `DWH - Daily AR Snapshot`. See
-  `dwh-migrations/README.md` → "Enabling the SQL Agent jobs" for the exact
-  `sp_update_job`/`sp_add_jobschedule` calls and how to pick a cadence.
+  in "Setting Up the DWH Locally" above), or
+- **Scheduled load (recommended for production)**: trigger those same two
+  scripts externally on a cadence (cron, a scheduled task, CI, etc.) — an
+  earlier SQL Agent job-based approach was removed (see git history,
+  "Remove job agents").
 
 Until at least one load has run, `/analitica` renders with empty charts
 (not an error) — the API treats zero rows as valid, empty data.

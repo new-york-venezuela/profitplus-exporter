@@ -83,17 +83,9 @@ estimated ~3.4M rows for `saFacturaVentaReng`; live testing found only ~4,710 ro
 `saDevolucionCliente` and `saCobroDocReng`/`saCobro` at comparably small scale).
 
 None of the observed timings in this plan are a reliable proxy for production-scale load times.
-Anyone tuning indexes, sizing the incremental load window, or setting SQL Agent schedule intervals
-based on this plan's observed test timing should re-verify against real production volume first.
+Anyone tuning indexes or sizing the incremental load window based on this plan's observed test
+timing should re-verify against real production volume first.
 
-## Enabling the SQL Agent jobs
-
-`DWH - Incremental Load` and `DWH - Daily AR Snapshot` (from `0013_sql_agent_jobs.sql`) are created **disabled**. Load frequency is an open business decision (spec §5.1) — pick a schedule, then:
-
-```sql
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Incremental Load', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Incremental Load', @name = N'Every 30 min', @freq_type = 4, @freq_interval = 1, @freq_subday_type = 4, @freq_subday_interval = 30;
-
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Daily AR Snapshot', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily after close', @freq_type = 4, @freq_interval = 1, @freq_subday_type = 1, @active_start_time = 220000;
-```
+Note: SQL Agent jobs for scheduling the incremental load and AR snapshot were removed (see git
+history, "Remove job agents") — loads are triggered externally (`bun run dwh:incremental-load`,
+`bun run dwh:snapshot-load`), not via `msdb` jobs.

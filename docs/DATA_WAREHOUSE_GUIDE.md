@@ -102,23 +102,9 @@ EXEC dwh.Snapshot_Fact_AR;
 
 Captures point-in-time `saDocumentoVenta` balance state for that day.
 
-#### Path 3: Production SQL Agent Jobs (Automated)
-
-To automate incremental loads and AR snapshots, enable the two jobs created by migration `0013_sql_agent_jobs.sql`:
-
-```sql
--- Enable Incremental Load job (runs all Load_* procs in order on a schedule)
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Incremental Load', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Incremental Load', @name = N'Every 30 min', 
-    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 4, @freq_subday_interval = 30;
-
--- Enable Daily AR Snapshot job (runs Snapshot_Fact_AR once daily after business close)
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Daily AR Snapshot', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily 22:00',
-    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 1, @active_start_time = 220000;
-```
-
-Both jobs are created **disabled** by default (migration 0013). Enable them only after verifying initial load completed successfully.
+Note: SQL Agent jobs for scheduling these automatically were removed (see git history, "Remove
+job agents") — trigger `bun run dwh:incremental-load` / `bun run dwh:snapshot-load` externally
+(cron, a scheduled task, CI, etc.) if automation is needed.
 
 ---
 
@@ -758,7 +744,6 @@ ORDER BY le.LegalEntityKey, Total_Collections DESC;
 ✓ **Schema**: All 13 migrations implemented (`dwh-migrations/0001_...0013`)  
 ✓ **Tables**: 12 tables created (7 dimensions + 5 facts)  
 ✓ **Procedures**: All `Load_Dim_*`, `Load_Fact_*`, and `Snapshot_*` stored procedures created  
-✓ **Automation**: SQL Agent jobs defined (disabled by default, enable after first load)  
 
 ⚠️ **Data**: Tables empty until you run `EXEC dwh.Load_*` procedures (see Quick Start)  
 ⚠️ **TypeScript load scripts**: Not implemented (migrations create T-SQL procedures only)  
@@ -790,17 +775,9 @@ EXEC dwh.Load_Fact_Collections;
 EXEC dwh.Snapshot_Fact_AR;
 ```
 
-**Production automation** (via SQL Agent):
-```sql
--- After first load succeeds, enable the jobs:
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Incremental Load', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Incremental Load', @name = N'Every 30 min', 
-    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 4, @freq_subday_interval = 30;
-
-EXEC msdb.dbo.sp_update_job @job_name = N'DWH - Daily AR Snapshot', @enabled = 1;
-EXEC msdb.dbo.sp_add_jobschedule @job_name = N'DWH - Daily AR Snapshot', @name = N'Daily 22:00',
-    @freq_type = 4, @freq_interval = 1, @freq_subday_type = 1, @active_start_time = 220000;
-```
+**Production automation**: SQL Agent jobs for this were removed (see git history, "Remove job
+agents"). Trigger `bun run dwh:incremental-load` and `bun run dwh:snapshot-load` externally
+(cron, a scheduled task, CI, etc.) if automation is needed.
 
 ## References
 
