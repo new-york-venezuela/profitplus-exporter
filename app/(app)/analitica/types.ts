@@ -391,3 +391,44 @@ export interface MultimonedaResponse {
   exchangeRates: ExchangeRateRow[];
   currentRate: number | null;
 }
+
+// Profundidad de Línea tab — segment-penetration matrix, gap drill-down, and
+// first/second-line/addon classification. See
+// docs/superpowers/specs/2026-09-21-profundidad-linea-tab-design.md.
+export type CustomerSegment = 'CADENA' | 'INDEPENDIENTES';
+
+export interface DepthMatrixCell {
+  segment: CustomerSegment;
+  entitiesBuying: number;
+  entitiesActive: number;
+  penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
+  salesNet: number;
+}
+
+export interface DepthMatrixRow {
+  label: string;            // línea, sublínea, or SKU name depending on drill level
+  value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
+  cells: DepthMatrixCell[];  // one per segment present for this row
+  totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
+  totalSalesNet: number;
+  tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
+}
+
+export interface DepthMatrixResponse {
+  rows: DepthMatrixRow[];
+  groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
+  breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
+  usdRate: number | null;
+}
+
+export interface DepthGapEntity {
+  legalEntityKey: number;
+  legalEntityName: string;
+  totalSalesNet: number; // this entity's total sales in range, for sort/context
+}
+
+export interface DepthGapResponse {
+  entities: DepthGapEntity[];
+  segment: CustomerSegment;
+  productLabel: string;
+}
