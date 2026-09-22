@@ -11,6 +11,18 @@ import { test, expect, submitReliably } from './fixtures';
 // so each run does leave two small, real saAjuste/saAjusteReng rows behind
 // — net-zero stock impact, accepted as harmless audit noise rather than
 // worked around.
+//
+// Serial mode: several tests below target "the first article/warehouse
+// row" and read-then-mutate its real, shared stock value (surplus/shortage
+// test, and the entrada/salida test) — if two of these run concurrently
+// against the same live saStockAlmacen row, one test's write can land
+// between the other's before/after reads, producing a spurious off-by-N
+// mismatch. Confirmed live: this intermittently failed under Playwright's
+// default parallel workers (~1 in 2 runs) but passed reliably every time
+// in isolation — a genuine cross-test race on shared live DB state, not a
+// product bug. Same fix as config-cobranza.spec.ts's own singleton-state
+// tests.
+test.describe.configure({ mode: 'serial' });
 
 test.describe('inventario/ajustes @mssql', () => {
   test('access is denied without the inventory module grant', async ({ page }) => {
