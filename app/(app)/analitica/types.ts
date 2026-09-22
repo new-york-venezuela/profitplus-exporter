@@ -473,3 +473,22 @@ export interface SellerCoverageResponse {
   rows: SellerCoverageRow[];
   usdRate: number | null;
 }
+
+// Cadencia tab — per-customer purchase frequency, with an optional manual
+// target overlay. See docs/superpowers/specs/
+// 2026-09-21-active-customer-visit-cadence-design.md.
+export interface CadenceRow {
+  legalEntityKey: number;
+  legalEntityName: string;
+  purchaseDayCount: number;
+  avgGapDays: number | null;      // null if only one purchase in range (no gap to compute)
+  lastPurchaseDate: string;       // ISO date
+  daysSinceLastPurchase: number;
+  segment: CustomerSegment | null;
+  targetGapDays: number | null;    // resolved: entity override, else segment default, else null
+  isOverdue: boolean | null;       // null when no target resolves for this entity
+}
+
+export interface CadenceResponse {
+  rows: CadenceRow[];
+}
