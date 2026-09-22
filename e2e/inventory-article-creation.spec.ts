@@ -1,5 +1,7 @@
 import { test, expect } from './fixtures';
 import sql from 'mssql';
+import path from 'path';
+import fs from 'fs';
 
 // @mssql — submitting the create-article form calls pApiCrearArticuloInventario
 // and the warehouse-assignment endpoint against the real Ncake_a database via
@@ -12,17 +14,41 @@ import sql from 'mssql';
 // "Producto E2E Test *" rows left behind by repeated runs during this
 // branch's development and had to clean them up by hand; this is a real fix
 // for that, not an accepted trade-off.
+//
+// This file's own DB_* connection needs its own env loading: Playwright's
+// test process is NOT the same process as playwright.config.ts's webServer
+// (which gets DB_* via loadEnvTest() reading .env.test into its own env
+// block) — the test file only inherits whatever the shell that launched
+// `playwright test` happened to have exported, which is empty by default
+// (confirmed live: process.env.DB_SERVER is undefined here even though the
+// webServer subprocess connects to the DB fine). Read .env.test directly,
+// mirroring playwright.config.ts's own loadEnvTest() parsing, rather than
+// depending on ambient shell state this file can't control.
+function loadDbEnv(): Record<string, string> {
+  const envPath = path.resolve(__dirname, '..', '.env.test');
+  const content = fs.readFileSync(envPath, 'utf-8');
+  const env: Record<string, string> = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+  }
+  return env;
+}
 
 function buildTestConfig(): sql.config {
+  const env = { ...loadDbEnv(), ...process.env };
   return {
-    server: process.env.DB_SERVER!,
-    port: parseInt(process.env.DB_PORT ?? '1433'),
-    database: process.env.DB_NAME!,
-    user: process.env.DB_USER!,
-    password: process.env.DB_PASSWORD!,
+    server: env.DB_SERVER!,
+    port: parseInt(env.DB_PORT ?? '1433'),
+    database: env.DB_NAME!,
+    user: env.DB_USER!,
+    password: env.DB_PASSWORD!,
     options: {
-      encrypt: process.env.DB_ENCRYPT === 'true',
-      trustServerCertificate: process.env.DB_TRUST_SERVER_CERT !== 'false',
+      encrypt: env.DB_ENCRYPT === 'true',
+      trustServerCertificate: env.DB_TRUST_SERVER_CERT !== 'false',
     },
   };
 }

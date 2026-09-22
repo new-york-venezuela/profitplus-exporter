@@ -94,16 +94,35 @@ export function ArticulosClient() {
 
   async function openCreateArticle() {
     setShowCreateArticle(v => !v);
-    if (showCreateArticle || lookups) return;
-    const [lookupsRes, nextCodeRes] = await Promise.all([
-      fetch('/api/inventory/lookups'),
-      fetch('/api/inventory/items/next-code'),
-    ]);
-    if (lookupsRes.ok) setLookups(await lookupsRes.json());
-    if (nextCodeRes.ok) {
-      const data = await nextCodeRes.json();
-      setNewCoArt(data.nextCode);
+    if (showCreateArticle) return;
+
+    // lookups (líneas/sublíneas/categorías/unidades/almacenes) are static
+    // reference data — safe to reuse across opens, and often already
+    // fetched by this page's own mount-time load() effect above by the
+    // time a user first clicks, so only fetch if missing. The suggested
+    // article code is NOT reusable the same way: it reflects "next
+    // available" against live saArticulo state, which can change between
+    // opens (e.g. another article created in the meantime, or this
+    // panel's own post-create refresh) — always fetch it fresh, even when
+    // lookups are already cached. Previously both were gated behind the
+    // same "skip if lookups already loaded" check, which meant next-code
+    // essentially never ran (lookups are almost always already cached by
+    // page-load time) and the Código field stayed empty on first open —
+    // caught by e2e/inventory-article-creation.spec.ts.
+    const fetches: Promise<void>[] = [];
+    if (!lookups) {
+      fetches.push(
+        fetch('/api/inventory/lookups').then(async res => {
+          if (res.ok) setLookups(await res.json());
+        })
+      );
     }
+    fetches.push(
+      fetch('/api/inventory/items/next-code').then(async res => {
+        if (res.ok) setNewCoArt((await res.json()).nextCode);
+      })
+    );
+    await Promise.all(fetches);
   }
 
   const sublineaOptions = useMemo(
