@@ -233,11 +233,31 @@ export interface VendedoresRow {
   returnRate: number | null;
   collectionRate: number | null;
   avgDiscount: number | null;
+  // Amounts excluded from salesNet/collected above because they came from a
+  // root-billed invoice of a chain flagged as a consignment-billing pattern
+  // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
+  // Zero for a seller with no flagged exclusions.
+  excludedSalesNet: number;
+  excludedCollected: number;
+  excludedInvoiceCount: number;
 }
 
 export interface VendedoresResponse {
   rows: VendedoresRow[];
   usdRate: number | null;
+}
+
+// Vendedores tab — audit list behind a seller row's excludedSalesNet figure:
+// the literal invoices pulled out of that seller's reliable totals.
+export interface VendedoresExcludedInvoice {
+  legalEntityName: string;
+  invoiceNumber: string;
+  invoiceDate: string; // ISO date
+  amountNet: number;
+}
+
+export interface VendedoresExcludedResponse {
+  invoices: VendedoresExcludedInvoice[];
 }
 
 // Clientes tab
