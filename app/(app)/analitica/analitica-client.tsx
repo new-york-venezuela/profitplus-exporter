@@ -16,6 +16,7 @@ import TabProfundidad from './tabs/tab-profundidad';
 import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
+import TabCadencia from './tabs/tab-cadencia';
 import TabStub from './tabs/tab-stub';
 
 export interface TabComponentProps {
@@ -38,6 +39,7 @@ const TABS: TabDef[] = [
   { key: 'clientes', label: 'Clientes', component: TabClientes },
   { key: 'productos', label: 'Productos', component: TabProductos },
   { key: 'profundidad', label: 'Profundidad de Línea', component: TabProfundidad },
+  { key: 'cadencia', label: 'Cadencia', component: TabCadencia },
   { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
   { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
   { key: 'compras', label: 'Compras', component: TabCompras },
