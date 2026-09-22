@@ -52,8 +52,12 @@ test.describe('admin user management', () => {
     await adminPage.getByRole('button', { name: 'Crear', exact: true }).click();
     await expect(adminPage.getByRole('cell', { name: 'Module Grant Target' })).toBeVisible();
 
+    // Two module checkboxes exist per row now ("Inventario" and
+    // "Analítica", for the inventory/dwh modules — see AGENTS.md's
+    // Module-Based Permissions section) — scope by accessible name so this
+    // test only exercises the inventory grant, not both.
     const row = adminPage.getByRole('row', { name: /Module Grant Target/ });
-    const inventoryCheckbox = row.getByRole('checkbox');
+    const inventoryCheckbox = row.getByRole('checkbox', { name: 'Inventario' });
     await expect(inventoryCheckbox).not.toBeChecked();
 
     // The checkbox is a fully controlled component: it only reflects the
@@ -69,12 +73,12 @@ test.describe('admin user management', () => {
     await expect(inventoryCheckbox).toBeChecked();
     // Persisted server-side, not just local state.
     await adminPage.reload();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).toBeChecked();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox', { name: 'Inventario' })).toBeChecked();
 
-    await adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox').click();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+    await adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox', { name: 'Inventario' }).click();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox', { name: 'Inventario' })).not.toBeChecked();
     await adminPage.reload();
-    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox')).not.toBeChecked();
+    await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox', { name: 'Inventario' })).not.toBeChecked();
   });
 
   test('admin can reset another user\'s password', async ({ adminPage }) => {
