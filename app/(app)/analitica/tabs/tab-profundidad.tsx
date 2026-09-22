@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { moneyLabel } from '../lib/format';
-import type { Currency, DateRange, DepthMatrixResponse, DepthMatrixRow, DepthGapResponse, CustomerSegment } from '../types';
+import type { Currency, DateRange, DepthMatrixResponse, DepthMatrixRow, DepthGapResponse, CustomerSegment, SellerCoverageResponse } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
@@ -43,6 +43,31 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [gapData, setGapData] = useState<DepthGapResponse | null>(null);
   const [gapLoading, setGapLoading] = useState(false);
+  const [salesRepKey, setSalesRepKey] = useState<string | null>(null);
+  const [salesRepName, setSalesRepName] = useState<string | null>(null);
+  const [leaderboard, setLeaderboard] = useState<SellerCoverageResponse | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLeaderboard() {
+      setLeaderboardLoading(true);
+      try {
+        const params = new URLSearchParams({
+          dateRange, currency, section: 'leaderboard',
+          firstLineMinPenetration: String(firstLineMinPenetration),
+          secondLineMinPenetration: String(secondLineMinPenetration),
+        });
+        const res = await fetch(`/api/dwh/profundidad-linea?${params.toString()}`);
+        if (cancelled) return;
+        if (res.ok) setLeaderboard(await res.json());
+      } finally {
+        if (!cancelled) setLeaderboardLoading(false);
+      }
+    }
+    loadLeaderboard();
+    return () => { cancelled = true; };
+  }, [dateRange, currency, firstLineMinPenetration, secondLineMinPenetration]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +82,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
         });
         if (linea) params.set('linea', linea);
         if (sublinea) params.set('sublinea', sublinea);
+        if (salesRepKey) params.set('salesRepKey', salesRepKey);
         const res = await fetch(`/api/dwh/profundidad-linea?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -73,7 +99,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
     }
     load();
     return () => { cancelled = true; };
-  }, [dateRange, currency, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration]);
+  }, [dateRange, currency, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration, salesRepKey]);
 
   const rate = data?.usdRate ?? undefined;
 
@@ -135,6 +161,62 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
+      {!leaderboardLoading && leaderboard && leaderboard.rows.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="text-sm font-bold text-gray-900 mb-1">Cobertura por vendedor</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Penetración de productos primera/segunda línea en las entidades propias de cada vendedor, comparada con el promedio general
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Vendedor</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Entidades</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Penetración propia</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Promedio general</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Brecha</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {leaderboard.rows.map((row, i) => (
+                  <tr key={row.salesRepKey} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
+                    <td className="px-3 py-2 text-gray-800">{row.salesRepName}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{row.entitiesServed}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.ownPenetration)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.baselinePenetration)}</td>
+                    <td className={`px-3 py-2 text-right font-medium ${row.gapVsBaseline !== null && row.gapVsBaseline < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                      {row.gapVsBaseline === null ? '—' : `${row.gapVsBaseline >= 0 ? '+' : ''}${(row.gapVsBaseline * 100).toFixed(0)}pp`}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => { setSalesRepKey(row.salesRepKey); setSalesRepName(row.salesRepName); }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Ver detalle
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {salesRepKey && (
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span>Mostrando solo clientes de: <strong>{salesRepName}</strong></span>
+          <button
+            onClick={() => { setSalesRepKey(null); setSalesRepName(null); }}
+            className="text-blue-600 hover:text-blue-800 underline text-xs"
+          >
+            Volver a vista general
+          </button>
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
