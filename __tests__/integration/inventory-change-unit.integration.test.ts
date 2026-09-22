@@ -59,32 +59,43 @@ describe('POST /api/inventory/items/[co_art]/unit @mssql', () => {
     db.insert(userModules).values({ userId: user!.id, module: 'inventory' }).run();
     const token = await signToken({ sub: String(user!.id), role: 'user', name: 'Unit Test' });
 
-    // Find an existing article and unit to use in test
+    // Find an article that genuinely has >=2 valid units configured in
+    // saArtUnidad (most articles in this installation have only one — see
+    // saArtUnidad's own docs: "el manejo de doble unidad... es marginal en
+    // esta instalación" — confirmed live 2026-09-21 that ~33 articles do
+    // have 2+ real units). Picking an arbitrary saUnidad code unrelated to
+    // the article (the previous approach) triggers
+    // CK_saArtUnidad_UniPrincipal via pApiCambiarUnidadArticulo's nested
+    // INSERT — which doesn't just fail cleanly, it deterministically
+    // corrupts the TDS response for this specific procedure whenever its
+    // error path runs (root-caused 2026-09-21; see the route's own comment
+    // above callChangeUnit in app/api/inventory/items/[co_art]/unit/route.ts
+    // for the full mechanism and the app-side pre-validation fix). Using a
+    // real, valid alternate unit avoids ever triggering that error path here.
     const articleResult = await pool.request()
       .query(`
-        SELECT TOP 1 a.co_art
-        FROM saArticulo a
-        WHERE a.anulado = 0
-        ORDER BY a.co_art
+        SELECT TOP 1 au1.co_art, au1.co_uni AS currentUnit, au2.co_uni AS alternateUnit
+        FROM saArtUnidad au1
+        JOIN saArtUnidad au2 ON au2.co_art = au1.co_art AND au2.co_uni <> au1.co_uni
+        JOIN saArticulo a ON a.co_art = au1.co_art
+        WHERE a.anulado = 0 AND au1.uni_principal = 1
+        ORDER BY au1.co_art
       `);
+    // Bun's test.skip is a describe/test wrapper (test.skip('name', fn)),
+    // not a mid-test dynamic-skip call like Jest's — there's no runtime
+    // "skip this test now" API in Bun, so this just returns early instead.
+    // The test then reports as passed-with-no-assertions rather than
+    // skipped, which is an acceptable trade-off for a precondition this
+    // unlikely to fail (33+ dual-unit articles exist in the seed data).
     if (articleResult.recordset.length === 0) {
-      test.skip();
       return;
     }
 
     const testArticle = (articleResult.recordset[0].co_art as string).trim();
-
-    // Get available units
-    const unitsResult = await pool.request()
-      .query(`SELECT TOP 2 co_uni FROM saUnidad ORDER BY co_uni`);
-    if (unitsResult.recordset.length < 2) {
-      test.skip();
-      return;
-    }
-    const newUnit = (unitsResult.recordset[1].co_uni as string).trim();
+    const newUnit = (articleResult.recordset[0].alternateUnit as string).trim();
 
     const req = buildRequest(token, { coUniNueva: newUnit });
-    const res = await changeUnit(req, { params: { co_art: testArticle } });
+    const res = await changeUnit(req, { params: Promise.resolve({ co_art: testArticle }) });
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -106,7 +117,7 @@ describe('POST /api/inventory/items/[co_art]/unit @mssql', () => {
 
   test('returns 401 without a session', async () => {
     const req = buildRequest(null, { coUniNueva: 'UNIT' });
-    const res = await changeUnit(req, { params: { co_art: 'TEST' } });
+    const res = await changeUnit(req, { params: Promise.resolve({ co_art: 'TEST' }) });
     expect(res.status).toBe(401);
   });
 
@@ -121,7 +132,7 @@ describe('POST /api/inventory/items/[co_art]/unit @mssql', () => {
     const token = await signToken({ sub: String(user!.id), role: 'user', name: 'Unit Bad Test' });
 
     const req = buildRequest(token, { coUniNueva: 'NONEXISTENT' });
-    const res = await changeUnit(req, { params: { co_art: 'SOME-ARTICLE' } });
+    const res = await changeUnit(req, { params: Promise.resolve({ co_art: 'SOME-ARTICLE' }) });
 
     expect(res.status).toBe(400);
     const body = await res.json();

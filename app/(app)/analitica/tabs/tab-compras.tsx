@@ -242,7 +242,9 @@ export default function TabCompras({
                     fill="#2563eb"
                     radius={[3, 3, 0, 0]}
                     cursor="pointer"
-                    onClick={(entry: any) => handleBarClick(entry.payload?.value)}
+                    onClick={(entry: { payload?: { value: string } }) => {
+                      if (entry.payload) handleBarClick(entry.payload.value);
+                    }}
                   />
                 </BarChart>
               </ResponsiveContainer>

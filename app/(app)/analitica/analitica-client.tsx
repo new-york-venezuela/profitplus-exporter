@@ -175,30 +175,32 @@ function AnaliticaClientInner() {
     [updateParams]
   );
 
-  const handleDateRangeChange = useCallback(
-    (value: string) => {
-      if (value === 'custom') {
-        setCustomPending(true);
-        updateParams({ dateRange: `custom:${customStart}:${customEnd}` });
-        return;
-      }
-      setCustomPending(false);
-      if (value === 'month') {
-        updateParams({ dateRange: `month:${currentMonthKey()}` });
-        return;
-      }
-      if (value === 'month-prev') {
-        updateParams({ dateRange: `month:${shiftMonthKey(currentMonthKey(), -1)}` });
-        return;
-      }
-      if (value === 'ytd') {
-        updateParams({ dateRange: `ytd:${currentYtdKey()}` });
-        return;
-      }
-      updateParams({ dateRange: value });
-    },
-    [updateParams, customStart, customEnd]
-  );
+  // No useCallback here: the React Compiler could not preserve this
+  // function's manual memoization (its dependency array didn't match what
+  // the compiler infers), so the compiler already memoizes it as
+  // effectively as a correct manual wrapper would — see React's own
+  // preserve-manual-memoization guidance.
+  const handleDateRangeChange = (value: string) => {
+    if (value === 'custom') {
+      setCustomPending(true);
+      updateParams({ dateRange: `custom:${customStart}:${customEnd}` });
+      return;
+    }
+    setCustomPending(false);
+    if (value === 'month') {
+      updateParams({ dateRange: `month:${currentMonthKey()}` });
+      return;
+    }
+    if (value === 'month-prev') {
+      updateParams({ dateRange: `month:${shiftMonthKey(currentMonthKey(), -1)}` });
+      return;
+    }
+    if (value === 'ytd') {
+      updateParams({ dateRange: `ytd:${currentYtdKey()}` });
+      return;
+    }
+    updateParams({ dateRange: value });
+  };
 
   const handleMonthPage = useCallback(
     (delta: number) => {
@@ -209,18 +211,17 @@ function AnaliticaClientInner() {
     [updateParams, monthMatch]
   );
 
-  const handleCustomDateChange = useCallback(
-    (which: 'start' | 'end', value: string) => {
-      const nextStart = which === 'start' ? value : customStart;
-      const nextEnd = which === 'end' ? value : customEnd;
-      if (which === 'start') setCustomStart(value);
-      else setCustomEnd(value);
-      if (nextStart && nextEnd) {
-        updateParams({ dateRange: `custom:${nextStart}:${nextEnd}` });
-      }
-    },
-    [updateParams, customStart, customEnd]
-  );
+  // No useCallback here — same React Compiler preserve-manual-memoization
+  // reasoning as handleDateRangeChange above.
+  const handleCustomDateChange = (which: 'start' | 'end', value: string) => {
+    const nextStart = which === 'start' ? value : customStart;
+    const nextEnd = which === 'end' ? value : customEnd;
+    if (which === 'start') setCustomStart(value);
+    else setCustomEnd(value);
+    if (nextStart && nextEnd) {
+      updateParams({ dateRange: `custom:${nextStart}:${nextEnd}` });
+    }
+  };
 
   const handleCurrencyChange = useCallback(
     (value: Currency) => {
