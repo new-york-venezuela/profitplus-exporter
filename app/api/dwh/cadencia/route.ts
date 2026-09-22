@@ -31,22 +31,28 @@ function cadenceQuery(dateWhere: string): string {
     Gaps AS (
       SELECT
         LegalEntityKey,
-        FullDate,
-        DATEDIFF(day, LAG(FullDate) OVER (PARTITION BY LegalEntityKey ORDER BY FullDate), FullDate) AS GapDays
-      FROM PurchaseDays
+        AVG(CAST(GapDays AS float)) AS AvgGapDays
+      FROM (
+        SELECT
+          LegalEntityKey,
+          DATEDIFF(day, LAG(FullDate) OVER (PARTITION BY LegalEntityKey ORDER BY FullDate), FullDate) AS GapDays
+        FROM PurchaseDays
+      ) WithGaps
+      WHERE GapDays IS NOT NULL
+      GROUP BY LegalEntityKey
     )
     SELECT
       le.LegalEntityKey,
       le.LegalEntityName,
       MAX(pd.SegmentCode) AS SegmentCode,
       COUNT(DISTINCT pd.FullDate) AS PurchaseDayCount,
-      AVG(CAST(g.GapDays AS float)) AS AvgGapDays,
+      g.AvgGapDays,
       MAX(pd.FullDate) AS LastPurchaseDate,
       DATEDIFF(day, MAX(pd.FullDate), GETDATE()) AS DaysSinceLastPurchase
     FROM dim.Dim_LegalEntity le
     JOIN PurchaseDays pd ON pd.LegalEntityKey = le.LegalEntityKey
-    LEFT JOIN Gaps g ON g.LegalEntityKey = le.LegalEntityKey AND g.GapDays IS NOT NULL
-    GROUP BY le.LegalEntityKey, le.LegalEntityName
+    LEFT JOIN Gaps g ON g.LegalEntityKey = le.LegalEntityKey
+    GROUP BY le.LegalEntityKey, le.LegalEntityName, g.AvgGapDays
     ORDER BY DaysSinceLastPurchase DESC, le.LegalEntityKey
   `;
 }

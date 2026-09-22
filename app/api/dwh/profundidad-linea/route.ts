@@ -251,7 +251,7 @@ function sellerCoverageQuery(dateWhere: string, tieredLineNames: string[]): stri
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKey,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS SalesRepName,
       COUNT(DISTINCT c.LegalEntityKey) AS EntitiesServed,
-      COUNT(DISTINCT CONCAT(c.LegalEntityKey, '|', p.ProductKey)) AS TieredProductsCovered
+      COUNT(DISTINCT CONCAT(c.LegalEntityKey, '|', ISNULL(p.LineName, '${NO_LINEA}'))) AS TieredLinesCovered
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
@@ -309,9 +309,9 @@ async function handleLeaderboard(dateWhere: string, currency: string, thresholds
 
   const rows: SellerCoverageRow[] = sellerResult.recordset.map(r => {
     const entitiesServed = Number(r.EntitiesServed);
-    const tieredProductsCovered = Number(r.TieredProductsCovered);
+    const tieredLinesCovered = Number(r.TieredLinesCovered);
     const maxPossible = entitiesServed * tieredLineNames.length;
-    const ownPenetration = maxPossible > 0 ? tieredProductsCovered / maxPossible : null;
+    const ownPenetration = maxPossible > 0 ? tieredLinesCovered / maxPossible : null;
     return {
       salesRepKey: String(r.SalesRepKey),
       salesRepName: String(r.SalesRepName),

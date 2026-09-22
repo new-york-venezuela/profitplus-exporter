@@ -20,13 +20,24 @@ export const dynamic = 'force-dynamic';
 // separately as excludedSalesNet/excludedCollected — never estimated or
 // redistributed across sellers.
 
-function breakdownQuery(dimension: Dimension, salesDateWhere: string): string {
+// Joins Dim_Customer independently of the dimension's own joinClause (which,
+// for 'producto'/'vendedor', doesn't touch Customer at all) so the same
+// flagged-root-code exclusion applied to the parent row's SalesNet also
+// applies here — otherwise a seller's breakdown would sum to a pre-exclusion
+// total while the collapsed row shows the post-exclusion figure, and a
+// flagged root customer would appear as its own (misleading, full-amount)
+// breakdown row under cliente_entidad/cliente_tienda.
+function breakdownQuery(dimension: Dimension, salesDateWhere: string, flaggedRootCodes: string[]): string {
   const spec = getDimensionSpec(dimension);
+  const excludeClause = flaggedRootCodes.length > 0
+    ? `AND bqc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`
+    : '';
   return `
     SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, SUM(fs.NetAmount) AS SalesNet
     FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Customer bqc ON bqc.CustomerKey = fs.CustomerKey
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
-    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere}
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere} ${excludeClause}
     GROUP BY ${spec.groupByColumn}
     ORDER BY SalesNet DESC
   `;
@@ -64,12 +75,15 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
       SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount ELSE 0 END) AS SalesNet,
       SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount ELSE 0 END) AS ExcludedSalesNet,
-      SUM(CASE WHEN ${flaggedCase} = 1 THEN 1 ELSE 0 END) AS ExcludedInvoiceCount,
+      COUNT(DISTINCT CASE WHEN ${flaggedCase} = 1 THEN fs.InvoiceNumber END) AS ExcludedInvoiceCount,
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet,
+         JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
+           AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
+      ) AS ReturnsNet,
       (SELECT ISNULL(SUM(fc.AmountCollected), 0)
          FROM fact.Fact_Collections fc
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
@@ -134,8 +148,14 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const currency = searchParams.get('currency') ?? 'bs';
+  // Clamped to (0, 1] — this threshold gates whether a legal entity's sales
+  // get excluded from a seller's commission-relevant totals, so an
+  // unclamped value (e.g. 0, which would flag every multi-tienda entity)
+  // could mass-exclude legitimate sales from every seller at once.
   const rootShareThresholdParam = Number(searchParams.get('rootShareThreshold') ?? DEFAULT_ROOT_SHARE_THRESHOLD);
-  const rootShareThreshold = Number.isFinite(rootShareThresholdParam) ? rootShareThresholdParam : DEFAULT_ROOT_SHARE_THRESHOLD;
+  const rootShareThreshold = Number.isFinite(rootShareThresholdParam) && rootShareThresholdParam > 0 && rootShareThresholdParam <= 1
+    ? rootShareThresholdParam
+    : DEFAULT_ROOT_SHARE_THRESHOLD;
 
   const breakdownByParam = searchParams.get('breakdownBy');
   const breakdownBy: Dimension | null = isDimensionForFact(breakdownByParam, 'sales') ? breakdownByParam : null;
@@ -143,22 +163,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const pool = await getDwhPool();
+    const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
+    const flaggedRootCodes = await getFlaggedRootCodes(salesDateWhere, rootShareThreshold);
 
     if (breakdownBy && parentValue && /^\d+$/.test(parentValue)) {
-      const salesDateWhereForBreakdown = buildDateWhereClause(dateRange, 'fs');
       const req = pool.request();
       req.input('salesRepKey', Number(parentValue));
-      const result = await req.query(breakdownQuery(breakdownBy, salesDateWhereForBreakdown));
+      flaggedRootCodes.forEach((code, i) => req.input(`flaggedRoot${i}`, code));
+      const result = await req.query(breakdownQuery(breakdownBy, salesDateWhere, flaggedRootCodes));
       return jsonWithCache({
         breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })),
       });
     }
 
-    const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
-
-    const flaggedRootCodes = await getFlaggedRootCodes(salesDateWhere, rootShareThreshold);
 
     if (searchParams.get('section') === 'excluded' && parentValue && /^\d+$/.test(parentValue)) {
       if (flaggedRootCodes.length === 0) {
