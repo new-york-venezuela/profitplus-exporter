@@ -14,7 +14,7 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
+// migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
 // needed here, that work already happened at load time.
 
 // Pareto (80/20) thresholds: customers are ranked by net sales descending,

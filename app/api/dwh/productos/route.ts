@@ -11,7 +11,7 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
+// migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
 // needed here, that work already happened at load time.
 //
 // Drill-down is by product line name rather than by dim.Dim_Product surrogate
@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 // ProductosRow contract with a drill key field.
 //
 // GrossProfitAmount is currently NULL for all Fact_Sales rows (CostSourceFlag
-// = 'NO_COST_DATA', see dwh-migrations/0009_fact_sales.sql) — margin will
+// = 'NO_COST_DATA', see migrations/dwh/0009_fact_sales.sql) — margin will
 // read as "—" until a cost source is wired up. The query and mapping below
 // are written to work correctly once that data is populated.
 

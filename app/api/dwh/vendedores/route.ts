@@ -8,7 +8,7 @@ import type { VendedoresResponse, VendedoresRow, VendedoresExcludedInvoice, Vend
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
+// migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
 // needed here, that work already happened at load time.
 //
 // Consignment-pattern exclusion: see docs/superpowers/specs/

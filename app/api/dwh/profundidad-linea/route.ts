@@ -12,7 +12,7 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/) — no COLLATE/RTRIM gymnastics needed, that already
+// migrations/dwh/) — no COLLATE/RTRIM gymnastics needed, that already
 // happened at load time. See docs/superpowers/specs/
 // 2026-09-21-profundidad-linea-tab-design.md for the full design.
 //

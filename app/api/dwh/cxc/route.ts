@@ -9,7 +9,7 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY
-// (see dwh-migrations/), not the raw Profit Plus ERP.
+// (see migrations/dwh/), not the raw Profit Plus ERP.
 //
 // AR aging is a point-in-time snapshot, not a ranged metric, so unlike
 // resumen/dashboard this route ignores dateRange and always reports the
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 // Latest available snapshot date, not "today" — Fact_AR_Snapshot only has
 // data for dates it was actually run against (it's a disabled-by-default
-// SQL Agent job in this phase; see dwh-migrations/README.md).
+// SQL Agent job in this phase; see migrations/dwh/README.md).
 const LATEST_SNAPSHOT_QUERY = `
   SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
 `;
@@ -106,7 +106,7 @@ const WEEKDAY_ES_LABELS: Record<string, string> = {
 // x days in period — one point per YearMonth that has at least one
 // Fact_AR_Snapshot run, using each month's LATEST snapshot as "month end"
 // (there may be 0 or several snapshot runs within a given month, since the
-// daily AR snapshot job is disabled by default -- see dwh-migrations/README.md's
+// daily AR snapshot job is disabled by default -- see migrations/dwh/README.md's
 // "Enabling the SQL Agent jobs" section). Net sales trailing period =
 // the 90 days ending on that same snapshot date (fixed 90-day trailing
 // window, independent of the CxC tab's own date handling, per the spec).

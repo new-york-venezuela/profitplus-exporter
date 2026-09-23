@@ -10,7 +10,7 @@ import type { SessionPayload } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
-// Manual-recount reasons seeded by mssql-migrations/0003 — E00003 is entrada
+// Manual-recount reasons seeded by migrations/mssql/0003 — E00003 is entrada
 // (surplus found), S00005 is salida (shortage found). No other saTipoAjuste
 // codes are exposed through the recount path.
 const TIPO_SOBRANTE = 'E00003';

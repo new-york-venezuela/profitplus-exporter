@@ -16,7 +16,7 @@ const CO_SUCU_IN = null;
 // Root-caused 2026-09-21: pApiCambiarUnidadArticulo deterministically
 // corrupts the TDS response — 100% reproducible across 15+ attempts,
 // survives a full container restart and a clean DROP+CREATE from
-// mssql-migrations/0006 — whenever its error path runs (BEGIN TRAN -> a
+// migrations/mssql/0006 — whenever its error path runs (BEGIN TRAN -> a
 // real table SELECT finds nothing -> RAISERROR -> CATCH -> ROLLBACK ->
 // re-RAISERROR) via a parameterized RPC call against this SQL Server 2025
 // build + mssql/tedious combination. Isolated with throwaway procedures:

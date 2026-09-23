@@ -11,7 +11,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 beforeAll(() => {
   sqlite = new Database(':memory:');
   db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: './drizzle/migrations' });
+  migrate(db, { migrationsFolder: './migrations/sqlite' });
 });
 
 afterAll(() => {

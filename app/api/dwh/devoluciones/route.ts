@@ -7,7 +7,7 @@ import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/ap
 export const dynamic = 'force-dynamic';
 
 // All queries here read from the pre-aggregated dwh/dim/fact schema in
-// DWH_AlimentosNY (see dwh-migrations/), not the raw Profit Plus ERP —
+// DWH_AlimentosNY (see migrations/dwh/), not the raw Profit Plus ERP —
 // so no COLLATE/RTRIM gymnastics are needed here, that work already
 // happened at load time.
 

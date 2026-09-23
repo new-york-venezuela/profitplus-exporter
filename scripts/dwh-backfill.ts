@@ -5,7 +5,7 @@ import {
     buildConfig,
 } from './migrate-dwh';
 
-// Operational re-sync tool, not a migration. dwh-migrations/0028 and 0029
+// Operational re-sync tool, not a migration. migrations/dwh/0028 and 0029
 // fixed a one-time historical gap (rows loaded before MatrizCode/DueDateKey
 // existed, stuck NULL forever because the incremental loaders are
 // watermark-gated and never revisit an unchanged source row). Editing

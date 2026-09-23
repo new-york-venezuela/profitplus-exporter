@@ -2,7 +2,7 @@ import sql from 'mssql';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const MIGRATIONS_DIR = join(import.meta.dir, '..', 'dwh-migrations');
+const MIGRATIONS_DIR = join(import.meta.dir, '..', 'migrations', 'dwh');
 
 export function dwEnv(name: string, fallback: string): string {
   return process.env[`DW_${name}`] ?? process.env[`DB_${name}`] ?? fallback;

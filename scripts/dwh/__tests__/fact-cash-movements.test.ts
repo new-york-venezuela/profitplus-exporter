@@ -120,7 +120,7 @@ describe('Fact_CashMovements', () => {
     // Step 2: independent ERP-side total, computed directly from the source
     // tables without going through the DWH's negation logic -- raw
     // monto_d - monto_h, not negated. Trim/collate pattern copied from
-    // dwh-migrations/0023_fact_cash_movements.sql's Load_Fact_CashMovements.
+    // migrations/dwh/0023_fact_cash_movements.sql's Load_Fact_CashMovements.
     const erpResult = await erpPool.request().query(`
       SELECT SUM(ISNULL(m.monto_d, 0) - ISNULL(m.monto_h, 0)) AS total
       FROM (

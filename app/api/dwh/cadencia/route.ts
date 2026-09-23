@@ -10,7 +10,7 @@ import type { CadenceRow, CadenceResponse, CustomerSegment } from '@/app/(app)/a
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/) for purchase frequency, and the app's own SQLite for
+// migrations/dwh/) for purchase frequency, and the app's own SQLite for
 // manually-set targets (visit_cadence_targets). See docs/superpowers/specs/
 // 2026-09-21-active-customer-visit-cadence-design.md.
 //

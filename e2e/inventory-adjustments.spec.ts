@@ -7,7 +7,7 @@ import { test, expect, submitReliably } from './fixtures';
 // "Register adjustment" tests below submit a real +1 recount, then a real
 // -1 recount, so the article's actual stock nets back to its original
 // value by the end of the spec. There is no delete/void flow in the app
-// (by design — see mssql-migrations/0002_pApiCrearAjusteInventario.sql),
+// (by design — see migrations/mssql/0002_pApiCrearAjusteInventario.sql),
 // so each run does leave two small, real saAjuste/saAjusteReng rows behind
 // — net-zero stock impact, accepted as harmless audit noise rather than
 // worked around.

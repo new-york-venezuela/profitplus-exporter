@@ -2,7 +2,7 @@ import sql from 'mssql';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const MIGRATIONS_DIR = join(import.meta.dir, '..', 'mssql-migrations');
+const MIGRATIONS_DIR = join(import.meta.dir, '..', 'migrations', 'mssql');
 
 function buildConfig(): sql.config {
   return {

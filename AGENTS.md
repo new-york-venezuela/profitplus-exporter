@@ -20,7 +20,7 @@ The ERP and the DWH are two different things reached two different ways:
 the ERP is queried live, per-request, directly against Profit Plus tables
 (`saFacturaVenta`, `saArticulo`, etc.) with collation/RTRIM handling inline
 in each query. The DWH is a separate database (`DWH_AlimentosNY`) built
-ahead of time by `dwh-migrations/` and refreshed by `Load_*` stored
+ahead of time by `migrations/dwh/` and refreshed by `Load_*` stored
 procedures — the app's analytics dashboard queries `dim.*`/`fact.*` tables
 there directly, with no collation gymnastics needed since that was already
 handled at load time. Never query raw ERP tables from `app/api/dwh/*`, and
@@ -52,13 +52,13 @@ lib/
   xlsx.ts                  — XLSX export helper
   trim-strings.ts           — trimStrings() — strips char()-padding from ERP query results
 
-dwh-migrations/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
-                              Load_*/Snapshot_* procs); see dwh-migrations/README.md
-mssql-migrations/           — numbered .sql files installing app-specific ERP stored procedures
+migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
+                              Load_*/Snapshot_* procs); see migrations/dwh/README.md
+migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
                               (e.g. pApiCrearAjusteInventario for inventory adjustments)
-scripts/migrate-dwh.ts     — runs dwh-migrations/ in order, tracked in dwh.__dwh_migrations
-scripts/migrate-mssql.ts    — runs mssql-migrations/ in order, against the ERP database
-scripts/migrate.ts          — runs drizzle/migrations/ (SQLite)
+scripts/migrate-dwh.ts     — runs migrations/dwh/ in order, tracked in dwh.__dwh_migrations
+scripts/migrate-mssql.ts    — runs migrations/mssql/ in order, against the ERP database
+scripts/migrate.ts          — runs migrations/sqlite/ (SQLite)
 
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
@@ -122,7 +122,7 @@ means:
   characters like Á, É, Ñ, Ü sort correctly
 - The `BETWEEN` operator on ERP date columns works as expected
 - **Any query that joins ERP tables against DWH tables** (i.e. every
-  `Load_*` procedure in `dwh-migrations/`, and nowhere in `app/`) must add
+  `Load_*` procedure in `migrations/dwh/`, and nowhere in `app/`) must add
   `COLLATE SQL_Latin1_General_CP1_CI_AS` to the ERP-sourced side of the
   comparison, or SQL Server throws a collation-conflict error. App code
   never does this join directly — it's isolated inside the DWH load
@@ -183,8 +183,8 @@ directly through a single API route.
    `ComposedChart` / etc.) — follow the existing `KpiCard`/`ChartCard`
    layout helpers already in that file rather than inventing new markup.
 4. If the new metric needs a fact table that doesn't exist yet, that's a
-   `dwh-migrations/` change, not an `app/` change — see
-   `dwh-migrations/README.md` first, especially "Incremental watermark
+   `migrations/dwh/` change, not an `app/` change — see
+   `migrations/dwh/README.md` first, especially "Incremental watermark
    strategy" if the source is a Profit Plus detail table (these often lack
    a `validador` rowversion column; check before assuming one exists).
 
@@ -267,8 +267,8 @@ briefly inherit the previous user's identified state.
   `getSessionFromRequest(request)` instead — `getSession()` throws outside a live request scope
 - **Module check** — same independent-check discipline as admin routes; see "Module-Based
   Permissions" above
-- **DWH migrations** — every `CREATE TABLE`/`CREATE OR ALTER PROCEDURE` in `dwh-migrations/` must
-  be safely re-runnable (`IF NOT EXISTS` / `CREATE OR ALTER`); see `dwh-migrations/README.md`
+- **DWH migrations** — every `CREATE TABLE`/`CREATE OR ALTER PROCEDURE` in `migrations/dwh/` must
+  be safely re-runnable (`IF NOT EXISTS` / `CREATE OR ALTER`); see `migrations/dwh/README.md`
   before adding one
 
 ## Environment Variables

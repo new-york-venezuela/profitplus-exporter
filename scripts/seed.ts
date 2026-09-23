@@ -7,7 +7,7 @@ import { users } from '@/lib/db/schema';
 
 const db = getDb();
 // Ensure schema is up-to-date before inserting
-migrate(db, { migrationsFolder: './drizzle/migrations' });
+migrate(db, { migrationsFolder: './migrations/sqlite' });
 
 async function main() {
   console.log('\n─── Crear usuario administrador ───────────────────────\n');

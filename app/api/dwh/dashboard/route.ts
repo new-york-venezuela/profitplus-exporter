@@ -6,7 +6,7 @@ import { jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 export const dynamic = 'force-dynamic';
 
 // All queries here read from the pre-aggregated dwh/dim/fact schema in
-// DWH_AlimentosNY (see dwh-migrations/), not the raw Profit Plus ERP —
+// DWH_AlimentosNY (see migrations/dwh/), not the raw Profit Plus ERP —
 // so no COLLATE/RTRIM gymnastics are needed here, that work already
 // happened at load time.
 
@@ -64,7 +64,7 @@ const SALES_REP_QUERY = `
 
 // Latest available snapshot date, not "today" — Snapshot_Fact_AR only has
 // data for dates it was actually run against (it's a disabled-by-default
-// SQL Agent job in this phase; see dwh-migrations/README.md).
+// SQL Agent job in this phase; see migrations/dwh/README.md).
 const LATEST_SNAPSHOT_QUERY = `
   SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
 `;

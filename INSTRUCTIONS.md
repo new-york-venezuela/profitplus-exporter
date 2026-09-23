@@ -28,7 +28,7 @@ cp .env.example .env.local
 #  - DB_* values for your SQL Server instance (or the mock ERP, see below)
 
 bun run migrate         # SQLite: users, user_modules, inventory_warehouses, inventory_settings
-bun run migrate:mssql   # ERP: stored procedures the app needs (mssql-migrations/), e.g. pApiCrearAjusteInventario
+bun run migrate:mssql   # ERP: stored procedures the app needs (migrations/mssql/), e.g. pApiCrearAjusteInventario
 bun run seed            # create the first admin user (interactive prompt)
 
 bun dev                 # http://localhost:3000
@@ -36,7 +36,7 @@ bun dev                 # http://localhost:3000
 
 `migrate:mssql` runs against the **ERP** database (`DB_*`), not the DWH —
 it installs stored procedures the inventory-adjustments feature calls
-directly (`mssql-migrations/`), separate from both `migrate` (SQLite) and
+directly (`migrations/mssql/`), separate from both `migrate` (SQLite) and
 `migrate:dwh` (the DWH warehouse, see below). Skip it only if you're not
 touching inventory adjustments and the target ERP already has these
 procedures installed.
@@ -51,7 +51,7 @@ procedures installed.
 
 The ERP database itself is Profit Plus's own schema (not ours to migrate) —
 `migrate:mssql` only adds a handful of app-specific stored procedures
-(`mssql-migrations/`) the app calls directly, like
+(`migrations/mssql/`) the app calls directly, like
 `pApiCrearAjusteInventario` for inventory adjustments.
 
 The DWH lives on the **same SQL Server instance** as the ERP by default —
@@ -89,7 +89,7 @@ See `docker/README.md` for details on what's seeded and how to reset it.
 ## Setting Up the DWH Locally
 
 The DWH (`DWH_AlimentosNY`) is a separate, pre-aggregated Kimball-style
-warehouse built from the ERP via `dwh-migrations/` — dimension tables
+warehouse built from the ERP via `migrations/dwh/` — dimension tables
 (`dim.*`), fact tables (`fact.*`), and `Load_*`/`Snapshot_*` stored
 procedures. It powers `/analitica` (the analytics dashboard) and is
 independent of the raw ERP tables the rest of the app queries.
@@ -99,7 +99,7 @@ independent of the raw ERP tables the rest of the app queries.
 bun run migrate:dwh
 
 # 2. Populate it by running every Load_*/Snapshot_Fact_AR procedure once, in
-#    dependency order (dims before facts; see dwh-migrations/README.md
+#    dependency order (dims before facts; see migrations/dwh/README.md
 #    "Layout" section for the full list):
 bun run dwh:incremental-load
 bun run dwh:snapshot-load   # AR snapshot; @SnapshotDate defaults to today (UTC)
@@ -113,7 +113,7 @@ For production-cadence loading, trigger these same two scripts externally
 (cron, a scheduled task, CI, etc.) — an earlier SQL Agent job-based approach
 was removed (see git history, "Remove job agents").
 
-**Adding a new migration**: see `dwh-migrations/README.md` for numbering,
+**Adding a new migration**: see `migrations/dwh/README.md` for numbering,
 idempotency (`IF NOT EXISTS` / `CREATE OR ALTER`), and the two-column
 watermark pattern needed if the new fact table sources a Profit Plus detail
 table without a `validador` rowversion column (`saFacturaVentaReng` and
@@ -228,9 +228,9 @@ New-Item -ItemType Directory -Path $APP
 # - public/
 # - package.json
 # - node_modules/          (run `bun install --production` on server instead)
-# - drizzle/migrations/
-# - dwh-migrations/
-# - mssql-migrations/
+# - migrations/sqlite/
+# - migrations/dwh/
+# - migrations/mssql/
 # - scripts/migrate.ts
 # - scripts/migrate-dwh.ts
 # - scripts/migrate-mssql.ts
@@ -291,7 +291,7 @@ New-Item -ItemType Directory -Path "C:\data\profitplus-exporter"
 ```powershell
 cd $APP
 bun run migrate         # SQLite: users, permissions
-bun run migrate:mssql   # ERP: app-specific stored procedures (mssql-migrations/)
+bun run migrate:mssql   # ERP: app-specific stored procedures (migrations/mssql/)
 bun run migrate:dwh     # SQL Server: DWH_AlimentosNY schema (dim/fact tables, Load_* procs)
 bun run seed
 ```
@@ -442,8 +442,8 @@ bun install --production
 
 # 4. Run migrations (if schema changed)
 bun run migrate
-bun run migrate:mssql # if mssql-migrations/ has new files
-bun run migrate:dwh   # if dwh-migrations/ has new files
+bun run migrate:mssql # if migrations/mssql/ has new files
+bun run migrate:dwh   # if migrations/dwh/ has new files
 
 # 5. Build
 bun run build

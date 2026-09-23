@@ -25,7 +25,7 @@ async function main() {
   fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 
   const db = getDb();
-  migrate(db, { migrationsFolder: './drizzle/migrations' });
+  migrate(db, { migrationsFolder: './migrations/sqlite' });
 
   for (const u of SEED_USERS) {
     const passwordHash = await bcrypt.hash(u.password, 10);
