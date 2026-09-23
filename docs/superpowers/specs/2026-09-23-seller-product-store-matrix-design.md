@@ -55,15 +55,15 @@ terms that isn't real).
 
 This is a pre-existing correctness bug across the whole Analítica dashboard,
 not something specific to this feature — **user decision: fix it app-wide,
-as its own separate effort/spec, before or alongside this one**, rather than
-scoping a one-off fix inside this matrix feature. This spec's own "Ingreso
-USD"/"Devolución USD" export columns depend on that fix's output: a shared
-per-row historical-conversion helper (e.g. `NetAmount / DocumentExchangeRate`,
-with whatever null/fallback handling that other spec settles on for rows
-with a missing/zero rate). If that fix lands first, this feature's export
-query calls the shared helper directly; if this feature is implemented first
-for some reason, it must not invent its own one-off conversion logic — block
-on that decision instead.
+as its own separate spec, before this one**. See
+`2026-09-23-historical-usd-conversion-design.md` for the full design: a
+shared per-row conversion expression in `query-builder.ts`
+(`NetAmount / NULLIF(COALESCE(DocumentExchangeRate, fx.RateSell), 0)`,
+summed per-row before aggregation, with a same-date `Fact_ExchangeRate`
+fallback for missing rates). **This spec's implementation plan must not
+proceed until that spec is implemented** — this feature's export/matrix
+queries call that shared expression directly rather than inventing a
+separate one.
 - **`dim.Dim_Date`**: has `Year`, `Month`, `MonthName`, `YearMonth` — but
   **no week-level column**. This is the one schema gap this spec fills.
 - **`lib/xlsx.ts`**'s `buildXlsx(columns, rows)`: generic XLSX builder
@@ -278,8 +278,8 @@ Following the repo's existing per-DWH-route pattern:
   module currently qualifies.
 - **USD conversion**: discovered mid-design that every existing DWH route's
   `currency=usd` toggle uses a single current exchange rate for all rows
-  regardless of date — a pre-existing bug. User decided to fix this app-wide
-  as its own separate effort rather than scope a one-off fix here; this
-  spec's export columns depend on that fix's shared conversion helper (see
-  "Dependency" section above). **This spec should not be implemented until
-  that dependency is resolved or explicitly deferred by the user.**
+  regardless of date — a pre-existing bug, now specced separately as
+  `2026-09-23-historical-usd-conversion-design.md`. This spec's export
+  columns depend on that spec's shared conversion helper (see "Dependency"
+  section above). **This spec should not be implemented until that
+  dependency spec is implemented.**
