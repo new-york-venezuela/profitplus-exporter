@@ -240,8 +240,8 @@ export interface CxcResponse {
 export interface VendedoresRow {
   value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
   returnRate: number | null;
   collectionRate: number | null;
   avgDiscount: number | null;
@@ -249,14 +249,13 @@ export interface VendedoresRow {
   // root-billed invoice of a chain flagged as a consignment-billing pattern
   // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
   // Zero for a seller with no flagged exclusions.
-  excludedSalesNet: number;
-  excludedCollected: number;
+  excludedSalesNet: DualAmount;
+  excludedCollected: DualAmount;
   excludedInvoiceCount: number;
 }
 
 export interface VendedoresResponse {
   rows: VendedoresRow[];
-  usdRate: number | null;
 }
 
 // Vendedores tab — audit list behind a seller row's excludedSalesNet figure:
@@ -265,7 +264,7 @@ export interface VendedoresExcludedInvoice {
   legalEntityName: string;
   invoiceNumber: string;
   invoiceDate: string; // ISO date
-  amountNet: number;
+  amountNet: DualAmount;
 }
 
 export interface VendedoresExcludedResponse {
