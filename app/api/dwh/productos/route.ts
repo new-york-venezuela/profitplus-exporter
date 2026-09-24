@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import type {
   ProductosResponse, ProductosRow, GroupBy,
   ProfundidadLineaResponse, ProfundidadLineaRow,
@@ -39,13 +39,14 @@ function lineaQuery(dateWhere: string, tiendaWhere: string): string {
     SELECT TOP 30
       ISNULL(p.LineName, '${NO_LINEA}') AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
     GROUP BY ISNULL(p.LineName, '${NO_LINEA}')
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -54,13 +55,14 @@ function sublineaQuery(dateWhere: string, tiendaWhere: string): string {
     SELECT TOP 30
       ISNULL(p.SubLineName, '${NO_SUBLINEA}') AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere} AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
     GROUP BY ISNULL(p.SubLineName, '${NO_SUBLINEA}')
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -69,15 +71,16 @@ function skuQuery(dateWhere: string, tiendaWhere: string): string {
     SELECT TOP 50
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
       AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
       AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea
     GROUP BY ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -105,18 +108,22 @@ function profundidadLineaQuery(dateWhere: string, returnsDateWhere: string, tien
       COUNT(DISTINCT le.LegalEntityKey) AS ClientCount,
       COUNT(DISTINCT fs.CustomerKey) AS StoreCount,
       COUNT(DISTINCT d.YearMonth) AS MonthCount,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.QuantitySold) AS QuantitySold,
       ISNULL((SELECT SUM(fr.NetAmount) FROM fact.Fact_Returns fr
-              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNet
+              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetBs,
+      ISNULL((SELECT SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0))
+              FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
+              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
     GROUP BY p.ProductKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -154,8 +161,9 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string): string 
       d.YearMonth AS YearMonth,
       ISNULL(p.LineName, '${NO_LINEA}') AS LineName,
       SUM(fs.QuantitySold) AS QuantitySold,
-      SUM(fs.NetAmount) AS SalesNet
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
@@ -172,7 +180,7 @@ function formatYearMonth(ym: string): string {
   return MONTH_NAMES[idx] ? `${MONTH_NAMES[idx]} ${y.slice(2)}` : ym;
 }
 
-async function handleProfundidad(dateWhere: string, returnsDateWhere: string, tiendaWhere: string, tiendaKey: number | null, currency: string): Promise<NextResponse> {
+async function handleProfundidad(dateWhere: string, returnsDateWhere: string, tiendaWhere: string, tiendaKey: number | null): Promise<NextResponse> {
   const pool = await getDwhPool();
   const returnsTiendaWhere = tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : '';
 
@@ -186,15 +194,14 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
   const totalClients = Number(totalsResult.recordset[0]?.TotalClients ?? 0);
   const totalStores = Number(totalsResult.recordset[0]?.TotalStores ?? 0);
 
-  const usdRate = currency === 'usd' ? await getUsdRate() : null;
-
   const rows: ProfundidadLineaRow[] = rowsResult.recordset.map(r => {
     const clientCount = Number(r.ClientCount);
     const storeCount = Number(r.StoreCount);
     const monthCount = Number(r.MonthCount) || 1;
-    const salesNet = Number(r.SalesNet);
+    const salesNetBs = Number(r.SalesNetBs);
+    const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
     const quantitySold = Number(r.QuantitySold);
-    const returnsNet = Number(r.ReturnsNet);
+    const returnsNetBs = Number(r.ReturnsNetBs);
 
     return {
       sku: String(r.Sku),
@@ -202,17 +209,19 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
       clientShare: totalClients > 0 ? clientCount / totalClients : null,
       storeCount,
       storeShare: totalStores > 0 ? storeCount / totalStores : null,
-      avgMonthlyPrice: quantitySold > 0 ? salesNet / quantitySold : 0,
+      avgMonthlyPrice: quantitySold > 0
+        ? { bs: salesNetBs / quantitySold, usd: salesNetUsd === null ? null : salesNetUsd / quantitySold }
+        : { bs: 0, usd: 0 },
       avgMonthlyUnits: quantitySold / monthCount,
-      returnRate: salesNet > 0 ? returnsNet / salesNet : null,
+      returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
     };
   });
 
-  const response: ProfundidadLineaResponse = { rows, usdRate };
+  const response: ProfundidadLineaResponse = { rows };
   return jsonWithCache(response);
 }
 
-async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaKey: number | null, currency: string): Promise<NextResponse> {
+async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaKey: number | null): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
@@ -237,19 +246,27 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
 
     let bucket = byMonth.get(yearMonthValue);
     if (!bucket) {
-      bucket = { yearMonth: formatYearMonth(yearMonthValue), yearMonthValue, units: {}, salesNet: {}, totalSalesNet: 0 };
+      bucket = { yearMonth: formatYearMonth(yearMonthValue), yearMonthValue, units: {}, salesNet: {}, totalSalesNet: { bs: 0, usd: 0 } };
       byMonth.set(yearMonthValue, bucket);
     }
+    const rowSalesNetBs = Number(r.SalesNetBs);
+    const rowSalesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
     bucket.units[linea] = (bucket.units[linea] ?? 0) + Number(r.QuantitySold);
-    bucket.salesNet[linea] = (bucket.salesNet[linea] ?? 0) + Number(r.SalesNet);
-    bucket.totalSalesNet += Number(r.SalesNet);
+    const existing = bucket.salesNet[linea] ?? { bs: 0, usd: 0 };
+    bucket.salesNet[linea] = {
+      bs: existing.bs + rowSalesNetBs,
+      usd: existing.usd === null || rowSalesNetUsd === null ? null : existing.usd + rowSalesNetUsd,
+    };
+    bucket.totalSalesNet = {
+      bs: bucket.totalSalesNet.bs + rowSalesNetBs,
+      usd: bucket.totalSalesNet.usd === null || rowSalesNetUsd === null ? null : bucket.totalSalesNet.usd + rowSalesNetUsd,
+    };
   }
 
   const rows = Array.from(byMonth.values()).sort((a, b) => a.yearMonthValue.localeCompare(b.yearMonthValue));
   const lineas = hasOtras ? [...lineasSeen, 'Otras'] : lineasSeen;
 
-  const usdRate = currency === 'usd' ? await getUsdRate() : null;
-  const response: UnitsByLineaResponse = { rows, lineas, usdRate };
+  const response: UnitsByLineaResponse = { rows, lineas };
   return jsonWithCache(response);
 }
 
@@ -259,7 +276,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy');
   const lineaParam = searchParams.get('linea');
   const sublineaParam = searchParams.get('sublinea');
@@ -285,8 +301,8 @@ export async function GET(request: NextRequest) {
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
       return section === 'profundidad'
-        ? await handleProfundidad(dateWhere, returnsDateWhere, tiendaWhere, tiendaKey, currency)
-        : await handlePorLineaMes(dateWhere, tiendaWhere, tiendaKey, currency);
+        ? await handleProfundidad(dateWhere, returnsDateWhere, tiendaWhere, tiendaKey)
+        : await handlePorLineaMes(dateWhere, tiendaWhere, tiendaKey);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -327,18 +343,17 @@ export async function GET(request: NextRequest) {
       recordset = result.recordset;
     }
 
-    const usdRate = currency === 'usd' ? await getUsdRate() : null;
-
-    const totalSalesNet = recordset.reduce((sum, r) => sum + Number(r.SalesNet), 0);
+    const totalSalesNet = recordset.reduce((sum, r) => sum + Number(r.SalesNetBs), 0);
 
     const rows: ProductosRow[] = recordset.map(r => {
-      const salesNet = Number(r.SalesNet);
+      const salesNetBs = Number(r.SalesNetBs);
+      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
       const rotacion = Number(r.QuantitySold);
       const grossProfit = r.GrossProfitAmount === null || r.GrossProfitAmount === undefined
         ? null
         : Number(r.GrossProfitAmount);
-      const margin = grossProfit !== null && salesNet !== 0 ? grossProfit / salesNet : null;
-      const salesShare = totalSalesNet > 0 ? salesNet / totalSalesNet : null;
+      const margin = grossProfit !== null && salesNetBs !== 0 ? grossProfit / salesNetBs : null;
+      const salesShare = totalSalesNet > 0 ? salesNetBs / totalSalesNet : null;
       const label = String(r.GroupLabel);
 
       return {
@@ -347,17 +362,12 @@ export async function GET(request: NextRequest) {
         sublinea: groupBy === 'sku' ? (sublineaParam ?? '') : groupBy === 'sublinea' ? label : '',
         rotacion,
         salesShare,
-        salesNet,
+        salesNet: { bs: salesNetBs, usd: salesNetUsd },
         margin,
       };
     });
 
-    const response: ProductosResponse = {
-      rows,
-      groupBy: groupBy as GroupBy,
-      breadcrumb,
-      usdRate,
-    };
+    const response: ProductosResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb };
 
     return jsonWithCache(response);
   } catch {
