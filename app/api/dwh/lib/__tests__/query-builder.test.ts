@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache } from '../query-builder';
+import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -204,5 +204,39 @@ describe('jsonWithCache', () => {
     const res = jsonWithCache({ ok: true }, { status: 201 });
     expect(res.status).toBe(201);
     expect(res.headers.get('Cache-Control')).toBe('private, max-age=900');
+  });
+});
+
+describe('usdConversionJoin', () => {
+  test('joins Fact_ExchangeRate on the fact alias\'s DateKey by default', () => {
+    const sql = usdConversionJoin('fs');
+    expect(sql).toContain('LEFT JOIN fact.Fact_ExchangeRate fx');
+    expect(sql).toContain('fx.DateKey = fs.DateKey');
+    expect(sql).toContain("CurrencyCode) = 'USD'");
+  });
+
+  test('accepts a custom date column for tables like Fact_AR_Snapshot', () => {
+    const sql = usdConversionJoin('a', 'SnapshotDateKey');
+    expect(sql).toContain('fx.DateKey = a.SnapshotDateKey');
+  });
+});
+
+describe('dualAmountExpr', () => {
+  test('produces a BS sum and a per-row-converted USD sum, aliased as requested', () => {
+    const sql = dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd');
+    expect(sql).toContain('SUM(fs.NetAmount) AS SalesNetBs');
+    expect(sql).toContain('AS SalesNetUsd');
+    expect(sql).toContain('fs.NetAmount /');
+    expect(sql).toContain('NULLIF(COALESCE(fs.DocumentExchangeRate, fx.RateSell), 0)');
+  });
+
+  test('division happens inside the SUM, not after it', () => {
+    const sql = dualAmountExpr('fp', 'NetAmount', 'Bs', 'Usd');
+    // The USD aggregate must be SUM(expr / rate), not SUM(expr) / rate —
+    // assert the division is INSIDE the SUM(...) parens by checking the
+    // rate divisor appears before the aggregate's closing paren that
+    // matches the opening SUM(.
+    const usdSumStart = sql.indexOf('SUM(fp.NetAmount /');
+    expect(usdSumStart).toBeGreaterThan(-1);
   });
 });
