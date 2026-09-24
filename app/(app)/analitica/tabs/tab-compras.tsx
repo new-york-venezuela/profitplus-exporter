@@ -79,7 +79,7 @@ export default function TabCompras({
       setMesError(null);
       setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'mes' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'mes' });
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -106,7 +106,7 @@ export default function TabCompras({
       setProveedorError(null);
       setProveedorLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'proveedor' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'proveedor' });
         if (month) params.set('month', month);
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
@@ -134,7 +134,7 @@ export default function TabCompras({
       setLineaError(null);
       setLineaLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'linea' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'linea' });
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -160,31 +160,33 @@ export default function TabCompras({
     document.getElementById('compras-proveedor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  const mesRate = mesData?.usdRate ?? undefined;
   const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
     value: String(r.value),
-    purchasesNet: r.purchasesNet,
+    purchasesNet: currency === 'usd' ? r.purchasesNet.usd : r.purchasesNet.bs,
   }));
 
-  const proveedorRate = proveedorData?.usdRate ?? undefined;
   const proveedorTableRows: ComprasTableRow[] = useMemo(
     () => (proveedorData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
     [proveedorData]
   );
 
-  const lineaRate = lineaData?.usdRate ?? undefined;
   const lineaTableRows: ComprasTableRow[] = useMemo(
     () => (lineaData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
     [lineaData]
   );
 
   async function handleFetchLineaBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
-    const params = new URLSearchParams({ dateRange, currency, groupBy: 'linea', breakdownBy: dimension, parentValue });
+    const params = new URLSearchParams({ dateRange, groupBy: 'linea', breakdownBy: dimension, parentValue });
     const res = await fetch(`/api/dwh/compras?${params.toString()}`);
     if (!res.ok) return [];
     const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
     return body.breakdown ?? [];
+  }
+
+  // BreakdownRow metrics are plain BS numbers — see Task 14's identical note.
+  function formatBreakdownBs(value: string | number | null): string {
+    return typeof value === 'number' ? moneyLabel({ bs: value, usd: null }, 'bs') : String(value ?? '—');
   }
 
   const proveedorColumns: DrilldownColumn<ComprasTableRow>[] = [
@@ -192,7 +194,7 @@ export default function TabCompras({
       key: 'purchasesNet',
       label: 'Compras netas',
       align: 'right',
-      format: row => moneyLabel(row.purchasesNet, currency, proveedorRate),
+      format: row => moneyLabel(row.purchasesNet, currency),
     },
     {
       key: 'avgDiscount',
@@ -207,7 +209,7 @@ export default function TabCompras({
       key: 'purchasesNet',
       label: 'Compras netas',
       align: 'right',
-      format: row => moneyLabel(row.purchasesNet, currency, lineaRate),
+      format: row => moneyLabel(row.purchasesNet, currency),
     },
     {
       key: 'avgDiscount',
@@ -235,8 +237,8 @@ export default function TabCompras({
                 <BarChart data={chartData} margin={{ top: 8, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, mesRate)} />
-                  <Tooltip formatter={val => moneyTooltip(val, currency, mesRate)} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+                  <Tooltip formatter={val => moneyTooltip(val, currency)} />
                   <Bar
                     dataKey="purchasesNet"
                     fill="#2563eb"
@@ -269,7 +271,7 @@ export default function TabCompras({
             groupByOptions={PROVEEDOR_GROUP_BY_OPTIONS}
             groupBy="proveedor"
             onGroupByChange={() => {}}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, proveedorRate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
           />
         )}
         {month && (
@@ -297,7 +299,7 @@ export default function TabCompras({
             breakdownBy={lineaBreakdownBy}
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, lineaRate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
           />
         )}
       </section>
