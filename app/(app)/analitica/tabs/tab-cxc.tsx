@@ -6,7 +6,7 @@ import {
   LineChart, Line, AreaChart, Area, Legend,
 } from 'recharts';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
-import type { Currency, CxcResponse, DateRange, DebtConcentrationResponse } from '../types';
+import type { AgingBucketRow, Currency, CxcResponse, DateRange, DebtConcentrationResponse } from '../types';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
 const BUCKET_COLORS: Record<string, string> = {
@@ -71,7 +71,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ currency, clienteDimension });
+        const params = new URLSearchParams({ clienteDimension });
         const res = await fetch(`/api/dwh/cxc?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -100,7 +100,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       setDebtConcentrationError(null);
       setDebtConcentrationLoading(true);
       try {
-        const params = new URLSearchParams({ currency, clienteDimension, section: 'debtConcentration' });
+        const params = new URLSearchParams({ clienteDimension, section: 'debtConcentration' });
         const res = await fetch(`/api/dwh/cxc?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -141,20 +141,21 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     );
   }
 
-  const rate = data.usdRate ?? undefined;
-
   const orderedBuckets = BUCKET_ORDER
     .map(bucket => data.agingBuckets.find(b => b.bucket === bucket))
-    .filter((b): b is { bucket: string; amount: number } => b !== undefined);
-  const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: b.amount }));
+    .filter((b): b is AgingBucketRow => b !== undefined);
+  const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: currency === 'usd' ? b.amount.usd : b.amount.bs }));
 
-  const totalOutstanding = data.agingBuckets.reduce((sum, b) => sum + b.amount, 0);
+  const totalOutstandingBs = data.agingBuckets.reduce((sum, b) => sum + b.amount.bs, 0);
+  const totalOutstandingUsd = data.agingBuckets.some(b => b.amount.usd === null)
+    ? null
+    : data.agingBuckets.reduce((sum, b) => sum + (b.amount.usd as number), 0);
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <KpiCard label="Saldo total pendiente" value={moneyLabel(totalOutstanding, currency, rate)} />
+        <KpiCard label="Saldo total pendiente" value={moneyLabel({ bs: totalOutstandingBs, usd: totalOutstandingUsd }, currency)} />
         <KpiCard
           label="% vencido"
           value={pct(data.overdueShare)}
@@ -176,8 +177,8 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
               <BarChart data={agingData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-                <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+                <Tooltip formatter={val => moneyTooltip(val, currency)} />
                 <Bar dataKey="Monto" radius={[3, 3, 0, 0]}>
                   {agingData.map(d => (
                     <Cell key={d.bucket} fill={BUCKET_COLORS[d.bucket] ?? '#94a3b8'} />
@@ -227,7 +228,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                     <tr key={d.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                       <td className="px-3 py-2 text-gray-800">{d.name}</td>
                       <td className="px-3 py-2 text-right font-medium text-gray-900">
-                        {moneyLabel(d.outstanding, currency, rate)}
+                        {moneyLabel(d.outstanding, currency)}
                       </td>
                       <td className="px-3 py-2 text-right text-gray-600">
                         {d.avgDaysToPay !== null ? d.avgDaysToPay.toFixed(1) : '—'}
@@ -250,11 +251,16 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
           <EmptyState message="Sin cobros con fecha de vencimiento resolvible todavía." />
         ) : (
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={data.weekdayVencimiento}>
+            <BarChart data={data.weekdayVencimiento.map(w => ({
+              weekday: w.weekday,
+              noVencida: currency === 'usd' ? w.noVencida.usd : w.noVencida.bs,
+              venceHoy: currency === 'usd' ? w.venceHoy.usd : w.venceHoy.bs,
+              vencida: currency === 'usd' ? w.vencida.usd : w.vencida.bs,
+            }))}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="weekday" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="noVencida" name="Aún no vencía" stackId="v" fill="#16a34a" />
               <Bar dataKey="venceHoy" name="Vencía ese día" stackId="v" fill="#eab308" />
@@ -295,17 +301,18 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart
               data={data.agingTrend.map(row => {
-                const flat: Record<string, string | number> = { yearMonth: row.yearMonth };
+                const flat: Record<string, string | number | null> = { yearMonth: row.yearMonth };
                 for (const bucket of BUCKET_ORDER) {
-                  flat[bucket] = row.buckets.find(b => b.bucket === bucket)?.amount ?? 0;
+                  const amount = row.buckets.find(b => b.bucket === bucket)?.amount;
+                  flat[bucket] = amount === undefined ? 0 : (currency === 'usd' ? amount.usd : amount.bs);
                 }
                 return flat;
               })}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {BUCKET_ORDER.map(bucket => (
                 <Area
@@ -341,7 +348,8 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
               data={debtConcentration.rows.map(row => {
                 const flat: Record<string, string | number> = { name: row.name };
                 for (const bucket of BUCKET_ORDER) {
-                  flat[bucket] = row.buckets.find(b => b.bucket === bucket)?.amount ?? 0;
+                  const amount = row.buckets.find(b => b.bucket === bucket)?.amount;
+                  flat[bucket] = amount === undefined ? 0 : ((currency === 'usd' ? amount.usd : amount.bs) ?? 0);
                 }
                 return flat;
               })}
@@ -349,9 +357,9 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
               margin={{ left: 24 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
+              <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={180} />
-              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {BUCKET_ORDER.map(bucket => (
                 <Bar key={bucket} dataKey={bucket} name={bucket} stackId="debt" fill={BUCKET_COLORS[bucket]} />
