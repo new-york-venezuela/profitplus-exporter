@@ -115,7 +115,7 @@ export default function TabProductos({
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy });
+        const params = new URLSearchParams({ dateRange, groupBy });
         if (groupBy !== 'linea' && linea) params.set('linea', linea);
         if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
         if (tienda) params.set('tienda', tienda);
@@ -147,7 +147,7 @@ export default function TabProductos({
       setProfundidadError(null);
       setProfundidadLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'profundidad' });
+        const params = new URLSearchParams({ dateRange, section: 'profundidad' });
         if (tienda) params.set('tienda', tienda);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
@@ -175,7 +175,7 @@ export default function TabProductos({
       setPorLineaMesError(null);
       setPorLineaMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'porLineaMes' });
+        const params = new URLSearchParams({ dateRange, section: 'porLineaMes' });
         if (tienda) params.set('tienda', tienda);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
@@ -231,10 +231,7 @@ export default function TabProductos({
     document.getElementById('productos-drilldown-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  const rate = data?.usdRate ?? undefined;
   const drillable = groupBy !== 'sku';
-  const profundidadRate = profundidadData?.usdRate ?? undefined;
-  const porLineaMesRate = porLineaMesData?.usdRate ?? undefined;
   const porLineaMesChartData = (porLineaMesData?.rows ?? []).map(r => ({ ...r.units, yearMonth: r.yearMonth, yearMonthValue: r.yearMonthValue }));
 
   return (
@@ -312,7 +309,7 @@ export default function TabProductos({
                   >
                     <td className="px-3 py-2 text-gray-800">{rowLabel(row, groupBy)}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(row.salesNet, currency, rate)}
+                      {moneyLabel(row.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(row.salesShare)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{qty(row.rotacion)}</td>
@@ -346,9 +343,10 @@ export default function TabProductos({
                 formatter={(value, name, entry) => {
                   const row = porLineaMesData.rows.find(r => r.yearMonth === (entry.payload as { yearMonth: string })?.yearMonth);
                   const lineaName = String(name);
-                  const salesNet = row?.salesNet[lineaName] ?? 0;
-                  const share = row && row.totalSalesNet > 0 ? salesNet / row.totalSalesNet : null;
-                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNet, currency, porLineaMesRate)} (${pct(share)} del mes)`, lineaName];
+                  const salesNetAmount = row?.salesNet[lineaName] ?? { bs: 0, usd: 0 };
+                  const totalBs = row?.totalSalesNet.bs ?? 0;
+                  const share = totalBs > 0 ? salesNetAmount.bs / totalBs : null;
+                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNetAmount, currency)} (${pct(share)} del mes)`, lineaName];
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -404,7 +402,7 @@ export default function TabProductos({
                       {qty(row.storeCount)} <span className="text-gray-400">({pct(row.storeShare)})</span>
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(row.avgMonthlyPrice, currency, profundidadRate)}
+                      {moneyLabel(row.avgMonthlyPrice, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{qty(row.avgMonthlyUnits)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(row.returnRate)}</td>
