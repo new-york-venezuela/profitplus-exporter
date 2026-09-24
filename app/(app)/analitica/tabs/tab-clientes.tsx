@@ -87,7 +87,7 @@ function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDim
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, clienteDimension, section: 'churned' });
+        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'churned' });
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -154,9 +154,9 @@ function sortValue(row: ClientesRow, key: SortKey): string | number {
     case 'name':
       return row.name ?? '';
     case 'salesNet':
-      return row.salesNet;
+      return row.salesNet.bs;
     case 'returnsNet':
-      return row.returnsNet;
+      return row.returnsNet.bs;
     case 'returnRate':
       return row.returnRate ?? -Infinity;
     case 'pareto':
@@ -194,7 +194,7 @@ export default function TabClientes({
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, clienteDimension });
+        const params = new URLSearchParams({ dateRange, clienteDimension });
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -268,7 +268,6 @@ export default function TabClientes({
     );
   }
 
-  const rate = data.usdRate ?? undefined;
   const segmentCounts = data.rows.reduce<Record<Segment, number>>(
     (acc, r) => {
       acc[r.pareto] += 1;
@@ -356,8 +355,7 @@ export default function TabClientes({
           <EmptyState message="Sin clientes perdidos en este período." />
         ) : (
           (() => {
-            const churnedRows = churned.data.rows;
-            const churnedRate = churned.data.usdRate ?? undefined;
+            const churnedRows = churned.data!.rows;
             return (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -376,7 +374,7 @@ export default function TabClientes({
                         <td className="px-3 py-2 text-gray-800">{r.name}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{formatDateKey(r.lastPurchaseDateKey)}</td>
                         <td className="px-3 py-2 text-right font-medium text-gray-900">
-                          {moneyLabel(r.lostRevenue, currency, churnedRate)}
+                          {moneyLabel(r.lostRevenue, currency)}
                         </td>
                       </tr>
                     ))}
@@ -445,10 +443,10 @@ export default function TabClientes({
                   <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesNet, currency, rate)}
+                      {moneyLabel(r.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(r.returnsNet, currency, rate)}
+                      {moneyLabel(r.returnsNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(r.returnRate)}</td>
                     <td className="px-3 py-2 text-right">
