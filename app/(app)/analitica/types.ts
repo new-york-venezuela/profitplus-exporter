@@ -194,9 +194,9 @@ export interface DevolucionesResponse {
 // vencimiento-status series at time of payment.
 export interface WeekdayVencimientoRow {
   weekday: string; // 'Lun' | 'Mar' | ... | 'Dom'
-  venceHoy: number; // DateKey == DueDateKey
-  vencida: number; // DateKey > DueDateKey
-  noVencida: number; // DateKey < DueDateKey
+  venceHoy: DualAmount; // DateKey == DueDateKey
+  vencida: DualAmount; // DateKey > DueDateKey
+  noVencida: DualAmount; // DateKey < DueDateKey
 }
 
 // Part 3c: monthly DSO, independent of the CxC tab's own snapshot-only date
@@ -220,7 +220,6 @@ export interface DebtConcentrationRow {
 
 export interface DebtConcentrationResponse {
   rows: DebtConcentrationRow[];
-  usdRate: number | null;
 }
 
 export interface CxcResponse {
@@ -228,7 +227,6 @@ export interface CxcResponse {
   topDebtors: DebtorRow[];
   overdueShare: number | null;
   snapshotDateKey: number | null;
-  usdRate: number | null;
   weekdayVencimiento: WeekdayVencimientoRow[];
   dsoTrend: DsoTrendRow[];
   agingTrend: AgingTrendRow[];
