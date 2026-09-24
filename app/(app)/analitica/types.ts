@@ -159,7 +159,7 @@ export interface VentasComparisonResponse {
 export interface ComprasRow {
   label: string;
   value: string;
-  purchasesNet: number;
+  purchasesNet: DualAmount;
   avgDiscount: number | null;
 }
 
@@ -167,7 +167,6 @@ export interface ComprasResponse {
   rows: ComprasRow[];
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
 // Devoluciones tab
