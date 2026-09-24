@@ -42,10 +42,10 @@ export interface DualAmount {
 
 // Resumen tab
 export interface ResumenKPIs {
-  salesNet12mo: number;
-  returnsNet12mo: number;
+  salesNet12mo: DualAmount;
+  returnsNet12mo: DualAmount;
   returnRate: number | null;
-  collected12mo: number;
+  collected12mo: DualAmount;
   // Distinct Dim_LegalEntity with >=1 sale in range, and the same-length
   // immediately-preceding period's count, for the Δ card — same
   // activeClients/prevPeriod convention as Ventas' VentasKpis.
@@ -59,29 +59,29 @@ export interface ResumenKPIs {
 
 export interface MonthlyTrendRow {
   yearMonth: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
 }
 
 export interface NamedAmount {
   name: string;
-  netRevenue: number;
+  netRevenue: DualAmount;
 }
 
 export interface SalesRepRow {
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
 }
 
 export interface AgingBucketRow {
   bucket: string;
-  amount: number;
+  amount: DualAmount;
 }
 
 export interface DebtorRow {
   name: string;
-  outstanding: number;
+  outstanding: DualAmount;
   // Average (DateKey - DueDateKey) in days across this debtor's
   // Fact_Collections rows with a resolvable DueDateKey (0027's join) — null
   // when the debtor has no such rows (shown as "—" in the UI). Positive =
@@ -97,7 +97,6 @@ export interface ResumenResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors: DebtorRow[];
   snapshotDateKey: number | null;
-  usdRate: number | null;
   kpis: ResumenKPIs;
 }
 

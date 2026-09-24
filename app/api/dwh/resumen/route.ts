@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -22,12 +22,18 @@ function monthlyTrendQuery(dateWhere: string): string {
   return `
     SELECT
       d.YearMonth,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNet
+         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
+         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY d.YearMonth
@@ -45,12 +51,13 @@ function topCustomersQuery(dateWhere: string): string {
   return `
     SELECT TOP 10
       ${spec.labelExpr} AS Name,
-      SUM(fs.NetAmount) AS NetRevenue
+      ${dualAmountExpr('fs', 'NetAmount', 'NetRevenueBs', 'NetRevenueUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY NetRevenue DESC
+    ORDER BY NetRevenueBs DESC
   `;
 }
 
@@ -58,12 +65,13 @@ function topProductsQuery(dateWhere: string): string {
   return `
     SELECT TOP 10
       ISNULL(p.ProductName, p.ProductCode) AS Name,
-      SUM(fs.NetAmount) AS NetRevenue
+      ${dualAmountExpr('fs', 'NetAmount', 'NetRevenueBs', 'NetRevenueUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY NetRevenue DESC
+    ORDER BY NetRevenueBs DESC
   `;
 }
 
@@ -71,15 +79,20 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
   return `
     SELECT
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -91,9 +104,10 @@ const LATEST_SNAPSHOT_QUERY = `
 `;
 
 const AGING_BUCKETS_QUERY = `
-  SELECT AgingBucket, SUM(OutstandingBalance) AS Amount
-  FROM fact.Fact_AR_Snapshot
-  WHERE SnapshotDateKey = @snapshotDateKey AND IsCreditNote = 0
+  SELECT AgingBucket, ${dualAmountExpr('a', 'OutstandingBalance', 'AmountBs', 'AmountUsd')}
+  FROM fact.Fact_AR_Snapshot a
+  ${usdConversionJoin('a', 'SnapshotDateKey')}
+  WHERE a.SnapshotDateKey = @snapshotDateKey AND a.IsCreditNote = 0
   GROUP BY AgingBucket
 `;
 
@@ -104,13 +118,14 @@ function topDebtorsQuery(): string {
   return `
     SELECT TOP 10
       ${spec.labelExpr} AS Name,
-      SUM(a.OutstandingBalance) AS Outstanding
+      ${dualAmountExpr('a', 'OutstandingBalance', 'OutstandingBs', 'OutstandingUsd')}
     FROM fact.Fact_AR_Snapshot a
+    ${usdConversionJoin('a', 'SnapshotDateKey')}
     ${spec.joinClause.replace(/\bf\b/g, 'a')}
     WHERE a.SnapshotDateKey = @snapshotDateKey
     GROUP BY ${spec.groupByColumn}
     HAVING SUM(a.OutstandingBalance) > 0
-    ORDER BY Outstanding DESC
+    ORDER BY OutstandingBs DESC
   `;
 }
 
@@ -118,11 +133,20 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
   return `
     SELECT
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Sales fs
-         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12mo,
+         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moBs,
+      (SELECT ISNULL(SUM(fs.NetAmount / NULLIF(COALESCE(fs.DocumentExchangeRate, sfx.RateSell), 0)), 0)
+         FROM fact.Fact_Sales fs ${usdConversionJoin('fs').replace('fx', 'sfx')}
+         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moUsd,
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Returns fr
-         WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12mo,
+         WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moBs,
+      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moUsd,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
-         WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12mo
+         WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moBs,
+      (SELECT ISNULL(SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, cfx.RateSell), 0)), 0)
+         FROM fact.Fact_Collections fc ${usdConversionJoin('fc').replace('fx', 'cfx')}
+         WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moUsd
   `;
 }
 
@@ -229,7 +253,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
 
   try {
     const pool = await getDwhPool();
@@ -249,7 +272,7 @@ export async function GET(request: NextRequest) {
     // function's doc comment for why it can't just reuse salesDateWhere.
     const salesDateWhereFs2 = buildDateWhereClause(dateRange, 'fs2');
 
-    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult, usdRate] = await Promise.all([
+    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult] = await Promise.all([
       pool.request().query(monthlyTrendQuery(salesDateWhere)),
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
@@ -263,13 +286,12 @@ export async function GET(request: NextRequest) {
             JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
             JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
             WHERE fs.IsVoided = 0 ${salesDateWhere}`),
-      currency === 'usd' ? getUsdRate() : Promise.resolve(null),
     ]);
 
     const snapshotDateKey: number | null = latestSnapshot.recordset[0]?.SnapshotDateKey ?? null;
 
-    let agingBuckets: { AgingBucket: string; Amount: number }[] = [];
-    let topDebtors: { Name: string; Outstanding: number }[] = [];
+    let agingBuckets: { AgingBucket: string; AmountBs: number; AmountUsd: number | null }[] = [];
+    let topDebtors: { Name: string; OutstandingBs: number; OutstandingUsd: number | null }[] = [];
 
     if (snapshotDateKey !== null) {
       const [aging, debtors] = await Promise.all([
@@ -280,9 +302,11 @@ export async function GET(request: NextRequest) {
       topDebtors = debtors.recordset;
     }
 
-    const totalsRow = totals.recordset[0] ?? { SalesNet12mo: 0, ReturnsNet12mo: 0, Collected12mo: 0 };
-    const salesNet = Number(totalsRow.SalesNet12mo);
-    const returnsNet = Number(totalsRow.ReturnsNet12mo);
+    const totalsRow = totals.recordset[0] ?? { SalesNet12moBs: 0, SalesNet12moUsd: 0, ReturnsNet12moBs: 0, ReturnsNet12moUsd: 0, Collected12moBs: 0, Collected12moUsd: 0 };
+    const salesNetBs = Number(totalsRow.SalesNet12moBs);
+    const salesNetUsd = totalsRow.SalesNet12moUsd === null ? null : Number(totalsRow.SalesNet12moUsd);
+    const returnsNetBs = Number(totalsRow.ReturnsNet12moBs);
+    const returnsNetUsd = totalsRow.ReturnsNet12moUsd === null ? null : Number(totalsRow.ReturnsNet12moUsd);
 
     const activeCustomersRow = activeCustomersResult.recordset[0] ?? {
       ActiveCustomers: 0,
@@ -300,34 +324,34 @@ export async function GET(request: NextRequest) {
 
     const monthlyTrend: MonthlyTrendRow[] = trend.recordset.map(r => ({
       yearMonth: r.YearMonth,
-      salesNet: Number(r.SalesNet),
-      returnsNet: Number(r.ReturnsNet),
+      salesNet: { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) },
+      returnsNet: { bs: Number(r.ReturnsNetBs), usd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd) },
     }));
 
     const topCustomersMapped: NamedAmount[] = topCustomers.recordset.map(r => ({
       name: r.Name,
-      netRevenue: Number(r.NetRevenue),
+      netRevenue: { bs: Number(r.NetRevenueBs), usd: r.NetRevenueUsd === null ? null : Number(r.NetRevenueUsd) },
     }));
 
     const topProductsMapped: NamedAmount[] = topProducts.recordset.map(r => ({
       name: r.Name,
-      netRevenue: Number(r.NetRevenue),
+      netRevenue: { bs: Number(r.NetRevenueBs), usd: r.NetRevenueUsd === null ? null : Number(r.NetRevenueUsd) },
     }));
 
     const salesRepsMapped: SalesRepRow[] = salesReps.recordset.map(r => ({
       name: r.Name,
-      salesNet: Number(r.SalesNet),
-      returnsNet: Number(r.ReturnsNet),
+      salesNet: { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) },
+      returnsNet: { bs: Number(r.ReturnsNetBs), usd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd) },
     }));
 
     const agingBucketsMapped: AgingBucketRow[] = agingBuckets.map(r => ({
       bucket: r.AgingBucket,
-      amount: Number(r.Amount),
+      amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) },
     }));
 
     const topDebtorsMapped: DebtorRow[] = topDebtors.map(r => ({
       name: r.Name,
-      outstanding: Number(r.Outstanding),
+      outstanding: { bs: Number(r.OutstandingBs), usd: r.OutstandingUsd === null ? null : Number(r.OutstandingUsd) },
       // Resumen's summary view doesn't compute this (CxC's route does,
       // for its own dedicated top-debtors table) — DebtorRow is shared
       // between the two responses.
@@ -342,12 +366,14 @@ export async function GET(request: NextRequest) {
       agingBuckets: agingBucketsMapped,
       topDebtors: topDebtorsMapped,
       snapshotDateKey,
-      usdRate,
       kpis: {
-        salesNet12mo: salesNet,
-        returnsNet12mo: returnsNet,
-        returnRate: salesNet > 0 ? returnsNet / salesNet : null,
-        collected12mo: Number(totalsRow.Collected12mo),
+        salesNet12mo: { bs: salesNetBs, usd: salesNetUsd },
+        returnsNet12mo: { bs: returnsNetBs, usd: returnsNetUsd },
+        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
+        collected12mo: {
+          bs: Number(totalsRow.Collected12moBs),
+          usd: totalsRow.Collected12moUsd === null ? null : Number(totalsRow.Collected12moUsd),
+        },
         activeCustomers,
         activeCustomersPrevPeriod,
         churnRate,
