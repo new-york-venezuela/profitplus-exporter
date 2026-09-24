@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { classifyTier, DEFAULT_TIER_THRESHOLDS, type TierThresholds } from './tier';
 import { computeGapVsBaseline } from './seller-coverage';
 import type {
@@ -49,8 +49,9 @@ function matrixQuery(groupBy: DepthGroupBy, dateWhere: string, scopeWhere: strin
       ${labelExpr} AS GroupLabel,
       c.SegmentCode AS SegmentCode,
       COUNT(DISTINCT c.LegalEntityKey) AS EntitiesBuying,
-      SUM(fs.NetAmount) AS SalesNet
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     WHERE fs.IsVoided = 0 AND c.SegmentCode IN ('CADENA', 'INDEPENDIENTES') ${dateWhere} ${scopeWhere}
@@ -81,8 +82,9 @@ function matrixQueryForSeller(groupBy: DepthGroupBy, dateWhere: string, scopeWhe
       ${labelExpr} AS GroupLabel,
       c.SegmentCode AS SegmentCode,
       COUNT(DISTINCT c.LegalEntityKey) AS EntitiesBuying,
-      SUM(fs.NetAmount) AS SalesNet
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.SegmentCode IN ('CADENA', 'INDEPENDIENTES') ${dateWhere} ${scopeWhere}
@@ -106,8 +108,9 @@ function activeTotalsBySegmentForSellerQuery(dateWhere: string): string {
 
 function gapQuery(dateWhere: string, scopeWhere: string): string {
   return `
-    SELECT le.LegalEntityKey, le.LegalEntityName, SUM(fs.NetAmount) AS TotalSalesNet
+    SELECT le.LegalEntityKey, le.LegalEntityName, ${dualAmountExpr('fs', 'NetAmount', 'TotalSalesNetBs', 'TotalSalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
     WHERE fs.IsVoided = 0 AND c.SegmentCode = @segment ${dateWhere}
@@ -118,7 +121,7 @@ function gapQuery(dateWhere: string, scopeWhere: string): string {
       JOIN dim.Dim_Product p2 ON p2.ProductKey = fs2.ProductKey
       WHERE fs2.IsVoided = 0 AND c2.LegalEntityKey = le.LegalEntityKey ${scopeWhere.replace(/\bfs\b/g, 'fs2').replace(/\bp\b/g, 'p2')} ${dateWhere.replace(/\bfs\b/g, 'fs2')}
     )
-    ORDER BY TotalSalesNet DESC
+    ORDER BY TotalSalesNetBs DESC
   `;
 }
 
@@ -150,7 +153,7 @@ async function handleGap(
   const entities: DepthGapEntity[] = result.recordset.map(r => ({
     legalEntityKey: Number(r.LegalEntityKey),
     legalEntityName: String(r.LegalEntityName),
-    totalSalesNet: Number(r.TotalSalesNet),
+    totalSalesNet: { bs: Number(r.TotalSalesNetBs), usd: r.TotalSalesNetUsd === null ? null : Number(r.TotalSalesNetUsd) },
   }));
 
   const response: DepthGapResponse = { entities, segment, productLabel };
@@ -162,7 +165,6 @@ async function handleMatrix(
   groupBy: DepthGroupBy,
   linea: string | null,
   sublinea: string | null,
-  currency: string,
   thresholds: TierThresholds,
   salesRepKey: number | null,
   salesRepName: string | null,
@@ -199,12 +201,13 @@ async function handleMatrix(
     const label = String(r.GroupLabel);
     const segment = String(r.SegmentCode) as CustomerSegment;
     const entitiesBuying = Number(r.EntitiesBuying);
-    const salesNet = Number(r.SalesNet);
+    const salesNetBs = Number(r.SalesNetBs);
+    const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
     const entitiesActive = totalsBySegment.get(segment) ?? 0;
 
     let row = byLabel.get(label);
     if (!row) {
-      row = { label, value: label, cells: [], totalPenetration: null, totalSalesNet: 0, tier: 'sin-ventas' };
+      row = { label, value: label, cells: [], totalPenetration: null, totalSalesNet: { bs: 0, usd: 0 }, tier: 'sin-ventas' };
       byLabel.set(label, row);
     }
     row.cells.push({
@@ -212,9 +215,12 @@ async function handleMatrix(
       entitiesBuying,
       entitiesActive,
       penetration: entitiesActive > 0 ? entitiesBuying / entitiesActive : null,
-      salesNet,
+      salesNet: { bs: salesNetBs, usd: salesNetUsd },
     });
-    row.totalSalesNet += salesNet;
+    row.totalSalesNet = {
+      bs: row.totalSalesNet.bs + salesNetBs,
+      usd: row.totalSalesNet.usd === null || salesNetUsd === null ? null : row.totalSalesNet.usd + salesNetUsd,
+    };
   }
 
   const totalEntitiesActive = SEGMENTS.reduce((sum, s) => sum + (totalsBySegment.get(s) ?? 0), 0);
@@ -225,17 +231,15 @@ async function handleMatrix(
     return {
       ...row,
       totalPenetration,
-      tier: classifyTier(totalPenetration, row.totalSalesNet > 0, thresholds),
+      tier: classifyTier(totalPenetration, row.totalSalesNet.bs > 0, thresholds),
     };
-  }).sort((a, b) => b.totalSalesNet - a.totalSalesNet);
-
-  const usdRate = currency === 'usd' ? await getUsdRate() : null;
+  }).sort((a, b) => b.totalSalesNet.bs - a.totalSalesNet.bs);
 
   const breadcrumb: DepthMatrixResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
   if (groupBy === 'sublinea' || groupBy === 'sku') breadcrumb.push({ label: linea as string, groupBy: 'sublinea' });
   if (groupBy === 'sku') breadcrumb.push({ label: sublinea as string, groupBy: 'sku' });
 
-  const response: DepthMatrixResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb, usdRate, scopedToSalesRepName: salesRepName };
+  const response: DepthMatrixResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb, scopedToSalesRepName: salesRepName };
   return jsonWithCache(response);
 }
 
@@ -261,7 +265,7 @@ function sellerCoverageQuery(dateWhere: string, tieredLineNames: string[]): stri
   `;
 }
 
-async function handleLeaderboard(dateWhere: string, currency: string, thresholds: TierThresholds): Promise<NextResponse> {
+async function handleLeaderboard(dateWhere: string, thresholds: TierThresholds): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   // Step 1: compute the unscoped, línea-level matrix to find the tiered line set.
@@ -276,7 +280,7 @@ async function handleLeaderboard(dateWhere: string, currency: string, thresholds
     const label = String(r.GroupLabel);
     const entry = byLinea.get(label) ?? { entitiesBuying: 0, salesNet: 0 };
     entry.entitiesBuying += Number(r.EntitiesBuying);
-    entry.salesNet += Number(r.SalesNet);
+    entry.salesNet += Number(r.SalesNetBs);
     byLinea.set(label, entry);
   }
 
@@ -297,8 +301,7 @@ async function handleLeaderboard(dateWhere: string, currency: string, thresholds
   const baselinePenetration = baselineCount > 0 ? baselinePenetrationSum / baselineCount : null;
 
   if (tieredLineNames.length === 0) {
-    const usdRate = currency === 'usd' ? await getUsdRate() : null;
-    const response: SellerCoverageResponse = { rows: [], usdRate };
+    const response: SellerCoverageResponse = { rows: [] };
     return jsonWithCache(response);
   }
 
@@ -323,8 +326,7 @@ async function handleLeaderboard(dateWhere: string, currency: string, thresholds
   }).filter(row => row.entitiesServed > 0)
     .sort((a, b) => (a.gapVsBaseline ?? 0) - (b.gapVsBaseline ?? 0));
 
-  const usdRate = currency === 'usd' ? await getUsdRate() : null;
-  const response: SellerCoverageResponse = { rows, usdRate };
+  const response: SellerCoverageResponse = { rows };
   return jsonWithCache(response);
 }
 
@@ -334,7 +336,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy');
   const lineaParam = searchParams.get('linea');
   const sublineaParam = searchParams.get('sublinea');
@@ -358,7 +359,7 @@ export async function GET(request: NextRequest) {
 
   try {
     if (searchParams.get('section') === 'leaderboard') {
-      return await handleLeaderboard(dateWhere, currency, thresholds);
+      return await handleLeaderboard(dateWhere, thresholds);
     }
 
     if (searchParams.get('section') === 'gap') {
@@ -373,7 +374,7 @@ export async function GET(request: NextRequest) {
       return await handleGap(dateWhere, groupBy, lineaParam, sublineaParam, segmentParam, productLabel);
     }
 
-    return await handleMatrix(dateWhere, groupBy, lineaParam, sublineaParam, currency, thresholds, salesRepKey, salesRepName);
+    return await handleMatrix(dateWhere, groupBy, lineaParam, sublineaParam, thresholds, salesRepKey, salesRepName);
   } catch {
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }

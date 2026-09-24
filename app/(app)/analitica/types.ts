@@ -424,7 +424,7 @@ export interface DepthMatrixCell {
   entitiesBuying: number;
   entitiesActive: number;
   penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
-  salesNet: number;
+  salesNet: DualAmount;
 }
 
 export interface DepthMatrixRow {
@@ -432,7 +432,7 @@ export interface DepthMatrixRow {
   value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
   cells: DepthMatrixCell[];  // one per segment present for this row
   totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
-  totalSalesNet: number;
+  totalSalesNet: DualAmount;
   tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
 }
 
@@ -440,7 +440,6 @@ export interface DepthMatrixResponse {
   rows: DepthMatrixRow[];
   groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
   // Echoes the salesRepKey filter applied, if any — lets the UI label the
   // matrix clearly ("Mostrando solo clientes de: Juan Pérez") when scoped.
   // See docs/superpowers/specs/2026-09-21-seller-depth-of-line-coverage-design.md.
@@ -450,7 +449,7 @@ export interface DepthMatrixResponse {
 export interface DepthGapEntity {
   legalEntityKey: number;
   legalEntityName: string;
-  totalSalesNet: number; // this entity's total sales in range, for sort/context
+  totalSalesNet: DualAmount; // this entity's total sales in range, for sort/context
 }
 
 export interface DepthGapResponse {
@@ -473,7 +472,6 @@ export interface SellerCoverageRow {
 
 export interface SellerCoverageResponse {
   rows: SellerCoverageRow[];
-  usdRate: number | null;
 }
 
 // Cadencia tab — per-customer purchase frequency, with an optional manual
