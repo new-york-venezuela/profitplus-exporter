@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
   ClientesResponse,
   ClientesRow,
@@ -132,8 +132,9 @@ function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWh
     SELECT TOP 200
       ${spec.labelExpr} AS Name,
       MAX(fs.DateKey) AS LastPurchaseDateKey,
-      SUM(fs.NetAmount) AS LostRevenue
+      ${dualAmountExpr('fs', 'NetAmount', 'LostRevenueBs', 'LostRevenueUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${prevDateWhere}
       AND NOT EXISTS (
@@ -142,14 +143,14 @@ function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWh
         WHERE fs2.IsVoided = 0 ${currentDateWhere} AND ${condition}
       )
     GROUP BY ${spec.groupByColumn}
-    ORDER BY LostRevenue DESC
+    ORDER BY LostRevenueBs DESC
   `;
 }
 
-async function handleChurned(dimension: Dimension, dateRange: string, currency: string) {
+async function handleChurned(dimension: Dimension, dateRange: string): Promise<NextResponse> {
   const prevSalesDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
   if (prevSalesDateWhere === null) {
-    const response: ClientesChurnedResponse = { rows: [], available: false, usdRate: null };
+    const response: ClientesChurnedResponse = { rows: [], available: false };
     return jsonWithCache(response);
   }
 
@@ -160,18 +161,15 @@ async function handleChurned(dimension: Dimension, dateRange: string, currency: 
   // salesDateWhereFs2 in the main GET handler below.
   const currentSalesDateWhere = buildDateWhereClause(dateRange, 'fs2');
 
-  const [churned, usdRate] = await Promise.all([
-    pool.request().query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere)),
-    currency === 'usd' ? getUsdRate() : Promise.resolve(null),
-  ]);
+  const churned = await pool.request().query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere));
 
   const rows: ClientesChurnedRow[] = churned.recordset.map(r => ({
     name: r.Name,
     lastPurchaseDateKey: Number(r.LastPurchaseDateKey),
-    lostRevenue: Number(r.LostRevenue),
+    lostRevenue: { bs: Number(r.LostRevenueBs), usd: r.LostRevenueUsd === null ? null : Number(r.LostRevenueUsd) },
   }));
 
-  const response: ClientesChurnedResponse = { rows, available: true, usdRate };
+  const response: ClientesChurnedResponse = { rows, available: true };
   return jsonWithCache(response);
 }
 
@@ -241,17 +239,24 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
   return `
     SELECT
       ${spec.labelExpr} AS Name,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       (SELECT ISNULL(SUM(fr2.NetAmount), 0)
          FROM fact.Fact_Returns fr2
          ${innerJoin}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNet
+      ) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr2
+         ${innerJoin}
+         ${usdConversionJoin('fr2', undefined, 'r2fx')}
+         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
+      ) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -286,7 +291,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
 
@@ -300,7 +304,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'churned') {
     try {
-      return await handleChurned(clienteDimension, dateRange, currency);
+      return await handleChurned(clienteDimension, dateRange);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -315,36 +319,35 @@ export async function GET(request: NextRequest) {
     // clause built against that alias.
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr2');
 
-    const [customers, usdRate] = await Promise.all([
-      pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere)),
-      currency === 'usd' ? getUsdRate() : Promise.resolve(null),
-    ]);
+    const customers = await pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere));
 
-    // Query already orders by SalesNet DESC, which is the ranking Pareto
+    // Query already orders by SalesNetBs DESC, which is the ranking Pareto
     // segmentation needs — walk it once, accumulating cumulative share of
     // total net sales to assign each customer's A/B/C segment.
-    const totalSalesNet = customers.recordset.reduce((sum, r) => sum + Number(r.SalesNet), 0);
+    const totalSalesNet = customers.recordset.reduce((sum, r) => sum + Number(r.SalesNetBs), 0);
 
     let cumulativeSalesNet = 0;
     const rows: ClientesRow[] = customers.recordset.map(r => {
-      const salesNet = Number(r.SalesNet);
-      const returnsNet = Number(r.ReturnsNet);
+      const salesNetBs = Number(r.SalesNetBs);
+      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+      const returnsNetBs = Number(r.ReturnsNetBs);
+      const returnsNetUsd = r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd);
 
-      cumulativeSalesNet += salesNet;
+      cumulativeSalesNet += salesNetBs;
       const cumulativeShare = totalSalesNet > 0 ? cumulativeSalesNet / totalSalesNet : 0;
       const pareto: ClientesRow['pareto'] =
         cumulativeShare <= PARETO_THRESHOLDS.a ? 'A' : cumulativeShare <= PARETO_THRESHOLDS.b ? 'B' : 'C';
 
       return {
         name: r.Name,
-        salesNet,
-        returnsNet,
-        returnRate: salesNet > 0 ? returnsNet / salesNet : null,
+        salesNet: { bs: salesNetBs, usd: salesNetUsd },
+        returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
+        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
         pareto,
       };
     });
 
-    const response: ClientesResponse = { rows, paretoThresholds: PARETO_THRESHOLDS, usdRate };
+    const response: ClientesResponse = { rows, paretoThresholds: PARETO_THRESHOLDS };
 
     return jsonWithCache(response);
   } catch {

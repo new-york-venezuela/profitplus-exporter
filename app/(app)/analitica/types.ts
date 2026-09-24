@@ -275,8 +275,8 @@ export interface VendedoresExcludedResponse {
 // Clientes tab
 export interface ClientesRow {
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
   returnRate: number | null;
   pareto: 'A' | 'B' | 'C'; // Pareto segment
 }
@@ -284,7 +284,6 @@ export interface ClientesRow {
 export interface ClientesResponse {
   rows: ClientesRow[];
   paretoThresholds: { a: number; b: number }; // cumulative % for A and B segments
-  usdRate: number | null;
 }
 
 // Clientes tab — monthly trend of active customers and churn rate, one
@@ -310,7 +309,7 @@ export interface ClientesTrendResponse {
 export interface ClientesChurnedRow {
   name: string;
   lastPurchaseDateKey: number; // YYYYMMDD, latest DateKey with a sale in the prior period
-  lostRevenue: number; // their NetAmount sum in the prior period — what "came back" would recover
+  lostRevenue: DualAmount; // their NetAmount sum in the prior period — what "came back" would recover
 }
 
 export interface ClientesChurnedResponse {
@@ -319,7 +318,6 @@ export interface ClientesChurnedResponse {
   // (mirrors buildPrevPeriodDateWhereClause's own null case) — the UI
   // should show "no disponible" rather than an empty table in that case.
   available: boolean;
-  usdRate: number | null;
 }
 
 // Productos tab
