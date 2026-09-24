@@ -29,7 +29,7 @@ function monthlyTrendQuery(dateWhere: string): string {
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         ${usdConversionJoin('fr', undefined, 'frfx')}
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -85,7 +85,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         ${usdConversionJoin('fr', undefined, 'frfx')}
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -135,17 +135,17 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Sales fs
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moBs,
       (SELECT ISNULL(SUM(fs.NetAmount / NULLIF(COALESCE(fs.DocumentExchangeRate, sfx.RateSell), 0)), 0)
-         FROM fact.Fact_Sales fs ${usdConversionJoin('fs').replace('fx', 'sfx')}
+         FROM fact.Fact_Sales fs ${usdConversionJoin('fs', undefined, 'sfx')}
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moUsd,
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Returns fr
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
-         FROM fact.Fact_Returns fr ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moUsd,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moBs,
       (SELECT ISNULL(SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, cfx.RateSell), 0)), 0)
-         FROM fact.Fact_Collections fc ${usdConversionJoin('fc').replace('fx', 'cfx')}
+         FROM fact.Fact_Collections fc ${usdConversionJoin('fc', undefined, 'cfx')}
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moUsd
   `;
 }

@@ -219,6 +219,15 @@ describe('usdConversionJoin', () => {
     const sql = usdConversionJoin('a', 'SnapshotDateKey');
     expect(sql).toContain('fx.DateKey = a.SnapshotDateKey');
   });
+
+  test('accepts an explicit joinAlias for queries needing more than one exchange-rate join in scope', () => {
+    const sql = usdConversionJoin('fr', undefined, 'frfx');
+    expect(sql).toContain('LEFT JOIN fact.Fact_ExchangeRate frfx');
+    expect(sql).toContain('frfx.DateKey = fr.DateKey');
+    expect(sql).toContain('frfx.CurrencyKey =');
+    expect(sql).not.toContain(' fx.'); // no leftover bare "fx." reference anywhere
+    expect(sql).not.toContain('Fact_ExchangeRate fx'); // and the join itself isn't aliased "fx" either
+  });
 });
 
 describe('dualAmountExpr', () => {
@@ -238,5 +247,11 @@ describe('dualAmountExpr', () => {
     // matches the opening SUM(.
     const usdSumStart = sql.indexOf('SUM(fp.NetAmount /');
     expect(usdSumStart).toBeGreaterThan(-1);
+  });
+
+  test('dualAmountExpr accepts a matching joinAlias for its fallback rate reference', () => {
+    const sql = dualAmountExpr('fr', 'NetAmount', 'Bs', 'Usd', 'frfx');
+    expect(sql).toContain('frfx.RateSell');
+    expect(sql).not.toContain('fx.RateSell'); // not the default alias when a custom one was requested
   });
 });
