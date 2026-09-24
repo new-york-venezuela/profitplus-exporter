@@ -180,14 +180,13 @@ export interface DevolucionesMatrixCell {
   // `parentValue` for a GroupedDrilldownTable breakdown fetch on that row.
   clienteValue: string | null;
   ratioDevolucion: number | null;
-  amountNet: number;
+  amountNet: DualAmount;
 }
 
 export interface DevolucionesResponse {
   rows: DevolucionesMatrixCell[];
   groupBy: GroupBy; // 'salesrep' | 'producto' | 'cliente'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
 // CXC tab
