@@ -251,7 +251,11 @@ describe('dualAmountExpr', () => {
 
   test('dualAmountExpr accepts a matching joinAlias for its fallback rate reference', () => {
     const sql = dualAmountExpr('fr', 'NetAmount', 'Bs', 'Usd', 'frfx');
-    expect(sql).toContain('frfx.RateSell');
-    expect(sql).not.toContain('fx.RateSell'); // not the default alias when a custom one was requested
+    // Assert the exact expected fallback-rate reference is present, rather
+    // than a negative substring check for "fx.RateSell" — that substring is
+    // a suffix of "frfx.RateSell" itself, so a naive `.not.toContain('fx.RateSell')`
+    // would fail even on a fully correct implementation whenever the custom
+    // alias happens to end in "fx" (as "frfx" does here).
+    expect(sql).toContain('COALESCE(fr.DocumentExchangeRate, frfx.RateSell)');
   });
 });
