@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-23-seller-product-store-matrix-design.md`
 
-**Sequence:** 2nd of 4 planned changes, in this order: (1) `2026-09-23-historical-usd-conversion.md` (this plan's hard blocker — see below), (2) **this plan**, (3) a `migrations/` directory reorg (`dwh-migrations/` → `migrations/dwh/`, etc. — bounded, no written plan doc; not yet executed; runs AFTER this plan so it picks up this plan's Task 1 migration file (`dwh-migrations/0033_dim_date_add_week.sql`) via a plain `git mv` — no path edits needed in this plan for that reorg to work correctly), (4) a not-yet-written "Histórico 2025" legacy-ERP-import spec/plan.
+**Sequence:** 2nd of 4 planned changes, in this order: (1) `2026-09-23-historical-usd-conversion.md` (this plan's hard blocker — see below), (2) **this plan**, (3) the `migrations/` directory reorg (`dwh-migrations/` → `migrations/dwh/`, etc.) — **already executed and committed**, ahead of this plan; this plan's Task 1 uses the current real path `migrations/dwh/0033_dim_date_add_week.sql` throughout, not the stale pre-reorg `dwh-migrations/` wording this document originally had, (4) `2026-09-23-legacy-2025-import.md` — plan written, also claims migration number `0033` under its own (now-updated) `migrations/dwh/0034_legacy_2025_schema.sql` numbering; since this plan (seller-matrix) executes before that one, `0033` is this plan's to use.
 
 ## Global Constraints
 
@@ -22,7 +22,7 @@
 - No new `user_modules` module — gated by the existing `'dwh'` module via `requireDwhAccess` (API) and the page-level `hasDwhAccess` gate `/analitica` already has (Server Component, unchanged by this plan).
 - No zero-filled cross join anywhere — both the matrix JSON and the XLSX export only ever emit rows/cells for `(product, store[, week])` combinations with actual non-zero sales or returns in the selected range.
 - No margin/cost data — `Fact_Sales.UnitCost`/`COGSAmount`/`GrossProfitAmount` are unwired (`NO_COST_DATA`); this feature never reads them.
-- Current highest `dwh-migrations/` file is `0032_backfill_legalentitykey_noncurrent.sql` (confirmed via `ls dwh-migrations/`) — the new migration is `0033_dim_date_add_week.sql`.
+- Current highest `migrations/dwh/` file is `0032_backfill_legalentitykey_noncurrent.sql` (confirmed via `ls migrations/dwh/`) — the new migration is `migrations/dwh/0033_dim_date_add_week.sql`.
 - Route tests in this repo are auth-smoke-tests only (assert 401 for an unauthenticated `GET`) — confirmed by reading `app/api/dwh/clientes/__tests__/route.test.ts`. This repo has no live-DB integration tests at the `app/api/dwh/*` route level. Follow this exact pattern for the new route's auth tests; the matrix/summary SQL logic itself is tested via a pure-string-assertion unit test the same way `query-builder.test.ts` tests its own helpers, and the XLSX export's row-shaping logic is tested by extracting it into a pure function and unit-testing that directly (see Task 4).
 - Run tests with `bun test <path>` for pure-TS/React files — no `--env-file`/`--timeout`/DB needed. `--isolate --env-file=.env.local --timeout 30000` is only for `scripts/dwh/` tests that provision a real disposable database, which this plan does not touch.
 - Every commit ends with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
@@ -32,7 +32,7 @@
 ## Task 1: `dim.Dim_Date` week columns migration
 
 **Files:**
-- Create: `dwh-migrations/0033_dim_date_add_week.sql`
+- Create: `migrations/dwh/0033_dim_date_add_week.sql`
 - Test: `scripts/dwh/__tests__/0033-dim-date-week.test.ts`
 
 **Interfaces:**
@@ -41,7 +41,7 @@
 
 **Design notes:**
 
-Adding a `NOT NULL` column to an existing non-empty table needs either a `DEFAULT` or a three-step add-nullable/backfill/alter-to-not-null sequence. `Dim_Date` already has ~5840 rows (2020-01-01 through 2035-12-31 daily), so this migration adds both columns as nullable, backfills via one `UPDATE`, then `ALTER COLUMN` each to `NOT NULL`. Follows the existing `IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(...) AND name = ...)` guard idiom from `dwh-migrations/0014_dim_legal_entity.sql:3-9`, with `GO` separating each batch (this repo's multi-batch DDL convention per `dwh-migrations/README.md`).
+Adding a `NOT NULL` column to an existing non-empty table needs either a `DEFAULT` or a three-step add-nullable/backfill/alter-to-not-null sequence. `Dim_Date` already has ~5840 rows (2020-01-01 through 2035-12-31 daily), so this migration adds both columns as nullable, backfills via one `UPDATE`, then `ALTER COLUMN` each to `NOT NULL`. Follows the existing `IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(...) AND name = ...)` guard idiom from `migrations/dwh/0014_dim_legal_entity.sql:3-9`, with `GO` separating each batch (this repo's multi-batch DDL convention per `migrations/dwh/README.md`).
 
 Monday-anchoring: `DATEPART(weekday, FullDate)` is `DATEFIRST`-dependent (returns 1-7 for whatever day `SET DATEFIRST` currently points at), so it cannot be used directly to always mean "1=Monday." Instead, anchor off `DATEPART(iso_week, ...)`/`DATEPART(weekday, ...)` combined with `@@DATEFIRST`-independent arithmetic: `DATEADD(day, 1 - ((DATEPART(weekday, FullDate) + @@DATEFIRST - 2) % 7 + 1), FullDate)` normalizes the weekday number to an ISO Monday=1 basis regardless of session `DATEFIRST`, then subtracts back to Monday. `YearWeek`'s ISO week-year uses `DATEPART(iso_week, ...)` combined with the year of the Thursday of that same ISO week (`DATEADD(day, 3, WeekStartDate)`), since the ISO week-year is defined as the year containing that week's Thursday — this correctly handles both the late-December (week 1 of next year can start in December) and early-January (last week of prior year can extend into January) boundary cases without a special-case branch.
 
@@ -132,7 +132,7 @@ Expected: FAIL — migration `0033` doesn't exist yet, so `WeekStartDate`/`YearW
 
 - [ ] **Step 3: Write the migration**
 
-Create `dwh-migrations/0033_dim_date_add_week.sql`:
+Create `migrations/dwh/0033_dim_date_add_week.sql`:
 
 ```sql
 -- WeekStartDate/YearWeek let the seller x product x store matrix export
@@ -189,7 +189,7 @@ Expected: migration `0033` recorded in `dwh.__dwh_migrations`, no errors. Spot-c
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dwh-migrations/0033_dim_date_add_week.sql scripts/dwh/__tests__/0033-dim-date-week.test.ts
+git add migrations/dwh/0033_dim_date_add_week.sql scripts/dwh/__tests__/0033-dim-date-week.test.ts
 git commit -m "$(cat <<'EOF'
 feat: add WeekStartDate/YearWeek columns to Dim_Date
 
@@ -293,7 +293,7 @@ import type { SellerSummaryRow, SellerSummaryResponse } from '@/app/(app)/analit
 export const dynamic = 'force-dynamic';
 
 // Reads from the pre-aggregated dwh/dim/fact schema in DWH_AlimentosNY (see
-// dwh-migrations/), not the raw Profit Plus ERP — no COLLATE/RTRIM
+// migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM
 // gymnastics needed here, that already happened at load time. See
 // docs/superpowers/specs/2026-09-23-seller-product-store-matrix-design.md.
 //
