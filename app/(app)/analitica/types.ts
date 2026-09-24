@@ -104,7 +104,7 @@ export interface ResumenResponse {
 export interface VentasRow {
   label: string; // formatted month or customer or line name
   value: string | number; // the groupBy identifier
-  salesNet: number;
+  salesNet: DualAmount;
   returnRate: number | null;
   avgDiscount: number | null;
 }
@@ -113,24 +113,22 @@ export interface VentasResponse {
   rows: VentasRow[];
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
-// Ventas tab — KPI row, scoped to dateRange/currency like every other
-// section, computed directly off Fact_Sales (no margin/profit field: DWH
-// has no reliable cost data, see AGENTS.md).
+// Ventas tab — KPI row, scoped to dateRange like every other section,
+// computed directly off Fact_Sales (no margin/profit field: DWH has no
+// reliable cost data, see AGENTS.md).
 export interface VentasKpis {
-  salesNet: number;
-  salesNetPrevPeriod: number | null; // same-length immediately-preceding period, for the Δ%
+  salesNet: DualAmount;
+  salesNetPrevPeriod: DualAmount | null; // same-length immediately-preceding period, for the Δ%
   activeClients: number; // distinct Dim_LegalEntity with >=1 sale in range
-  avgTicket: number | null; // salesNet / distinct invoices (null if no invoices)
+  avgTicket: DualAmount | null; // salesNet / distinct invoices (null if no invoices)
   unitsSold: number;
-  salesPerActiveClient: number | null; // salesNet / activeClients (null if activeClients = 0)
+  salesPerActiveClient: DualAmount | null; // salesNet / activeClients (null if activeClients = 0)
 }
 
 export interface VentasKpisResponse {
   kpis: VentasKpis;
-  usdRate: number | null;
 }
 
 // Ventas tab — dynamic sales comparison charts (two independent charts: by
@@ -150,12 +148,11 @@ export interface ComparisonOptionsResponse {
 export interface ComparisonSeriesMonthRow {
   yearMonth: string; // formatted label, e.g. "Ene 26"
   yearMonthValue: string; // raw YYYY-MM
-  values: Record<string, number>; // series value (LineCode or LegalEntityKey) -> salesNet that month
+  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesNet that month
 }
 
 export interface VentasComparisonResponse {
   rows: ComparisonSeriesMonthRow[];
-  usdRate: number | null;
 }
 
 // Compras tab

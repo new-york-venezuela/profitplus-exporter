@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
   VentasResponse, VentasRow, GroupBy,
   VentasKpis, VentasKpisResponse,
   ComparisonOption, ComparisonOptionsResponse, ComparisonSeriesMonthRow, VentasComparisonResponse,
+  DualAmount,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -20,14 +21,20 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
     SELECT
       d.YearMonth AS GroupValue,
       d.YearMonth AS GroupLabel,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet
+         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr', undefined, 'rfx')}
+         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
+         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY d.YearMonth
@@ -45,20 +52,27 @@ function clienteQuery(dimension: Dimension, dateWhere: string, returnsDateWhere:
     SELECT TOP 15
       ${spec.valueExpr} AS GroupValue,
       ${spec.labelExpr} AS GroupLabel,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
       (SELECT ISNULL(SUM(fr2.NetAmount), 0)
          FROM fact.Fact_Returns fr2
          ${innerJoin}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNet
+      ) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr2
+         ${innerJoin}
+         ${usdConversionJoin('fr2', undefined, 'r2fx')}
+         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
+      ) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${monthFilter} ${salesRepFilter}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -67,18 +81,24 @@ function lineaQuery(dateWhere: string, returnsDateWhere: string): string {
     SELECT TOP 15
       ISNULL(p.LineCode, 'SIN_LINEA') AS GroupValue,
       ISNULL(p.LineName, 'Sin línea') AS GroupLabel,
-      SUM(fs.NetAmount) AS SalesNet,
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
-         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet
+         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
+      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr', undefined, 'rfx')}
+         JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
+         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY ISNULL(p.LineCode, 'SIN_LINEA'), ISNULL(p.LineName, 'Sin línea')
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -89,12 +109,13 @@ function lineaProductBreakdownQuery(salesDateWhere: string): string {
     SELECT TOP 15
       CAST(p.ProductKey AS varchar(20)) AS GroupValue,
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
-      SUM(fs.NetAmount) AS SalesNet
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     WHERE fs.IsVoided = 0 AND ISNULL(p.LineCode, 'SIN_LINEA') = @parentValue ${salesDateWhere}
     GROUP BY p.ProductKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -170,19 +191,21 @@ function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): s
 // is line-grain, so COUNT(*) would overcount orders).
 const KPIS_QUERY = (dateWhere: string) => `
   SELECT
-    SUM(fs.NetAmount) AS SalesNet,
+    ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
     SUM(fs.QuantitySold) AS UnitsSold,
     COUNT(DISTINCT le.LegalEntityKey) AS ActiveClients,
     COUNT(DISTINCT fs.InvoiceNumber) AS InvoiceCount
   FROM fact.Fact_Sales fs
+  ${usdConversionJoin('fs')}
   JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
   JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
   WHERE fs.IsVoided = 0 ${dateWhere}
 `;
 
 const PREV_PERIOD_SALES_QUERY = (dateWhere: string) => `
-  SELECT SUM(fs.NetAmount) AS SalesNet
+  SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
   FROM fact.Fact_Sales fs
+  ${usdConversionJoin('fs')}
   WHERE fs.IsVoided = 0 ${dateWhere}
 `;
 
@@ -219,8 +242,9 @@ function topClientesOptionsQuery(dateWhere: string): string {
 // IN(...) list via parameterized inputs (kN), never string-concatenated.
 function comparisonByLineaQuery(dateWhere: string, keyParams: string[]): string {
   return `
-    SELECT d.YearMonth, ISNULL(p.LineCode, 'SIN_LINEA') AS SeriesKey, SUM(fs.NetAmount) AS SalesNet
+    SELECT d.YearMonth, ISNULL(p.LineCode, 'SIN_LINEA') AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} AND ISNULL(p.LineCode, 'SIN_LINEA') IN (${keyParams.join(', ')})
@@ -231,8 +255,9 @@ function comparisonByLineaQuery(dateWhere: string, keyParams: string[]): string 
 
 function comparisonByClienteQuery(dateWhere: string, keyParams: string[]): string {
   return `
-    SELECT d.YearMonth, CAST(le.LegalEntityKey AS varchar(20)) AS SeriesKey, SUM(fs.NetAmount) AS SalesNet
+    SELECT d.YearMonth, CAST(le.LegalEntityKey AS varchar(20)) AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
@@ -242,30 +267,33 @@ function comparisonByClienteQuery(dateWhere: string, keyParams: string[]): strin
   `;
 }
 
-async function handleKpis(dateWhere: string, prevDateWhere: string | null, currency: string) {
+async function handleKpis(dateWhere: string, prevDateWhere: string | null): Promise<NextResponse> {
   const pool = await getDwhPool();
-  const [kpiResult, prevResult, usdRate] = await Promise.all([
+  const [kpiResult, prevResult] = await Promise.all([
     pool.request().query(KPIS_QUERY(dateWhere)),
     prevDateWhere !== null ? pool.request().query(PREV_PERIOD_SALES_QUERY(prevDateWhere)) : Promise.resolve(null),
-    currency === 'usd' ? getUsdRate() : Promise.resolve(null),
   ]);
 
-  const row = kpiResult.recordset[0] as { SalesNet: number | null; UnitsSold: number | null; ActiveClients: number; InvoiceCount: number };
-  const salesNet = Number(row.SalesNet ?? 0);
+  const row = kpiResult.recordset[0] as { SalesNetBs: number | null; SalesNetUsd: number | null; UnitsSold: number | null; ActiveClients: number; InvoiceCount: number };
+  const salesNetBs = Number(row.SalesNetBs ?? 0);
+  const salesNetUsd = row.SalesNetUsd === null ? null : Number(row.SalesNetUsd);
   const activeClients = Number(row.ActiveClients ?? 0);
   const invoiceCount = Number(row.InvoiceCount ?? 0);
-  const salesNetPrevPeriod = prevResult ? Number(prevResult.recordset[0]?.SalesNet ?? 0) : null;
+  const prevRow = prevResult?.recordset[0] as { SalesNetBs: number | null; SalesNetUsd: number | null } | undefined;
+  const salesNetPrevPeriod: DualAmount | null = prevResult
+    ? { bs: Number(prevRow?.SalesNetBs ?? 0), usd: prevRow?.SalesNetUsd === null || prevRow?.SalesNetUsd === undefined ? null : Number(prevRow.SalesNetUsd) }
+    : null;
 
   const kpis: VentasKpis = {
-    salesNet,
+    salesNet: { bs: salesNetBs, usd: salesNetUsd },
     salesNetPrevPeriod,
     activeClients,
-    avgTicket: invoiceCount > 0 ? salesNet / invoiceCount : null,
+    avgTicket: invoiceCount > 0 ? { bs: salesNetBs / invoiceCount, usd: salesNetUsd === null ? null : salesNetUsd / invoiceCount } : null,
     unitsSold: Number(row.UnitsSold ?? 0),
-    salesPerActiveClient: activeClients > 0 ? salesNet / activeClients : null,
+    salesPerActiveClient: activeClients > 0 ? { bs: salesNetBs / activeClients, usd: salesNetUsd === null ? null : salesNetUsd / activeClients } : null,
   };
 
-  const response: VentasKpisResponse = { kpis, usdRate };
+  const response: VentasKpisResponse = { kpis };
   return jsonWithCache(response);
 }
 
@@ -284,7 +312,7 @@ async function handleComparisonOptions(dateWhere: string) {
   return jsonWithCache(response);
 }
 
-async function handleComparison(dateWhere: string, keys: string[], mode: 'linea' | 'cliente', currency: string) {
+async function handleComparison(dateWhere: string, keys: string[], mode: 'linea' | 'cliente'): Promise<NextResponse> {
   const pool = await getDwhPool();
   const req = pool.request();
   const keyParams = keys.map((k, i) => {
@@ -292,23 +320,20 @@ async function handleComparison(dateWhere: string, keys: string[], mode: 'linea'
     return `@k${i}`;
   });
   const query = mode === 'linea' ? comparisonByLineaQuery(dateWhere, keyParams) : comparisonByClienteQuery(dateWhere, keyParams);
-  const [result, usdRate] = await Promise.all([
-    req.query(query),
-    currency === 'usd' ? getUsdRate() : Promise.resolve(null),
-  ]);
+  const result = await req.query(query);
 
   const byMonth = new Map<string, ComparisonSeriesMonthRow>();
-  for (const r of result.recordset as { YearMonth: string; SeriesKey: string; SalesNet: number }[]) {
+  for (const r of result.recordset as { YearMonth: string; SeriesKey: string; SalesNetBs: number; SalesNetUsd: number | null }[]) {
     let entry = byMonth.get(r.YearMonth);
     if (!entry) {
       entry = { yearMonth: formatYearMonth(r.YearMonth), yearMonthValue: r.YearMonth, values: {} };
       byMonth.set(r.YearMonth, entry);
     }
-    entry.values[r.SeriesKey] = Number(r.SalesNet);
+    entry.values[r.SeriesKey] = { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) };
   }
   const rows = Array.from(byMonth.values()).sort((a, b) => a.yearMonthValue.localeCompare(b.yearMonthValue));
 
-  const response: VentasComparisonResponse = { rows, usdRate };
+  const response: VentasComparisonResponse = { rows };
   return jsonWithCache(response);
 }
 
@@ -318,7 +343,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy') ?? 'mes';
   const groupBy: GroupBy = groupByParam === 'cliente' || groupByParam === 'linea' ? groupByParam : 'mes';
   const clienteDimensionParam = searchParams.get('clienteDimension');
@@ -342,7 +366,7 @@ export async function GET(request: NextRequest) {
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
       const prevDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
-      return await handleKpis(dateWhere, prevDateWhere, currency);
+      return await handleKpis(dateWhere, prevDateWhere);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -362,7 +386,7 @@ export async function GET(request: NextRequest) {
     }
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
-      return await handleComparison(dateWhere, keys, section === 'comparisonLinea' ? 'linea' : 'cliente', currency);
+      return await handleComparison(dateWhere, keys, section === 'comparisonLinea' ? 'linea' : 'cliente');
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -382,7 +406,7 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(lineaProductBreakdownQuery(salesDateWhere));
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })) });
+      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNetBs) })) });
     }
 
     // Generic clienteDimension-parent breakdown: this DOES join breakdownBy's
@@ -432,29 +456,23 @@ export async function GET(request: NextRequest) {
       recordset = result.recordset;
     }
 
-    const usdRate = currency === 'usd' ? await getUsdRate() : null;
-
     const rows: VentasRow[] = recordset.map(r => {
-      const salesNet = Number(r.SalesNet);
+      const salesNetBs = Number(r.SalesNetBs);
+      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
-      const returnsNet = Number(r.ReturnsNet);
+      const returnsNetBs = Number(r.ReturnsNetBs);
       const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
       return {
         label,
         value: r.GroupValue as string,
-        salesNet,
-        returnRate: salesNet > 0 ? returnsNet / salesNet : null,
+        salesNet: { bs: salesNetBs, usd: salesNetUsd },
+        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
       };
     });
 
-    const response: VentasResponse = {
-      rows,
-      groupBy,
-      breadcrumb,
-      usdRate,
-    };
+    const response: VentasResponse = { rows, groupBy, breadcrumb };
 
     return jsonWithCache(response);
   } catch {
