@@ -96,7 +96,7 @@ export default function TabResumen({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}&currency=${currency}`);
+        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -138,23 +138,30 @@ export default function TabResumen({
     );
   }
 
-  const rate = data.usdRate ?? undefined;
-
   const trendData = data.monthlyTrend.map(r => ({
     label: formatYearMonth(r.yearMonth),
-    Ventas: r.salesNet,
-    Devoluciones: r.returnsNet,
+    Ventas: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
+    Devoluciones: currency === 'usd' ? r.returnsNet.usd : r.returnsNet.bs,
   }));
 
   const orderedBuckets = BUCKET_ORDER
     .map(bucket => data.agingBuckets.find(b => b.bucket === bucket))
     .filter((b): b is AgingBucketRow => b !== undefined);
-  const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: b.amount }));
+  const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: currency === 'usd' ? b.amount.usd : b.amount.bs }));
   const overdueShare = (() => {
-    const total = orderedBuckets.reduce((sum, b) => sum + b.amount, 0);
-    const overdue = orderedBuckets.filter(b => b.bucket !== 'Current').reduce((sum, b) => sum + b.amount, 0);
+    const total = orderedBuckets.reduce((sum, b) => sum + b.amount.bs, 0);
+    const overdue = orderedBuckets.filter(b => b.bucket !== 'Current').reduce((sum, b) => sum + b.amount.bs, 0);
     return total > 0 ? overdue / total : null;
   })();
+
+  const topCustomersData = data.topCustomers.map(c => ({
+    name: c.name,
+    netRevenue: currency === 'usd' ? c.netRevenue.usd : c.netRevenue.bs,
+  }));
+  const topProductsData = data.topProducts.map(p => ({
+    name: p.name,
+    netRevenue: currency === 'usd' ? p.netRevenue.usd : p.netRevenue.bs,
+  }));
 
   const activeCustomersDelta =
     data.kpis.activeCustomersPrevPeriod !== null && data.kpis.activeCustomersPrevPeriod > 0
@@ -165,14 +172,14 @@ export default function TabResumen({
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesNet12mo, currency, rate)} />
-        <KpiCard label="Devoluciones (12m)" value={moneyLabel(data.kpis.returnsNet12mo, currency, rate)} />
+        <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesNet12mo, currency)} />
+        <KpiCard label="Devoluciones (12m)" value={moneyLabel(data.kpis.returnsNet12mo, currency)} />
         <KpiCard
           label="Tasa de devolución"
           value={pct(data.kpis.returnRate)}
           tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
         />
-        <KpiCard label="Cobrado (12m)" value={moneyLabel(data.kpis.collected12mo, currency, rate)} />
+        <KpiCard label="Cobrado (12m)" value={moneyLabel(data.kpis.collected12mo, currency)} />
         <KpiCard
           label="Clientes activos"
           value={data.kpis.activeCustomers.toLocaleString('es-VE')}
@@ -194,8 +201,8 @@ export default function TabResumen({
             <ComposedChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-              <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} />
               <Legend />
               <Bar dataKey="Ventas" fill="#2563eb" radius={[3, 3, 0, 0]} />
               <Line type="monotone" dataKey="Devoluciones" stroke="#dc2626" strokeWidth={2} dot={false} />
@@ -211,11 +218,11 @@ export default function TabResumen({
             <EmptyState />
           ) : (
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={data.topCustomers} layout="vertical" margin={{ left: 24 }}>
+              <BarChart data={topCustomersData} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money(v, currency, rate)} />
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+                <Tooltip formatter={val => moneyTooltip(val, currency)} />
                 <Bar dataKey="netRevenue" fill="#2563eb" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -228,11 +235,11 @@ export default function TabResumen({
             <EmptyState />
           ) : (
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={data.topProducts} layout="vertical" margin={{ left: 24 }}>
+              <BarChart data={topProductsData} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money(v, currency, rate)} />
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+                <Tooltip formatter={val => moneyTooltip(val, currency)} />
                 <Bar dataKey="netRevenue" fill="#0891b2" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -253,8 +260,8 @@ export default function TabResumen({
               <BarChart data={agingData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-                <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+                <Tooltip formatter={val => moneyTooltip(val, currency)} />
                 <Bar dataKey="Monto" radius={[3, 3, 0, 0]}>
                   {agingData.map(d => (
                     <Cell key={d.bucket} fill={BUCKET_COLORS[d.bucket] ?? '#94a3b8'} />
@@ -283,7 +290,7 @@ export default function TabResumen({
                     <tr key={d.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                       <td className="px-3 py-2 text-gray-800">{d.name}</td>
                       <td className="px-3 py-2 text-right font-medium text-gray-900">
-                        {moneyLabel(d.outstanding, currency, rate)}
+                        {moneyLabel(d.outstanding, currency)}
                       </td>
                     </tr>
                   ))}
@@ -314,13 +321,13 @@ export default function TabResumen({
                   <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesNet, currency, rate)}
+                      {moneyLabel(r.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(r.returnsNet, currency, rate)}
+                      {moneyLabel(r.returnsNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {r.salesNet > 0 ? pct(r.returnsNet / r.salesNet) : '—'}
+                      {r.salesNet.bs > 0 ? pct(r.returnsNet.bs / r.salesNet.bs) : '—'}
                     </td>
                   </tr>
                 ))}
