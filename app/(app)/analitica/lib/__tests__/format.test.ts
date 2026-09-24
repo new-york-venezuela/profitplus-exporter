@@ -2,43 +2,35 @@ import { describe, test, expect } from 'bun:test';
 import { money, moneyLabel, moneyTooltip } from '../format';
 
 describe('money', () => {
-  test('formats bs with Venezuelan locale grouping, no decimals', () => {
-    expect(money(1234567, 'bs')).toBe('1.234.567');
+  test('formats the bs side with Venezuelan locale grouping, no decimals', () => {
+    expect(money({ bs: 1234567, usd: 30000 }, 'bs')).toBe('1.234.567');
   });
 
-  test('formats usd with US locale grouping when no rate is given', () => {
-    expect(money(1234567, 'usd')).toBe('1,234,567');
+  test('formats the usd side with US locale grouping', () => {
+    expect(money({ bs: 1234567, usd: 30864 }, 'usd')).toBe('30,864');
   });
 
-  test('converts to usd by dividing by the exchange rate when both are given', () => {
-    expect(money(100000, 'usd', 40)).toBe('2,500');
-  });
-
-  test('does not convert usd when rate is omitted', () => {
-    expect(money(100000, 'usd')).toBe('100,000');
-  });
-
-  test('defaults to bs formatting when currency is omitted', () => {
-    expect(money(1234567)).toBe('1.234.567');
+  test('returns an em dash when the requested currency side is null', () => {
+    expect(money({ bs: 1234567, usd: null }, 'usd')).toBe('—');
   });
 });
 
 describe('moneyLabel', () => {
   test('prefixes bs amounts with "Bs. "', () => {
-    expect(moneyLabel(1000, 'bs')).toBe('Bs. 1.000');
+    expect(moneyLabel({ bs: 1000, usd: 25 }, 'bs')).toBe('Bs. 1.000');
   });
 
   test('prefixes usd amounts with "$"', () => {
-    expect(moneyLabel(1000, 'usd')).toBe('$1,000');
+    expect(moneyLabel({ bs: 1000, usd: 25 }, 'usd')).toBe('$25');
   });
 
-  test('applies the exchange rate before formatting', () => {
-    expect(moneyLabel(80000, 'usd', 40)).toBe('$2,000');
+  test('shows an em dash (no "$" prefix collision) when usd is null', () => {
+    expect(moneyLabel({ bs: 1000, usd: null }, 'usd')).toBe('—');
   });
 });
 
 describe('moneyTooltip', () => {
-  test('formats a plain numeric value', () => {
+  test('formats a plain numeric value already selected by the caller', () => {
     expect(moneyTooltip(1000, 'bs')).toBe('Bs. 1.000');
   });
 
@@ -46,7 +38,7 @@ describe('moneyTooltip', () => {
     expect(moneyTooltip([1000], 'bs')).toBe('Bs. 1.000');
   });
 
-  test('applies currency conversion the same as moneyLabel', () => {
-    expect(moneyTooltip(80000, 'usd', 40)).toBe('$2,000');
+  test('formats a usd-side value the same way', () => {
+    expect(moneyTooltip(2000, 'usd')).toBe('$2,000');
   });
 });
