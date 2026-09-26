@@ -38,6 +38,8 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
   const [matrixError, setMatrixError] = useState<string | null>(null);
 
   const [lineFilter, setLineFilter] = useState<string | null>(null);
+  const [subLineFilter, setSubLineFilter] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +68,6 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
 
   useEffect(() => {
     if (salesRepKey === null) {
-      setMatrix(null);
       return;
     }
     let cancelled = false;
@@ -105,11 +106,27 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
     return Array.from(lines).sort();
   }, [matrix]);
 
+  const subLineOptions = useMemo(() => {
+    if (!matrix) return [];
+    const subLines = new Set<string>();
+    for (const p of matrix.products) if (p.subLineName) subLines.add(p.subLineName);
+    return Array.from(subLines).sort();
+  }, [matrix]);
+
+  const categoryOptions = useMemo(() => {
+    if (!matrix) return [];
+    const categories = new Set<string>();
+    for (const p of matrix.products) if (p.categoryName) categories.add(p.categoryName);
+    return Array.from(categories).sort();
+  }, [matrix]);
+
   const visibleProducts: SellerMatrixProduct[] = useMemo(() => {
     if (!matrix) return [];
-    if (!lineFilter) return matrix.products;
-    return matrix.products.filter(p => p.lineName === lineFilter);
-  }, [matrix, lineFilter]);
+    return matrix.products.filter(p =>
+      (!lineFilter || p.lineName === lineFilter) &&
+      (!subLineFilter || p.subLineName === subLineFilter) &&
+      (!categoryFilter || p.categoryName === categoryFilter));
+  }, [matrix, lineFilter, subLineFilter, categoryFilter]);
 
   const cellsByKey = useMemo(() => {
     const map = new Map<string, SellerMatrixResponse['cells'][number]>();
@@ -208,19 +225,53 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
           <EmptyState />
         ) : (
           <>
-            {lineOptions.length > 0 && (
-              <div className="flex items-center gap-2 text-xs text-gray-600 mb-3">
-                Línea:
-                <select
-                  value={lineFilter ?? ''}
-                  onChange={e => setLineFilter(e.target.value || null)}
-                  className="border border-gray-200 rounded px-2 py-1 text-sm"
-                >
-                  <option value="">Todas</option>
-                  {lineOptions.map(l => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
+            {(lineOptions.length > 0 || subLineOptions.length > 0 || categoryOptions.length > 0) && (
+              <div className="flex flex-wrap items-center gap-4 text-xs text-gray-600 mb-3">
+                {lineOptions.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    Línea:
+                    <select
+                      value={lineFilter ?? ''}
+                      onChange={e => setLineFilter(e.target.value || null)}
+                      className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    >
+                      <option value="">Todas</option>
+                      {lineOptions.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {subLineOptions.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    Sublínea:
+                    <select
+                      value={subLineFilter ?? ''}
+                      onChange={e => setSubLineFilter(e.target.value || null)}
+                      className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    >
+                      <option value="">Todas</option>
+                      {subLineOptions.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {categoryOptions.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    Categoría:
+                    <select
+                      value={categoryFilter ?? ''}
+                      onChange={e => setCategoryFilter(e.target.value || null)}
+                      className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    >
+                      <option value="">Todas</option>
+                      {categoryOptions.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             )}
             <div className="overflow-x-auto">
