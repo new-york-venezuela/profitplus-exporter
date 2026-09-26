@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { moneyLabel } from '../lib/format';
+import SearchableSelect from '@/lib/components/searchable-select';
 import type {
   Currency, DateRange, ProductosResponse, ProductosRow,
   ProfundidadLineaResponse, UnitsByLineaResponse,
@@ -262,16 +263,14 @@ export default function TabProductos({
           <h2 className="text-sm font-bold text-gray-900">Rotación y margen por producto</h2>
           <label className="flex items-center gap-2 text-sm text-gray-600">
             Tienda:
-            <select
-              value={tienda ?? ''}
-              onChange={e => setTienda(e.target.value || null)}
-              className="border border-gray-200 rounded px-2 py-1 text-sm max-w-[220px]"
-            >
-              <option value="">Todas</option>
-              {tiendas.map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={tienda}
+              onChange={setTienda}
+              options={tiendas}
+              allLabel="Todas"
+              placeholder="Buscar tienda..."
+              className="max-w-[220px]"
+            />
           </label>
         </div>
         <p className="text-xs text-gray-500 mb-3">
