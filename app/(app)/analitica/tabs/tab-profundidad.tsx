@@ -67,7 +67,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
     }
     loadLeaderboard();
     return () => { cancelled = true; };
-  }, [dateRange, currency, firstLineMinPenetration, secondLineMinPenetration]);
+  }, [dateRange, firstLineMinPenetration, secondLineMinPenetration]);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +99,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
     }
     load();
     return () => { cancelled = true; };
-  }, [dateRange, currency, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration, salesRepKey]);
+  }, [dateRange, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration, salesRepKey]);
 
   function drillInto(row: DepthMatrixRow) {
     if (groupBy === 'linea') {

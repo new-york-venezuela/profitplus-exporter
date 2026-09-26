@@ -139,7 +139,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, groupBy, linea, sublinea, tienda]);
+  }, [dateRange, groupBy, linea, sublinea, tienda]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,7 +167,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, tienda]);
+  }, [dateRange, tienda]);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,7 +195,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, tienda]);
+  }, [dateRange, tienda]);
 
   function handleRowClick(row: ProductosRow) {
     if (groupBy === 'linea') {

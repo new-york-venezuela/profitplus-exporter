@@ -111,10 +111,7 @@ function profundidadLineaQuery(dateWhere: string, returnsDateWhere: string, tien
       ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
       SUM(fs.QuantitySold) AS QuantitySold,
       ISNULL((SELECT SUM(fr.NetAmount) FROM fact.Fact_Returns fr
-              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetBs,
-      ISNULL((SELECT SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0))
-              FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
-              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetUsd
+              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetBs
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -234,6 +231,12 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
   const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, tiendaWhere));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
+  // Tracks whether ANY row contributing to a given salesNet[linea]/totalSalesNet
+  // accumulator had a resolvable USD rate — null propagates to the accumulated
+  // total only when EVERY contributing row lacked a rate, not when any single
+  // one did (see the SQL-side CASE WHEN COUNT(...) = 0 rule this mirrors).
+  const sawUsd = new Map<string, Set<string>>(); // yearMonthValue -> set of lineas with at least one non-null usd row
+  const sawUsdTotal = new Set<string>(); // yearMonthValue with at least one non-null usd row overall
   const lineasSeen: string[] = [];
   let hasOtras = false;
 
@@ -249,18 +252,42 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
       bucket = { yearMonth: formatYearMonth(yearMonthValue), yearMonthValue, units: {}, salesNet: {}, totalSalesNet: { bs: 0, usd: 0 } };
       byMonth.set(yearMonthValue, bucket);
     }
+    let lineaUsdSeen = sawUsd.get(yearMonthValue);
+    if (!lineaUsdSeen) {
+      lineaUsdSeen = new Set<string>();
+      sawUsd.set(yearMonthValue, lineaUsdSeen);
+    }
+
     const rowSalesNetBs = Number(r.SalesNetBs);
     const rowSalesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+    if (rowSalesNetUsd !== null) {
+      lineaUsdSeen.add(linea);
+      sawUsdTotal.add(yearMonthValue);
+    }
     bucket.units[linea] = (bucket.units[linea] ?? 0) + Number(r.QuantitySold);
     const existing = bucket.salesNet[linea] ?? { bs: 0, usd: 0 };
     bucket.salesNet[linea] = {
       bs: existing.bs + rowSalesNetBs,
-      usd: existing.usd === null || rowSalesNetUsd === null ? null : existing.usd + rowSalesNetUsd,
+      usd: (existing.usd ?? 0) + (rowSalesNetUsd ?? 0),
     };
     bucket.totalSalesNet = {
       bs: bucket.totalSalesNet.bs + rowSalesNetBs,
-      usd: bucket.totalSalesNet.usd === null || rowSalesNetUsd === null ? null : bucket.totalSalesNet.usd + rowSalesNetUsd,
+      usd: (bucket.totalSalesNet.usd ?? 0) + (rowSalesNetUsd ?? 0),
     };
+  }
+
+  // Second pass: null out usd for any linea/total accumulator that never saw
+  // a single resolvable rate (the "all contributors lacked a rate" case).
+  for (const [yearMonthValue, bucket] of byMonth) {
+    const lineaUsdSeen = sawUsd.get(yearMonthValue) ?? new Set<string>();
+    for (const linea of Object.keys(bucket.salesNet)) {
+      if (!lineaUsdSeen.has(linea)) {
+        bucket.salesNet[linea] = { ...bucket.salesNet[linea], usd: null };
+      }
+    }
+    if (!sawUsdTotal.has(yearMonthValue)) {
+      bucket.totalSalesNet = { ...bucket.totalSalesNet, usd: null };
+    }
   }
 
   const rows = Array.from(byMonth.values()).sort((a, b) => a.yearMonthValue.localeCompare(b.yearMonthValue));

@@ -27,12 +27,7 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
-      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
-         FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr', undefined, 'rfx')}
-         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
+         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
@@ -59,13 +54,7 @@ function clienteQuery(dimension: Dimension, dateWhere: string, returnsDateWhere:
          FROM fact.Fact_Returns fr2
          ${innerJoin}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNetBs,
-      (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
-         FROM fact.Fact_Returns fr2
-         ${innerJoin}
-         ${usdConversionJoin('fr2', undefined, 'r2fx')}
-         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNetUsd
+      ) AS ReturnsNetBs
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
@@ -87,12 +76,7 @@ function lineaQuery(dateWhere: string, returnsDateWhere: string): string {
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
-         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
-      (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
-         FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr', undefined, 'rfx')}
-         JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
-         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
+         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -406,7 +390,14 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(lineaProductBreakdownQuery(salesDateWhere));
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNetBs) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          salesNetBs: Number(r.SalesNetBs),
+          salesNetUsd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd),
+        })),
+      });
     }
 
     // Generic clienteDimension-parent breakdown: this DOES join breakdownBy's
@@ -418,15 +409,23 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fs.NetAmount) AS SalesNet
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
         FROM fact.Fact_Sales fs
+        ${usdConversionJoin('fs')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fs')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fs')}
         WHERE fs.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fs')} = @parentValue ${salesDateWhere}
         GROUP BY ${breakdownSpec.groupByColumn}
-        ORDER BY SalesNet DESC
+        ORDER BY SalesNetBs DESC
       `);
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          salesNetBs: Number(r.SalesNetBs),
+          salesNetUsd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd),
+        })),
+      });
     }
 
     let recordset: Record<string, unknown>[];

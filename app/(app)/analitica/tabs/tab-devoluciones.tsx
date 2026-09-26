@@ -30,9 +30,16 @@ function pct(n: number | null): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-// BreakdownRow metrics are plain BS numbers — see Task 14's identical note.
-function formatBreakdownBs(value: string | number | null): string {
-  return typeof value === 'number' ? moneyLabel({ bs: value, usd: null }, 'bs') : String(value ?? '—');
+// BreakdownRow's index signature can't hold a nested DualAmount, so
+// returnsNet ships as two flat keys (returnsNetBs/returnsNetUsd — see the
+// devoluciones route's breakdown query); this picks the right one for the
+// currency toggle. hiddenMetricKeys (passed to GroupedDrilldownTable below)
+// keeps the Usd key from also rendering as its own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.returnsNetBs;
+  const usd = row.returnsNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
 
 function EmptyState({ message }: { message?: string }) {
@@ -105,12 +112,14 @@ function MatrixTable({
       } else if (sortKey === 'ratioDevolucion') {
         cmp = (a.row.ratioDevolucion ?? -Infinity) - (b.row.ratioDevolucion ?? -Infinity);
       } else {
-        cmp = a.row.amountNet.bs - b.row.amountNet.bs;
+        const av = (currency === 'usd' ? a.row.amountNet.usd : a.row.amountNet.bs) ?? -Infinity;
+        const bv = (currency === 'usd' ? b.row.amountNet.usd : b.row.amountNet.bs) ?? -Infinity;
+        cmp = av - bv;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return withName.map(x => x.row);
-  }, [rows, sortKey, sortDir, nameOf]);
+  }, [rows, sortKey, sortDir, nameOf, currency]);
 
   function handleSort(key: MatrixSortKey) {
     if (key === sortKey) {
@@ -207,7 +216,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,7 +243,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,7 +270,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
+  }, [dateRange, clienteDimension]);
 
   const clienteRows: DevolucionesTableRow[] = useMemo(() => {
     if (!clienteData) return [];
@@ -381,7 +390,8 @@ export default function TabDevoluciones({
               breakdownBy={breakdownBy}
               onBreakdownByChange={setBreakdownBy}
               onFetchBreakdown={handleFetchBreakdown}
-              formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+              formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+              hiddenMetricKeys={['returnsNetUsd']}
             />
           )}
         </div>

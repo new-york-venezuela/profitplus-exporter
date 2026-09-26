@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
   CxcResponse, AgingBucketRow, DebtorRow, WeekdayVencimientoRow, DsoTrendRow, AgingTrendRow, DebtConcentrationRow, DebtConcentrationResponse,
 } from '@/app/(app)/analitica/types';
@@ -22,8 +22,19 @@ const LATEST_SNAPSHOT_QUERY = `
   SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
 `;
 
+// AR balances are valued at the SNAPSHOT date's rate, not each invoice's own
+// historical DocumentExchangeRate — a deliberate exception to this file's
+// otherwise-universal historical-rate rule, confirmed with the user: an
+// outstanding balance is a present-day obligation, so it's priced in USD as
+// of today (the snapshot), not as of the original sale. See
+// docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md and
+// the final-review fix-up that added this exception. Every other fact table
+// (Fact_Sales/Fact_Returns/Fact_Collections/Fact_Purchases) keeps the
+// invoice-date-rate behavior dualAmountExpr provides — do NOT change those.
 const AGING_BUCKETS_QUERY = `
-  SELECT AgingBucket, ${dualAmountExpr('a', 'OutstandingBalance', 'AmountBs', 'AmountUsd')}
+  SELECT AgingBucket,
+    SUM(a.OutstandingBalance) AS AmountBs,
+    SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
   FROM fact.Fact_AR_Snapshot a
   ${usdConversionJoin('a', 'SnapshotDateKey')}
   WHERE a.SnapshotDateKey = @snapshotDateKey AND a.IsCreditNote = 0
@@ -36,7 +47,8 @@ function topDebtorsQuery(dimension: Dimension): string {
   return `
     SELECT TOP 10
       ${spec.labelExpr} AS Name,
-      ${dualAmountExpr('a', 'OutstandingBalance', 'OutstandingBs', 'OutstandingUsd')},
+      SUM(a.OutstandingBalance) AS OutstandingBs,
+      SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS OutstandingUsd,
       (
         SELECT AVG(CAST(fc2.DateKey - fc2.DueDateKey AS float))
         FROM fact.Fact_Collections fc2
@@ -61,7 +73,9 @@ function topDebtorsQuery(dimension: Dimension): string {
 function debtConcentrationQuery(dimension: Dimension): string {
   const spec = getDimensionSpec(dimension);
   return `
-    SELECT TOP 15 ${spec.labelExpr} AS Name, a.AgingBucket, ${dualAmountExpr('a', 'OutstandingBalance', 'AmountBs', 'AmountUsd')}
+    SELECT TOP 15 ${spec.labelExpr} AS Name, a.AgingBucket,
+      SUM(a.OutstandingBalance) AS AmountBs,
+      SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
     FROM fact.Fact_AR_Snapshot a
     ${usdConversionJoin('a', 'SnapshotDateKey')}
     ${spec.joinClause.replace(/\bf\b/g, 'a')}
@@ -91,11 +105,14 @@ const WEEKDAY_VENCIMIENTO_QUERY = `
     dd.DayOfWeek,
     dd.DayName,
     SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS VenceHoyBs,
-    SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) ELSE 0 END) AS VenceHoyUsd,
+    CASE WHEN COUNT(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
+         ELSE SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS VenceHoyUsd,
     SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS VencidaBs,
-    SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) ELSE 0 END) AS VencidaUsd,
+    CASE WHEN COUNT(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
+         ELSE SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS VencidaUsd,
     SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS NoVencidaBs,
-    SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) ELSE 0 END) AS NoVencidaUsd
+    CASE WHEN COUNT(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
+         ELSE SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS NoVencidaUsd
   FROM fact.Fact_Collections fc
   ${usdConversionJoin('fc')}
   JOIN dim.Dim_Date dd ON dd.DateKey = fc.DateKey
@@ -148,7 +165,9 @@ function dsoForSnapshotQuery(): string {
 // SnapshotDateKey instead of just MAX(SnapshotDateKey). Ordered so the UI
 // can render oldest-to-newest without a client-side sort.
 const AGING_TREND_QUERY = `
-  SELECT a.SnapshotDateKey, a.AgingBucket, ${dualAmountExpr('a', 'OutstandingBalance', 'AmountBs', 'AmountUsd')}
+  SELECT a.SnapshotDateKey, a.AgingBucket,
+    SUM(a.OutstandingBalance) AS AmountBs,
+    SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
   FROM fact.Fact_AR_Snapshot a
   ${usdConversionJoin('a', 'SnapshotDateKey')}
   WHERE a.IsCreditNote = 0

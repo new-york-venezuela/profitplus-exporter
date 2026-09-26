@@ -98,7 +98,7 @@ export default function TabCompras({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +126,7 @@ export default function TabCompras({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, month]);
+  }, [dateRange, month]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +153,7 @@ export default function TabCompras({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   function handleBarClick(value: string) {
     setMonth(value);
@@ -184,9 +184,16 @@ export default function TabCompras({
     return body.breakdown ?? [];
   }
 
-  // BreakdownRow metrics are plain BS numbers — see Task 14's identical note.
-  function formatBreakdownBs(value: string | number | null): string {
-    return typeof value === 'number' ? moneyLabel({ bs: value, usd: null }, 'bs') : String(value ?? '—');
+  // BreakdownRow's index signature can't hold a nested DualAmount, so
+  // purchasesNet ships as two flat keys (purchasesNetBs/purchasesNetUsd —
+  // see the compras route's breakdown queries); this picks the right one for
+  // the currency toggle. hiddenMetricKeys keeps the Usd key from rendering
+  // as its own column.
+  function formatBreakdownMoney(row: BreakdownRow): string {
+    const bs = row.purchasesNetBs;
+    const usd = row.purchasesNetUsd;
+    if (typeof bs !== 'number') return String(bs ?? '—');
+    return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
   }
 
   const proveedorColumns: DrilldownColumn<ComprasTableRow>[] = [
@@ -271,7 +278,8 @@ export default function TabCompras({
             groupByOptions={PROVEEDOR_GROUP_BY_OPTIONS}
             groupBy="proveedor"
             onGroupByChange={() => {}}
-            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row)}
+            hiddenMetricKeys={['purchasesNetUsd']}
           />
         )}
         {month && (
@@ -299,7 +307,8 @@ export default function TabCompras({
             breakdownBy={lineaBreakdownBy}
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
-            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row)}
+            hiddenMetricKeys={['purchasesNetUsd']}
           />
         )}
       </section>

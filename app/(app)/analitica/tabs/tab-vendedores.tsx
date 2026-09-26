@@ -10,12 +10,16 @@ function pct(n: number | null): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-// BreakdownRow metrics are plain BS numbers, not DualAmount — see Task 14's
-// identical note (docs/superpowers/specs/
-// 2026-09-23-historical-usd-conversion-design.md's non-goal on ad-hoc
-// breakdown rows).
-function formatBreakdownBs(value: string | number | null): string {
-  return typeof value === 'number' ? moneyLabel({ bs: value, usd: null }, 'bs') : String(value ?? '—');
+// BreakdownRow's index signature can't hold a nested DualAmount, so
+// salesNet ships as two flat keys (salesNetBs/salesNetUsd — see the
+// vendedores route's breakdownQuery); this picks the right one for the
+// currency toggle. hiddenMetricKeys (passed to GroupedDrilldownTable below)
+// keeps the Usd key from also rendering as its own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.salesNetBs;
+  const usd = row.salesNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
 
 function EmptyState({ message }: { message?: string }) {
@@ -100,14 +104,18 @@ export default function TabVendedores({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   const rows: VendedoresTableRow[] = useMemo(() => {
     if (!data) return [];
     return [...data.rows]
-      .sort((a, b) => b.salesNet.bs - a.salesNet.bs)
+      .sort((a, b) => {
+        const av = (currency === 'usd' ? a.salesNet.usd : a.salesNet.bs) ?? -Infinity;
+        const bv = (currency === 'usd' ? b.salesNet.usd : b.salesNet.bs) ?? -Infinity;
+        return bv - av;
+      })
       .map(r => ({ ...r, label: r.name }));
-  }, [data]);
+  }, [data, currency]);
 
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({ dateRange, breakdownBy: dimension, parentValue });
@@ -193,7 +201,8 @@ export default function TabVendedores({
             breakdownBy={breakdownBy}
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
       </div>

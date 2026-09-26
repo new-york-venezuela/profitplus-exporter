@@ -116,7 +116,7 @@ export default function TabResumen({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando…</div>;

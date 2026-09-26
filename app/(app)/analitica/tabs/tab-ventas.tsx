@@ -174,14 +174,18 @@ interface VentasTableRow extends VentasRow {
   value: string;
 }
 
-// BreakdownRow metrics (drill-in rows under GroupedDrilldownTable) are plain
-// BS numbers, not DualAmount — see docs/superpowers/specs/
-// 2026-09-23-historical-usd-conversion-design.md's non-goal on ad-hoc
-// breakdown rows. moneyLabel() now requires a DualAmount, so these format as
-// bare BS regardless of the currency toggle rather than mis-calling moneyLabel
-// with a number where a DualAmount is expected.
-function formatBreakdownBs(value: string | number | null): string {
-  return typeof value === 'number' ? moneyLabel({ bs: value, usd: null }, 'bs') : String(value ?? '—');
+// BreakdownRow's index signature can't hold a nested DualAmount object, so
+// the salesNet money metric ships as two flat keys — salesNetBs/salesNetUsd
+// (see the ventas route's breakdown queries) — and this picks the right one
+// for the caller's currency toggle, formatting via moneyLabel like every
+// other money cell in this tab. hiddenMetricKeys (passed to
+// GroupedDrilldownTable below) keeps salesNetUsd from also rendering as its
+// own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.salesNetBs;
+  const usd = row.salesNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
 
 export default function TabVentas({
@@ -253,7 +257,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,7 +285,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension, month]);
+  }, [dateRange, clienteDimension, month]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,7 +312,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -335,7 +339,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   // Comparison option catalogs (top líneas / top cadenas by sales in range)
   // — refetched whenever dateRange changes so the multi-select always offers
@@ -403,7 +407,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, lineaCompareKeys]);
+  }, [dateRange, lineaCompareKeys]);
 
   useEffect(() => {
     if (clienteCompareKeys.length === 0) return;
@@ -431,7 +435,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteCompareKeys]);
+  }, [dateRange, clienteCompareKeys]);
 
   function toggleLineaCompare(value: string) {
     setLineaCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
@@ -620,7 +624,8 @@ export default function TabVentas({
             breakdownBy={breakdownBy}
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
         {month && (
@@ -651,7 +656,8 @@ export default function TabVentas({
             breakdownBy={lineaBreakdownBy}
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
-            formatBreakdownMetric={(_key, value) => formatBreakdownBs(value)}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
       </section>

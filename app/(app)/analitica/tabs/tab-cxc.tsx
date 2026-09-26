@@ -92,7 +92,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     return () => {
       cancelled = true;
     };
-  }, [currency, clienteDimension]);
+  }, [clienteDimension]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,7 +119,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     return () => {
       cancelled = true;
     };
-  }, [currency, clienteDimension]);
+  }, [clienteDimension]);
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
@@ -147,9 +147,9 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
   const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: currency === 'usd' ? b.amount.usd : b.amount.bs }));
 
   const totalOutstandingBs = data.agingBuckets.reduce((sum, b) => sum + b.amount.bs, 0);
-  const totalOutstandingUsd = data.agingBuckets.some(b => b.amount.usd === null)
+  const totalOutstandingUsd = data.agingBuckets.every(b => b.amount.usd === null)
     ? null
-    : data.agingBuckets.reduce((sum, b) => sum + (b.amount.usd as number), 0);
+    : data.agingBuckets.reduce((sum, b) => sum + (b.amount.usd ?? 0), 0);
 
   return (
     <div className="p-6 max-w-7xl space-y-6">

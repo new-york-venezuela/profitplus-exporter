@@ -197,6 +197,10 @@ async function handleMatrix(
   }
 
   const byLabel = new Map<string, DepthMatrixRow>();
+  // null should propagate to totalSalesNet.usd only when EVERY contributing
+  // row lacked a resolvable rate, not when any single one did — tracked here
+  // per label rather than with an any-null-poisons accumulator.
+  const sawUsdByLabel = new Set<string>();
   for (const r of matrixResult.recordset) {
     const label = String(r.GroupLabel);
     const segment = String(r.SegmentCode) as CustomerSegment;
@@ -217,10 +221,14 @@ async function handleMatrix(
       penetration: entitiesActive > 0 ? entitiesBuying / entitiesActive : null,
       salesNet: { bs: salesNetBs, usd: salesNetUsd },
     });
+    if (salesNetUsd !== null) sawUsdByLabel.add(label);
     row.totalSalesNet = {
       bs: row.totalSalesNet.bs + salesNetBs,
-      usd: row.totalSalesNet.usd === null || salesNetUsd === null ? null : row.totalSalesNet.usd + salesNetUsd,
+      usd: (row.totalSalesNet.usd ?? 0) + (salesNetUsd ?? 0),
     };
+  }
+  for (const [label, row] of byLabel) {
+    if (!sawUsdByLabel.has(label)) row.totalSalesNet = { ...row.totalSalesNet, usd: null };
   }
 
   const totalEntitiesActive = SEGMENTS.reduce((sum, s) => sum + (totalsBySegment.get(s) ?? 0), 0);

@@ -123,7 +123,14 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(lineaProductBreakdownQuery(purchasesDateWhere));
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNetBs) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          purchasesNetBs: Number(r.PurchasesNetBs),
+          purchasesNetUsd: r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd),
+        })),
+      });
     }
 
     // Generic proveedor-parent breakdown: this DOES join breakdownBy's spec
@@ -135,15 +142,23 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fp.NetAmount) AS PurchasesNet
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')}
         FROM fact.Fact_Purchases fp
+        ${usdConversionJoin('fp')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fp')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fp')}
         WHERE fp.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fp')} = @parentValue ${purchasesDateWhere}
         GROUP BY ${breakdownSpec.groupByColumn}
-        ORDER BY PurchasesNet DESC
+        ORDER BY PurchasesNetBs DESC
       `);
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          purchasesNetBs: Number(r.PurchasesNetBs),
+          purchasesNetUsd: r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd),
+        })),
+      });
     }
 
     let recordset: Record<string, unknown>[];

@@ -76,7 +76,7 @@ function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entid
   return { data, loading, error };
 }
 
-function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+function useClientesChurned(dateRange: DateRange, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
   const [data, setData] = useState<ClientesChurnedResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +108,7 @@ function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDim
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
+  }, [dateRange, clienteDimension]);
 
   return { data, loading, error };
 }
@@ -149,14 +149,14 @@ const COLUMNS: ColumnDef[] = [
   { key: 'pareto', label: 'Segmento', align: 'right' },
 ];
 
-function sortValue(row: ClientesRow, key: SortKey): string | number {
+function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string | number {
   switch (key) {
     case 'name':
       return row.name ?? '';
     case 'salesNet':
-      return row.salesNet.bs;
+      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
     case 'returnsNet':
-      return row.returnsNet.bs;
+      return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
     case 'returnRate':
       return row.returnRate ?? -Infinity;
     case 'pareto':
@@ -186,7 +186,7 @@ export default function TabClientes({
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const trend = useClientesTrend(dateRange, clienteDimension);
-  const churned = useClientesChurned(dateRange, currency, clienteDimension);
+  const churned = useClientesChurned(dateRange, clienteDimension);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,7 +215,7 @@ export default function TabClientes({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
+  }, [dateRange, clienteDimension]);
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
@@ -226,8 +226,8 @@ export default function TabClientes({
   const sortedRows = useMemo(() => {
     const rows = [...filteredRows];
     rows.sort((a, b) => {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
+      const av = sortValue(a, sortKey, currency);
+      const bv = sortValue(b, sortKey, currency);
       let cmp: number;
       if (typeof av === 'string' || typeof bv === 'string') {
         cmp = String(av).localeCompare(String(bv));
@@ -237,7 +237,7 @@ export default function TabClientes({
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return rows;
-  }, [filteredRows, sortKey, sortDir]);
+  }, [filteredRows, sortKey, sortDir, currency]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -351,11 +351,9 @@ export default function TabClientes({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{churned.error}</p>
         ) : churned.data && !churned.data.available ? (
           <EmptyState message="No disponible para este rango de fechas." />
-        ) : !churned.data || churned.data.rows.length === 0 ? (
-          <EmptyState message="Sin clientes perdidos en este período." />
-        ) : (
+        ) : churned.data && churned.data.rows.length > 0 ? (
           (() => {
-            const churnedRows = churned.data!.rows;
+            const churnedRows = churned.data.rows;
             return (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -383,6 +381,8 @@ export default function TabClientes({
               </div>
             );
           })()
+        ) : (
+          <EmptyState message="Sin clientes perdidos en este período." />
         )}
       </div>
 

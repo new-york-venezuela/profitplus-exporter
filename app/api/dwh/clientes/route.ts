@@ -245,7 +245,7 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
          ${innerJoin}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
       ) AS ReturnsNetBs,
-      (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
+      (SELECT CASE WHEN COUNT(fr2.NetAmount) = 0 THEN 0 ELSE SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)) END
          FROM fact.Fact_Returns fr2
          ${innerJoin}
          ${usdConversionJoin('fr2', undefined, 'r2fx')}

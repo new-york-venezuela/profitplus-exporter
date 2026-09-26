@@ -149,16 +149,22 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fr.NetAmount) AS ReturnsNet
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')}
         FROM fact.Fact_Returns fr
+        ${usdConversionJoin('fr')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fr')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fr')}
         WHERE fr.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fr')} = @parentValue ${returnsDateWhere}
         GROUP BY ${breakdownSpec.groupByColumn}
-        ORDER BY ReturnsNet DESC
+        ORDER BY ReturnsNetBs DESC
       `);
       return jsonWithCache({
-        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), returnsNet: Number(r.ReturnsNet) })),
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          returnsNetBs: Number(r.ReturnsNetBs),
+          returnsNetUsd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd),
+        })),
       });
     }
 

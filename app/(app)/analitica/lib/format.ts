@@ -20,7 +20,10 @@ export function moneyLabel(amount: DualAmount, currency: Currency): string {
 // tab's chartData useMemo) — this formats that bare number/array, it does
 // not itself pick a DualAmount side.
 export function moneyTooltip(value: unknown, currency: Currency = 'bs'): string {
-  const numVal = Number(Array.isArray(value) ? value[0] : value);
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === null || raw === undefined) return '—';
+  const numVal = Number(raw);
+  if (Number.isNaN(numVal)) return '—';
   return `${currency === 'usd' ? '$' : 'Bs. '}${(currency === 'usd'
     ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
     : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 })
