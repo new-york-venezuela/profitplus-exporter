@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildXlsx } from '@/lib/xlsx';
+import { buildMatrizExportRows, MATRIZ_EXPORT_COLUMNS, type MatrizExportSalesRow, type MatrizExportReturnsRow } from './export-rows';
 import type { SellerSummaryRow, SellerSummaryResponse, SellerMatrixProduct, SellerMatrixStore, SellerMatrixCell, SellerMatrixResponse } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -140,6 +142,97 @@ async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, sa
   return jsonWithCache(response);
 }
 
+// Grouped at (SalesRepKey, ProductKey, CustomerKey, WeekStartDate) grain --
+// dualAmountExpr converts each underlying invoice LINE at its own historical
+// DocumentExchangeRate before this SUM aggregates it, so a week bucket
+// spanning invoices issued on different days (at different rates) is
+// correct, unlike summing raw BS first and dividing by one rate. When
+// salesRepKey is null, every seller is included (the "export all" variant);
+// when provided, the query is additionally scoped to that one seller.
+function exportSalesQuery(dateWhere: string, salesRepFilter: string): string {
+  return `
+    SELECT
+      ISNULL(rep.SalesRepName, rep.SalesRepCode) AS SalesRepName,
+      le.LegalEntityName,
+      ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName,
+      ISNULL(p.ProductName, p.ProductCode) AS ProductName,
+      p.LineName, p.SubLineName, p.CategoryName,
+      CONVERT(varchar(10), d.WeekStartDate, 120) AS WeekStartDate,
+      d.YearMonth,
+      ${dualAmountExpr('fs', 'NetAmount', 'IngresoBs', 'IngresoUsd')},
+      SUM(fs.QuantitySold) AS Unidades
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_SalesRep rep ON rep.SalesRepKey = fs.SalesRepKey
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+    ${usdConversionJoin('fs')}
+    WHERE fs.IsVoided = 0 ${dateWhere} ${salesRepFilter}
+    GROUP BY
+      ISNULL(rep.SalesRepName, rep.SalesRepCode), le.LegalEntityName, ISNULL(c.CustomerName, c.CustomerCode),
+      ISNULL(p.ProductName, p.ProductCode), p.LineName, p.SubLineName, p.CategoryName,
+      d.WeekStartDate, d.YearMonth
+  `;
+}
+
+function exportReturnsQuery(dateWhere: string, salesRepFilter: string): string {
+  return `
+    SELECT
+      ISNULL(rep.SalesRepName, rep.SalesRepCode) AS SalesRepName,
+      le.LegalEntityName,
+      ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName,
+      ISNULL(p.ProductName, p.ProductCode) AS ProductName,
+      CONVERT(varchar(10), d.WeekStartDate, 120) AS WeekStartDate,
+      ${dualAmountExpr('fr', 'NetAmount', 'DevolucionBs', 'DevolucionUsd')},
+      SUM(fr.QuantityReturned) AS DevolucionUnidades
+    FROM fact.Fact_Returns fr
+    JOIN dim.Dim_SalesRep rep ON rep.SalesRepKey = fr.SalesRepKey
+    JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
+    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    JOIN dim.Dim_Date d ON d.DateKey = fr.DateKey
+    ${usdConversionJoin('fr')}
+    WHERE fr.IsVoided = 0 ${dateWhere} ${salesRepFilter}
+    GROUP BY
+      ISNULL(rep.SalesRepName, rep.SalesRepCode), le.LegalEntityName, ISNULL(c.CustomerName, c.CustomerCode),
+      ISNULL(p.ProductName, p.ProductCode), d.WeekStartDate
+  `;
+}
+
+async function handleXlsxExport(
+  salesDateWhere: string, returnsDateWhere: string, salesRepKey: number | null,
+): Promise<NextResponse> {
+  const pool = await getDwhPool();
+  const salesRepFilter = salesRepKey !== null ? 'AND fs.SalesRepKey = @salesRepKey' : '';
+  const returnsSalesRepFilter = salesRepKey !== null ? 'AND fr.SalesRepKey = @salesRepKey' : '';
+
+  const salesReq = pool.request();
+  const returnsReq = pool.request();
+  if (salesRepKey !== null) {
+    salesReq.input('salesRepKey', salesRepKey);
+    returnsReq.input('salesRepKey', salesRepKey);
+  }
+
+  const [salesResult, returnsResult] = await Promise.all([
+    salesReq.query(exportSalesQuery(salesDateWhere, salesRepFilter)),
+    returnsReq.query(exportReturnsQuery(returnsDateWhere, returnsSalesRepFilter)),
+  ]);
+
+  const salesRows = salesResult.recordset as MatrizExportSalesRow[];
+  const returnsRows = returnsResult.recordset as MatrizExportReturnsRow[];
+  const rows = buildMatrizExportRows(salesRows, returnsRows);
+
+  const buffer = buildXlsx(MATRIZ_EXPORT_COLUMNS, rows);
+  const filenameSuffix = salesRepKey !== null ? `vendedor-${salesRepKey}` : 'todos';
+  return new NextResponse(new Uint8Array(buffer), {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="matriz-vendedor-${filenameSuffix}.xlsx"`,
+    },
+  });
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -164,6 +257,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Falta salesRepKey' }, { status: 400 });
       }
       return await handleMatrix(salesDateWhere, returnsDateWhere, salesRepKey);
+    }
+
+    const format = searchParams.get('format');
+    if (format === 'xlsx') {
+      return await handleXlsxExport(salesDateWhere, returnsDateWhere, salesRepKey);
     }
 
     return NextResponse.json({ error: 'Sección no encontrada' }, { status: 404 });

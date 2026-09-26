@@ -27,4 +27,16 @@ describe('GET /api/dwh/matriz-vendedor', () => {
     const res = await GET(req);
     expect(res.status).toBe(401);
   });
+
+  test('rejects unauthenticated xlsx export requests with 401', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/matriz-vendedor?format=xlsx');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+
+  test('rejects unauthenticated xlsx export requests scoped to one seller with 401', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/matriz-vendedor?format=xlsx&salesRepKey=1');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
 });
