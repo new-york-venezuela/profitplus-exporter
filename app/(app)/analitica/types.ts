@@ -492,3 +492,18 @@ export interface CadenceRow {
 export interface CadenceResponse {
   rows: CadenceRow[];
 }
+
+// Matriz Vendedor-Producto tab — seller x product x store depth-of-line
+// coaching matrix. See docs/superpowers/specs/
+// 2026-09-23-seller-product-store-matrix-design.md.
+export interface SellerSummaryRow {
+  salesRepKey: string;
+  salesRepName: string;
+  netSales: number;
+  netReturns: number;
+  entitiesServed: number;
+}
+
+export interface SellerSummaryResponse {
+  rows: SellerSummaryRow[];
+}
