@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
-import type { SellerSummaryRow, SellerSummaryResponse } from '@/app/(app)/analitica/types';
+import type { SellerSummaryRow, SellerSummaryResponse, SellerMatrixProduct, SellerMatrixStore, SellerMatrixCell, SellerMatrixResponse } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +52,94 @@ async function handleSummary(salesDateWhere: string, returnsDateWhere: string): 
   return jsonWithCache(response);
 }
 
+function matrixSalesQuery(dateWhere: string): string {
+  return `
+    SELECT
+      fs.ProductKey,
+      p.ProductName, p.LineName, p.SubLineName, p.CategoryName,
+      fs.CustomerKey,
+      ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName,
+      le.LegalEntityName,
+      SUM(fs.NetAmount) AS NetSales,
+      SUM(fs.QuantitySold) AS Units
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${dateWhere}
+    GROUP BY fs.ProductKey, p.ProductName, p.LineName, p.SubLineName, p.CategoryName,
+             fs.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode), le.LegalEntityName
+  `;
+}
+
+function matrixReturnsQuery(dateWhere: string): string {
+  return `
+    SELECT fr.ProductKey, fr.CustomerKey, SUM(fr.NetAmount) AS ReturnsNet, SUM(fr.QuantityReturned) AS ReturnsUnits
+    FROM fact.Fact_Returns fr
+    WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere}
+    GROUP BY fr.ProductKey, fr.CustomerKey
+  `;
+}
+
+async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, salesRepKey: number): Promise<NextResponse> {
+  const pool = await getDwhPool();
+
+  const [salesResult, returnsResult] = await Promise.all([
+    pool.request().input('salesRepKey', salesRepKey).query(matrixSalesQuery(salesDateWhere)),
+    pool.request().input('salesRepKey', salesRepKey).query(matrixReturnsQuery(returnsDateWhere)),
+  ]);
+
+  const returnsByKey = new Map<string, { net: number; units: number }>();
+  for (const r of returnsResult.recordset) {
+    returnsByKey.set(`${r.ProductKey}|${r.CustomerKey}`, { net: Number(r.ReturnsNet), units: Number(r.ReturnsUnits) });
+  }
+
+  const productsByKey = new Map<number, SellerMatrixProduct>();
+  const storesByKey = new Map<number, SellerMatrixStore>();
+  const cells: SellerMatrixCell[] = [];
+
+  for (const r of salesResult.recordset) {
+    const productKey = Number(r.ProductKey);
+    const customerKey = Number(r.CustomerKey);
+    const netSales = Number(r.NetSales);
+    const units = Number(r.Units);
+
+    if (!productsByKey.has(productKey)) {
+      productsByKey.set(productKey, {
+        productKey,
+        productName: String(r.ProductName),
+        lineName: r.LineName === null ? null : String(r.LineName),
+        subLineName: r.SubLineName === null ? null : String(r.SubLineName),
+        categoryName: r.CategoryName === null ? null : String(r.CategoryName),
+      });
+    }
+    if (!storesByKey.has(customerKey)) {
+      storesByKey.set(customerKey, {
+        customerKey,
+        customerName: String(r.CustomerName),
+        legalEntityName: String(r.LegalEntityName),
+      });
+    }
+
+    const returns = returnsByKey.get(`${productKey}|${customerKey}`);
+    cells.push({
+      productKey,
+      customerKey,
+      netSales,
+      units,
+      returnRateUsd: returns && netSales > 0 ? returns.net / netSales : null,
+      returnRateUnits: returns && units > 0 ? returns.units / units : null,
+    });
+  }
+
+  const response: SellerMatrixResponse = {
+    products: Array.from(productsByKey.values()),
+    stores: Array.from(storesByKey.values()),
+    cells,
+  };
+  return jsonWithCache(response);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -64,8 +152,18 @@ export async function GET(request: NextRequest) {
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
 
+    const salesRepKeyParam = searchParams.get('salesRepKey');
+    const salesRepKey = salesRepKeyParam && /^\d+$/.test(salesRepKeyParam) ? Number(salesRepKeyParam) : null;
+
     if (section === 'summary') {
       return await handleSummary(salesDateWhere, returnsDateWhere);
+    }
+
+    if (section === 'matrix') {
+      if (salesRepKey === null) {
+        return NextResponse.json({ error: 'Falta salesRepKey' }, { status: 400 });
+      }
+      return await handleMatrix(salesDateWhere, returnsDateWhere, salesRepKey);
     }
 
     return NextResponse.json({ error: 'Sección no encontrada' }, { status: 404 });

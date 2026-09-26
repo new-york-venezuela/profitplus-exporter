@@ -507,3 +507,32 @@ export interface SellerSummaryRow {
 export interface SellerSummaryResponse {
   rows: SellerSummaryRow[];
 }
+
+export interface SellerMatrixProduct {
+  productKey: number;
+  productName: string;
+  lineName: string | null;
+  subLineName: string | null;
+  categoryName: string | null;
+}
+
+export interface SellerMatrixStore {
+  customerKey: number;
+  customerName: string;
+  legalEntityName: string;
+}
+
+export interface SellerMatrixCell {
+  productKey: number;
+  customerKey: number;
+  netSales: number;
+  units: number;
+  returnRateUsd: number | null; // a RATIO (returns/sales), not a currency amount -- plain number despite the name
+  returnRateUnits: number | null;
+}
+
+export interface SellerMatrixResponse {
+  products: SellerMatrixProduct[];
+  stores: SellerMatrixStore[];
+  cells: SellerMatrixCell[];
+}
