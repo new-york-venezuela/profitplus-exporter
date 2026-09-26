@@ -261,6 +261,10 @@ briefly inherit the previous user's identified state.
 - **DWH `mssql` queries** (`app/api/dwh/*`) currently take no user-controlled input beyond the
   session — if you add a filter (date range, warehouse, etc.), use `.input()` there too
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
+- **Dropdown selectors** — any `<select>` whose option list is data-driven and can grow past a handful of
+  items (e.g. a picker over `Dim_Customer`, `Dim_SalesRep`, or similar) must use
+  `lib/components/searchable-select.tsx`'s `SearchableSelect` instead of a native `<select>`; a fixed, small
+  enum (a segment filter, a group-by mode, yes/no) stays a native `<select>`
 - **Error responses** — always `{ error: string }` shape with appropriate HTTP status
 - **Admin check** — check `role === 'admin'` in every admin route independently (no middleware to
   rely on instead); Server Components call `getSession()`, API Route Handlers call
