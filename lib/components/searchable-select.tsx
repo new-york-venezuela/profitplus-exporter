@@ -51,11 +51,10 @@ export default function SearchableSelect({
     setOpen(false);
   }
 
-  function selectOption(v: string | null, label: string) {
+  function selectOption(v: string | null) {
     onChange(v);
     setQuery('');
     setOpen(false);
-    void label;
   }
 
   return (
@@ -75,7 +74,8 @@ export default function SearchableSelect({
             <li>
               <button
                 type="button"
-                onClick={() => selectOption(null, allLabel)}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => selectOption(null)}
                 className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-gray-500"
               >
                 {allLabel}
@@ -89,7 +89,8 @@ export default function SearchableSelect({
               <li key={o.value}>
                 <button
                   type="button"
-                  onClick={() => selectOption(o.value, o.label)}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => selectOption(o.value)}
                   className="block w-full text-left px-2 py-1 hover:bg-gray-50"
                 >
                   {o.label}
