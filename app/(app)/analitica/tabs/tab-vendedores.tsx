@@ -10,6 +10,18 @@ function pct(n: number | null): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+// BreakdownRow's index signature can't hold a nested DualAmount, so
+// salesNet ships as two flat keys (salesNetBs/salesNetUsd — see the
+// vendedores route's breakdownQuery); this picks the right one for the
+// currency toggle. hiddenMetricKeys (passed to GroupedDrilldownTable below)
+// keeps the Usd key from also rendering as its own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.salesNetBs;
+  const usd = row.salesNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
+}
+
 function EmptyState({ message }: { message?: string }) {
   return (
     <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">
@@ -58,7 +70,7 @@ export default function TabVendedores({
     setExcludedData(null);
     setExcludedLoading(true);
     try {
-      const params = new URLSearchParams({ dateRange, currency, section: 'excluded', parentValue: salesRepValue });
+      const params = new URLSearchParams({ dateRange, section: 'excluded', parentValue: salesRepValue });
       const res = await fetch(`/api/dwh/vendedores?${params.toString()}`);
       if (res.ok) setExcludedData(await res.json());
     } finally {
@@ -72,7 +84,7 @@ export default function TabVendedores({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/vendedores?dateRange=${dateRange}&currency=${currency}`);
+        const res = await fetch(`/api/dwh/vendedores?dateRange=${dateRange}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -92,19 +104,21 @@ export default function TabVendedores({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
-
-  const rate = data?.usdRate ?? undefined;
+  }, [dateRange]);
 
   const rows: VendedoresTableRow[] = useMemo(() => {
     if (!data) return [];
     return [...data.rows]
-      .sort((a, b) => b.salesNet - a.salesNet)
+      .sort((a, b) => {
+        const av = (currency === 'usd' ? a.salesNet.usd : a.salesNet.bs) ?? -Infinity;
+        const bv = (currency === 'usd' ? b.salesNet.usd : b.salesNet.bs) ?? -Infinity;
+        return bv - av;
+      })
       .map(r => ({ ...r, label: r.name }));
-  }, [data]);
+  }, [data, currency]);
 
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
-    const params = new URLSearchParams({ dateRange, currency, breakdownBy: dimension, parentValue });
+    const params = new URLSearchParams({ dateRange, breakdownBy: dimension, parentValue });
     const res = await fetch(`/api/dwh/vendedores?${params.toString()}`);
     if (!res.ok) return [];
     const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
@@ -116,13 +130,13 @@ export default function TabVendedores({
       key: 'salesNet',
       label: 'Ventas netas',
       align: 'right',
-      format: row => moneyLabel(row.salesNet, currency, rate),
+      format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnsNet',
       label: 'Devoluciones',
       align: 'right',
-      format: row => moneyLabel(row.returnsNet, currency, rate),
+      format: row => moneyLabel(row.returnsNet, currency),
     },
     {
       key: 'returnRate',
@@ -165,7 +179,7 @@ export default function TabVendedores({
     );
   }
 
-  const rowsWithExclusions = rows.filter(r => r.excludedSalesNet > 0);
+  const rowsWithExclusions = rows.filter(r => r.excludedSalesNet.bs > 0);
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -187,7 +201,8 @@ export default function TabVendedores({
             breakdownBy={breakdownBy}
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
       </div>
@@ -207,7 +222,7 @@ export default function TabVendedores({
                   onClick={() => handleToggleExcluded(row.value)}
                   className="text-amber-700 hover:text-amber-900 underline"
                 >
-                  {row.name}: {moneyLabel(row.excludedSalesNet, currency, rate)} excluidos ({row.excludedInvoiceCount} facturas)
+                  {row.name}: {moneyLabel(row.excludedSalesNet, currency)} excluidos ({row.excludedInvoiceCount} facturas)
                 </button>
                 {excludedExpandedFor === row.value && (
                   <div className="mt-2 ml-4 text-xs">
@@ -231,7 +246,7 @@ export default function TabVendedores({
                               <td className="pr-4 py-1">{inv.legalEntityName}</td>
                               <td className="pr-4 py-1">{inv.invoiceNumber}</td>
                               <td className="pr-4 py-1">{inv.invoiceDate}</td>
-                              <td className="text-right py-1">{moneyLabel(inv.amountNet, currency, rate)}</td>
+                              <td className="text-right py-1">{moneyLabel(inv.amountNet, currency)}</td>
                             </tr>
                           ))}
                         </tbody>

@@ -41,6 +41,56 @@ export async function getUsdRate(): Promise<number | null> {
   }
 }
 
+/**
+ * LEFT JOIN fragment resolving the USD exchange rate for a fact table's own
+ * date, keyed to a scalar CurrencyKey lookup for 'USD' rather than a second
+ * join to dim.Dim_Currency (Fact_ExchangeRate itself has no CurrencyCode
+ * column, only CurrencyKey). Used as a fallback when a row's own
+ * DocumentExchangeRate is NULL/0 — see dualAmountExpr.
+ *
+ * dateColumn defaults to 'DateKey' (Fact_Sales/Fact_Returns/Fact_Collections/
+ * Fact_Purchases all use this name); Fact_AR_Snapshot uses 'SnapshotDateKey'
+ * instead — pass it explicitly for that table.
+ *
+ * joinAlias defaults to 'fx' — pass a distinct alias (and the SAME alias to
+ * dualAmountExpr's own joinAlias param) whenever a query needs more than one
+ * usdConversionJoin in scope at once (e.g. a correlated subquery alongside
+ * an outer query, both needing their own exchange-rate lookup) so the two
+ * joins' aliases never collide. Do NOT rename the alias post-hoc with
+ * string .replace() on this function's output — Fact_ExchangeRate's alias
+ * appears multiple times in the returned fragment (the join's own alias,
+ * plus every reference to it in the ON clause), so a naive .replace() only
+ * renames the first occurrence and leaves the rest pointing at an alias
+ * that's no longer in scope. Always pass the alias as a parameter instead.
+ */
+export function usdConversionJoin(factAlias: string, dateColumn: string = 'DateKey', joinAlias: string = 'fx'): string {
+  return `LEFT JOIN fact.Fact_ExchangeRate ${joinAlias} ON ${joinAlias}.DateKey = ${factAlias}.${dateColumn} AND ${joinAlias}.CurrencyKey = (SELECT CurrencyKey FROM dim.Dim_Currency WHERE RTRIM(CurrencyCode) = 'USD')`;
+}
+
+/**
+ * Paired BS/USD SUM expression for a money column on a fact table already
+ * carrying a DocumentExchangeRate column (Fact_Sales, Fact_Returns,
+ * Fact_Collections, Fact_AR_Snapshot, Fact_Purchases only — see
+ * docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md).
+ * Requires the query to also include usdConversionJoin(factAlias, ...)'s
+ * join for the fallback rate lookup, using the SAME joinAlias passed here
+ * (both default to 'fx' — pass a matching non-default alias to both
+ * functions if a query needs more than one such join in scope).
+ *
+ * Division happens per-row, inside the SUM — NOT SUM(column) / rate — so a
+ * group spanning multiple historical rates converts each row at its own
+ * rate before aggregating, rather than distorting the whole group by
+ * today's rate. NULLIF(...,0) on the divisor means a row with neither its
+ * own DocumentExchangeRate nor a same-day Fact_ExchangeRate row produces
+ * NULL for that row's USD contribution (SQL Server's SUM ignores NULLs),
+ * rather than a divide-by-zero error.
+ */
+export function dualAmountExpr(factAlias: string, column: string, bsAlias: string, usdAlias: string, joinAlias: string = 'fx'): string {
+  const col = `${factAlias}.${column}`;
+  const rate = `NULLIF(COALESCE(${factAlias}.DocumentExchangeRate, ${joinAlias}.RateSell), 0)`;
+  return `SUM(${col}) AS ${bsAlias}, SUM(${col} / ${rate}) AS ${usdAlias}`;
+}
+
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
 const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
 const YTD_RANGE_RE = /^ytd:(\d{4})$/;

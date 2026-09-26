@@ -29,8 +29,23 @@ export interface GroupedDrilldownTableProps<TRow extends { label: string; value:
    * does NOT apply currency conversion — callers whose breakdown metrics are
    * money amounts should pass this to stay consistent with the parent row's
    * own currency-aware formatting.
+   *
+   * Receives the full row (not just this key's value) so a money metric
+   * shipped as two flat keys — e.g. `salesNetBs`/`salesNetUsd`, the
+   * DualAmount-over-BreakdownRow's-index-signature convention used by
+   * ventas/compras/devoluciones/vendedores' breakdown queries — can pick
+   * whichever side the caller's currency toggle currently wants. A caller
+   * with only bare-BS metrics (e.g. tab-finanzas) can ignore the 3rd arg.
    */
-  formatBreakdownMetric?: (metricKey: string, value: string | number | null) => string;
+  formatBreakdownMetric?: (metricKey: string, value: string | number | null, row: BreakdownRow) => string;
+  /**
+   * Metric keys to hide from rendering as their own column — used for a
+   * DualAmount pair's Usd-suffixed companion key (e.g. `salesNetUsd`),
+   * which formatBreakdownMetric reads directly off the row via its 3rd
+   * arg rather than being iterated/rendered as a separate column. Keys not
+   * in this list render one column each, same as before.
+   */
+  hiddenMetricKeys?: string[];
 }
 
 export default function GroupedDrilldownTable<TRow extends { label: string; value: string }>({
@@ -44,6 +59,7 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
   onBreakdownByChange,
   onFetchBreakdown,
   formatBreakdownMetric,
+  hiddenMetricKeys,
 }: GroupedDrilldownTableProps<TRow>) {
   const [expandedValue, setExpandedValue] = useState<string | null>(null);
   const [breakdownRows, setBreakdownRows] = useState<BreakdownRow[]>([]);
@@ -164,11 +180,11 @@ export default function GroupedDrilldownTable<TRow extends { label: string; valu
                                 <tr key={br.value}>
                                   <td className="px-3 py-1.5 text-gray-600">{br.label}</td>
                                   {Object.keys(br)
-                                    .filter(k => k !== 'label' && k !== 'value')
+                                    .filter(k => k !== 'label' && k !== 'value' && !hiddenMetricKeys?.includes(k))
                                     .map(metricKey => (
                                       <td key={metricKey} className="px-3 py-1.5 text-right text-gray-800">
                                         {formatBreakdownMetric
-                                          ? formatBreakdownMetric(metricKey, br[metricKey])
+                                          ? formatBreakdownMetric(metricKey, br[metricKey], br)
                                           : typeof br[metricKey] === 'number'
                                             ? (br[metricKey] as number).toLocaleString('es-VE')
                                             : String(br[metricKey] ?? '—')}

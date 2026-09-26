@@ -24,12 +24,28 @@ export interface BreakdownRow {
   [metricKey: string]: string | number | null;
 }
 
+// Every money figure sourced from Fact_Sales/Fact_Returns/Fact_Collections/
+// Fact_AR_Snapshot/Fact_Purchases (the 5 fact tables with a per-row
+// DocumentExchangeRate — see docs/superpowers/specs/
+// 2026-09-23-historical-usd-conversion-design.md) is shipped as both
+// currencies, computed server-side with each row converted at ITS OWN
+// historical rate before summing — never a single current rate applied to
+// an already-summed total. `usd` is null only when no rate (the row's own
+// DocumentExchangeRate, or that date's Fact_ExchangeRate fallback) was
+// resolvable for any of the underlying rows. Finanzas/Multimoneda money
+// fields (backed by Fact_Expenses/Fact_CashMovements, which have no rate
+// column) are NOT DualAmount — they remain plain `number`, out of scope.
+export interface DualAmount {
+  bs: number;
+  usd: number | null;
+}
+
 // Resumen tab
 export interface ResumenKPIs {
-  salesNet12mo: number;
-  returnsNet12mo: number;
+  salesNet12mo: DualAmount;
+  returnsNet12mo: DualAmount;
   returnRate: number | null;
-  collected12mo: number;
+  collected12mo: DualAmount;
   // Distinct Dim_LegalEntity with >=1 sale in range, and the same-length
   // immediately-preceding period's count, for the Δ card — same
   // activeClients/prevPeriod convention as Ventas' VentasKpis.
@@ -43,29 +59,29 @@ export interface ResumenKPIs {
 
 export interface MonthlyTrendRow {
   yearMonth: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
 }
 
 export interface NamedAmount {
   name: string;
-  netRevenue: number;
+  netRevenue: DualAmount;
 }
 
 export interface SalesRepRow {
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
 }
 
 export interface AgingBucketRow {
   bucket: string;
-  amount: number;
+  amount: DualAmount;
 }
 
 export interface DebtorRow {
   name: string;
-  outstanding: number;
+  outstanding: DualAmount;
   // Average (DateKey - DueDateKey) in days across this debtor's
   // Fact_Collections rows with a resolvable DueDateKey (0027's join) — null
   // when the debtor has no such rows (shown as "—" in the UI). Positive =
@@ -81,7 +97,6 @@ export interface ResumenResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors: DebtorRow[];
   snapshotDateKey: number | null;
-  usdRate: number | null;
   kpis: ResumenKPIs;
 }
 
@@ -89,7 +104,7 @@ export interface ResumenResponse {
 export interface VentasRow {
   label: string; // formatted month or customer or line name
   value: string | number; // the groupBy identifier
-  salesNet: number;
+  salesNet: DualAmount;
   returnRate: number | null;
   avgDiscount: number | null;
 }
@@ -98,24 +113,22 @@ export interface VentasResponse {
   rows: VentasRow[];
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
-// Ventas tab — KPI row, scoped to dateRange/currency like every other
-// section, computed directly off Fact_Sales (no margin/profit field: DWH
-// has no reliable cost data, see AGENTS.md).
+// Ventas tab — KPI row, scoped to dateRange like every other section,
+// computed directly off Fact_Sales (no margin/profit field: DWH has no
+// reliable cost data, see AGENTS.md).
 export interface VentasKpis {
-  salesNet: number;
-  salesNetPrevPeriod: number | null; // same-length immediately-preceding period, for the Δ%
+  salesNet: DualAmount;
+  salesNetPrevPeriod: DualAmount | null; // same-length immediately-preceding period, for the Δ%
   activeClients: number; // distinct Dim_LegalEntity with >=1 sale in range
-  avgTicket: number | null; // salesNet / distinct invoices (null if no invoices)
+  avgTicket: DualAmount | null; // salesNet / distinct invoices (null if no invoices)
   unitsSold: number;
-  salesPerActiveClient: number | null; // salesNet / activeClients (null if activeClients = 0)
+  salesPerActiveClient: DualAmount | null; // salesNet / activeClients (null if activeClients = 0)
 }
 
 export interface VentasKpisResponse {
   kpis: VentasKpis;
-  usdRate: number | null;
 }
 
 // Ventas tab — dynamic sales comparison charts (two independent charts: by
@@ -135,19 +148,18 @@ export interface ComparisonOptionsResponse {
 export interface ComparisonSeriesMonthRow {
   yearMonth: string; // formatted label, e.g. "Ene 26"
   yearMonthValue: string; // raw YYYY-MM
-  values: Record<string, number>; // series value (LineCode or LegalEntityKey) -> salesNet that month
+  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesNet that month
 }
 
 export interface VentasComparisonResponse {
   rows: ComparisonSeriesMonthRow[];
-  usdRate: number | null;
 }
 
 // Compras tab
 export interface ComprasRow {
   label: string;
   value: string;
-  purchasesNet: number;
+  purchasesNet: DualAmount;
   avgDiscount: number | null;
 }
 
@@ -155,7 +167,6 @@ export interface ComprasResponse {
   rows: ComprasRow[];
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
 // Devoluciones tab
@@ -168,14 +179,13 @@ export interface DevolucionesMatrixCell {
   // `parentValue` for a GroupedDrilldownTable breakdown fetch on that row.
   clienteValue: string | null;
   ratioDevolucion: number | null;
-  amountNet: number;
+  amountNet: DualAmount;
 }
 
 export interface DevolucionesResponse {
   rows: DevolucionesMatrixCell[];
   groupBy: GroupBy; // 'salesrep' | 'producto' | 'cliente'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
 // CXC tab
@@ -184,9 +194,9 @@ export interface DevolucionesResponse {
 // vencimiento-status series at time of payment.
 export interface WeekdayVencimientoRow {
   weekday: string; // 'Lun' | 'Mar' | ... | 'Dom'
-  venceHoy: number; // DateKey == DueDateKey
-  vencida: number; // DateKey > DueDateKey
-  noVencida: number; // DateKey < DueDateKey
+  venceHoy: DualAmount; // DateKey == DueDateKey
+  vencida: DualAmount; // DateKey > DueDateKey
+  noVencida: DualAmount; // DateKey < DueDateKey
 }
 
 // Part 3c: monthly DSO, independent of the CxC tab's own snapshot-only date
@@ -210,7 +220,6 @@ export interface DebtConcentrationRow {
 
 export interface DebtConcentrationResponse {
   rows: DebtConcentrationRow[];
-  usdRate: number | null;
 }
 
 export interface CxcResponse {
@@ -218,7 +227,6 @@ export interface CxcResponse {
   topDebtors: DebtorRow[];
   overdueShare: number | null;
   snapshotDateKey: number | null;
-  usdRate: number | null;
   weekdayVencimiento: WeekdayVencimientoRow[];
   dsoTrend: DsoTrendRow[];
   agingTrend: AgingTrendRow[];
@@ -228,8 +236,8 @@ export interface CxcResponse {
 export interface VendedoresRow {
   value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
   returnRate: number | null;
   collectionRate: number | null;
   avgDiscount: number | null;
@@ -237,14 +245,13 @@ export interface VendedoresRow {
   // root-billed invoice of a chain flagged as a consignment-billing pattern
   // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
   // Zero for a seller with no flagged exclusions.
-  excludedSalesNet: number;
-  excludedCollected: number;
+  excludedSalesNet: DualAmount;
+  excludedCollected: DualAmount;
   excludedInvoiceCount: number;
 }
 
 export interface VendedoresResponse {
   rows: VendedoresRow[];
-  usdRate: number | null;
 }
 
 // Vendedores tab — audit list behind a seller row's excludedSalesNet figure:
@@ -253,7 +260,7 @@ export interface VendedoresExcludedInvoice {
   legalEntityName: string;
   invoiceNumber: string;
   invoiceDate: string; // ISO date
-  amountNet: number;
+  amountNet: DualAmount;
 }
 
 export interface VendedoresExcludedResponse {
@@ -263,8 +270,8 @@ export interface VendedoresExcludedResponse {
 // Clientes tab
 export interface ClientesRow {
   name: string;
-  salesNet: number;
-  returnsNet: number;
+  salesNet: DualAmount;
+  returnsNet: DualAmount;
   returnRate: number | null;
   pareto: 'A' | 'B' | 'C'; // Pareto segment
 }
@@ -272,7 +279,6 @@ export interface ClientesRow {
 export interface ClientesResponse {
   rows: ClientesRow[];
   paretoThresholds: { a: number; b: number }; // cumulative % for A and B segments
-  usdRate: number | null;
 }
 
 // Clientes tab — monthly trend of active customers and churn rate, one
@@ -298,7 +304,7 @@ export interface ClientesTrendResponse {
 export interface ClientesChurnedRow {
   name: string;
   lastPurchaseDateKey: number; // YYYYMMDD, latest DateKey with a sale in the prior period
-  lostRevenue: number; // their NetAmount sum in the prior period — what "came back" would recover
+  lostRevenue: DualAmount; // their NetAmount sum in the prior period — what "came back" would recover
 }
 
 export interface ClientesChurnedResponse {
@@ -307,7 +313,6 @@ export interface ClientesChurnedResponse {
   // (mirrors buildPrevPeriodDateWhereClause's own null case) — the UI
   // should show "no disponible" rather than an empty table in that case.
   available: boolean;
-  usdRate: number | null;
 }
 
 // Productos tab
@@ -316,7 +321,7 @@ export interface ProductosRow {
   linea: string;
   sublinea: string;
   rotacion: number; // QuantitySold * GrossProfitAmount or similar metric
-  salesNet: number;
+  salesNet: DualAmount;
   margin: number | null; // GrossProfitAmount / NetAmount
   salesShare: number | null; // salesNet / sum(salesNet) across all rows at this drill level
 }
@@ -325,7 +330,6 @@ export interface ProductosResponse {
   rows: ProductosRow[];
   groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
 }
 
 // Productos tab — Profundidad de Línea table (top-15 SKUs by sales, flat
@@ -336,14 +340,13 @@ export interface ProfundidadLineaRow {
   clientShare: number | null; // clientCount / total distinct clients active in range
   storeCount: number;
   storeShare: number | null; // storeCount / total distinct stores active in range
-  avgMonthlyPrice: number; // avg NetAmount per unit, averaged over months with sales
+  avgMonthlyPrice: DualAmount; // avg NetAmount per unit, averaged over months with sales
   avgMonthlyUnits: number; // QuantitySold / distinct months with sales in range
   returnRate: number | null;
 }
 
 export interface ProfundidadLineaResponse {
   rows: ProfundidadLineaRow[];
-  usdRate: number | null;
 }
 
 // Productos tab — units sold by month, stacked by línea (top lines by
@@ -352,14 +355,13 @@ export interface UnitsByLineaMonthRow {
   yearMonth: string; // formatted label, e.g. "Ene 26"
   yearMonthValue: string; // raw YYYY-MM, used for drill-down filters
   units: Record<string, number>; // línea name -> units sold that month
-  salesNet: Record<string, number>; // línea name -> sales net that month (for % of total)
-  totalSalesNet: number; // sum of salesNet across all líneas that month
+  salesNet: Record<string, DualAmount>; // línea name -> sales net that month (for % of total)
+  totalSalesNet: DualAmount; // sum of salesNet across all líneas that month
 }
 
 export interface UnitsByLineaResponse {
   rows: UnitsByLineaMonthRow[];
   lineas: string[]; // ordered list of línea names present (series keys), "Otras" last if present
-  usdRate: number | null;
 }
 
 // Finanzas tab
@@ -422,7 +424,7 @@ export interface DepthMatrixCell {
   entitiesBuying: number;
   entitiesActive: number;
   penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
-  salesNet: number;
+  salesNet: DualAmount;
 }
 
 export interface DepthMatrixRow {
@@ -430,7 +432,7 @@ export interface DepthMatrixRow {
   value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
   cells: DepthMatrixCell[];  // one per segment present for this row
   totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
-  totalSalesNet: number;
+  totalSalesNet: DualAmount;
   tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
 }
 
@@ -438,7 +440,6 @@ export interface DepthMatrixResponse {
   rows: DepthMatrixRow[];
   groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  usdRate: number | null;
   // Echoes the salesRepKey filter applied, if any — lets the UI label the
   // matrix clearly ("Mostrando solo clientes de: Juan Pérez") when scoped.
   // See docs/superpowers/specs/2026-09-21-seller-depth-of-line-coverage-design.md.
@@ -448,7 +449,7 @@ export interface DepthMatrixResponse {
 export interface DepthGapEntity {
   legalEntityKey: number;
   legalEntityName: string;
-  totalSalesNet: number; // this entity's total sales in range, for sort/context
+  totalSalesNet: DualAmount; // this entity's total sales in range, for sort/context
 }
 
 export interface DepthGapResponse {
@@ -471,7 +472,6 @@ export interface SellerCoverageRow {
 
 export interface SellerCoverageResponse {
   rows: SellerCoverageRow[];
-  usdRate: number | null;
 }
 
 // Cadencia tab — per-customer purchase frequency, with an optional manual

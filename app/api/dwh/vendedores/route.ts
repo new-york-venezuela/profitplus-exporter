@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import { isConsignmentPattern, DEFAULT_ROOT_SHARE_THRESHOLD } from './consignment';
 import type { VendedoresResponse, VendedoresRow, VendedoresExcludedInvoice, VendedoresExcludedResponse } from '@/app/(app)/analitica/types';
 
@@ -33,13 +33,14 @@ function breakdownQuery(dimension: Dimension, salesDateWhere: string, flaggedRoo
     ? `AND bqc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`
     : '';
   return `
-    SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, SUM(fs.NetAmount) AS SalesNet
+    SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer bqc ON bqc.CustomerKey = fs.CustomerKey
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere} ${excludeClause}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -69,12 +70,17 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
   const flaggedCase = flaggedRootCodes.length > 0
     ? `CASE WHEN c.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')}) THEN 1 ELSE 0 END`
     : '0';
+  const salesRate = `NULLIF(COALESCE(fs.DocumentExchangeRate, fx.RateSell), 0)`;
   return `
     SELECT
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKeyValue,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
-      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount ELSE 0 END) AS SalesNet,
-      SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount ELSE 0 END) AS ExcludedSalesNet,
+      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount ELSE 0 END) AS SalesNetBs,
+      CASE WHEN COUNT(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount END) = 0 THEN 0
+           ELSE SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount / ${salesRate} END) END AS SalesNetUsd,
+      SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount ELSE 0 END) AS ExcludedSalesNetBs,
+      CASE WHEN COUNT(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount END) = 0 THEN 0
+           ELSE SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount / ${salesRate} END) END AS ExcludedSalesNetUsd,
       COUNT(DISTINCT CASE WHEN ${flaggedCase} = 1 THEN fs.InvoiceNumber END) AS ExcludedInvoiceCount,
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
@@ -83,25 +89,40 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
          JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
-      ) AS ReturnsNet,
+      ) AS ReturnsNetBs,
+      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)) END
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr', undefined, 'rfx')}
+         JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
+           AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
+      ) AS ReturnsNetUsd,
       (SELECT ISNULL(SUM(fc.AmountCollected), 0)
          FROM fact.Fact_Collections fc
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
          WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
-      ) AS Collected,
+      ) AS CollectedBs,
       (SELECT ISNULL(SUM(fc.AmountCollected), 0)
          FROM fact.Fact_Collections fc
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
          WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 0'}
-      ) AS ExcludedCollected
+      ) AS ExcludedCollectedBs,
+      (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, ecfx.RateSell), 0)) END
+         FROM fact.Fact_Collections fc
+         ${usdConversionJoin('fc', undefined, 'ecfx')}
+         JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
+         WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
+           AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 0'}
+      ) AS ExcludedCollectedUsd
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY SalesNet DESC
+    ORDER BY SalesNetBs DESC
   `;
 }
 
@@ -110,8 +131,9 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
 // app/api/dwh/clientes/route.ts's churnedQuery.
 function excludedInvoicesQuery(salesDateWhere: string, flaggedRootCodes: string[]): string {
   return `
-    SELECT c.CustomerName AS LegalEntityName, fs.InvoiceNumber, d.FullDate AS SalesDate, SUM(fs.NetAmount) AS NetAmount
+    SELECT c.CustomerName AS LegalEntityName, fs.InvoiceNumber, d.FullDate AS SalesDate, ${dualAmountExpr('fs', 'NetAmount', 'NetAmountBs', 'NetAmountUsd')}
     FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere}
@@ -147,7 +169,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   // Clamped to (0, 1] — this threshold gates whether a legal entity's sales
   // get excluded from a seller's commission-relevant totals, so an
   // unclamped value (e.g. 0, which would flag every multi-tienda entity)
@@ -172,7 +193,12 @@ export async function GET(request: NextRequest) {
       flaggedRootCodes.forEach((code, i) => req.input(`flaggedRoot${i}`, code));
       const result = await req.query(breakdownQuery(breakdownBy, salesDateWhere, flaggedRootCodes));
       return jsonWithCache({
-        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), salesNet: Number(r.SalesNet) })),
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          salesNetBs: Number(r.SalesNetBs),
+          salesNetUsd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd),
+        })),
       });
     }
 
@@ -191,7 +217,7 @@ export async function GET(request: NextRequest) {
         legalEntityName: String(r.LegalEntityName),
         invoiceNumber: String(r.InvoiceNumber),
         invoiceDate: new Date(r.SalesDate).toISOString().slice(0, 10),
-        amountNet: Number(r.NetAmount),
+        amountNet: { bs: Number(r.NetAmountBs), usd: r.NetAmountUsd === null ? null : Number(r.NetAmountUsd) },
       }));
       const response: VendedoresExcludedResponse = { invoices };
       return jsonWithCache(response);
@@ -200,33 +226,32 @@ export async function GET(request: NextRequest) {
     const salesReq = pool.request();
     flaggedRootCodes.forEach((code, i) => salesReq.input(`flaggedRoot${i}`, code));
 
-    const [salesReps, usdRate] = await Promise.all([
-      salesReq.query(salesRepQuery(salesDateWhere, returnsDateWhere, collectionsDateWhere, flaggedRootCodes)),
-      currency === 'usd' ? getUsdRate() : Promise.resolve(null),
-    ]);
+    const salesReps = await salesReq.query(salesRepQuery(salesDateWhere, returnsDateWhere, collectionsDateWhere, flaggedRootCodes));
 
     const rows: VendedoresRow[] = salesReps.recordset.map(r => {
-      const salesNet = Number(r.SalesNet);
-      const returnsNet = Number(r.ReturnsNet);
+      const salesNetBs = Number(r.SalesNetBs);
+      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+      const returnsNetBs = Number(r.ReturnsNetBs);
+      const returnsNetUsd = r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd);
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
-      const collected = Number(r.Collected);
+      const collectedBs = Number(r.CollectedBs);
 
       return {
         value: String(r.SalesRepKeyValue),
         name: r.Name,
-        salesNet,
-        returnsNet,
-        returnRate: salesNet > 0 ? returnsNet / salesNet : null,
-        collectionRate: salesNet > 0 ? collected / salesNet : null,
+        salesNet: { bs: salesNetBs, usd: salesNetUsd },
+        returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
+        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
+        collectionRate: salesNetBs > 0 ? collectedBs / salesNetBs : null,
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
-        excludedSalesNet: Number(r.ExcludedSalesNet),
-        excludedCollected: Number(r.ExcludedCollected),
+        excludedSalesNet: { bs: Number(r.ExcludedSalesNetBs), usd: r.ExcludedSalesNetUsd === null ? null : Number(r.ExcludedSalesNetUsd) },
+        excludedCollected: { bs: Number(r.ExcludedCollectedBs), usd: r.ExcludedCollectedUsd === null ? null : Number(r.ExcludedCollectedUsd) },
         excludedInvoiceCount: Number(r.ExcludedInvoiceCount),
       };
     });
 
-    const response: VendedoresResponse = { rows, usdRate };
+    const response: VendedoresResponse = { rows };
 
     return jsonWithCache(response);
   } catch {

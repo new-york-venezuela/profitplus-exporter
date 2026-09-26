@@ -109,10 +109,10 @@ function WaterfallTooltip({
     <div className="bg-white border border-gray-200 rounded shadow-sm px-3 py-2 text-xs">
       <p className="font-semibold text-gray-900 mb-1">{d.step}</p>
       <p className="text-gray-600">
-        Monto: <span className="font-medium text-gray-900">{moneyLabel(d.amount, currency, rate)}</span>
+        Monto: <span className="font-medium text-gray-900">{moneyLabel({ bs: d.amount, usd: rate ? d.amount / rate : null }, currency)}</span>
       </p>
       <p className="text-gray-600">
-        Acumulado: <span className="font-medium text-gray-900">{moneyLabel(d.cumulative, currency, rate)}</span>
+        Acumulado: <span className="font-medium text-gray-900">{moneyLabel({ bs: d.cumulative, usd: rate ? d.cumulative / rate : null }, currency)}</span>
       </p>
     </div>
   );
@@ -212,16 +212,16 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
   }));
 
   const categoryColumns: DrilldownColumn<CategoryTableRow>[] = [
-    { key: 'amount', label: 'Monto', align: 'right', format: row => moneyLabel(row.amount, currency, rate) },
+    { key: 'amount', label: 'Monto', align: 'right', format: row => moneyLabel({ bs: row.amount, usd: rate ? row.amount / rate : null }, currency) },
   ];
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row — Utilidad Bruta (proxy) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Ingresos operativos" value={moneyLabel(margenProxy.ingresos, currency, rate)} />
-        <KpiCard label="Compras" value={moneyLabel(margenProxy.compras, currency, rate)} />
-        <KpiCard label="Utilidad bruta (proxy)" value={moneyLabel(margenProxy.utilidadBruta, currency, rate)} />
+        <KpiCard label="Ingresos operativos" value={moneyLabel({ bs: margenProxy.ingresos, usd: rate ? margenProxy.ingresos / rate : null }, currency)} />
+        <KpiCard label="Compras" value={moneyLabel({ bs: margenProxy.compras, usd: rate ? margenProxy.compras / rate : null }, currency)} />
+        <KpiCard label="Utilidad bruta (proxy)" value={moneyLabel({ bs: margenProxy.utilidadBruta, usd: rate ? margenProxy.utilidadBruta / rate : null }, currency)} />
         <KpiCard
           label="Margen bruto (proxy)"
           value={pct(margenProxy.margenBrutoRate)}
@@ -240,19 +240,19 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
           <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <KpiCard label="Ingresos operativos" value={moneyLabel(data.cashFlowEbitda.ingresosOperativos, currency, rate)} />
-          <KpiCard label="Gastos operativos" value={moneyLabel(data.cashFlowEbitda.gastosOperativos, currency, rate)} />
-          <KpiCard label="Margen Operativo" value={moneyLabel(data.cashFlowEbitda.ebitda, currency, rate)} />
+          <KpiCard label="Ingresos operativos" value={moneyLabel({ bs: data.cashFlowEbitda.ingresosOperativos, usd: rate ? data.cashFlowEbitda.ingresosOperativos / rate : null }, currency)} />
+          <KpiCard label="Gastos operativos" value={moneyLabel({ bs: data.cashFlowEbitda.gastosOperativos, usd: rate ? data.cashFlowEbitda.gastosOperativos / rate : null }, currency)} />
+          <KpiCard label="Margen Operativo" value={moneyLabel({ bs: data.cashFlowEbitda.ebitda, usd: rate ? data.cashFlowEbitda.ebitda / rate : null }, currency)} />
           <KpiCard
             label="Margen Operativo %"
             value={pct(margenProxy.margenOperativoRate)}
             tone={margenProxy.margenOperativoRate !== null && margenProxy.margenOperativoRate < 0 ? 'warn' : 'default'}
           />
-          <KpiCard label="Intereses" value={moneyLabel(data.cashFlowEbitda.intereses, currency, rate)} />
-          <KpiCard label="Impuestos" value={moneyLabel(data.cashFlowEbitda.impuestos, currency, rate)} />
+          <KpiCard label="Intereses" value={moneyLabel({ bs: data.cashFlowEbitda.intereses, usd: rate ? data.cashFlowEbitda.intereses / rate : null }, currency)} />
+          <KpiCard label="Impuestos" value={moneyLabel({ bs: data.cashFlowEbitda.impuestos, usd: rate ? data.cashFlowEbitda.impuestos / rate : null }, currency)} />
           <KpiCard
             label="Utilidad neta"
-            value={moneyLabel(data.cashFlowEbitda.utilidadNeta, currency, rate)}
+            value={moneyLabel({ bs: data.cashFlowEbitda.utilidadNeta, usd: rate ? data.cashFlowEbitda.utilidadNeta / rate : null }, currency)}
             tone={data.cashFlowEbitda.utilidadNeta < 0 ? 'warn' : 'default'}
           />
         </div>
@@ -269,7 +269,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
             <BarChart data={proxyWaterfallData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="step" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(Number(v), currency, rate)} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: Number(v), usd: rate ? Number(v) / rate : null }, currency)} />
               <Tooltip content={<WaterfallTooltip currency={currency} rate={rate} />} />
               <Bar dataKey="base" stackId="waterfall" fill="transparent" isAnimationActive={false} />
               <Bar dataKey="value" stackId="waterfall" radius={[3, 3, 0, 0]} isAnimationActive={false}>
@@ -300,7 +300,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
             breakdownBy={categoryBreakdownBy}
             onBreakdownByChange={setCategoryBreakdownBy}
             onFetchBreakdown={parentValue => handleFetchCategoryBreakdown(parentValue)}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, rate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel({ bs: value, usd: rate ? value / rate : null }, currency) : String(value ?? '—'))}
           />
         )}
       </div>

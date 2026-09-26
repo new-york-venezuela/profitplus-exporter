@@ -54,7 +54,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
       setLeaderboardLoading(true);
       try {
         const params = new URLSearchParams({
-          dateRange, currency, section: 'leaderboard',
+          dateRange, section: 'leaderboard',
           firstLineMinPenetration: String(firstLineMinPenetration),
           secondLineMinPenetration: String(secondLineMinPenetration),
         });
@@ -67,7 +67,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
     }
     loadLeaderboard();
     return () => { cancelled = true; };
-  }, [dateRange, currency, firstLineMinPenetration, secondLineMinPenetration]);
+  }, [dateRange, firstLineMinPenetration, secondLineMinPenetration]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,7 +76,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
       setLoading(true);
       try {
         const params = new URLSearchParams({
-          dateRange, currency, groupBy,
+          dateRange, groupBy,
           firstLineMinPenetration: String(firstLineMinPenetration),
           secondLineMinPenetration: String(secondLineMinPenetration),
         });
@@ -99,9 +99,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
     }
     load();
     return () => { cancelled = true; };
-  }, [dateRange, currency, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration, salesRepKey]);
-
-  const rate = data?.usdRate ?? undefined;
+  }, [dateRange, groupBy, linea, sublinea, firstLineMinPenetration, secondLineMinPenetration, salesRepKey]);
 
   function drillInto(row: DepthMatrixRow) {
     if (groupBy === 'linea') {
@@ -308,7 +306,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
                           ) : '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-gray-600">{pct(row.totalPenetration)}</td>
-                        <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.totalSalesNet, currency, rate)}</td>
+                        <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.totalSalesNet, currency)}</td>
                         <td className="px-3 py-2 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded text-xs ${TIER_COLORS[row.tier]}`}>
                             {TIER_LABELS[row.tier]}
@@ -330,7 +328,7 @@ export default function TabProfundidad({ dateRange, currency }: { dateRange: Dat
                                 <ul className="ml-4 list-disc space-y-0.5">
                                   {gapData.entities.map(e => (
                                     <li key={e.legalEntityKey} className="text-gray-700">
-                                      {e.legalEntityName} — {moneyLabel(e.totalSalesNet, currency, rate)} en ventas totales
+                                      {e.legalEntityName} — {moneyLabel(e.totalSalesNet, currency)} en ventas totales
                                     </li>
                                   ))}
                                 </ul>

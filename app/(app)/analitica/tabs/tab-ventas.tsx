@@ -59,7 +59,6 @@ function ComparisonChart({
   loading,
   error,
   currency,
-  rate,
   maxSelected = 4,
 }: {
   options: { value: string; label: string }[];
@@ -69,10 +68,15 @@ function ComparisonChart({
   loading: boolean;
   error: string | null;
   currency: Currency;
-  rate?: number;
   maxSelected?: number;
 }) {
-  const chartData = (data?.rows ?? []).map(row => ({ yearMonth: row.yearMonth, ...row.values }));
+  const chartData = (data?.rows ?? []).map(row => {
+    const flat: Record<string, string | number | null> = { yearMonth: row.yearMonth };
+    for (const [key, amount] of Object.entries(row.values)) {
+      flat[key] = currency === 'usd' ? amount.usd : amount.bs;
+    }
+    return flat;
+  });
   const labelFor = (value: string) => options.find(o => o.value === value)?.label ?? value;
 
   return (
@@ -112,8 +116,8 @@ function ComparisonChart({
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, rate)} />
-            <Tooltip formatter={val => moneyTooltip(val, currency, rate)} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+            <Tooltip formatter={val => moneyTooltip(val, currency)} />
             <Legend wrapperStyle={{ fontSize: 12 }} formatter={(value: string) => labelFor(value)} />
             {selected.map((key, i) => (
               <Line
@@ -170,6 +174,20 @@ interface VentasTableRow extends VentasRow {
   value: string;
 }
 
+// BreakdownRow's index signature can't hold a nested DualAmount object, so
+// the salesNet money metric ships as two flat keys — salesNetBs/salesNetUsd
+// (see the ventas route's breakdown queries) — and this picks the right one
+// for the caller's currency toggle, formatting via moneyLabel like every
+// other money cell in this tab. hiddenMetricKeys (passed to
+// GroupedDrilldownTable below) keeps salesNetUsd from also rendering as its
+// own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.salesNetBs;
+  const usd = row.salesNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
+}
+
 export default function TabVentas({
   dateRange,
   currency,
@@ -220,7 +238,7 @@ export default function TabVentas({
       setMesError(null);
       setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'mes' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'mes' });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -239,7 +257,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,7 +265,7 @@ export default function TabVentas({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'cliente', clienteDimension });
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension });
         if (month) params.set('month', month);
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
@@ -267,7 +285,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension, month]);
+  }, [dateRange, clienteDimension, month]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,7 +293,7 @@ export default function TabVentas({
       setLineaError(null);
       setLineaLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'linea' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'linea' });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -294,7 +312,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,7 +320,7 @@ export default function TabVentas({
       setKpisError(null);
       setKpisLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'kpis' });
+        const params = new URLSearchParams({ dateRange, section: 'kpis' });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -321,7 +339,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   // Comparison option catalogs (top líneas / top cadenas by sales in range)
   // — refetched whenever dateRange changes so the multi-select always offers
@@ -332,7 +350,7 @@ export default function TabVentas({
     let cancelled = false;
     async function load() {
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonOptions' });
+        const params = new URLSearchParams({ dateRange, section: 'comparisonOptions' });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled || !res.ok) return;
         const body: ComparisonOptionsResponse = await res.json();
@@ -370,7 +388,7 @@ export default function TabVentas({
       setLineaCompareError(null);
       setLineaCompareLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonLinea', keys: lineaCompareKeys.join(',') });
+        const params = new URLSearchParams({ dateRange, section: 'comparisonLinea', keys: lineaCompareKeys.join(',') });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -389,7 +407,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, lineaCompareKeys]);
+  }, [dateRange, lineaCompareKeys]);
 
   useEffect(() => {
     if (clienteCompareKeys.length === 0) return;
@@ -398,7 +416,7 @@ export default function TabVentas({
       setClienteCompareError(null);
       setClienteCompareLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, section: 'comparisonCliente', keys: clienteCompareKeys.join(',') });
+        const params = new URLSearchParams({ dateRange, section: 'comparisonCliente', keys: clienteCompareKeys.join(',') });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -417,7 +435,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteCompareKeys]);
+  }, [dateRange, clienteCompareKeys]);
 
   function toggleLineaCompare(value: string) {
     setLineaCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
@@ -435,20 +453,17 @@ export default function TabVentas({
     document.getElementById('ventas-cliente-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  const mesRate = mesData?.usdRate ?? undefined;
   const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
     value: String(r.value),
-    salesNet: r.salesNet,
+    salesNet: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
   }));
 
-  const clienteRate = clienteData?.usdRate ?? undefined;
   const clienteTableRows: VentasTableRow[] = useMemo(
     () => (clienteData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
     [clienteData]
   );
 
-  const lineaRate = lineaData?.usdRate ?? undefined;
   const lineaTableRows: VentasTableRow[] = useMemo(
     () => (lineaData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) })),
     [lineaData]
@@ -457,7 +472,6 @@ export default function TabVentas({
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({
       dateRange,
-      currency,
       groupBy: 'cliente',
       clienteDimension,
       breakdownBy: dimension,
@@ -473,7 +487,6 @@ export default function TabVentas({
   async function handleFetchLineaBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({
       dateRange,
-      currency,
       groupBy: 'linea',
       breakdownBy: dimension,
       parentValue,
@@ -489,7 +502,7 @@ export default function TabVentas({
       key: 'salesNet',
       label: 'Ventas netas',
       align: 'right',
-      format: row => moneyLabel(row.salesNet, currency, clienteRate),
+      format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnRate',
@@ -510,7 +523,7 @@ export default function TabVentas({
       key: 'salesNet',
       label: 'Ventas netas',
       align: 'right',
-      format: row => moneyLabel(row.salesNet, currency, lineaRate),
+      format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnRate',
@@ -526,10 +539,9 @@ export default function TabVentas({
     },
   ];
 
-  const kpisRate = kpisData?.usdRate ?? undefined;
   const kpis = kpisData?.kpis;
-  const salesDelta = kpis && kpis.salesNetPrevPeriod !== null && kpis.salesNetPrevPeriod !== 0
-    ? (kpis.salesNet - kpis.salesNetPrevPeriod) / kpis.salesNetPrevPeriod
+  const salesDelta = kpis && kpis.salesNetPrevPeriod !== null && kpis.salesNetPrevPeriod.bs !== 0
+    ? (kpis.salesNet.bs - kpis.salesNetPrevPeriod.bs) / kpis.salesNetPrevPeriod.bs
     : null;
 
   return (
@@ -544,15 +556,15 @@ export default function TabVentas({
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard
               label="Ventas netas"
-              value={moneyLabel(kpis.salesNet, currency, kpisRate)}
+              value={moneyLabel(kpis.salesNet, currency)}
               delta={{ pct: salesDelta, label: 'vs. período anterior' }}
             />
             <KpiCard label="Clientes activos" value={kpis.activeClients.toLocaleString('es-VE')} />
-            <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency, kpisRate) : '—'} />
+            <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency) : '—'} />
             <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} />
             <KpiCard
               label="Ventas por cliente activo"
-              value={kpis.salesPerActiveClient !== null ? moneyLabel(kpis.salesPerActiveClient, currency, kpisRate) : '—'}
+              value={kpis.salesPerActiveClient !== null ? moneyLabel(kpis.salesPerActiveClient, currency) : '—'}
             />
           </div>
         )}
@@ -574,8 +586,8 @@ export default function TabVentas({
                 <BarChart data={chartData} margin={{ top: 8, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money(v, currency, mesRate)} />
-                  <Tooltip formatter={val => moneyTooltip(val, currency, mesRate)} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
+                  <Tooltip formatter={val => moneyTooltip(val, currency)} />
                   <Bar
                     dataKey="salesNet"
                     fill="#2563eb"
@@ -612,7 +624,8 @@ export default function TabVentas({
             breakdownBy={breakdownBy}
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, clienteRate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
         {month && (
@@ -643,7 +656,8 @@ export default function TabVentas({
             breakdownBy={lineaBreakdownBy}
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, lineaRate) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            hiddenMetricKeys={['salesNetUsd']}
           />
         )}
       </section>
@@ -658,7 +672,6 @@ export default function TabVentas({
           loading={lineaCompareLoading}
           error={lineaCompareError}
           currency={currency}
-          rate={lineaCompareData?.usdRate ?? undefined}
         />
       </ChartCard>
 
@@ -672,7 +685,6 @@ export default function TabVentas({
           loading={clienteCompareLoading}
           error={clienteCompareError}
           currency={currency}
-          rate={clienteCompareData?.usdRate ?? undefined}
         />
       </ChartCard>
     </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -30,15 +30,16 @@ function salesRepMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
   return `
     SELECT TOP 50
       ISNULL(r.SalesRepName, ISNULL(r.SalesRepCode, 'Sin vendedor')) AS GroupName,
-      SUM(fr.NetAmount) AS ReturnsNet,
+      ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       (SELECT ISNULL(SUM(fs.NetAmount), 0)
          FROM fact.Fact_Sales fs
-         WHERE fs.SalesRepKey = fr.SalesRepKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet
+         WHERE fs.SalesRepKey = fr.SalesRepKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNetBs
     FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
     LEFT JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fr.SalesRepKey
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY fr.SalesRepKey, ISNULL(r.SalesRepName, ISNULL(r.SalesRepCode, 'Sin vendedor'))
-    ORDER BY ReturnsNet DESC
+    ORDER BY ReturnsNetBs DESC
   `;
 }
 
@@ -46,15 +47,16 @@ function productoMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
   return `
     SELECT TOP 50
       ISNULL(p.ProductName, p.ProductCode) AS GroupName,
-      SUM(fr.NetAmount) AS ReturnsNet,
+      ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       (SELECT ISNULL(SUM(fs.NetAmount), 0)
          FROM fact.Fact_Sales fs
-         WHERE fs.ProductKey = fr.ProductKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet
+         WHERE fs.ProductKey = fr.ProductKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNetBs
     FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
     JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY fr.ProductKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY ReturnsNet DESC
+    ORDER BY ReturnsNetBs DESC
   `;
 }
 
@@ -65,17 +67,18 @@ function clienteMatrixQuery(dimension: Dimension, returnsDateWhere: string, sale
     SELECT TOP 50
       ${spec.valueExpr} AS GroupValue,
       ${spec.labelExpr} AS GroupName,
-      SUM(fr.NetAmount) AS ReturnsNet,
+      ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       (SELECT ISNULL(SUM(fs2.NetAmount), 0)
          FROM fact.Fact_Sales fs2
          ${innerJoin}
          WHERE fs2.IsVoided = 0 ${salesDateWhere} AND ${condition}
-      ) AS SalesNet
+      ) AS SalesNetBs
     FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
     ${spec.joinClause.replace(/\bf\b/g, 'fr')}
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY ReturnsNet DESC
+    ORDER BY ReturnsNetBs DESC
   `;
 }
 
@@ -93,11 +96,12 @@ function matrixQuery(groupBy: DevolucionesGroupBy, clienteDimension: Dimension, 
 
 function toMatrixCell(
   groupBy: DevolucionesGroupBy,
-  row: { GroupName: string; GroupValue?: unknown; ReturnsNet: unknown; SalesNet: unknown }
+  row: { GroupName: string; GroupValue?: unknown; ReturnsNetBs: unknown; ReturnsNetUsd: unknown; SalesNetBs: unknown }
 ): DevolucionesMatrixCell {
-  const returnsNet = Number(row.ReturnsNet);
-  const salesNet = Number(row.SalesNet);
-  const ratioDevolucion = salesNet > 0 ? returnsNet / salesNet : null;
+  const returnsNetBs = Number(row.ReturnsNetBs);
+  const returnsNetUsd = row.ReturnsNetUsd === null ? null : Number(row.ReturnsNetUsd);
+  const salesNetBs = Number(row.SalesNetBs);
+  const ratioDevolucion = salesNetBs > 0 ? returnsNetBs / salesNetBs : null;
   const placeholder = 'Todos';
 
   return {
@@ -106,7 +110,7 @@ function toMatrixCell(
     cliente: groupBy === 'cliente' ? row.GroupName : placeholder,
     clienteValue: groupBy === 'cliente' && row.GroupValue != null ? String(row.GroupValue) : null,
     ratioDevolucion,
-    amountNet: returnsNet,
+    amountNet: { bs: returnsNetBs, usd: returnsNetUsd },
   };
 }
 
@@ -116,7 +120,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy');
   const groupBy: DevolucionesGroupBy = isDevolucionesGroupBy(groupByParam) ? groupByParam : 'salesrep';
   const clienteDimensionParam = searchParams.get('clienteDimension');
@@ -146,23 +149,26 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fr.NetAmount) AS ReturnsNet
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')}
         FROM fact.Fact_Returns fr
+        ${usdConversionJoin('fr')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fr')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fr')}
         WHERE fr.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fr')} = @parentValue ${returnsDateWhere}
         GROUP BY ${breakdownSpec.groupByColumn}
-        ORDER BY ReturnsNet DESC
+        ORDER BY ReturnsNetBs DESC
       `);
       return jsonWithCache({
-        breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), returnsNet: Number(r.ReturnsNet) })),
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          returnsNetBs: Number(r.ReturnsNetBs),
+          returnsNetUsd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd),
+        })),
       });
     }
 
-    const [matrix, usdRate] = await Promise.all([
-      pool.request().query(matrixQuery(groupBy, clienteDimension, returnsDateWhere, salesDateWhere)),
-      currency === 'usd' ? getUsdRate() : Promise.resolve(null),
-    ]);
+    const matrix = await pool.request().query(matrixQuery(groupBy, clienteDimension, returnsDateWhere, salesDateWhere));
 
     const rows: DevolucionesMatrixCell[] = matrix.recordset.map(r => toMatrixCell(groupBy, r));
 
@@ -170,7 +176,6 @@ export async function GET(request: NextRequest) {
       rows,
       groupBy: groupBy as GroupBy,
       breadcrumb: [{ label: GROUP_LABELS[groupBy], groupBy }],
-      usdRate,
     };
 
     return jsonWithCache(response);

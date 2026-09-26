@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
-import type { BreakdownRow, Currency, DateRange, DevolucionesMatrixCell, DevolucionesResponse, PivotDimension } from '../types';
+import type { BreakdownRow, Currency, DateRange, DevolucionesMatrixCell, DevolucionesResponse, DualAmount, PivotDimension } from '../types';
 
 // Cliente view groups by cliente_entidad/cliente_tienda (existing toggle) and
 // breaks down by producto/vendedor — mirrors tab-ventas.tsx's wiring exactly;
@@ -22,12 +22,24 @@ interface DevolucionesTableRow {
   label: string;
   value: string;
   ratioDevolucion: number | null;
-  amountNet: number;
+  amountNet: DualAmount;
 }
 
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
+}
+
+// BreakdownRow's index signature can't hold a nested DualAmount, so
+// returnsNet ships as two flat keys (returnsNetBs/returnsNetUsd — see the
+// devoluciones route's breakdown query); this picks the right one for the
+// currency toggle. hiddenMetricKeys (passed to GroupedDrilldownTable below)
+// keeps the Usd key from also rendering as its own column.
+function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
+  const bs = row.returnsNetBs;
+  const usd = row.returnsNetUsd;
+  if (typeof bs !== 'number') return String(bs ?? '—');
+  return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
 
 function EmptyState({ message }: { message?: string }) {
@@ -73,14 +85,12 @@ function SortableHeader({
 // rather than reading it from the parent's closure for the same reason.
 function MatrixTable({
   rows,
-  rate,
   currency,
   nameColumnLabel,
   nameOf,
   defaultSortKey = 'amountNet',
 }: {
   rows: DevolucionesMatrixCell[];
-  rate: number | undefined;
   currency: Currency;
   nameColumnLabel: string;
   nameOf: (row: DevolucionesMatrixCell) => string;
@@ -102,12 +112,14 @@ function MatrixTable({
       } else if (sortKey === 'ratioDevolucion') {
         cmp = (a.row.ratioDevolucion ?? -Infinity) - (b.row.ratioDevolucion ?? -Infinity);
       } else {
-        cmp = a.row.amountNet - b.row.amountNet;
+        const av = (currency === 'usd' ? a.row.amountNet.usd : a.row.amountNet.bs) ?? -Infinity;
+        const bv = (currency === 'usd' ? b.row.amountNet.usd : b.row.amountNet.bs) ?? -Infinity;
+        cmp = av - bv;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return withName.map(x => x.row);
-  }, [rows, sortKey, sortDir, nameOf]);
+  }, [rows, sortKey, sortDir, nameOf, currency]);
 
   function handleSort(key: MatrixSortKey) {
     if (key === sortKey) {
@@ -140,7 +152,7 @@ function MatrixTable({
               >
                 {pct(row.ratioDevolucion)}
               </td>
-              <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(row.amountNet, currency, rate)}</td>
+              <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(row.amountNet, currency)}</td>
             </tr>
           ))}
         </tbody>
@@ -185,7 +197,7 @@ export default function TabDevoluciones({
       setSalesrepError(null);
       setSalesrepLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'salesrep' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'salesrep' });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -204,7 +216,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,7 +224,7 @@ export default function TabDevoluciones({
       setProductoError(null);
       setProductoLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'producto' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'producto' });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -231,7 +243,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency]);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +251,7 @@ export default function TabDevoluciones({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, groupBy: 'cliente', clienteDimension });
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -258,11 +270,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
-
-  const salesrepRate = salesrepData?.usdRate ?? undefined;
-  const productoRate = productoData?.usdRate ?? undefined;
-  const clienteRate = clienteData?.usdRate ?? undefined;
+  }, [dateRange, clienteDimension]);
 
   const clienteRows: DevolucionesTableRow[] = useMemo(() => {
     if (!clienteData) return [];
@@ -284,7 +292,6 @@ export default function TabDevoluciones({
   async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
     const params = new URLSearchParams({
       dateRange,
-      currency,
       groupBy: 'cliente',
       clienteDimension,
       breakdownBy: dimension,
@@ -301,7 +308,7 @@ export default function TabDevoluciones({
       key: 'amountNet',
       label: 'Monto neto',
       align: 'right',
-      format: row => moneyLabel(row.amountNet, currency, clienteRate),
+      format: row => moneyLabel(row.amountNet, currency),
     },
     {
       key: 'ratioDevolucion',
@@ -327,7 +334,7 @@ export default function TabDevoluciones({
           ) : salesrepError ? (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{salesrepError}</p>
           ) : (
-            <MatrixTable rows={salesrepData?.rows ?? []} rate={salesrepRate} currency={currency} nameColumnLabel="Vendedor" nameOf={row => row.salesRep} />
+            <MatrixTable rows={salesrepData?.rows ?? []} currency={currency} nameColumnLabel="Vendedor" nameOf={row => row.salesRep} />
           )}
         </div>
       </section>
@@ -341,7 +348,7 @@ export default function TabDevoluciones({
           ) : productoError ? (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{productoError}</p>
           ) : (
-            <MatrixTable rows={productoData?.rows ?? []} rate={productoRate} currency={currency} nameColumnLabel="Producto" nameOf={row => row.producto} />
+            <MatrixTable rows={productoData?.rows ?? []} currency={currency} nameColumnLabel="Producto" nameOf={row => row.producto} />
           )}
         </div>
       </section>
@@ -383,7 +390,8 @@ export default function TabDevoluciones({
               breakdownBy={breakdownBy}
               onBreakdownByChange={setBreakdownBy}
               onFetchBreakdown={handleFetchBreakdown}
-              formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel(value, currency, clienteRate) : String(value ?? '—'))}
+              formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+              hiddenMetricKeys={['returnsNetUsd']}
             />
           )}
         </div>

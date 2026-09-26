@@ -76,7 +76,7 @@ function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entid
   return { data, loading, error };
 }
 
-function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+function useClientesChurned(dateRange: DateRange, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
   const [data, setData] = useState<ClientesChurnedResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +87,7 @@ function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDim
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, clienteDimension, section: 'churned' });
+        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'churned' });
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -108,7 +108,7 @@ function useClientesChurned(dateRange: DateRange, currency: Currency, clienteDim
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
+  }, [dateRange, clienteDimension]);
 
   return { data, loading, error };
 }
@@ -149,14 +149,14 @@ const COLUMNS: ColumnDef[] = [
   { key: 'pareto', label: 'Segmento', align: 'right' },
 ];
 
-function sortValue(row: ClientesRow, key: SortKey): string | number {
+function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string | number {
   switch (key) {
     case 'name':
       return row.name ?? '';
     case 'salesNet':
-      return row.salesNet;
+      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
     case 'returnsNet':
-      return row.returnsNet;
+      return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
     case 'returnRate':
       return row.returnRate ?? -Infinity;
     case 'pareto':
@@ -186,7 +186,7 @@ export default function TabClientes({
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const trend = useClientesTrend(dateRange, clienteDimension);
-  const churned = useClientesChurned(dateRange, currency, clienteDimension);
+  const churned = useClientesChurned(dateRange, clienteDimension);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,7 +194,7 @@ export default function TabClientes({
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, currency, clienteDimension });
+        const params = new URLSearchParams({ dateRange, clienteDimension });
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -215,7 +215,7 @@ export default function TabClientes({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, currency, clienteDimension]);
+  }, [dateRange, clienteDimension]);
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
@@ -226,8 +226,8 @@ export default function TabClientes({
   const sortedRows = useMemo(() => {
     const rows = [...filteredRows];
     rows.sort((a, b) => {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
+      const av = sortValue(a, sortKey, currency);
+      const bv = sortValue(b, sortKey, currency);
       let cmp: number;
       if (typeof av === 'string' || typeof bv === 'string') {
         cmp = String(av).localeCompare(String(bv));
@@ -237,7 +237,7 @@ export default function TabClientes({
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return rows;
-  }, [filteredRows, sortKey, sortDir]);
+  }, [filteredRows, sortKey, sortDir, currency]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -268,7 +268,6 @@ export default function TabClientes({
     );
   }
 
-  const rate = data.usdRate ?? undefined;
   const segmentCounts = data.rows.reduce<Record<Segment, number>>(
     (acc, r) => {
       acc[r.pareto] += 1;
@@ -352,12 +351,9 @@ export default function TabClientes({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{churned.error}</p>
         ) : churned.data && !churned.data.available ? (
           <EmptyState message="No disponible para este rango de fechas." />
-        ) : !churned.data || churned.data.rows.length === 0 ? (
-          <EmptyState message="Sin clientes perdidos en este período." />
-        ) : (
+        ) : churned.data && churned.data.rows.length > 0 ? (
           (() => {
             const churnedRows = churned.data.rows;
-            const churnedRate = churned.data.usdRate ?? undefined;
             return (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -376,7 +372,7 @@ export default function TabClientes({
                         <td className="px-3 py-2 text-gray-800">{r.name}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{formatDateKey(r.lastPurchaseDateKey)}</td>
                         <td className="px-3 py-2 text-right font-medium text-gray-900">
-                          {moneyLabel(r.lostRevenue, currency, churnedRate)}
+                          {moneyLabel(r.lostRevenue, currency)}
                         </td>
                       </tr>
                     ))}
@@ -385,6 +381,8 @@ export default function TabClientes({
               </div>
             );
           })()
+        ) : (
+          <EmptyState message="Sin clientes perdidos en este período." />
         )}
       </div>
 
@@ -445,10 +443,10 @@ export default function TabClientes({
                   <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesNet, currency, rate)}
+                      {moneyLabel(r.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(r.returnsNet, currency, rate)}
+                      {moneyLabel(r.returnsNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(r.returnRate)}</td>
                     <td className="px-3 py-2 text-right">

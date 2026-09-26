@@ -91,7 +91,7 @@ Expected: FAIL — `usdConversionJoin`/`dualAmountExpr` are not exported from `.
 
 - [ ] **Step 3: Implement `usdConversionJoin` and `dualAmountExpr`**
 
-Add to `app/api/dwh/lib/query-builder.ts`, after `getUsdRate` (leave `getUsdRate` in place for now — it's removed in Task 11 once every call site is migrated):
+Add to `app/api/dwh/lib/query-builder.ts`, after `getUsdRate` (leave `getUsdRate` in place — `finanzas`/`multimoneda` routes are permanently out of scope for this plan, per the spec, since they're backed by `Fact_Expenses`/`Fact_CashMovements`, which have no `DocumentExchangeRate` column at all. Those two routes keep calling `getUsdRate()` forever; this function is never removed by this plan):
 
 ```typescript
 /**
@@ -183,6 +183,150 @@ EOF
 
 ---
 
+## Task 1b: Add explicit `joinAlias` parameter (fixes broken alias-rename pattern found in Task 2 review)
+
+**Files:**
+- Modify: `app/api/dwh/lib/query-builder.ts`
+- Test: `app/api/dwh/lib/__tests__/query-builder.test.ts`
+
+**Interfaces:**
+- Produces (signature change, additive/backward-compatible): `usdConversionJoin(factAlias: string, dateColumn?: string, joinAlias?: string): string` — `joinAlias` defaults to `'fx'`.
+- Produces (signature change, additive/backward-compatible): `dualAmountExpr(factAlias: string, column: string, bsAlias: string, usdAlias: string, joinAlias?: string): string` — `joinAlias` defaults to `'fx'`.
+- Consumes: nothing new.
+
+**Why this task exists:** Task 2's implementation (already committed) followed this plan's original Task 1 text, which told every query needing more than one `usdConversionJoin` in scope to rename its `fx` alias via `.replace('fx', '<shortalias>fx')` on the function's return value. Task 2's task reviewer found this broken: `usdConversionJoin`'s returned SQL fragment contains the literal text `fx` three times (`Fact_ExchangeRate fx`, `fx.DateKey`, `fx.CurrencyKey`), and a non-regex, non-global `String.prototype.replace()` call only rewrites the *first* occurrence — so `.replace('fx', 'frfx')` produces `LEFT JOIN fact.Fact_ExchangeRate frfx ON fx.DateKey = ... AND fx.CurrencyKey = ...`, a join aliased `frfx` whose own `ON` clause still references the no-longer-in-scope bare `fx`. This is broken SQL (or worse, a silent bind to an unrelated `fx` if one happens to be in scope), invisible to TypeScript and to the auth-smoke-test-only test suite this repo uses at the route level — it would only surface as a live query failure or silently wrong numbers against a real SQL Server. Confirmed independently via a standalone Node repro before ruling on this fix. The root-cause fix is an explicit `joinAlias` parameter on both functions, so no call site ever needs to string-`.replace()` their output again.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `app/api/dwh/lib/__tests__/query-builder.test.ts`, inside the existing `describe('usdConversionJoin', ...)` and `describe('dualAmountExpr', ...)` blocks:
+
+```typescript
+  test('accepts an explicit joinAlias for queries needing more than one exchange-rate join in scope', () => {
+    const sql = usdConversionJoin('fr', undefined, 'frfx');
+    expect(sql).toContain('LEFT JOIN fact.Fact_ExchangeRate frfx');
+    expect(sql).toContain('frfx.DateKey = fr.DateKey');
+    expect(sql).toContain('frfx.CurrencyKey =');
+    expect(sql).not.toContain(' fx.'); // no leftover bare "fx." reference anywhere
+    expect(sql).not.toContain('Fact_ExchangeRate fx'); // and the join itself isn't aliased "fx" either
+  });
+```
+
+```typescript
+  test('dualAmountExpr accepts a matching joinAlias for its fallback rate reference', () => {
+    const sql = dualAmountExpr('fr', 'NetAmount', 'Bs', 'Usd', 'frfx');
+    // Assert the exact expected fallback-rate reference is present, rather
+    // than a negative substring check for "fx.RateSell" — that substring is
+    // a suffix of "frfx.RateSell" itself, so a naive `.not.toContain('fx.RateSell')`
+    // would fail even on a fully correct implementation whenever the custom
+    // alias happens to end in "fx" (as "frfx" does here).
+    expect(sql).toContain('COALESCE(fr.DocumentExchangeRate, frfx.RateSell)');
+  });
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test app/api/dwh/lib/__tests__/query-builder.test.ts`
+Expected: FAIL — `usdConversionJoin`/`dualAmountExpr` don't yet accept a third/fifth parameter (TypeScript will actually reject the extra argument at the call site, or the runtime output will still show `fx` since the parameter is unused).
+
+- [ ] **Step 3: Add the `joinAlias` parameter to both functions**
+
+Replace both function definitions in `app/api/dwh/lib/query-builder.ts` with:
+
+```typescript
+/**
+ * LEFT JOIN fragment resolving the USD exchange rate for a fact table's own
+ * date, keyed to a scalar CurrencyKey lookup for 'USD' rather than a second
+ * join to dim.Dim_Currency (Fact_ExchangeRate itself has no CurrencyCode
+ * column, only CurrencyKey). Used as a fallback when a row's own
+ * DocumentExchangeRate is NULL/0 — see dualAmountExpr.
+ *
+ * dateColumn defaults to 'DateKey' (Fact_Sales/Fact_Returns/Fact_Collections/
+ * Fact_Purchases all use this name); Fact_AR_Snapshot uses 'SnapshotDateKey'
+ * instead — pass it explicitly for that table.
+ *
+ * joinAlias defaults to 'fx' — pass a distinct alias (and the SAME alias to
+ * dualAmountExpr's own joinAlias param) whenever a query needs more than one
+ * usdConversionJoin in scope at once (e.g. a correlated subquery alongside
+ * an outer query, both needing their own exchange-rate lookup) so the two
+ * joins' aliases never collide. Do NOT rename the alias post-hoc with
+ * string .replace() on this function's output — Fact_ExchangeRate's alias
+ * appears multiple times in the returned fragment (the join's own alias,
+ * plus every reference to it in the ON clause), so a naive .replace() only
+ * renames the first occurrence and leaves the rest pointing at an alias
+ * that's no longer in scope. Always pass the alias as a parameter instead.
+ */
+export function usdConversionJoin(factAlias: string, dateColumn: string = 'DateKey', joinAlias: string = 'fx'): string {
+  return `LEFT JOIN fact.Fact_ExchangeRate ${joinAlias} ON ${joinAlias}.DateKey = ${factAlias}.${dateColumn} AND ${joinAlias}.CurrencyKey = (SELECT CurrencyKey FROM dim.Dim_Currency WHERE RTRIM(CurrencyCode) = 'USD')`;
+}
+
+/**
+ * Paired BS/USD SUM expression for a money column on a fact table already
+ * carrying a DocumentExchangeRate column (Fact_Sales, Fact_Returns,
+ * Fact_Collections, Fact_AR_Snapshot, Fact_Purchases only — see
+ * docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md).
+ * Requires the query to also include usdConversionJoin(factAlias, ...)'s
+ * join for the fallback rate lookup, using the SAME joinAlias passed here
+ * (both default to 'fx' — pass a matching non-default alias to both
+ * functions if a query needs more than one such join in scope).
+ *
+ * Division happens per-row, inside the SUM — NOT SUM(column) / rate — so a
+ * group spanning multiple historical rates converts each row at its own
+ * rate before aggregating, rather than distorting the whole group by
+ * today's rate. NULLIF(...,0) on the divisor means a row with neither its
+ * own DocumentExchangeRate nor a same-day Fact_ExchangeRate row produces
+ * NULL for that row's USD contribution (SQL Server's SUM ignores NULLs),
+ * rather than a divide-by-zero error.
+ */
+export function dualAmountExpr(factAlias: string, column: string, bsAlias: string, usdAlias: string, joinAlias: string = 'fx'): string {
+  const col = `${factAlias}.${column}`;
+  const rate = `NULLIF(COALESCE(${factAlias}.DocumentExchangeRate, ${joinAlias}.RateSell), 0)`;
+  return `SUM(${col}) AS ${bsAlias}, SUM(${col} / ${rate}) AS ${usdAlias}`;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `bun test app/api/dwh/lib/__tests__/query-builder.test.ts`
+Expected: PASS, all tests including every pre-existing one from Task 1 (the default-`'fx'` behavior is unchanged, so no existing test should need modification).
+
+- [ ] **Step 5: Fix Task 2's already-committed call sites in `app/api/dwh/resumen/route.ts`**
+
+Task 2 is already implemented and committed, using the now-fixed-but-still-broken-in-that-commit `.replace('fx', ...)` pattern this task's Design Notes describe. Find every occurrence in that file and replace it with the explicit-parameter form. The mechanical transformation is: `usdConversionJoin('X').replace('fx', 'Yfx')` → `usdConversionJoin('X', undefined, 'Yfx')`. Grep `app/api/dwh/resumen/route.ts` for `.replace('fx'` and fix every match found — the plan text that originally specified these (now corrected in this document) used aliases `frfx`, `sfx`, `rfx`, `cfx` at various call sites in that file's `monthlyTrendQuery`, `salesRepQuery`, and `totalsQuery` functions.
+
+- [ ] **Step 6: Run resumen's route test to confirm no regression**
+
+Run: `bun test app/api/dwh/resumen/__tests__/route.test.ts`
+Expected: PASS (unchanged — this is an auth-smoke test, doesn't execute the SQL, but confirms the file still imports/compiles correctly).
+
+- [ ] **Step 7: Typecheck to confirm no new errors introduced**
+
+Run: `bunx tsc --noEmit`
+Expected: the same pre-existing errors as before this task (in files owned by later, not-yet-executed tasks: `cxc/route.ts`, `tab-resumen.tsx`, `tab-cxc.tsx`) and no new ones.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add app/api/dwh/lib/query-builder.ts app/api/dwh/lib/__tests__/query-builder.test.ts app/api/dwh/resumen/route.ts
+git commit -m "$(cat <<'EOF'
+fix: add explicit joinAlias param to usdConversionJoin/dualAmountExpr
+
+The plan originally specified renaming usdConversionJoin's `fx` alias
+via .replace('fx', '<alias>') for queries needing more than one such
+join in scope. That's broken: `fx` appears 3 times in the returned SQL
+(the join alias plus twice in its ON clause), and a non-regex
+String.replace() only rewrites the first occurrence, leaving the ON
+clause referencing an alias no longer in scope. Found during Task 2's
+review; fixed at the root with an explicit joinAlias parameter
+(default 'fx') instead of ever post-processing the returned string.
+Task 2's already-committed call sites are corrected in the same commit.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Task 2: `resumen` route + `ResumenResponse`
 
 **Files:**
@@ -254,7 +398,7 @@ function monthlyTrendQuery(dateWhere: string): string {
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         ${usdConversionJoin('fr', undefined, 'frfx')}
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -267,7 +411,7 @@ function monthlyTrendQuery(dateWhere: string): string {
 }
 ```
 
-`usdConversionJoin('fr').replace('fx', 'frfx')` renames the join's `fx` alias to `frfx` inside this one correlated subquery, since the subquery is nested inside a query that already has its own outer `fx` (from `fs`'s join) — SQL Server would otherwise see two `fx` aliases in overlapping scope. Apply this same rename pattern (`fx` → `<shortalias>fx`) to every correlated-subquery `usdConversionJoin` call in this file and every other route in this plan — grep each file's finished query text for a duplicate bare `fx` alias before considering a query done.
+`usdConversionJoin('fr', undefined, 'frfx')` gives this correlated subquery's exchange-rate join its own `frfx` alias, since the subquery is nested inside a query that already has its own outer `fx` (from `fs`'s join) — SQL Server would otherwise see two `fx` aliases in overlapping scope. **Never rename the alias by calling `.replace('fx', ...)` on `usdConversionJoin`'s return value** — its `fx` alias appears multiple times in the returned fragment (the join itself, plus every reference in the `ON` clause), so a plain string `.replace()` only renames the first occurrence and leaves the rest pointing at an alias no longer in scope, producing broken SQL. Always pass the alias as `usdConversionJoin`'s third parameter (and the matching `dualAmountExpr`'s fifth parameter, when that query also builds its inline rate expression via `dualAmountExpr`) instead. Apply this same explicit-third-parameter pattern to every correlated-subquery `usdConversionJoin` call in this file and every other route in this plan — grep each file's finished query text for a duplicate bare `fx` alias before considering a query done.
 
 ```typescript
 function topCustomersQuery(dateWhere: string): string {
@@ -309,7 +453,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'frfx')}
+         ${usdConversionJoin('fr', undefined, 'frfx')}
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -354,17 +498,17 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Sales fs
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moBs,
       (SELECT ISNULL(SUM(fs.NetAmount / NULLIF(COALESCE(fs.DocumentExchangeRate, sfx.RateSell), 0)), 0)
-         FROM fact.Fact_Sales fs ${usdConversionJoin('fs').replace('fx', 'sfx')}
+         FROM fact.Fact_Sales fs ${usdConversionJoin('fs', undefined, 'sfx')}
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moUsd,
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Returns fr
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
-         FROM fact.Fact_Returns fr ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moUsd,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moBs,
       (SELECT ISNULL(SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, cfx.RateSell), 0)), 0)
-         FROM fact.Fact_Collections fc ${usdConversionJoin('fc').replace('fx', 'cfx')}
+         FROM fact.Fact_Collections fc ${usdConversionJoin('fc', undefined, 'cfx')}
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moUsd
   `;
 }
@@ -603,7 +747,7 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         ${usdConversionJoin('fr', undefined, 'rfx')}
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -639,7 +783,7 @@ function clienteQuery(dimension: Dimension, dateWhere: string, returnsDateWhere:
       (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr2
          ${innerJoin}
-         ${usdConversionJoin('fr2').replace('fx', 'r2fx')}
+         ${usdConversionJoin('fr2', undefined, 'r2fx')}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
       ) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -670,7 +814,7 @@ function lineaQuery(dateWhere: string, returnsDateWhere: string): string {
          WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         ${usdConversionJoin('fr', undefined, 'rfx')}
          JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
          WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -1027,7 +1171,7 @@ function profundidadLineaQuery(dateWhere: string, returnsDateWhere: string, tien
       ISNULL((SELECT SUM(fr.NetAmount) FROM fact.Fact_Returns fr
               WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetBs,
       ISNULL((SELECT SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0))
-              FROM fact.Fact_Returns fr ${usdConversionJoin('fr').replace('fx', 'rfx')}
+              FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
               WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -1348,7 +1492,7 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
       (SELECT ISNULL(SUM(fr2.NetAmount / NULLIF(COALESCE(fr2.DocumentExchangeRate, r2fx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr2
          ${innerJoin}
-         ${usdConversionJoin('fr2').replace('fx', 'r2fx')}
+         ${usdConversionJoin('fr2', undefined, 'r2fx')}
          WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
       ) AS ReturnsNetUsd
     FROM fact.Fact_Sales fs
@@ -1490,7 +1634,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
       ) AS ReturnsNetBs,
       (SELECT ISNULL(SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)), 0)
          FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr').replace('fx', 'rfx')}
+         ${usdConversionJoin('fr', undefined, 'rfx')}
          JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
@@ -1503,7 +1647,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
       ) AS CollectedBs,
       (SELECT ISNULL(SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, cfx.RateSell), 0)), 0)
          FROM fact.Fact_Collections fc
-         ${usdConversionJoin('fc').replace('fx', 'cfx')}
+         ${usdConversionJoin('fc', undefined, 'cfx')}
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
          WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
@@ -1516,7 +1660,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
       ) AS ExcludedCollectedBs,
       (SELECT ISNULL(SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, ecfx.RateSell), 0)), 0)
          FROM fact.Fact_Collections fc
-         ${usdConversionJoin('fc').replace('fx', 'ecfx')}
+         ${usdConversionJoin('fc', undefined, 'ecfx')}
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
          WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 0'}
@@ -3811,7 +3955,9 @@ EOF
 
 **Type consistency:**
 - `DualAmount` (Task 1) is imported and used identically as `{ bs: number; usd: number | null }` in every task that touches `types.ts` (2, 4–11) and every tab that receives it (13–21) — no task introduces a differently-named or differently-shaped equivalent.
-- `usdConversionJoin(factAlias, dateColumn?)` and `dualAmountExpr(factAlias, column, bsAlias, usdAlias)` (Task 1) are called with the same signature and the same `fx`-alias-rename convention (`.replace('fx', '<shortalias>fx')` for nested correlated subqueries) in every subsequent route task — verified across Tasks 2, 4–11.
+- `usdConversionJoin(factAlias, dateColumn?, joinAlias?)` and `dualAmountExpr(factAlias, column, bsAlias, usdAlias, joinAlias?)` (Task 1) are called with the same signature in every subsequent route task, using the explicit third/fifth `joinAlias` parameter (not string `.replace()`, which was found broken during Task 2's review — see the "Corrected during implementation" note below) whenever a query needs more than one such join in scope — verified across Tasks 2, 4–11.
+
+**Corrected during implementation (Task 2's review):** this plan originally specified renaming `usdConversionJoin`'s `fx` alias via `.replace('fx', '<shortalias>fx')` on its return value, for queries needing more than one such join in scope (e.g. a correlated subquery alongside an outer query). That pattern is broken — `fx` appears multiple times in the returned SQL fragment (the join's own alias, plus twice in its `ON` clause), and a non-regex, non-global `String.replace()` only rewrites the first occurrence, leaving the `ON` clause referencing an alias no longer in scope. This was caught by Task 2's task reviewer, ruled on, and fixed at the root: `usdConversionJoin`/`dualAmountExpr` gained an explicit optional `joinAlias` parameter (default `'fx'`), and every call site in this document that previously used `.replace()` was corrected to pass the alias as a parameter instead. See the ledger for the full ruling.
 - `money(amount: DualAmount, currency)` / `moneyLabel(amount: DualAmount, currency)` / `moneyTooltip(value: unknown, currency)` (Task 12) are called with the exact same 2-argument shape in every tab task (13–21); every `tickFormatter={v => money({ bs: v, usd: v }, currency)}` site uses the same wrapping idiom introduced in Task 13, established once and reused verbatim in Tasks 14/18/20.
 - The `formatBreakdownBs` local helper (introduced independently but identically in Tasks 14, 17, 19, 20 — the four tabs using `GroupedDrilldownTable`'s `formatBreakdownMetric`) has the same name and body in each — a shared implementation across 4 files that could be extracted into `lib/format.ts` itself, but is kept as a small per-file duplication rather than growing `format.ts`'s public surface for a formatter only these 4 breakdown-row call sites need; noted here as a deliberate choice, not an inconsistency.
 

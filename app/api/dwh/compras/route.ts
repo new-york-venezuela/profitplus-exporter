@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, jsonWithCache, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ComprasResponse, ComprasRow, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +17,11 @@ function monthlyQuery(dateWhere: string): string {
     SELECT
       d.YearMonth AS GroupValue,
       d.YearMonth AS GroupLabel,
-      SUM(fp.NetAmount) AS PurchasesNet,
+      ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')},
       SUM(fp.GrossAmount) AS GrossAmount,
       SUM(fp.DiscountAmount) AS DiscountAmount
     FROM fact.Fact_Purchases fp
+    ${usdConversionJoin('fp')}
     JOIN dim.Dim_Date d ON d.DateKey = fp.DateKey
     WHERE fp.IsVoided = 0 ${dateWhere}
     GROUP BY d.YearMonth
@@ -36,15 +37,16 @@ function proveedorQuery(dateWhere: string, monthFilter: string): string {
     SELECT TOP 15
       ${spec.valueExpr} AS GroupValue,
       ${spec.labelExpr} AS GroupLabel,
-      SUM(fp.NetAmount) AS PurchasesNet,
+      ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')},
       SUM(fp.GrossAmount) AS GrossAmount,
       SUM(fp.DiscountAmount) AS DiscountAmount
     FROM fact.Fact_Purchases fp
+    ${usdConversionJoin('fp')}
     ${spec.joinClause.replace(/\bf\b/g, 'fp')}
     JOIN dim.Dim_Date d ON d.DateKey = fp.DateKey
     WHERE fp.IsVoided = 0 ${dateWhere} ${monthFilter}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY PurchasesNet DESC
+    ORDER BY PurchasesNetBs DESC
   `;
 }
 
@@ -53,14 +55,15 @@ function lineaQuery(dateWhere: string): string {
     SELECT TOP 15
       ISNULL(p.LineCode, 'SIN_LINEA') AS GroupValue,
       ISNULL(p.LineName, 'Sin línea') AS GroupLabel,
-      SUM(fp.NetAmount) AS PurchasesNet,
+      ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')},
       SUM(fp.GrossAmount) AS GrossAmount,
       SUM(fp.DiscountAmount) AS DiscountAmount
     FROM fact.Fact_Purchases fp
+    ${usdConversionJoin('fp')}
     JOIN dim.Dim_Product p ON p.ProductKey = fp.ProductKey
     WHERE fp.IsVoided = 0 ${dateWhere}
     GROUP BY ISNULL(p.LineCode, 'SIN_LINEA'), ISNULL(p.LineName, 'Sin línea')
-    ORDER BY PurchasesNet DESC
+    ORDER BY PurchasesNetBs DESC
   `;
 }
 
@@ -71,12 +74,13 @@ function lineaProductBreakdownQuery(purchasesDateWhere: string): string {
     SELECT TOP 15
       CAST(p.ProductKey AS varchar(20)) AS GroupValue,
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
-      SUM(fp.NetAmount) AS PurchasesNet
+      ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')}
     FROM fact.Fact_Purchases fp
+    ${usdConversionJoin('fp')}
     JOIN dim.Dim_Product p ON p.ProductKey = fp.ProductKey
     WHERE fp.IsVoided = 0 AND ISNULL(p.LineCode, 'SIN_LINEA') = @parentValue ${purchasesDateWhere}
     GROUP BY p.ProductKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY PurchasesNet DESC
+    ORDER BY PurchasesNetBs DESC
   `;
 }
 
@@ -93,7 +97,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
   const groupByParam = searchParams.get('groupBy') ?? 'mes';
   const groupBy: GroupBy = groupByParam === 'proveedor' || groupByParam === 'linea' ? groupByParam : 'mes';
   const breakdownByParam = searchParams.get('breakdownBy');
@@ -120,7 +123,14 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(lineaProductBreakdownQuery(purchasesDateWhere));
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          purchasesNetBs: Number(r.PurchasesNetBs),
+          purchasesNetUsd: r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd),
+        })),
+      });
     }
 
     // Generic proveedor-parent breakdown: this DOES join breakdownBy's spec
@@ -132,15 +142,23 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, SUM(fp.NetAmount) AS PurchasesNet
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')}
         FROM fact.Fact_Purchases fp
+        ${usdConversionJoin('fp')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fp')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fp')}
         WHERE fp.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fp')} = @parentValue ${purchasesDateWhere}
         GROUP BY ${breakdownSpec.groupByColumn}
-        ORDER BY PurchasesNet DESC
+        ORDER BY PurchasesNetBs DESC
       `);
-      return jsonWithCache({ breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), purchasesNet: Number(r.PurchasesNet) })) });
+      return jsonWithCache({
+        breakdown: result.recordset.map(r => ({
+          label: r.GroupLabel,
+          value: String(r.GroupValue),
+          purchasesNetBs: Number(r.PurchasesNetBs),
+          purchasesNetUsd: r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd),
+        })),
+      });
     }
 
     let recordset: Record<string, unknown>[];
@@ -165,27 +183,21 @@ export async function GET(request: NextRequest) {
       recordset = result.recordset;
     }
 
-    const usdRate = currency === 'usd' ? await getUsdRate() : null;
-
     const rows: ComprasRow[] = recordset.map(r => {
-      const purchasesNet = Number(r.PurchasesNet);
+      const purchasesNetBs = Number(r.PurchasesNetBs);
+      const purchasesNetUsd = r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd);
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
       const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
       return {
         label,
         value: String(r.GroupValue),
-        purchasesNet,
+        purchasesNet: { bs: purchasesNetBs, usd: purchasesNetUsd },
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
       };
     });
 
-    const response: ComprasResponse = {
-      rows,
-      groupBy,
-      breadcrumb,
-      usdRate,
-    };
+    const response: ComprasResponse = { rows, groupBy, breadcrumb };
 
     return jsonWithCache(response);
   } catch {
