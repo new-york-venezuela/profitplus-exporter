@@ -152,6 +152,137 @@ export async function loadDimSalesRepLegacy(legacyPool: sql.ConnectionPool, dwhP
   return count;
 }
 
+// Mirrors migrations/dwh/0009_fact_sales.sql's Load_Fact_Sales column
+// mapping exactly, against the legacy connection and legacy dimensions
+// instead of Ncake_a/current dimensions. No MERGE/watermark logic (see
+// Task 3's design notes) — a one-time INSERT into an empty table.
+export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request()
+    .input('startDate', sql.Date, IMPORT_START_DATE)
+    .input('endDate', sql.Date, IMPORT_END_DATE)
+    .query(`
+      SELECT
+        r.reng_num AS LineNumber, r.doc_num AS InvoiceNumber, r.co_art AS ProductCode,
+        r.total_art AS QuantitySold,
+        ISNULL(r.monto_desc, 0) + ISNULL(r.monto_desc_glob, 0) AS DiscountAmount,
+        r.reng_neto AS NetAmount,
+        f.co_cli AS CustomerCode, f.co_ven AS SalesRepCode, f.tasa AS DocumentExchangeRate,
+        CONVERT(int, FORMAT(f.fec_emis, 'yyyyMMdd')) AS DateKey,
+        ISNULL(f.anulado, 0) AS IsVoided
+      FROM dbo.saFacturaVentaReng r
+      INNER JOIN dbo.saFacturaVenta f ON f.doc_num = r.doc_num
+      WHERE f.fec_emis >= @startDate AND f.fec_emis <= @endDate
+    `);
+
+  // Resolve legacy dimension keys by code, entirely within the legacy
+  // server's own identity space — no lookup against current dimensions.
+  const customerKeys = await dwhPool.request().query(`SELECT CustomerLegacyKey, RTRIM(CustomerCode) AS CustomerCode FROM dim.Dim_Customer_Legacy`);
+  const productKeys = await dwhPool.request().query(`SELECT ProductLegacyKey, RTRIM(ProductCode) AS ProductCode FROM dim.Dim_Product_Legacy`);
+  const salesRepKeys = await dwhPool.request().query(`SELECT SalesRepLegacyKey, RTRIM(SalesRepCode) AS SalesRepCode FROM dim.Dim_SalesRep_Legacy`);
+  const customerKeyByCode = new Map(customerKeys.recordset.map((r: { CustomerLegacyKey: number; CustomerCode: string }) => [r.CustomerCode, r.CustomerLegacyKey]));
+  const productKeyByCode = new Map(productKeys.recordset.map((r: { ProductLegacyKey: number; ProductCode: string }) => [r.ProductCode, r.ProductLegacyKey]));
+  const salesRepKeyByCode = new Map(salesRepKeys.recordset.map((r: { SalesRepLegacyKey: number; SalesRepCode: string }) => [r.SalesRepCode, r.SalesRepLegacyKey]));
+
+  let count = 0;
+  for (const row of result.recordset as {
+    LineNumber: number; InvoiceNumber: string; ProductCode: string; QuantitySold: number;
+    DiscountAmount: number; NetAmount: number; CustomerCode: string; SalesRepCode: string | null;
+    DocumentExchangeRate: number | null; DateKey: number; IsVoided: boolean;
+  }[]) {
+    const customerLegacyKey = customerKeyByCode.get(row.CustomerCode.trim());
+    const productLegacyKey = productKeyByCode.get(row.ProductCode.trim());
+    if (customerLegacyKey === undefined || productLegacyKey === undefined) continue; // no matching dimension row — skip, matching Load_Fact_Sales's own WHERE cust/prod IS NOT NULL behavior
+    const salesRepLegacyKey = row.SalesRepCode ? salesRepKeyByCode.get(row.SalesRepCode.trim()) ?? null : null;
+
+    await dwhPool.request()
+      .input('dateKey', sql.Int, row.DateKey)
+      .input('customerLegacyKey', sql.Int, customerLegacyKey)
+      .input('productLegacyKey', sql.Int, productLegacyKey)
+      .input('salesRepLegacyKey', sql.Int, salesRepLegacyKey)
+      .input('invoiceNumber', sql.Char(20), row.InvoiceNumber)
+      .input('lineNumber', sql.Int, row.LineNumber)
+      .input('quantitySold', sql.Decimal(18, 5), row.QuantitySold)
+      .input('netAmount', sql.Decimal(18, 2), row.NetAmount)
+      .input('documentExchangeRate', sql.Decimal(21, 8), row.DocumentExchangeRate)
+      .input('isVoided', sql.Bit, row.IsVoided)
+      .query(`
+        INSERT INTO fact.Fact_Sales_Legacy (
+          DateKey, CustomerLegacyKey, ProductLegacyKey, SalesRepLegacyKey,
+          InvoiceNumber, LineNumber, QuantitySold, NetAmount, DocumentExchangeRate, IsVoided
+        )
+        VALUES (
+          @dateKey, @customerLegacyKey, @productLegacyKey, @salesRepLegacyKey,
+          @invoiceNumber, @lineNumber, @quantitySold, @netAmount, @documentExchangeRate, @isVoided
+        )
+      `);
+    count++;
+  }
+  return count;
+}
+
+// Mirrors migrations/dwh/0010_fact_returns.sql's Load_Fact_Returns column
+// mapping, same legacy-only resolution as loadFactSalesLegacy above.
+export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request()
+    .input('startDate', sql.Date, IMPORT_START_DATE)
+    .input('endDate', sql.Date, IMPORT_END_DATE)
+    .query(`
+      SELECT
+        r.reng_num AS LineNumber, r.doc_num AS CreditNoteNumber, r.co_art AS ProductCode,
+        r.total_art AS QuantityReturned,
+        r.reng_neto AS NetAmount,
+        d.co_cli AS CustomerCode, d.co_ven AS SalesRepCode, d.tasa AS DocumentExchangeRate,
+        CONVERT(int, FORMAT(d.fec_emis, 'yyyyMMdd')) AS DateKey,
+        ISNULL(d.anulado, 0) AS IsVoided
+      FROM dbo.saDevolucionClienteReng r
+      INNER JOIN dbo.saDevolucionCliente d ON d.doc_num = r.doc_num
+      WHERE d.fec_emis >= @startDate AND d.fec_emis <= @endDate
+    `);
+
+  const customerKeys = await dwhPool.request().query(`SELECT CustomerLegacyKey, RTRIM(CustomerCode) AS CustomerCode FROM dim.Dim_Customer_Legacy`);
+  const productKeys = await dwhPool.request().query(`SELECT ProductLegacyKey, RTRIM(ProductCode) AS ProductCode FROM dim.Dim_Product_Legacy`);
+  const salesRepKeys = await dwhPool.request().query(`SELECT SalesRepLegacyKey, RTRIM(SalesRepCode) AS SalesRepCode FROM dim.Dim_SalesRep_Legacy`);
+  const customerKeyByCode = new Map(customerKeys.recordset.map((r: { CustomerLegacyKey: number; CustomerCode: string }) => [r.CustomerCode, r.CustomerLegacyKey]));
+  const productKeyByCode = new Map(productKeys.recordset.map((r: { ProductLegacyKey: number; ProductCode: string }) => [r.ProductCode, r.ProductLegacyKey]));
+  const salesRepKeyByCode = new Map(salesRepKeys.recordset.map((r: { SalesRepLegacyKey: number; SalesRepCode: string }) => [r.SalesRepCode, r.SalesRepLegacyKey]));
+
+  let count = 0;
+  for (const row of result.recordset as {
+    LineNumber: number; CreditNoteNumber: string; ProductCode: string; QuantityReturned: number;
+    NetAmount: number; CustomerCode: string; SalesRepCode: string | null;
+    DocumentExchangeRate: number | null; DateKey: number; IsVoided: boolean;
+  }[]) {
+    const customerLegacyKey = customerKeyByCode.get(row.CustomerCode.trim());
+    const productLegacyKey = productKeyByCode.get(row.ProductCode.trim());
+    if (customerLegacyKey === undefined || productLegacyKey === undefined) continue;
+    const salesRepLegacyKey = row.SalesRepCode ? salesRepKeyByCode.get(row.SalesRepCode.trim()) ?? null : null;
+
+    await dwhPool.request()
+      .input('dateKey', sql.Int, row.DateKey)
+      .input('customerLegacyKey', sql.Int, customerLegacyKey)
+      .input('productLegacyKey', sql.Int, productLegacyKey)
+      .input('salesRepLegacyKey', sql.Int, salesRepLegacyKey)
+      .input('creditNoteNumber', sql.Char(20), row.CreditNoteNumber)
+      .input('lineNumber', sql.Int, row.LineNumber)
+      .input('quantityReturned', sql.Decimal(18, 5), row.QuantityReturned)
+      .input('netAmount', sql.Decimal(18, 2), row.NetAmount)
+      .input('documentExchangeRate', sql.Decimal(21, 8), row.DocumentExchangeRate)
+      .input('isVoided', sql.Bit, row.IsVoided)
+      .query(`
+        INSERT INTO fact.Fact_Returns_Legacy (
+          DateKey, CustomerLegacyKey, ProductLegacyKey, SalesRepLegacyKey,
+          CreditNoteNumber, LineNumber, QuantityReturned, NetAmount, DocumentExchangeRate, IsVoided
+        )
+        VALUES (
+          @dateKey, @customerLegacyKey, @productLegacyKey, @salesRepLegacyKey,
+          @creditNoteNumber, @lineNumber, @quantityReturned, @netAmount, @documentExchangeRate, @isVoided
+        )
+      `);
+    count++;
+  }
+  return count;
+}
+
 async function main(): Promise<void> {
   const dwhPool = await getDwhPool();
   await assertNotAlreadyImported(dwhPool);
@@ -180,9 +311,11 @@ async function main(): Promise<void> {
     const salesRepCount = await loadDimSalesRepLegacy(legacyPool, dwhPool);
     console.log(`✓ Dim_SalesRep_Legacy: ${salesRepCount} rows loaded`);
 
-    // Task 5 adds the two fact-table loads here, after the dimensions
-    // above are fully populated (the fact loads resolve their FKs by
-    // code against these same tables).
+    const salesCount = await loadFactSalesLegacy(legacyPool, dwhPool);
+    console.log(`✓ Fact_Sales_Legacy: ${salesCount} rows loaded`);
+
+    const returnsCount = await loadFactReturnsLegacy(legacyPool, dwhPool);
+    console.log(`✓ Fact_Returns_Legacy: ${returnsCount} rows loaded`);
   } finally {
     await legacyPool.close();
   }
