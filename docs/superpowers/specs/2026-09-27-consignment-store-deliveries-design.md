@@ -67,29 +67,83 @@ in either system, this spec pulls pricing from the matriz's own invoice
 history (below) and does not attempt automatic double-counting prevention
 via a join — see "Double-counting" below.
 
-### What already exists (verified against the current schema)
+### What already exists (verified live against the DWH)
 
-- **`dim.Dim_LegalEntity`** / **`Dim_Customer.MatrizCode`**
-  (`migrations/dwh/0014_dim_legal_entity.sql`, `0030_fix_matriz_scd2_...sql`):
-  the DWH already models "one parent customer account with N child store
-  accounts rolling up to it" for cases where the ERP *does* have per-store
-  `saCliente` rows under a shared `matriz` code. **Gama is not this case** —
-  its 22 store names in the file do not correspond to 22 `saCliente` rows;
-  Profit Plus only has the one matriz-level customer account. So
-  `Dim_LegalEntity` is reused as the anchor (Gama's matriz `CustomerKey`
-  resolves to one `Dim_LegalEntity` row) but a **new** dimension is needed
-  for the store names themselves, since they don't exist as ERP entities at
-  all.
+- **Gama already has 24 per-store child customer rows in `dim.Dim_Customer`**,
+  all sharing `MatrizCode = 'J-301420608'` (the matriz, `CustomerKey = 29`,
+  `LegalEntityKey = 26`) — e.g. `CustomerKey 35`, code `J-301420608-14`,
+  name `EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express Sebucán) G 113`. This
+  contradicts this spec's original assumption that no per-store ERP
+  entities exist for Gama — they do, and `dim.Dim_LegalEntity` /
+  `Dim_Customer.MatrizCode` (`migrations/dwh/0014_dim_legal_entity.sql`,
+  `0030_fix_matriz_scd2_...sql`) is exactly the "one matriz, N child stores"
+  model this feature needs. **Revised design: reuse these 24 existing
+  `Dim_Customer` rows as the store dimension — no new `Dim_ConsignmentStore`
+  table.** Store-level analytics then joins the same `Dim_Customer`
+  dimension every other DWH query already uses, instead of a parallel one.
+- **Why `Fact_Sales` still has no store-level data for the file's date
+  range, despite these rows existing:** querying `Fact_Sales` per child
+  `CustomerKey` shows individual invoicing stopped around 2026-03-16 to
+  2026-03-27 for every one of the 24 stores, and everything since has
+  posted only against the matriz (`CustomerKey 29`: 152 lines, ~$17.5M,
+  2026-04-22 through 2026-07-07) — which lines up with the tracking file
+  starting 2026-04-16. So the premise holds (no store-level invoicing for
+  the period this file covers); it's the *dimension* that already exists,
+  not the fact data.
+- **Store name mapping, resolved by hand (not fuzzy-matched) against the
+  live query results:**
+
+  | File Store Name | `Dim_Customer.CustomerCode` | `CustomerName` |
+  |---|---|---|
+  | Gama Plus Santa Eduvigis | `J-301420608-1` | (Express Santa Eduvigis) G-100 |
+  | Gama Vizcaya | `J-301420608-10` | (Vizcaya) S004 |
+  | Gama Express Santa Monica | `J-301420608-11` | (EXPRESS STA MONICA) G114 |
+  | Gama La India | `J-301420608-12` | ( La India) |
+  | Gama La Tahona | `J-301420608-13` | (Tahona) S002 |
+  | Gama Express Sebucan Norte | `J-301420608-14` | (Express Sebucán) G 113 |
+  | Gama La Urbina | `J-301420608-15` | (Express La Urbina) G106 |
+  | Gama Express San Bernardino | `J-301420608-16` | (Express San Bernardino) G-101 |
+  | Gama Express Macaracuay Plaza | `J-301420608-17` | (Macaracuay) S003 |
+  | Gama Express Caurimare | `J-301420608-18` | (Express Caurimare) G108 |
+  | Gama Panamericana | `J-301420608-19` | (PANAMERICANA) |
+  | Gama Plus Santa Eduvigis | `J-301420608-2` | (Plus Sta Eduvigis) S007 |
+  | Gama Express La Castellana | `J-301420608-20` | (Express La Castellana) S005 |
+  | Gama Express Chuao | `J-301420608-21` | (EXPRESS Chuao) G102 |
+  | Gama Los Palos Grandes | `J-301420608-22` | (Los Palos Grandes) S001 |
+  | *(duplicate, do not map — see below)* | `J-301420608-23` | (Express Caurimare) G108 |
+  | Gama Express Los Palos Grandes | `J-301420608-3` | (Express Los Palos Grandes LPG) |
+  | Gama Express Las Mercedes | `J-301420608-4` | (Express Las Mercedes) G103 |
+  | Gama Express Santa Fe | `J-301420608-5` | (EXPRESS SANTA FE) |
+  | Gama Plus La Trinidad | `J-301420608-6` | (Plus La Trinidad) S008 |
+  | Gama Express La Trinidad | `J-301420608-7` | (Express La Trinidad) G 110 |
+  | Gama Express El Paraiso | `J-301420608-8` | (Express El Paraiso) |
+  | Gama Santa Fe | `J-301420608-9` | (Santa Fe) S005 |
+  | **Gama La Joya** | *(none — new store, no ERP child row)* | — |
+
+  Two things resolved by direct query rather than guesswork: **`-18` and
+  `-23` are true ERP duplicates** — same name, same store ("Express
+  Caurimare G108") under two different customer codes. `-18` has zero
+  `Fact_Sales` history and `-23` has exactly one line (2026-03-19); neither
+  is a live, actively-used code today. This spec maps the file's one
+  "Gama Express Caurimare" column to `-18` (the lower/first-created code)
+  and leaves `-23` unmapped and untouched — it's a pre-existing ERP data
+  quality issue, out of scope to fix here. Second, "Plus Sta Eduvigis"
+  (`-2`) and "Plus La Trinidad" (`-6`) are two distinct real stores (the
+  "Plus" format exists at both neighborhoods, separate from the "Express"
+  stores at Santa Eduvigis `-1` and La Trinidad `-7`) — confirmed via
+  `ZoneCode`/`TaxId` and the raw `saCliente` rows; no mismatch, both map
+  cleanly. **User decision:** the one file store with no ERP match
+  (`Gama La Joya`) gets a **new** `Dim_Customer`-shaped row created for it
+  (not blocked) — see Section 1.
 - **`sucursal` already means something else in this codebase** —
   `lib/components/reports/SucursalSelector.tsx` / `co_alma` /
   `Dim_Warehouse` is *our own* warehouse/branch, used to filter ERP report
-  exports. It has no relationship to a consignment client's store locations.
-  This confirms there is no existing "store" concept to reuse or collide
-  with; a new dimension is genuinely required, not a rename of something
-  that already exists.
-- **`dim.Dim_Product`** (`0006_dim_product.sql`): `ProductCode`,
-  `ProductName`, `IsCurrent` — the 12 product names from the file are
-  matched against this, `IsCurrent = 1` only.
+  exports. It has no relationship to a consignment client's store locations,
+  and is unaffected by this feature.
+- **`dim.Dim_Product`** (`0006_dim_product.sql`): the 12 product names from
+  the file, matched live against `IsCurrent = 1` rows — see Section 2 for
+  the resolved mapping, including the 3 "Cj" (Caja/box) columns that have
+  no case-level SKU in the ERP.
 - **`fact.Fact_Sales`** (`0009_fact_sales.sql`): `CustomerKey`, `ProductKey`,
   `DateKey`, `QuantitySold`, `NetAmount` (BSD, see `erp_currency_bsd_usd`
   memory — needs `saTasa`/`Fact_ExchangeRate` conversion to USD, same
@@ -106,46 +160,74 @@ via a join — see "Double-counting" below.
 
 ## Design
 
-### 1. New dimension: `dim.Dim_ConsignmentStore`
+### 1. Store dimension: reuse `dim.Dim_Customer` child rows
 
-One row per distinct store name per consignment client, not tied to any
-ERP entity (none exists):
+No new dimension. The 22 store names in the file (plus the one new store,
+"Gama La Joya") map onto `dim.Dim_Customer` rows already present under
+`MatrizCode = 'J-301420608'` — see the mapping table above. This means
+`Fact_ConsignmentDeliveries` (Section 3) takes a plain `CustomerKey` FK,
+exactly like `Fact_Sales` does, and any future join against
+"which store" reuses the exact same dimension and key space the rest of
+the DWH already joins against — no parallel store concept to keep in sync.
 
-```sql
-CREATE TABLE dim.Dim_ConsignmentStore (
-    ConsignmentStoreKey   int IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    LegalEntityKey        int           NOT NULL, -- FK to Dim_LegalEntity (the matriz, e.g. Gama)
-    StoreName             varchar(120)  NOT NULL, -- raw string from the source file, e.g. "Gama Express Chuao"
-    StoreNameNormalized   varchar(120)  NOT NULL, -- trimmed/lowercased/accent-folded, for idempotent re-import matching
-    SourceClientTag       varchar(40)   NOT NULL, -- e.g. 'gama' — namespaces store names per consignment client
-    IsActive              bit           NOT NULL DEFAULT 1,
-    CreatedAtUtc           datetime2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT FK_Dim_ConsignmentStore_LegalEntity FOREIGN KEY (LegalEntityKey) REFERENCES dim.Dim_LegalEntity(LegalEntityKey)
-);
-CREATE UNIQUE INDEX IX_Dim_ConsignmentStore_Client_Name ON dim.Dim_ConsignmentStore (SourceClientTag, StoreNameNormalized);
-```
-
-No SCD2 — store names are file-driven labels, not ERP master data that
-changes underneath the DWH between loads. `SourceClientTag` keeps this
-table usable for the second consignment account mentioned in the original
-task, whenever that file materializes, without a schema change.
+**"Gama La Joya" (new store, no existing ERP row):** insert one new row
+directly into `dim.Dim_Customer` — `CustomerCode = 'J-301420608-24'` (next
+available suffix), `CustomerName` following the existing naming
+convention (`EXCELSIOR GAMA SUPERMERCADOS, C.A. (La Joya)`), `MatrizCode =
+'J-301420608'`, `LegalEntityKey = 26`, `IsCurrent = 1`, `ValidFrom = now`,
+same shape as every other row `Load_Dim_Customer` would produce from a real
+`saCliente` row. This is a one-time manual INSERT in the feature's own
+migration (Section 6's import script only *reads* `Dim_Customer`, it never
+writes to it — keeping dimension writes inside migrations, matching how
+every other `Dim_*` table in this codebase is populated). If
+`Load_Dim_Customer` later runs and finds a *real* `saCliente` row for this
+store (e.g. the client eventually gets a proper ERP code), the normal SCD2
+change-detection in that procedure takes over from there — no special
+handling needed on this feature's side.
 
 ### 2. Product mapping: manually-reviewed, not auto-fuzzy
 
-Only 12 distinct product names exist in the file. A wrong automatic fuzzy
-match (e.g. conflating "Pizza Margarita 270" with a differently-sized SKU)
-is a real, cheap-to-avoid risk at this volume, so this is a **one-time
-human-reviewed mapping**, not a runtime fuzzy-matching pipeline:
+Only 12 distinct product names exist in the file, resolved by hand against
+a live `Dim_Product` query rather than a fuzzy-matching pipeline (a wrong
+auto-match at this volume is a real, cheap-to-avoid risk):
 
-| Excel Product String | Candidate `Dim_Product.ProductName` match | `ProductCode` | Confidence |
+| Excel Product String | `Dim_Product.ProductName` | `ProductCode` | Note |
 |---|---|---|---|
-| *(built during implementation by querying `Dim_Product` for each of the 12 names, normalized — trim/lowercase/strip-accents — and presenting candidates for human sign-off)* | | | |
+| 4 Granos 500gr | Pan integral 4 Granos 500gr | `0000007` | |
+| 7 Cereales 600gr | Pan integral 7 Cereales 600gr | `0000008` | |
+| Miel y pasas 600gr | Pan integral Miel & Pasas 600gr | `0000009` | |
+| Pan Blanco 600gr | Pan blanco 600gr | `0000022` | |
+| Magdalena | Magdalenas | `0000016` | |
+| Molido 300gr | Pan Molido 300gr | `0000011` | |
+| Baguette 220gr | Baguette Topping Oregano 220gr | `0000004` | Only 220gr-labeled Baguette SKU; `Baguette 4 Granos 220gr` (`0000005`) and `Baguette Blanco 225gr` (`0000003`) were ruled out as different products |
+| cheese Cake fresa | Cheese Cake Fresa 700gr | `0000017` | |
+| cheese Cake Choco | Cheese Cake Chocolate 700gr | `0000018` | |
+| Pizza Margarita 270 | Pizza Margarita Individual 270gr | `0000002` | |
+| Pizza Magarita Cj | Pizza Margarita 550gr | `0000014` | **Box/case column — see caveat below** |
+| Pizza New York Cj | Pizza New York 650gr | `0000015` | **Box/case column — see caveat below** |
+| Pizza Americana Cj | Pizza Americana 550gr | `0000020` | **Box/case column — see caveat below** |
 
-Output: a static seed, `dwh.ConsignmentProductMap` (`SourceClientTag`,
-`ExcelProductName`, `ProductKey`), populated once via reviewed INSERT
-statements committed to a migration — not recomputed on every import run.
-Any future file introducing a 13th product name with no match blocks that
-product's rows at import time rather than guessing.
+**Cj (Caja/box) caveat, user-confirmed:** these 3 columns record a box
+count, not individual units, and no box-to-unit conversion factor exists
+anywhere in this codebase (`Dim_Product` has no
+units-per-case/presentation field). Per user decision, they map straight
+to the individual-unit SKU with quantity recorded as delivered — i.e.
+`QuantityDelivered` for these rows is box count, while `UnitPriceUsd`
+(Section 4) is priced per individual unit from `Fact_Sales`. **This means
+`LineAmountUsd` on these three products' rows is not directly comparable
+to the other 9 products' rows without knowing units-per-box** — flagged
+explicitly in the fact table's column comment and the import diagnostic
+report, so nobody sums `LineAmountUsd` across all 12 products expecting an
+apples-to-apples total without noticing.
+
+Output: a static seed, `dwh.ConsignmentProductMap`
+(`SourceClientTag`, `ExcelProductName`, `ProductKey`, `IsBoxUnit`),
+populated once via reviewed INSERT statements committed to the migration —
+not recomputed on every import run. Any future file introducing a 13th
+product name with no match blocks that product's rows at import time
+rather than guessing. `SourceClientTag` (e.g. `gama`) namespaces this
+table per consignment client, since a second client's tracking file would
+likely use different product names for the same or different SKUs.
 
 ### 3. Fact table: `fact.Fact_ConsignmentDeliveries`
 
@@ -153,24 +235,24 @@ product's rows at import time rather than guessing.
 CREATE TABLE fact.Fact_ConsignmentDeliveries (
     FactConsignmentDeliveryKey bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
     DateKey               int             NOT NULL,
-    ConsignmentStoreKey   int             NOT NULL,
+    CustomerKey           int             NOT NULL, -- FK to dim.Dim_Customer — the store-level child row, not the matriz
     ProductKey            int             NOT NULL,
     NotaEntregaNum        varchar(30)     NULL,    -- raw string from the file (PO number or D/E/F/B-prefixed code); opaque
-    QuantityDelivered     decimal(18,5)   NOT NULL,
+    QuantityDelivered     decimal(18,5)   NOT NULL, -- box count, not unit count, for the 3 "Cj" products — see ConsignmentProductMap.IsBoxUnit
     UnitPriceUsd          decimal(18,5)   NULL,     -- as-of price from the matriz's own Fact_Sales; NULL if no prior invoice exists yet for that product
-    LineAmountUsd         decimal(18,2)   NULL,     -- QuantityDelivered * UnitPriceUsd, NULL when UnitPriceUsd is NULL
+    LineAmountUsd         decimal(18,2)   NULL,     -- QuantityDelivered * UnitPriceUsd, NULL when UnitPriceUsd is NULL; not unit-comparable for IsBoxUnit products
     SourceClientTag       varchar(40)     NOT NULL,
     SourceFileName        varchar(200)    NOT NULL,
-    SourceRowKey          varchar(64)     NOT NULL, -- hash of (SourceClientTag, store, date, nota, product) — identity, excludes qty
+    SourceRowKey          varchar(64)     NOT NULL, -- hash of (SourceClientTag, CustomerKey, date, nota, product) — identity, excludes qty
     SourceRowContentHash  varchar(64)     NOT NULL, -- hash of (qty) plus any other mutable fields — change detection
     LoadedAtUtc            datetime2(3)    NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Fact_ConsignmentDeliveries_Date FOREIGN KEY (DateKey) REFERENCES dim.Dim_Date(DateKey),
-    CONSTRAINT FK_Fact_ConsignmentDeliveries_Store FOREIGN KEY (ConsignmentStoreKey) REFERENCES dim.Dim_ConsignmentStore(ConsignmentStoreKey),
+    CONSTRAINT FK_Fact_ConsignmentDeliveries_Customer FOREIGN KEY (CustomerKey) REFERENCES dim.Dim_Customer(CustomerKey),
     CONSTRAINT FK_Fact_ConsignmentDeliveries_Product FOREIGN KEY (ProductKey) REFERENCES dim.Dim_Product(ProductKey)
 );
 CREATE UNIQUE INDEX IX_Fact_ConsignmentDeliveries_RowKey ON fact.Fact_ConsignmentDeliveries (SourceRowKey);
 CREATE INDEX IX_Fact_ConsignmentDeliveries_DateKey ON fact.Fact_ConsignmentDeliveries (DateKey);
-CREATE INDEX IX_Fact_ConsignmentDeliveries_StoreKey ON fact.Fact_ConsignmentDeliveries (ConsignmentStoreKey);
+CREATE INDEX IX_Fact_ConsignmentDeliveries_CustomerKey ON fact.Fact_ConsignmentDeliveries (CustomerKey);
 ```
 
 `SourceRowKey` is the delivery's **identity** — store, date, nota/PO number,
@@ -200,11 +282,17 @@ For each `(ProductKey, DateKey)` pair in the import batch:
 SELECT TOP 1 fs.NetAmount / NULLIF(fs.QuantitySold, 0) AS UnitPriceUsd
 FROM fact.Fact_Sales fs
 WHERE fs.ProductKey = @ProductKey
-  AND fs.CustomerKey IN (SELECT CustomerKey FROM dim.Dim_Customer WHERE LegalEntityKey = @GamaLegalEntityKey AND IsCurrent = 1)
+  AND fs.CustomerKey IN (SELECT CustomerKey FROM dim.Dim_Customer WHERE LegalEntityKey = 26 AND IsCurrent = 1) -- 26 = Gama's LegalEntityKey, confirmed live
   AND fs.DateKey <= @DateKey
   AND fs.IsVoided = 0
 ORDER BY fs.DateKey DESC
 ```
+
+This includes every Gama store's `Fact_Sales` lines (matriz and the
+now-dormant per-store codes both), since the goal is "what did Gama pay per
+unit of this product around this date," not a store-specific price — Gama
+is billed one consolidated price regardless of which store received the
+goods.
 
 `NetAmount` is BSD (per `erp_currency_bsd_usd` memory) — convert using the
 same per-row `DocumentExchangeRate` pattern already established for every
@@ -252,8 +340,13 @@ an occasional handoff):
 1. Read the `.xlsx` in full (a small library like `exceljs`; no existing
    xlsx *reader* in this codebase — `lib/xlsx.ts` only *writes* XLSX for
    report exports).
-2. Normalize store names, look up `Dim_ConsignmentStore` (insert new stores
-   on first sight, matched by `StoreNameNormalized` + `SourceClientTag`).
+2. Look up each store name against the static store map from Section 1
+   (a small in-script lookup table, `ExcelStoreName -> CustomerCode`, since
+   there are only 23 entries and they don't change often); hard-fail
+   listing any store name with no entry, same discipline as unmapped
+   products — a brand-new store should be a deliberate migration change
+   (Section 1's "Gama La Joya" pattern), not something the import script
+   silently invents.
 3. Look up each product against the reviewed `dwh.ConsignmentProductMap`;
    hard-fail listing any unmapped product name rather than skipping it
    silently.
@@ -270,33 +363,28 @@ an occasional handoff):
 6. Print a diagnostic report: rows inserted, rows updated (with old →
    new quantity for each, since a silent quantity change on a re-run is
    exactly the kind of thing worth a human glancing at), rows skipped
-   (unmapped product), stores newly created, products with no price found.
+   (unmapped product or unmapped store, listed by name), products with no
+   price found.
 
 This script takes the file path as an argument and `SourceClientTag` (e.g.
 `gama`), so a tracking file for the second consignment account, if one
-gets created later, reuses the same script and dimension tables.
+gets created later, reuses the same script and the same `Fact_ConsignmentDeliveries`
+table with its own product map and store lookup.
 
 ## Deliverables produced by implementation
 
 1. **Migration** `migrations/dwh/0035_consignment_store_deliveries.sql`:
-   `Dim_ConsignmentStore`, `ConsignmentProductMap` (with the 12 reviewed
-   Gama rows seeded), `Fact_ConsignmentDeliveries` — following the existing
+   the "Gama La Joya" `Dim_Customer` insert (Section 1), `ConsignmentProductMap`
+   (with the 12 reviewed Gama rows seeded — 3 flagged `IsBoxUnit`),
+   `Fact_ConsignmentDeliveries` — following the existing
    `IF NOT EXISTS`/`CREATE OR ALTER` re-runnable convention (see
    `migrations/dwh/README.md`).
 2. **Import script** `scripts/import-consignment-deliveries.ts`, intended
    for repeated manual use going forward, not a one-time backfill.
 3. **First import run** against `despacho-excelsior-gama.xlsx` as it stands
-   today, with the diagnostic report (row counts, date range,
-   unmapped products/stores if any) shared back before considering the data
-   ready for downstream use.
+   today, with the diagnostic report (row counts, date range, any unmapped
+   products/stores) shared back before considering the data ready for
+   downstream use.
 4. **No Analítica dashboard changes** in this pass — this spec stops at a
    queryable fact table. A `/analitica` tab or export surfacing this data
    is a separate, later spec once the base data is validated.
-
-## Open items carried into implementation (not blocking the spec)
-
-- The exact 12-row product mapping table (Section 2) is filled in during
-  implementation by querying live `Dim_Product`, since this session has no
-  live DWH connection.
-- Confirming Gama's `LegalEntityKey`/matriz `CustomerCode` in
-  `Dim_LegalEntity` similarly requires a live query at implementation time.
