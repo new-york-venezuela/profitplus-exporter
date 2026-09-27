@@ -61,6 +61,97 @@ export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Pro
   }
 }
 
+// Straight loads from the legacy server — no cross-referencing against
+// the current-era Dim_Customer/Dim_Product/Dim_SalesRep (see spec's "Why
+// fully independent product/sales-rep matching" section: codes may have
+// changed at the cutover for any of these three, not just customers, and
+// there's no way to verify which without live access to the old server).
+// Each is a plain INSERT (not a MERGE/upsert) since this is a one-time
+// load into an empty table, guarded by assertNotAlreadyImported.
+
+export async function loadDimCustomerLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request().query(`
+    SELECT RTRIM(co_cli) AS CustomerCode, cli_des AS CustomerName, co_zon AS ZoneCode, co_seg AS SegmentCode
+    FROM dbo.saCliente
+  `);
+
+  let count = 0;
+  for (const row of result.recordset as { CustomerCode: string; CustomerName: string | null; ZoneCode: string | null; SegmentCode: string | null }[]) {
+    await dwhPool.request()
+      .input('code', sql.Char(16), row.CustomerCode)
+      .input('name', sql.VarChar(120), row.CustomerName)
+      .input('zone', sql.Char(6), row.ZoneCode)
+      .input('segment', sql.Char(6), row.SegmentCode)
+      .query(`
+        INSERT INTO dim.Dim_Customer_Legacy (CustomerCode, CustomerName, ZoneCode, SegmentCode)
+        VALUES (@code, @name, @zone, @segment)
+      `);
+    count++;
+  }
+  return count;
+}
+
+export async function loadDimProductLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request().query(`
+    SELECT
+      RTRIM(a.co_art) AS ProductCode, a.art_des AS ProductName,
+      RTRIM(a.co_lin) AS LineCode, l.lin_des AS LineName,
+      RTRIM(a.co_subl) AS SubLineCode, sl.subl_des AS SubLineName,
+      RTRIM(a.co_cat) AS CategoryCode, c.cat_des AS CategoryName
+    FROM dbo.saArticulo a
+    LEFT JOIN dbo.saLineaArticulo l ON RTRIM(l.co_lin) = RTRIM(a.co_lin)
+    LEFT JOIN dbo.saSubLinea sl ON RTRIM(sl.co_lin) = RTRIM(a.co_lin) AND RTRIM(sl.co_subl) = RTRIM(a.co_subl)
+    LEFT JOIN dbo.saCatArticulo c ON RTRIM(c.co_cat) = RTRIM(a.co_cat)
+  `);
+
+  let count = 0;
+  for (const row of result.recordset as {
+    ProductCode: string; ProductName: string | null;
+    LineCode: string | null; LineName: string | null;
+    SubLineCode: string | null; SubLineName: string | null;
+    CategoryCode: string | null; CategoryName: string | null;
+  }[]) {
+    await dwhPool.request()
+      .input('code', sql.Char(30), row.ProductCode)
+      .input('name', sql.VarChar(120), row.ProductName)
+      .input('lineCode', sql.Char(6), row.LineCode)
+      .input('lineName', sql.VarChar(60), row.LineName)
+      .input('subLineCode', sql.Char(6), row.SubLineCode)
+      .input('subLineName', sql.VarChar(60), row.SubLineName)
+      .input('categoryCode', sql.Char(6), row.CategoryCode)
+      .input('categoryName', sql.VarChar(60), row.CategoryName)
+      .query(`
+        INSERT INTO dim.Dim_Product_Legacy (
+          ProductCode, ProductName, LineCode, LineName, SubLineCode, SubLineName, CategoryCode, CategoryName
+        )
+        VALUES (@code, @name, @lineCode, @lineName, @subLineCode, @subLineName, @categoryCode, @categoryName)
+      `);
+    count++;
+  }
+  return count;
+}
+
+export async function loadDimSalesRepLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request().query(`
+    SELECT RTRIM(co_ven) AS SalesRepCode, ven_des AS SalesRepName, co_zon AS ZoneCode
+    FROM dbo.saVendedor
+  `);
+
+  let count = 0;
+  for (const row of result.recordset as { SalesRepCode: string; SalesRepName: string | null; ZoneCode: string | null }[]) {
+    await dwhPool.request()
+      .input('code', sql.Char(6), row.SalesRepCode)
+      .input('name', sql.VarChar(60), row.SalesRepName)
+      .input('zone', sql.Char(6), row.ZoneCode)
+      .query(`
+        INSERT INTO dim.Dim_SalesRep_Legacy (SalesRepCode, SalesRepName, ZoneCode)
+        VALUES (@code, @name, @zone)
+      `);
+    count++;
+  }
+  return count;
+}
+
 async function main(): Promise<void> {
   const dwhPool = await getDwhPool();
   await assertNotAlreadyImported(dwhPool);
@@ -80,13 +171,18 @@ async function main(): Promise<void> {
     `);
     console.log(`Fact_ExchangeRate rows for the import window: ${rateCheck.recordset[0].RowCount} (0 means USD figures in the Histórico tab will show as unavailable for this whole period)`);
 
-    // Task 4 and Task 5 extend this function with the actual dimension
-    // and fact loads, in this order:
-    //   1. Dim_Customer_Legacy
-    //   2. Dim_Product_Legacy
-    //   3. Dim_SalesRep_Legacy
-    //   4. Fact_Sales_Legacy
-    //   5. Fact_Returns_Legacy
+    const customerCount = await loadDimCustomerLegacy(legacyPool, dwhPool);
+    console.log(`✓ Dim_Customer_Legacy: ${customerCount} rows loaded`);
+
+    const productCount = await loadDimProductLegacy(legacyPool, dwhPool);
+    console.log(`✓ Dim_Product_Legacy: ${productCount} rows loaded`);
+
+    const salesRepCount = await loadDimSalesRepLegacy(legacyPool, dwhPool);
+    console.log(`✓ Dim_SalesRep_Legacy: ${salesRepCount} rows loaded`);
+
+    // Task 5 adds the two fact-table loads here, after the dimensions
+    // above are fully populated (the fact loads resolve their FKs by
+    // code against these same tables).
   } finally {
     await legacyPool.close();
   }
