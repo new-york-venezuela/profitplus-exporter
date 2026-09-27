@@ -50,17 +50,9 @@ function monthlyQuery(): string {
 // supplied (drill-down from the "mes" chart), otherwise unscoped. Also
 // optionally scoped to a single sales rep when @salesRepKey is supplied.
 //
-// The correlated returns subquery needs its own bs/usd conversion, but
-// dualAmountExpr's 2-column fragment is invalid inside a scalar subquery
-// (SQL Server allows exactly one column in a scalar subquery's SELECT
-// list), so it's written out here as two separate scalar subqueries — one
-// summing the bs side, one summing the usd side — replicating
-// dualAmountExpr's own per-row division logic
-// (NetAmount / NULLIF(COALESCE(DocumentExchangeRate, fxr.RateSell), 0))
-// rather than calling it. Each subquery gets its own usdConversionJoin
-// using the alias `fxr` (distinct from the outer query's own `fx` alias)
-// so the two joins never collide — the same alias-collision class of bug
-// AGENTS.md calls out as a known historical issue in this codebase.
+// ReturnsNetBs only — no USD side. returnRate (computed in the row-mapping
+// code below) is BS-only, matching ventas/route.ts's own convention, so
+// there's no need for a returns-side usdConversionJoin here.
 function clienteQuery(monthFilter: string, salesRepFilter: string): string {
   return `
     SELECT TOP 15
@@ -70,12 +62,7 @@ function clienteQuery(monthFilter: string, salesRepFilter: string): string {
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          WHERE frl.CustomerLegacyKey = c.CustomerLegacyKey AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
-      ) AS ReturnsNetBs,
-      (SELECT ISNULL(SUM(frl.NetAmount / NULLIF(COALESCE(frl.DocumentExchangeRate, fxr.RateSell), 0)), 0)
-         FROM fact.Fact_Returns_Legacy frl
-         ${usdConversionJoin('frl', 'DateKey', 'fxr')}
-         WHERE frl.CustomerLegacyKey = c.CustomerLegacyKey AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
-      ) AS ReturnsNetUsd
+      ) AS ReturnsNetBs
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
     JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey

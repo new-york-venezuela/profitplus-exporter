@@ -171,7 +171,7 @@ export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPoo
         ISNULL(f.anulado, 0) AS IsVoided
       FROM dbo.saFacturaVentaReng r
       INNER JOIN dbo.saFacturaVenta f ON f.doc_num = r.doc_num
-      WHERE f.fec_emis >= @startDate AND f.fec_emis <= @endDate
+      WHERE f.fec_emis >= @startDate AND f.fec_emis < DATEADD(day, 1, @endDate)
     `);
 
   // Resolve legacy dimension keys by code, entirely within the legacy
@@ -236,7 +236,7 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
         ISNULL(d.anulado, 0) AS IsVoided
       FROM dbo.saDevolucionClienteReng r
       INNER JOIN dbo.saDevolucionCliente d ON d.doc_num = r.doc_num
-      WHERE d.fec_emis >= @startDate AND d.fec_emis <= @endDate
+      WHERE d.fec_emis >= @startDate AND d.fec_emis < DATEADD(day, 1, @endDate)
     `);
 
   const customerKeys = await dwhPool.request().query(`SELECT CustomerLegacyKey, RTRIM(CustomerCode) AS CustomerCode FROM dim.Dim_Customer_Legacy`);
