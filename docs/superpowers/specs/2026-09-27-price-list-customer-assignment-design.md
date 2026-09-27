@@ -229,18 +229,20 @@ with a two-level grant instead of a boolean:
 - `'view'`: can browse both perspectives, cannot reassign.
 - `'edit'`: can also reassign (single or bulk).
 
-**This requires extending the shared `user_modules` table** (`lib/db/
-schema.ts`) with a `level` column (`'view' | 'edit'`), which is a
-cross-cutting schema change — the existing `inventory` and `dwh` modules'
-rows must default to `'edit'` on migration so their current (boolean,
-grant-implies-full-access) behavior doesn't change. Because this touches
-every existing module, not just the new `pricing` one, the implementation
-plan must include a regression check that `hasInventoryAccess`/
-`hasDwhAccess` (and their callers) still behave identically after the
-migration — this is not a purely additive change and deserves its own
-verification step, not just a "should be fine" default-value assumption.
-Every route in this feature checks access independently per page and per
-API route, per this app's no-shared-middleware convention (`AGENTS.md`).
+**Implementation note (superseding this section's original "add a `level`
+column" idea):** `user_modules` (`lib/db/schema.ts`) has no value column at
+all today — `module` is a plain text enum, and a grant is just a row's
+existence for `(userId, module)`. Rather than adding a `level` column
+(which would sit meaningless/NULL on every existing `inventory`/`dwh` row
+forever), this feature adds two more allowed enum values instead:
+`'pricing_view'` and `'pricing_edit'`. A user's effective level is `'edit'`
+if a `pricing_edit` row exists, `'view'` if a `pricing_view` OR
+`pricing_edit` row exists, else no access. This requires **no schema
+migration at all** — existing `inventory`/`dwh` rows and their access
+checks are completely untouched, eliminating the regression risk a shared
+new column would have carried. Every route in this feature checks access
+independently per page and per API route, per this app's no-shared-
+middleware convention (`AGENTS.md`).
 
 ## 10. Open Verification Items (resolve during implementation, not before)
 
