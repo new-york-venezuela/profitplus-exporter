@@ -499,8 +499,8 @@ export interface CadenceResponse {
 export interface SellerSummaryRow {
   salesRepKey: string;
   salesRepName: string;
-  netSales: number;
-  netReturns: number;
+  netSales: DualAmount;
+  netReturns: DualAmount;
   entitiesServed: number;
 }
 
@@ -525,7 +525,7 @@ export interface SellerMatrixStore {
 export interface SellerMatrixCell {
   productKey: number;
   customerKey: number;
-  netSales: number;
+  netSales: DualAmount;
   units: number;
   returnRateUsd: number | null; // a RATIO (returns/sales), not a currency amount -- plain number despite the name
   returnRateUnits: number | null;

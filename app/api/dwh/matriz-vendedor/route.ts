@@ -18,23 +18,41 @@ export const dynamic = 'force-dynamic';
 // feature): that tab shows product-line-tier penetration by customer
 // segment; this one shows one seller's own product x store matrix.
 
+// Two distinct usdConversionJoin pairs are in scope in this one query: the
+// outer query's 'fx' join (against fs, the default alias) for NetSales, and
+// the correlated returns subqueries' own 'fxr' join (against fr) for
+// NetReturns. Using the default 'fx' alias for both would collide -- the
+// subquery's FROM would try to join fact.Fact_ExchangeRate fx a second time
+// while 'fx' from the outer query is already in scope. Passing a distinct
+// joinAlias ('fxr') to usdConversionJoin('fr', ..., 'fxr') keeps the two
+// joins fully independent. dualAmountExpr itself returns a 2-column
+// fragment (SUM(...) AS bs, SUM(...) AS usd), which is only valid in a
+// top-level SELECT list -- a scalar subquery must return exactly one
+// column, so NetReturnsBs/NetReturnsUsd are two separate correlated scalar
+// subqueries here, each replicating dualAmountExpr's per-row-rate-before-sum
+// logic for a single column, both sharing the SAME 'fxr' join alias.
 function summaryQuery(salesDateWhere: string, returnsDateWhere: string): string {
   return `
     SELECT
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKey,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS SalesRepName,
-      SUM(fs.NetAmount) AS NetSales,
+      ${dualAmountExpr('fs', 'NetAmount', 'NetSalesBs', 'NetSalesUsd')},
       COUNT(DISTINCT le.LegalEntityKey) AS EntitiesServed,
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturns
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsBs,
+      (SELECT SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, fxr.RateSell), 0))
+         FROM fact.Fact_Returns fr
+         ${usdConversionJoin('fr', 'DateKey', 'fxr')}
+         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsUsd
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    ${usdConversionJoin('fs')}
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY NetSales DESC
+    ORDER BY NetSalesBs DESC
   `;
 }
 
@@ -45,8 +63,8 @@ async function handleSummary(salesDateWhere: string, returnsDateWhere: string): 
   const rows: SellerSummaryRow[] = result.recordset.map(r => ({
     salesRepKey: String(r.SalesRepKey),
     salesRepName: String(r.SalesRepName),
-    netSales: Number(r.NetSales),
-    netReturns: Number(r.NetReturns),
+    netSales: { bs: Number(r.NetSalesBs), usd: r.NetSalesUsd === null ? null : Number(r.NetSalesUsd) },
+    netReturns: { bs: Number(r.NetReturnsBs), usd: r.NetReturnsUsd === null ? null : Number(r.NetReturnsUsd) },
     entitiesServed: Number(r.EntitiesServed),
   }));
 
@@ -54,6 +72,10 @@ async function handleSummary(salesDateWhere: string, returnsDateWhere: string): 
   return jsonWithCache(response);
 }
 
+// Fact_Sales and Fact_Returns are two different fact tables, each queried
+// independently here (not both in one query), so their usdConversionJoin
+// calls never share a single query's FROM clause -- no alias collision risk
+// between the two, and both can safely use the default 'fx' alias.
 function matrixSalesQuery(dateWhere: string): string {
   return `
     SELECT
@@ -62,12 +84,13 @@ function matrixSalesQuery(dateWhere: string): string {
       fs.CustomerKey,
       ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName,
       le.LegalEntityName,
-      SUM(fs.NetAmount) AS NetSales,
+      ${dualAmountExpr('fs', 'NetAmount', 'NetSalesBs', 'NetSalesUsd')},
       SUM(fs.QuantitySold) AS Units
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
+    ${usdConversionJoin('fs')}
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${dateWhere}
     GROUP BY fs.ProductKey, p.ProductName, p.LineName, p.SubLineName, p.CategoryName,
              fs.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode), le.LegalEntityName
@@ -76,8 +99,12 @@ function matrixSalesQuery(dateWhere: string): string {
 
 function matrixReturnsQuery(dateWhere: string): string {
   return `
-    SELECT fr.ProductKey, fr.CustomerKey, SUM(fr.NetAmount) AS ReturnsNet, SUM(fr.QuantityReturned) AS ReturnsUnits
+    SELECT
+      fr.ProductKey, fr.CustomerKey,
+      ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
+      SUM(fr.QuantityReturned) AS ReturnsUnits
     FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
     WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere}
     GROUP BY fr.ProductKey, fr.CustomerKey
   `;
@@ -91,9 +118,13 @@ async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, sa
     pool.request().input('salesRepKey', salesRepKey).query(matrixReturnsQuery(returnsDateWhere)),
   ]);
 
-  const returnsByKey = new Map<string, { net: number; units: number }>();
+  const returnsByKey = new Map<string, { netBs: number; netUsd: number | null; units: number }>();
   for (const r of returnsResult.recordset) {
-    returnsByKey.set(`${r.ProductKey}|${r.CustomerKey}`, { net: Number(r.ReturnsNet), units: Number(r.ReturnsUnits) });
+    returnsByKey.set(`${r.ProductKey}|${r.CustomerKey}`, {
+      netBs: Number(r.ReturnsNetBs),
+      netUsd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd),
+      units: Number(r.ReturnsUnits),
+    });
   }
 
   const productsByKey = new Map<number, SellerMatrixProduct>();
@@ -103,7 +134,8 @@ async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, sa
   for (const r of salesResult.recordset) {
     const productKey = Number(r.ProductKey);
     const customerKey = Number(r.CustomerKey);
-    const netSales = Number(r.NetSales);
+    const netSalesBs = Number(r.NetSalesBs);
+    const netSalesUsd = r.NetSalesUsd === null ? null : Number(r.NetSalesUsd);
     const units = Number(r.Units);
 
     if (!productsByKey.has(productKey)) {
@@ -124,12 +156,19 @@ async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, sa
     }
 
     const returns = returnsByKey.get(`${productKey}|${customerKey}`);
+    // returnRateUsd is a ratio, currency-invariant by construction -- but it
+    // is USD-denominated regardless of the dashboard's currency toggle (same
+    // convention as every other *Usd-suffixed rate elsewhere in this route),
+    // so it's computed off the .usd side of both dual amounts, not .bs.
+    const returnRateUsd = returns && returns.netUsd !== null && netSalesUsd !== null && netSalesUsd > 0
+      ? returns.netUsd / netSalesUsd
+      : null;
     cells.push({
       productKey,
       customerKey,
-      netSales,
+      netSales: { bs: netSalesBs, usd: netSalesUsd },
       units,
-      returnRateUsd: returns && netSales > 0 ? returns.net / netSales : null,
+      returnRateUsd,
       returnRateUnits: returns && units > 0 ? returns.units / units : null,
     });
   }
@@ -183,7 +222,9 @@ function exportReturnsQuery(dateWhere: string, salesRepFilter: string): string {
       le.LegalEntityName,
       ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName,
       ISNULL(p.ProductName, p.ProductCode) AS ProductName,
+      p.LineName, p.SubLineName, p.CategoryName,
       CONVERT(varchar(10), d.WeekStartDate, 120) AS WeekStartDate,
+      d.YearMonth,
       ${dualAmountExpr('fr', 'NetAmount', 'DevolucionBs', 'DevolucionUsd')},
       SUM(fr.QuantityReturned) AS DevolucionUnidades
     FROM fact.Fact_Returns fr
@@ -196,7 +237,8 @@ function exportReturnsQuery(dateWhere: string, salesRepFilter: string): string {
     WHERE fr.IsVoided = 0 ${dateWhere} ${salesRepFilter}
     GROUP BY
       ISNULL(rep.SalesRepName, rep.SalesRepCode), le.LegalEntityName, ISNULL(c.CustomerName, c.CustomerCode),
-      ISNULL(p.ProductName, p.ProductCode), d.WeekStartDate
+      ISNULL(p.ProductName, p.ProductCode), p.LineName, p.SubLineName, p.CategoryName,
+      d.WeekStartDate, d.YearMonth
   `;
 }
 
@@ -261,6 +303,9 @@ export async function GET(request: NextRequest) {
 
     const format = searchParams.get('format');
     if (format === 'xlsx') {
+      if (salesRepKeyParam !== null && salesRepKey === null) {
+        return NextResponse.json({ error: 'salesRepKey inválido' }, { status: 400 });
+      }
       return await handleXlsxExport(salesDateWhere, returnsDateWhere, salesRepKey);
     }
 

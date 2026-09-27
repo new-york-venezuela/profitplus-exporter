@@ -73,12 +73,12 @@ describe('0033_dim_date_add_week migration', () => {
       ORDER BY FullDate
     `);
     expect(result.recordset).toHaveLength(7);
-    const yearWeeks = new Set(result.recordset.map((r: any) => String(r.YearWeek)));
+    const yearWeeks = new Set(result.recordset.map((r: { YearWeek: string; WeekStartDate: Date }) => String(r.YearWeek)));
     expect(yearWeeks.size).toBe(1);
     expect(yearWeeks.has('2026-W01')).toBe(true);
 
     const weekStarts = new Set(
-      result.recordset.map((r: any) => new Date(r.WeekStartDate).toISOString().slice(0, 10)),
+      result.recordset.map((r: { YearWeek: string; WeekStartDate: Date }) => new Date(r.WeekStartDate).toISOString().slice(0, 10)),
     );
     expect(weekStarts.size).toBe(1);
     expect(weekStarts.has('2025-12-29')).toBe(true);

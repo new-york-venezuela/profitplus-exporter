@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import SearchableSelect from '@/lib/components/searchable-select';
+import { moneyLabel } from '../lib/format';
 import type {
   Currency, DateRange, SellerSummaryResponse, SellerMatrixResponse, SellerMatrixProduct,
 } from '../types';
@@ -14,10 +15,6 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
-function money(n: number): string {
-  return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 }).format(n);
-}
-
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
@@ -27,7 +24,7 @@ function cellKey(productKey: number, customerKey: number): string {
   return `${productKey}|${customerKey}`;
 }
 
-export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange; currency: Currency }) {
+export default function TabMatrizVendedor({ dateRange, currency }: { dateRange: DateRange; currency: Currency }) {
   const [summary, setSummary] = useState<SellerSummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -65,6 +62,22 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
     load();
     return () => { cancelled = true; };
   }, [dateRange]);
+
+  // Reset the product/store filters whenever the selected seller changes --
+  // otherwise a filter value from the previous seller's product set can
+  // silently produce an empty grid for the new seller with no visible
+  // explanation (e.g. a Línea that only the old seller carried). This lives
+  // in the SearchableSelect's onChange handler (handleSalesRepChange below),
+  // not a useEffect keyed on salesRepKey -- react-hooks/set-state-in-effect
+  // flags any synchronous setState call in an effect body, even one gated by
+  // a dependency array, so the reset has to happen at the point salesRepKey
+  // itself is set instead.
+  function handleSalesRepChange(nextKey: string | null) {
+    setSalesRepKey(nextKey);
+    setLineFilter(null);
+    setSubLineFilter(null);
+    setCategoryFilter(null);
+  }
 
   useEffect(() => {
     if (salesRepKey === null) {
@@ -176,11 +189,11 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
                   <tr
                     key={row.salesRepKey}
                     className={`cursor-pointer hover:bg-blue-50 ${salesRepKey === row.salesRepKey ? 'bg-blue-50' : ''}`}
-                    onClick={() => setSalesRepKey(row.salesRepKey)}
+                    onClick={() => handleSalesRepChange(row.salesRepKey)}
                   >
                     <td className="px-3 py-2 text-gray-800">{row.salesRepName}</td>
-                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{money(row.netSales)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{money(row.netReturns)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.netSales, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.netReturns, currency)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{row.entitiesServed}</td>
                   </tr>
                 ))}
@@ -199,7 +212,7 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
           <div className="flex items-center gap-2">
             <SearchableSelect
               value={salesRepKey}
-              onChange={setSalesRepKey}
+              onChange={handleSalesRepChange}
               options={sellerOptions}
               placeholder="Buscar vendedor..."
               className="max-w-[240px]"
@@ -296,7 +309,7 @@ export default function TabMatrizVendedor({ dateRange }: { dateRange: DateRange;
                           <td key={s.customerKey} className="px-3 py-2 text-right text-gray-600">
                             {cell ? (
                               <span title={`Devolución USD: ${pct(cell.returnRateUsd)} · Devolución unidades: ${pct(cell.returnRateUnits)}`}>
-                                {money(cell.netSales)}
+                                {moneyLabel(cell.netSales, currency)}
                               </span>
                             ) : '—'}
                           </td>
