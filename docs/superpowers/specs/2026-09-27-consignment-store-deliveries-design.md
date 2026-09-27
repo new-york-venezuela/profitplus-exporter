@@ -15,13 +15,17 @@ breakdown. This means today's DWH has zero store-level granularity for
 Gama — `Fact_Sales` only knows "the matriz was invoiced $X in aggregate,"
 not which of the 22 stores received what.
 
-The client periodically sends an Excel export of deliveries (one row per
-delivery: store, date, PO/delivery-note number, quantity per product) which
-is the only source of store-level truth. This spec covers turning that file
-into a queryable DWH model, starting with the one file already on hand
-(`despacho-excelsior-gama.xlsx`) and structured to accept future files (this
-client's later exports, and the one other consignment account mentioned but
-not yet supplied).
+The only source of store-level truth is an internal tracking file: one of
+our own employees manually logs every delivery (store, date,
+PO/delivery-note number, quantity per product) into a **single, living
+Excel workbook** that they keep appending to over time — not a periodic
+export the client hands us. This spec covers turning that file into a
+queryable DWH model, starting with the one snapshot already on hand
+(`despacho-excelsior-gama.xlsx`, covering April–September so far) and
+re-imported repeatedly as the employee keeps adding rows to it (see "Load
+mechanism" below for what that means for re-import behavior), structured to
+also accept a second such tracking file if the other consignment account
+gets one later.
 
 ### What the source file actually contains (verified by parsing it)
 
@@ -52,6 +56,11 @@ Parsed directly (`openpyxl`, single sheet "GAMA"):
   (confirmed by user) the ERP's consolidated invoices carry no reference
   back to delivery notes or POs either. There is no row-level join available
   between a delivery and the invoice that eventually pays for it.
+- **The file is hand-maintained**, so later rows can correct earlier ones
+  (a typo'd quantity fixed in place, a store name spelled two different
+  ways over time) rather than only ever appending net-new rows. The import
+  design (Section 6) has to treat "same delivery, changed quantity" as an
+  update, not a duplicate insert.
 
 Given no per-line price exists in the source, and no invoice linkage exists
 in either system, this spec pulls pricing from the matriz's own invoice
@@ -88,12 +97,12 @@ via a join — see "Double-counting" below.
   is the pricing source: Gama's matriz already has real consolidated
   invoice lines in here, each with a real `NetAmount`/`QuantitySold` per
   product per date.
-- **No existing precedent for a manually-supplied (non-ERP,
+- **No existing precedent for a manually-maintained (non-ERP,
   non-scheduled) data source feeding the DWH.** Every current `Load_*`
   procedure in `migrations/dwh/` pulls from a live `Ncake_a.dbo.*` ERP table
-  on a watermark. This is the first source that's a human-sent file — see
-  "Load mechanism" below for why that means a different tool, not a new
-  `Load_*` procedure.
+  on a watermark. This is the first source that's a hand-edited internal
+  file — see "Load mechanism" below for why that means a different tool,
+  not a new `Load_*` procedure.
 
 ## Design
 
@@ -152,16 +161,27 @@ CREATE TABLE fact.Fact_ConsignmentDeliveries (
     LineAmountUsd         decimal(18,2)   NULL,     -- QuantityDelivered * UnitPriceUsd, NULL when UnitPriceUsd is NULL
     SourceClientTag       varchar(40)     NOT NULL,
     SourceFileName        varchar(200)    NOT NULL,
-    SourceRowHash         varchar(64)     NOT NULL, -- hash of (store, date, nota, product, qty) for idempotent re-import
+    SourceRowKey          varchar(64)     NOT NULL, -- hash of (SourceClientTag, store, date, nota, product) — identity, excludes qty
+    SourceRowContentHash  varchar(64)     NOT NULL, -- hash of (qty) plus any other mutable fields — change detection
     LoadedAtUtc            datetime2(3)    NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Fact_ConsignmentDeliveries_Date FOREIGN KEY (DateKey) REFERENCES dim.Dim_Date(DateKey),
     CONSTRAINT FK_Fact_ConsignmentDeliveries_Store FOREIGN KEY (ConsignmentStoreKey) REFERENCES dim.Dim_ConsignmentStore(ConsignmentStoreKey),
     CONSTRAINT FK_Fact_ConsignmentDeliveries_Product FOREIGN KEY (ProductKey) REFERENCES dim.Dim_Product(ProductKey)
 );
-CREATE UNIQUE INDEX IX_Fact_ConsignmentDeliveries_RowHash ON fact.Fact_ConsignmentDeliveries (SourceRowHash);
+CREATE UNIQUE INDEX IX_Fact_ConsignmentDeliveries_RowKey ON fact.Fact_ConsignmentDeliveries (SourceRowKey);
 CREATE INDEX IX_Fact_ConsignmentDeliveries_DateKey ON fact.Fact_ConsignmentDeliveries (DateKey);
 CREATE INDEX IX_Fact_ConsignmentDeliveries_StoreKey ON fact.Fact_ConsignmentDeliveries (ConsignmentStoreKey);
 ```
+
+`SourceRowKey` is the delivery's **identity** — store, date, nota/PO number,
+and product, none of which the employee is expected to change once entered
+(they'd log a correction as a new delivery, not silently move an existing
+one to a different day). `SourceRowContentHash` covers what *can* change on
+a re-edit (quantity today; extendable to price if that's ever captured).
+This split matters because the source is hand-maintained and gets
+corrected in place — a single hash over the whole row (as an
+earlier draft of this spec had) would treat "quantity corrected from 18 to
+20" as an unrelated new delivery instead of updating the existing one.
 
 No `InvoiceNumber`/consolidated-invoice FK column — there's no reliable
 linkage data to populate it with, and a guessed link would be actively
@@ -217,36 +237,44 @@ lenses:
   enforceable in the schema — called out explicitly here so the eventual
   Analítica dashboard integration (if any) doesn't silently double-count.
 
-### 6. Load mechanism: manual import script, not a scheduled `Load_*` proc
+### 6. Load mechanism: manual import script, re-run against the growing file
 
 Every existing `Load_*` procedure in `migrations/dwh/` runs against a live,
-watermarked ERP table. This source is a human-emailed Excel file with no
-comparable cadence or watermark column — it doesn't fit that pattern.
-Instead: `scripts/import-consignment-deliveries.ts`, a Bun script run
-manually each time a new file arrives:
+watermarked ERP table with a `validador`/`fe_us_mo` column to detect
+changes. This source is a hand-maintained Excel workbook with no such
+column, and the whole file is small enough (~500 rows today) that scanning
+it in full each time is simpler and safer than trying to detect "new since
+last run" from file metadata. Instead: `scripts/import-consignment-deliveries.ts`,
+a Bun script re-run manually whenever the employee's tracking file has
+moved forward (expected to be routine — this is their day-to-day log, not
+an occasional handoff):
 
-1. Read the `.xlsx` (a small library like `exceljs`; no existing xlsx
-   *reader* in this codebase — `lib/xlsx.ts` only *writes* XLSX for report
-   exports).
+1. Read the `.xlsx` in full (a small library like `exceljs`; no existing
+   xlsx *reader* in this codebase — `lib/xlsx.ts` only *writes* XLSX for
+   report exports).
 2. Normalize store names, look up `Dim_ConsignmentStore` (insert new stores
    on first sight, matched by `StoreNameNormalized` + `SourceClientTag`).
 3. Look up each product against the reviewed `dwh.ConsignmentProductMap`;
    hard-fail listing any unmapped product name rather than skipping it
    silently.
-4. Compute `SourceRowHash` per row; upsert into
-   `fact.Fact_ConsignmentDeliveries` keyed on that hash, so re-running the
-   script on a corrected or re-sent version of the same file is safe
-   (matches the file's known column-total rows, since files like this tend
-   to get corrected copies re-sent).
+4. Compute `SourceRowKey` (identity) and `SourceRowContentHash` (mutable
+   fields) per row. For each row: no existing `SourceRowKey` → insert; a
+   matching `SourceRowKey` whose `SourceRowContentHash` differs → update
+   the existing row's quantity/price/amount in place; a matching key with
+   an unchanged hash → skip. This makes every run safe to re-run against
+   the same growing file, whether it added new rows, corrected old ones, or
+   both.
 5. Run the as-of pricing lookup (Section 4) per distinct
    `(ProductKey, DateKey)` in the batch, not per row, to avoid redundant
    queries.
-6. Print a diagnostic report: rows imported, rows skipped (unmapped
-   product), stores newly created, products with no price found.
+6. Print a diagnostic report: rows inserted, rows updated (with old →
+   new quantity for each, since a silent quantity change on a re-run is
+   exactly the kind of thing worth a human glancing at), rows skipped
+   (unmapped product), stores newly created, products with no price found.
 
 This script takes the file path as an argument and `SourceClientTag` (e.g.
-`gama`), so the second consignment client's eventual file reuses the same
-script and dimension tables.
+`gama`), so a tracking file for the second consignment account, if one
+gets created later, reuses the same script and dimension tables.
 
 ## Deliverables produced by implementation
 
@@ -255,10 +283,12 @@ script and dimension tables.
    Gama rows seeded), `Fact_ConsignmentDeliveries` — following the existing
    `IF NOT EXISTS`/`CREATE OR ALTER` re-runnable convention (see
    `migrations/dwh/README.md`).
-2. **Import script** `scripts/import-consignment-deliveries.ts`.
-3. **One import run** against `despacho-excelsior-gama.xlsx`, with the
-   diagnostic report (row counts, date range, unmapped products/stores if
-   any) shared back before considering the data ready for downstream use.
+2. **Import script** `scripts/import-consignment-deliveries.ts`, intended
+   for repeated manual use going forward, not a one-time backfill.
+3. **First import run** against `despacho-excelsior-gama.xlsx` as it stands
+   today, with the diagnostic report (row counts, date range,
+   unmapped products/stores if any) shared back before considering the data
+   ready for downstream use.
 4. **No Analítica dashboard changes** in this pass — this spec stops at a
    queryable fact table. A `/analitica` tab or export surfacing this data
    is a separate, later spec once the base data is validated.
