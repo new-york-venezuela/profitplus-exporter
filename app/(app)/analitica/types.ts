@@ -155,6 +155,41 @@ export interface VentasComparisonResponse {
   rows: ComparisonSeriesMonthRow[];
 }
 
+// Histórico 2025 tab — a fixed, closed Jan 2025-Feb 2026 window imported
+// from the pre-March-2026-cutover Profit Plus server. No dateRange param
+// (the window never changes), no prev-period comparison (no meaningful
+// "before" this dataset), no entidad/tienda toggle (legacy customers have
+// no Dim_LegalEntity rollup) — see docs/superpowers/specs/
+// 2026-09-23-legacy-2025-import-design.md.
+export interface HistoricoRow {
+  label: string;
+  value: string | number;
+  salesNet: DualAmount;
+  returnRate: number | null;
+}
+
+export interface HistoricoBreadcrumbEntry {
+  label: string;
+  groupBy: GroupBy;
+}
+
+export interface HistoricoResponse {
+  rows: HistoricoRow[];
+  groupBy: GroupBy;
+  breadcrumb: HistoricoBreadcrumbEntry[];
+}
+
+export interface HistoricoKpis {
+  salesNet: DualAmount;
+  activeClients: number;
+  avgTicket: DualAmount | null;
+  unitsSold: number;
+}
+
+export interface HistoricoKpisResponse {
+  kpis: HistoricoKpis;
+}
+
 // Compras tab
 export interface ComprasRow {
   label: string;
