@@ -175,10 +175,24 @@ function entityHistoryQuery(currentDateWhere: string): string {
   `;
 }
 
-// Run only for entities flagged
-// !HadPrior by the main query — for those entities, find their last sale
-// strictly before the FIRST current-period sale from this seller (the gap
-// start), and that first current-period sale itself (the recovery sale).
+// Run only for entities flagged !HadPrior by the main query (i.e.
+// hadSaleInPriorPeriod === false — no sale from ANY seller in the
+// immediately preceding comparison period [priorStart, priorEnd], matching
+// tab-clientes.tsx's own churn definition exactly). For those entities,
+// find their last sale STRICTLY BEFORE priorStart (a genuine sale from
+// before the churn gap even began — not merely "before the first
+// current-period sale," which would also match an in-period seller handoff
+// where a different seller sold to the entity a few days earlier in the
+// SAME current period). Bounding by priorStart instead is what excludes
+// that false-positive case: an entity with a sale inside [priorStart,
+// priorEnd] would already have hadSaleInPriorPeriod === true and never
+// reach this query, and an entity with no sale before priorStart at all
+// (LastSaleBeforeGap IS NULL) has no genuine gap to recover from — the
+// caller (entityHistories mapping in GET) already treats a null
+// lastSaleBeforeGap as "not a recovery," leaving that entity correctly
+// unclassified by classifyCustomers (not new, since firstSaleSellerMatches
+// or the in-period first-sale check would have to hold for that; not
+// recovered, since recoverySale is null).
 function recoveryGapQuery(legalEntityKeys: number[], currentDateWhere: string): string {
   const placeholders = legalEntityKeys.map((_, i) => `@entity${i}`).join(', ');
   return `
@@ -190,10 +204,7 @@ function recoveryGapQuery(legalEntityKeys: number[], currentDateWhere: string): 
         JOIN dim.Dim_Customer c2 ON c2.CustomerKey = f2.CustomerKey
         JOIN dim.Dim_Date d2 ON d2.DateKey = f2.DateKey
         WHERE f2.IsVoided = 0 AND c2.LegalEntityKey = c.LegalEntityKey
-          AND d2.FullDate < (SELECT MIN(d3.FullDate) FROM fact.Fact_Sales f3
-            JOIN dim.Dim_Customer c3 ON c3.CustomerKey = f3.CustomerKey
-            JOIN dim.Dim_Date d3 ON d3.DateKey = f3.DateKey
-            WHERE f3.IsVoided = 0 AND c3.LegalEntityKey = c.LegalEntityKey AND f3.SalesRepKey = @salesRepKey ${currentDateWhere.replace(/\bfs\b/g, 'f3')})
+          AND d2.FullDate < @priorStart
       ) AS LastSaleBeforeGap
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -326,15 +337,16 @@ export async function GET(request: NextRequest) {
     const historyResult = await pool.request().input('salesRepKey', salesRepKey).query(entityHistoryQuery(dateWhere));
     const priorFlags = await Promise.all(
       historyResult.recordset.map(async r => {
-        const req = pool.request().input('salesRepKey', salesRepKey);
+        const legalEntityKey = Number(r.LegalEntityKey);
+        const req = pool.request().input('salesRepKey', salesRepKey).input('legalEntityKey', legalEntityKey);
         const res = await req.query(`
           SELECT CASE WHEN EXISTS (
             SELECT 1 FROM fact.Fact_Sales fp
             JOIN dim.Dim_Customer cp ON cp.CustomerKey = fp.CustomerKey
-            WHERE fp.IsVoided = 0 AND cp.LegalEntityKey = ${Number(r.LegalEntityKey)} ${priorDateWhere.replace(/\bfs\b/g, 'fp')}
+            WHERE fp.IsVoided = 0 AND cp.LegalEntityKey = @legalEntityKey ${priorDateWhere.replace(/\bfs\b/g, 'fp')}
           ) THEN 1 ELSE 0 END AS HadPrior
         `);
-        return { legalEntityKey: Number(r.LegalEntityKey), hadPrior: Number(res.recordset[0].HadPrior) === 1 };
+        return { legalEntityKey, hadPrior: Number(res.recordset[0].HadPrior) === 1 };
       }),
     );
     const priorFlagMap = new Map(priorFlags.map(p => [p.legalEntityKey, p.hadPrior]));
@@ -345,7 +357,7 @@ export async function GET(request: NextRequest) {
 
     const recoveryByEntity = new Map<number, { lastSaleBeforeGap: string | null; recoverySaleDate: string; recoveryAmountBs: number; recoveryAmountUsd: number | null }>();
     if (noPriorEntityKeys.length > 0) {
-      const req = pool.request().input('salesRepKey', salesRepKey);
+      const req = pool.request().input('salesRepKey', salesRepKey).input('priorStart', new Date(`${priorStart}T00:00:00Z`));
       noPriorEntityKeys.forEach((key, i) => req.input(`entity${i}`, key));
       const recoveryResult = await req.query(recoveryGapQuery(noPriorEntityKeys, dateWhere));
       for (const r of recoveryResult.recordset) {

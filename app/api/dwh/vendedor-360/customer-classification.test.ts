@@ -87,4 +87,54 @@ describe('classifyCustomers', () => {
     expect(result.nuevos).toHaveLength(0);
     expect(result.recuperados).toHaveLength(0);
   });
+
+  // Regression test for the recovery-gap bug found during Task 7 live-DWH
+  // verification: recoveryGapQuery originally bounded LastSaleBeforeGap by
+  // "before the first current-period sale from this seller" instead of
+  // "before priorStart" (the start of the immediately preceding comparison
+  // period). That let a same-period seller handoff — Vendedor B sells to an
+  // entity on day 1 of the current period, then Vendedor A (this profile's
+  // seller) sells to the same entity a few days later, still inside the
+  // SAME current period — masquerade as a "recovery" with a tiny gapDays
+  // (1, 4, 7 were observed live), even though the entity never actually
+  // churned: it had no gap at all, let alone one spanning the prior
+  // comparison period. The fix makes the route only ever produce a
+  // recoverySale object when the entity's last sale genuinely falls before
+  // priorStart AND it had zero sales throughout [priorStart, priorEnd]
+  // (hadSaleInPriorPeriod === false, computed independently) — this test
+  // documents the corrected caller contract at the pure-function boundary:
+  // once the route passes hadSaleInPriorPeriod: true (because the "prior"
+  // sale actually happened inside the current period's own lookback, not a
+  // real gap) and recoverySale: null (because the fixed recoveryGapQuery
+  // correctly finds no sale before priorStart, or the entity is excluded
+  // for having a prior-period sale it truly does have), classifyCustomers
+  // must never invent a recuperado from a null recoverySale, and must not
+  // classify as "new" either since this entity's first-ever sale was long
+  // before the current period.
+  test('does not classify a same-period seller handoff as recovered (no genuine gap before the prior comparison period)', () => {
+    const entities: EntitySaleHistory[] = [{
+      legalEntityKey: 6,
+      legalEntityName: 'Cliente F',
+      firstSaleDateEver: '2023-05-01', // long-ago genuine first sale — not "new"
+      firstSaleSellerMatches: false,
+      firstSaleAmount: { bs: 0, usd: 0 },
+      // The entity DID have activity inside the immediately preceding
+      // comparison period in the real-world scenario this guards against —
+      // a seller handoff a few days before the current period's sale to
+      // THIS seller means the entity was never actually dormant. Modeled
+      // here as hadSaleInPriorPeriod: true (the corrected route computes
+      // this independently via priorFlagMap, matching tab-clientes.tsx's
+      // churn definition) with recoverySale: null (the corrected
+      // recoveryGapQuery never runs for entities with hadSaleInPriorPeriod
+      // === true, and even if it did, would find no sale before priorStart
+      // that qualifies as a real gap).
+      hadSaleInPriorPeriod: true,
+      hadSaleInCurrentPeriod: true,
+      recoverySale: null,
+    }];
+    const result = classifyCustomers(entities, '2026-09-01', '2026-09-30');
+    expect(result.nuevos).toHaveLength(0);
+    expect(result.recuperados).toHaveLength(0);
+    expect(result.recuperados.some(r => r.legalEntityKey === 6)).toBe(false);
+  });
 });
