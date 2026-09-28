@@ -50,8 +50,8 @@ export async function getLegacyPool(): Promise<sql.ConnectionPool> {
 }
 
 export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Promise<void> {
-  const result = await dwhPool.request().query(`SELECT COUNT(*) AS RowCount FROM fact.Fact_Sales_Legacy`);
-  const rowCount = Number(result.recordset[0].RowCount);
+  const result = await dwhPool.request().query(`SELECT COUNT(*) AS TotalRows FROM fact.Fact_Sales_Legacy`);
+  const rowCount = Number(result.recordset[0].TotalRows);
   if (rowCount > 0) {
     throw new Error(
       `fact.Fact_Sales_Legacy already has ${rowCount} row(s) — refusing to run the Histórico 2025 import again. ` +
@@ -297,10 +297,10 @@ async function main(): Promise<void> {
     // missing rate degrades gracefully (produces NULL/no USD for that
     // row) rather than erroring, but is worth knowing about up front.
     const rateCheck = await dwhPool.request().query(`
-      SELECT COUNT(*) AS RowCount FROM fact.Fact_ExchangeRate
+      SELECT COUNT(*) AS TotalRows FROM fact.Fact_ExchangeRate
       WHERE DateKey BETWEEN 20250101 AND 20260228
     `);
-    console.log(`Fact_ExchangeRate rows for the import window: ${rateCheck.recordset[0].RowCount} (0 means USD figures in the Histórico tab will show as unavailable for this whole period)`);
+    console.log(`Fact_ExchangeRate rows for the import window: ${rateCheck.recordset[0].TotalRows} (0 means USD figures in the Histórico tab will show as unavailable for this whole period)`);
 
     const customerCount = await loadDimCustomerLegacy(legacyPool, dwhPool);
     console.log(`✓ Dim_Customer_Legacy: ${customerCount} rows loaded`);
