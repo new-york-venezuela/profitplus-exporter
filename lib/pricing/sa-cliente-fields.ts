@@ -322,9 +322,17 @@ export async function updateCustomerTipCli(
 //     trasnfe as NULL, so NULL is passed for both, matching real precedent
 //     rather than inventing a flag value.
 export async function ensureTipoClienteForPriceList(pool: ConnectionPool, coPrecio: string): Promise<string> {
+  // A price list can be mapped by more than one tip_cli (confirmed live:
+  // co_precio '01' "CONTADO BS" is mapped by BOTH tip_cli '000001'
+  // "INDEPENDIENTE" and '000002' "CADENA"). ORDER BY makes the pick
+  // deterministic instead of whatever order SQL Server feels like handing
+  // back a plan-dependent TOP 1 with no ORDER BY -- it does not, by itself,
+  // avoid the CADENA->INDEPENDIENTE reclassification bug (that's handled in
+  // assignCustomerPriceList's no-op check below), but it does mean this
+  // function always resolves the same tip_cli for a given co_precio.
   const existing = await pool.request()
     .input('coPrecio', sql.Char(6), coPrecio)
-    .query(`SELECT TOP 1 RTRIM(tip_cli) AS tipCli FROM saTipoCliente WHERE RTRIM(co_precio) = RTRIM(@coPrecio)`);
+    .query(`SELECT TOP 1 RTRIM(tip_cli) AS tipCli FROM saTipoCliente WHERE RTRIM(co_precio) = RTRIM(@coPrecio) ORDER BY tip_cli`);
   if (existing.recordset.length > 0) return existing.recordset[0].tipCli;
 
   const priceListResult = await pool.request()
@@ -364,6 +372,31 @@ export async function assignCustomerPriceList(
     const targetTipCli = await ensureTipoClienteForPriceList(pool, targetCoPrecio);
     const current = await readFullCustomerRow(pool, coCli);
     if (!current) return { coCli, outcome: 'error', message: 'Cliente no encontrado' };
+
+    // No-op guard: when a price list is mapped by more than one tip_cli
+    // (confirmed live: co_precio '01' is mapped by both tip_cli '000001'
+    // INDEPENDIENTE and '000002' CADENA), ensureTipoClienteForPriceList
+    // above always resolves the SAME (deterministic, lowest) tip_cli for a
+    // given co_precio -- '000001' for '01'. Without this guard, assigning a
+    // customer who is ALREADY correctly on price list '01' under tip_cli
+    // '000002' (CADENA) back to price list '01' would silently overwrite
+    // their tip_cli to '000001', permanently losing the CADENA
+    // classification with no visible UI change (the displayed price list
+    // name is unchanged, since both tip_cli codes map to the same
+    // co_precio). Guard against this by checking whether the customer's
+    // CURRENT tip_cli already maps to the same co_precio as the target
+    // (not just whether it equals targetTipCli byte-for-byte) before
+    // writing anything.
+    if (current.tipCli.trim() === targetTipCli.trim()) {
+      return { coCli, outcome: 'success' };
+    }
+    const currentMapping = await pool.request()
+      .input('tipCli', sql.Char(6), current.tipCli)
+      .query(`SELECT RTRIM(co_precio) AS coPrecio FROM saTipoCliente WHERE RTRIM(tip_cli) = RTRIM(@tipCli)`);
+    const currentCoPrecio: string | undefined = currentMapping.recordset[0]?.coPrecio;
+    if (currentCoPrecio !== undefined && currentCoPrecio.trim() === targetCoPrecio.trim()) {
+      return { coCli, outcome: 'success' };
+    }
 
     const outcome = await updateCustomerTipCli(pool, current, targetTipCli, modifyingUser);
     return { coCli, outcome };

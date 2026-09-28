@@ -294,5 +294,10 @@ See `.env.example` for the full list; `INSTRUCTIONS.md` covers setup end to end.
   drop it). The `--timeout 30000` flag is required; the bare `bun test` default (5s) is too tight
   once a test's `beforeAll` applies several migrations. `bunfig.toml`'s `[test] timeout` does not
   work for this in Bun 1.3.14 — always pass `--timeout` on the CLI, not in config.
+- `bun run test:pricing-erp` runs `scripts/dwh/__tests__/pricing-assignment.test.ts` — this test
+  performs real writes against the live ERP (customer `tip_cli` reassignment, plus creating a
+  `saTipoPrecio`/`saTipoCliente` row pair) and is excluded from `test`/`test:unit` via
+  `--path-ignore-patterns`, matching how `compras-export.integration.test.ts` is excluded and run
+  separately via `test:mssql`. Only run it against a non-production Profit Plus instance.
 - See `INSTRUCTIONS.md` → "Running Tests" for the full command reference (unit, e2e, MSSQL
   integration).

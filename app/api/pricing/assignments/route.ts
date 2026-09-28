@@ -36,9 +36,26 @@ export async function POST(request: NextRequest) {
     // calls against the same connection pool has no documented safety
     // margin in this ERP, and bulk reassignments here are an infrequent,
     // human-triggered action, not a throughput-sensitive path.
+    // The ERP write records this value as a real Profit Plus user code
+    // (saCliente.co_us_mo, via pActualizarCliente's @sCo_us_mo). It must
+    // NOT be this app's own numeric user id (auth.session.sub) -- an app
+    // user id like "88" can collide with an unrelated real Profit Plus
+    // user code "88" and misattribute the change in Profit Plus's own
+    // audit trail. Configurable since a dedicated Profit Plus service-user
+    // code hasn't been set up yet; defaults to 'PROFIT', matching the
+    // hardcoded @sCo_Us_In value pInsertarTipoCliente already uses nearby.
+    // Note: the app user's own identity (auth.session.sub) isn't separately
+    // recorded on the ERP side by this change -- there's no free-text,
+    // audit-friendly parameter available on pActualizarCliente for it
+    // (sMaquina is for client-machine identity and this is a server-side
+    // write; sCampos is a fixed "which columns changed" list, not a notes
+    // field). It remains available via this app's own PostHog event below
+    // (captureEvent's distinctId) and server logs.
+    const erpServiceUser = process.env.PRICING_ERP_SERVICE_USER ?? 'PROFIT';
+
     const results = [];
     for (const coCli of customerCodes) {
-      const result = await assignCustomerPriceList(pool, coCli, body.targetCoPrecio, auth.session.sub);
+      const result = await assignCustomerPriceList(pool, coCli, body.targetCoPrecio, erpServiceUser);
       results.push(result);
     }
 

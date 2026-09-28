@@ -1,5 +1,5 @@
 // scripts/dwh/__tests__/pricing-assignment.test.ts
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { getPool } from '../../../lib/db/mssql';
 import { assignCustomerPriceList, readFullCustomerRow, updateCustomerTipCli } from '../../../lib/pricing/sa-cliente-fields';
 
@@ -17,6 +17,18 @@ describe('assignCustomerPriceList', () => {
     const result = await pool.request().query(`SELECT TOP 1 RTRIM(co_cli) AS coCli, RTRIM(tip_cli) AS tipCli FROM saCliente WHERE inactivo = 0`);
     testCoCli = result.recordset[0].coCli;
     originalTipCli = result.recordset[0].tipCli;
+  });
+
+  // A regular test() only runs if every earlier test in the suite ran and
+  // didn't throw -- if any of them failed or the process crashed mid-suite,
+  // the real test customer would be left stranded on a test price list.
+  // afterAll runs regardless (as long as beforeAll completed), so the
+  // restore is moved here instead.
+  afterAll(async () => {
+    if (!originalTipCli) return;
+    const current = await readFullCustomerRow(pool, testCoCli);
+    if (!current) return;
+    await updateCustomerTipCli(pool, current, originalTipCli, 'TESTRUN');
   });
 
   test('reassigns a customer to an existing price list and reflects it on re-read', async () => {
@@ -41,7 +53,23 @@ describe('assignCustomerPriceList', () => {
     // second call's passed validador will be stale after the first
     // succeeds, exercising the conflict path directly rather than via a
     // second real writer.
-    const priceListResult = await pool.request().query(`SELECT RTRIM(co_precio) AS coPrecio FROM saTipoPrecio ORDER BY co_precio`);
+    //
+    // firstList/secondList must both be price lists the customer is NOT
+    // already on: assignCustomerPriceList is a no-op (by design, see
+    // sa-cliente-fields.ts) when the customer already maps to the target
+    // co_precio, and a no-op never bumps validador -- which would make the
+    // "stale" second write succeed instead of conflicting, since nothing
+    // actually moved on in between. testCoCli is already on '01' from the
+    // previous test, so explicitly exclude the customer's current price
+    // list here rather than assuming the first two rows by co_precio order.
+    const currentTipoCliente = await pool.request()
+      .input('tipCli', current!.tipCli)
+      .query(`SELECT RTRIM(co_precio) AS coPrecio FROM saTipoCliente WHERE RTRIM(tip_cli) = RTRIM(@tipCli)`);
+    const currentCoPrecio: string | undefined = currentTipoCliente.recordset[0]?.coPrecio;
+
+    const priceListResult = await pool.request()
+      .input('currentCoPrecio', currentCoPrecio ?? '')
+      .query(`SELECT RTRIM(co_precio) AS coPrecio FROM saTipoPrecio WHERE RTRIM(co_precio) <> RTRIM(@currentCoPrecio) ORDER BY co_precio`);
     const [firstList, secondList] = priceListResult.recordset;
 
     await assignCustomerPriceList(pool, testCoCli, firstList.coPrecio, 'TESTRUN');
@@ -71,13 +99,41 @@ describe('assignCustomerPriceList', () => {
     expect(tipoClienteResult.recordset[0].cnt).toBe(1);
   });
 
-  test('restores the test customer to their original tip_cli afterward', async () => {
-    if (!originalTipCli) return;
-    const current = await readFullCustomerRow(pool, testCoCli);
-    await updateCustomerTipCli(pool, current!, originalTipCli, 'TESTRUN');
+  test('re-assigning a customer already on a multi-mapped price list under a non-default tip_cli is a no-op', async () => {
+    // Live-confirmed: co_precio '01' "CONTADO BS" is mapped by BOTH
+    // tip_cli '000001' "INDEPENDIENTE" and '000002' "CADENA". Without the
+    // no-op guard in assignCustomerPriceList, re-assigning a customer who
+    // is already on '01' via '000002' back to price list '01' would
+    // silently flip them to whichever tip_cli ensureTipoClienteForPriceList
+    // resolves first ('000001', by the new deterministic ORDER BY),
+    // permanently losing their CADENA classification with no visible UI
+    // change (the price list name shown is unchanged either way).
+    const priceListId = '01';
+    const cadenaTipCli = '000002';
 
-    const restored = await readFullCustomerRow(pool, testCoCli);
-    expect(restored!.tipCli.trim()).toBe(originalTipCli.trim());
+    const mappingCheck = await pool.request()
+      .input('coPrecio', priceListId)
+      .query(`SELECT RTRIM(tip_cli) AS tipCli, RTRIM(co_precio) AS coPrecio FROM saTipoCliente WHERE RTRIM(co_precio) = RTRIM(@coPrecio) ORDER BY tip_cli`);
+    if (mappingCheck.recordset.length < 2) {
+      throw new Error(`Expected co_precio ${priceListId} to be mapped by 2+ tip_cli codes on this ERP instance (found ${mappingCheck.recordset.length}) -- test fixture assumption no longer holds`);
+    }
+
+    const cadenaCustomer = await pool.request()
+      .input('tipCli', cadenaTipCli)
+      .query(`SELECT TOP 1 RTRIM(co_cli) AS coCli FROM saCliente WHERE inactivo = 0 AND RTRIM(tip_cli) = RTRIM(@tipCli)`);
+    if (cadenaCustomer.recordset.length === 0) {
+      throw new Error(`Expected at least one active customer with tip_cli ${cadenaTipCli} on this ERP instance -- test fixture assumption no longer holds`);
+    }
+    const cadenaCoCli: string = cadenaCustomer.recordset[0].coCli;
+
+    const before = await readFullCustomerRow(pool, cadenaCoCli);
+    expect(before!.tipCli.trim()).toBe(cadenaTipCli);
+
+    const outcome = await assignCustomerPriceList(pool, cadenaCoCli, priceListId, 'TESTRUN');
+    expect(outcome.outcome).toBe('success');
+
+    const after = await readFullCustomerRow(pool, cadenaCoCli);
+    expect(after!.tipCli.trim()).toBe(cadenaTipCli); // unchanged -- NOT flipped to '000001'
   });
 });
 
