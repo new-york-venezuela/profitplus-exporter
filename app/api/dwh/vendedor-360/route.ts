@@ -310,6 +310,20 @@ const SELLER_NAME_QUERY = `
   SELECT ISNULL(SalesRepName, SalesRepCode) AS SalesRepName FROM dim.Dim_SalesRep WHERE SalesRepKey = @salesRepKey
 `;
 
+// fact.Fact_Sales begins at a fixed installation date (2026-03-16 in this
+// DWH) — earlier history lives in fact.Fact_Sales_Legacy, a separate table
+// this route (and every other DWH route) never queries. "Nuevos clientes"
+// classification (Section 4) does an unbounded lookback in Fact_Sales for
+// each entity's genuine first-ever sale; if the selected range starts at or
+// before Fact_Sales's own earliest DateKey, a long-standing customer whose
+// true first purchase predates the DWH entirely can be misclassified as
+// "new" simply because Fact_Sales has nothing earlier to find. This can't be
+// fixed by this route (Fact_Sales_Legacy is unpopulated in this dev
+// environment, and joining it is out of scope here) — instead, flag the
+// response so the UI can caveat the number rather than present it as if it
+// were certainly correct. See Fix 7, final-review-fix-report.md.
+const MIN_FACT_SALES_DATEKEY_QUERY = `SELECT MIN(DateKey) AS MinDateKey FROM fact.Fact_Sales`;
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -465,6 +479,17 @@ export async function GET(request: NextRequest) {
       months,
     );
 
+    // Fix 7: flag when the selected range's start is at or before
+    // Fact_Sales's own earliest DateKey — see MIN_FACT_SALES_DATEKEY_QUERY's
+    // comment above.
+    const minDateKeyResult = await pool.request().query(MIN_FACT_SALES_DATEKEY_QUERY);
+    const minFactSalesDateKey: number | null = minDateKeyResult.recordset[0]?.MinDateKey ?? null;
+    const startDateKey = Number(start.replace(/-/g, ''));
+    const possiblyIncludesPreExistingCustomers = minFactSalesDateKey !== null && startDateKey <= minFactSalesDateKey;
+    const minFactSalesDate = minFactSalesDateKey !== null
+      ? `${String(minFactSalesDateKey).slice(0, 4)}-${String(minFactSalesDateKey).slice(4, 6)}-${String(minFactSalesDateKey).slice(6, 8)}`
+      : null;
+
     // Section 6: Devoluciones
     const [byProductResult, byTiendaResult] = await Promise.all([
       pool.request().input('salesRepKey', salesRepKey).query(returnsByProductQuery(dateWhere)),
@@ -525,7 +550,13 @@ export async function GET(request: NextRequest) {
       activacion: { weeks, entityGrain, weeklyVisitQuota: latestMonthRow?.weeklyVisitQuota ?? null },
       cuota: { salesNet: { bs: salesNetBs, usd: salesNetUsd }, quotaUsd: quotaResult.total, isPartial: quotaResult.isPartial },
       cobranza: { buckets: sellerBuckets, baselineBuckets },
-      nuevosClientes: { rows: nuevos, quota: newCustomerQuotaResult.total, isPartial: newCustomerQuotaResult.isPartial },
+      nuevosClientes: {
+        rows: nuevos,
+        quota: newCustomerQuotaResult.total,
+        isPartial: newCustomerQuotaResult.isPartial,
+        possiblyIncludesPreExistingCustomers,
+        factSalesMinDate: minFactSalesDate,
+      },
       clientesRecuperados: { rows: recuperados },
       devoluciones: { byProduct, byTienda },
       profundidad: { coverage },

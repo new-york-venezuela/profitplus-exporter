@@ -567,6 +567,14 @@ export interface Seller360Response {
     rows: NewCustomerRow[];
     quota: number | null;
     isPartial: boolean;
+    // true when the selected range's start is at or before fact.Fact_Sales's
+    // own earliest DateKey — the DWH's unbounded "first sale ever" lookback
+    // can't see history before that boundary (it lives in the unpopulated
+    // fact.Fact_Sales_Legacy table instead), so a long-standing customer can
+    // be misclassified as "new". See Fix 7,
+    // docs/superpowers/specs/2026-09-27-seller-360-dashboard-design.md.
+    possiblyIncludesPreExistingCustomers: boolean;
+    factSalesMinDate: string | null; // ISO date, for the UI caveat message
   };
   clientesRecuperados: {
     rows: RecoveredCustomerRow[];
