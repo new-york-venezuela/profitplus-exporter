@@ -245,9 +245,10 @@ function AnaliticaClientInner() {
   const activeTabDef = useMemo(() => TABS.find(t => t.key === activeTab), [activeTab]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      {/* Global header */}
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
+    <div className="flex flex-col h-screen bg-gray-50 print:h-auto print:overflow-visible">
+      {/* Global header — hidden on print; SellerProfile renders its own
+          print-only header (seller name/date range/"Generado:") instead. */}
+      <div className="border-b border-gray-200 bg-white px-6 py-4 print:hidden">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Analítica</h1>
@@ -348,7 +349,7 @@ function AnaliticaClientInner() {
       </div>
 
       {/* Tab navigation bar */}
-      <div className="border-b border-gray-200 bg-white px-6 overflow-x-auto">
+      <div className="border-b border-gray-200 bg-white px-6 overflow-x-auto print:hidden">
         <nav className="flex gap-6" aria-label="Tabs">
           {TABS.map(tab => (
             <button
@@ -367,7 +368,7 @@ function AnaliticaClientInner() {
       </div>
 
       {/* Tab content area */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto print:overflow-visible print:h-auto">
         {!activeTabDef && (
           <div className="p-6">
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">
@@ -378,7 +379,7 @@ function AnaliticaClientInner() {
         {TABS.filter(tab => mountedTabs.has(tab.key)).map(tab => {
           const TabComponent = tab.component;
           return (
-            <div key={tab.key} className={tab.key === activeTab ? 'h-full' : 'hidden'}>
+            <div key={tab.key} className={tab.key === activeTab ? 'h-full print:h-auto' : 'hidden'}>
               <TabComponent dateRange={dateRange} currency={currency} />
             </div>
           );
