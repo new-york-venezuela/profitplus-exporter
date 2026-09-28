@@ -17,6 +17,10 @@ function attainmentBadgeClass(actual: number, quota: number | null): string {
   return 'bg-red-100 text-red-800';
 }
 
+// `actual` here MUST always be the value the attainment percentage is
+// computed against (e.g. Cuota's USD sales figure vs. quotaUsd), never the
+// currency-toggled DISPLAY value — `actualLabel` is purely presentational
+// and can differ (Bs or USD) without affecting the badge/percentage math.
 function KpiCard({ label, actual, actualLabel, quota, quotaSuffix = '' }: {
   label: string;
   actual: number;
@@ -146,7 +150,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
       <KpiCard
         label="2. Cuota de ventas mensual"
-        actual={currency === 'usd' ? (data.cuota.salesNet.usd ?? 0) : data.cuota.salesNet.bs}
+        actual={data.cuota.salesNet.usd ?? 0}
         actualLabel={moneyLabel(data.cuota.salesNet, currency)}
         quota={data.cuota.quotaUsd}
         quotaSuffix=" USD"
