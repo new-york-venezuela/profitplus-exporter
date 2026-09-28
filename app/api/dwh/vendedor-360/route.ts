@@ -147,6 +147,23 @@ function resolveDateBounds(dateRange: string): { start: string; end: string } {
 // prior-period sale, and the gap/recovery detail when it didn't, are
 // resolved separately below (the inline prior-flag query in Step 3's GET
 // handler update, and recoveryGapQuery).
+// Fix 5: Fact_Sales is stored per INVOICE LINE, so an entity's first-sale
+// DAY can have multiple lines (one invoice with several lines, or even
+// multiple invoices same day) — a correlated TOP 1 subquery (the prior
+// implementation) arbitrarily picks just one line's amount instead of the
+// whole day's total, understating "first sale amount" by 3-4x in confirmed
+// live samples. FirstSaleAmountBs/Usd now SUM every Fact_Sales line on
+// FirstSaleDateEver for that entity (both amounts stay consistent: same
+// date, same set of lines).
+//
+// Seller attribution tie-break: when multiple sellers have lines on the same
+// first-sale date (confirmed in 3/67 sampled entities), FirstSaleSalesRepKey
+// picks the seller with the highest total NetAmount that day — the seller
+// who did the most business with this entity on its first day is the most
+// defensible "who acquired this customer" attribution, and it's a stable,
+// deterministic tie-break (no reliance on row-insertion order or a
+// DateKey/InvoiceNumber tie that may not exist). This is a judgment call the
+// spec doesn't dictate; documented here per Fix 5's instructions.
 function entityHistoryQuery(currentDateWhere: string): string {
   return `
     ;WITH SellerEntities AS (
@@ -162,30 +179,41 @@ function entityHistoryQuery(currentDateWhere: string): string {
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
       WHERE fs.IsVoided = 0 AND c.LegalEntityKey IN (SELECT LegalEntityKey FROM SellerEntities)
       GROUP BY c.LegalEntityKey
+    ),
+    FirstSaleLines AS (
+      SELECT
+        fse.LegalEntityKey,
+        fse.FirstSaleDateEver,
+        fs2.SalesRepKey,
+        SUM(fs2.NetAmount) AS SalesRepNetAmount,
+        ROW_NUMBER() OVER (PARTITION BY fse.LegalEntityKey ORDER BY SUM(fs2.NetAmount) DESC) AS SellerRank
+      FROM FirstSaleEver fse
+      JOIN dim.Dim_Customer c2 ON c2.LegalEntityKey = fse.LegalEntityKey
+      JOIN fact.Fact_Sales fs2 ON fs2.CustomerKey = c2.CustomerKey
+      JOIN dim.Dim_Date d2 ON d2.DateKey = fs2.DateKey AND d2.FullDate = fse.FirstSaleDateEver
+      WHERE fs2.IsVoided = 0
+      GROUP BY fse.LegalEntityKey, fse.FirstSaleDateEver, fs2.SalesRepKey
     )
     SELECT
       fse.LegalEntityKey,
       le.LegalEntityName,
       fse.FirstSaleDateEver,
-      (SELECT TOP 1 fs2.SalesRepKey
-       FROM fact.Fact_Sales fs2
-       JOIN dim.Dim_Customer c2 ON c2.CustomerKey = fs2.CustomerKey
-       JOIN dim.Dim_Date d2 ON d2.DateKey = fs2.DateKey
-       WHERE fs2.IsVoided = 0 AND c2.LegalEntityKey = fse.LegalEntityKey AND d2.FullDate = fse.FirstSaleDateEver
-       ORDER BY fs2.DateKey) AS FirstSaleSalesRepKey,
-      (SELECT TOP 1 fs3.NetAmount
+      (SELECT TOP 1 fsl.SalesRepKey FROM FirstSaleLines fsl
+        WHERE fsl.LegalEntityKey = fse.LegalEntityKey AND fsl.SellerRank = 1) AS FirstSaleSalesRepKey,
+      (SELECT ISNULL(SUM(fs3.NetAmount), 0)
        FROM fact.Fact_Sales fs3
        JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
        JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
        WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = fse.LegalEntityKey AND d3.FullDate = fse.FirstSaleDateEver
-       ORDER BY fs3.DateKey) AS FirstSaleAmountBs,
-      (SELECT TOP 1 fs3.NetAmount / NULLIF(COALESCE(fs3.DocumentExchangeRate, fx3.RateSell), 0)
+      ) AS FirstSaleAmountBs,
+      (SELECT CASE WHEN COUNT(fs3.NetAmount) = 0 THEN 0
+              ELSE SUM(fs3.NetAmount / NULLIF(COALESCE(fs3.DocumentExchangeRate, fx3.RateSell), 0)) END
        FROM fact.Fact_Sales fs3
        ${usdConversionJoin('fs3', 'DateKey', 'fx3')}
        JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
        JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
        WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = fse.LegalEntityKey AND d3.FullDate = fse.FirstSaleDateEver
-       ORDER BY fs3.DateKey) AS FirstSaleAmountUsd
+      ) AS FirstSaleAmountUsd
     FROM FirstSaleEver fse
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = fse.LegalEntityKey
   `;
@@ -209,25 +237,42 @@ function entityHistoryQuery(currentDateWhere: string): string {
 // unclassified by classifyCustomers (not new, since firstSaleSellerMatches
 // or the in-period first-sale check would have to hold for that; not
 // recovered, since recoverySale is null).
+// Fix 6: RecoveryAmountBs/Usd must be scoped to ONLY the lines on
+// RecoverySaleDate itself, matching the "one sale" semantics the UI label
+// ("Venta de recuperación") and the spec's RecoveredCustomerRow.
+// recoverySaleAmount field name (singular "sale") both imply — not a sum of
+// every in-period line for that entity/seller. RecoverySaleDate is computed
+// first (per entity, this seller's earliest in-period sale date), then the
+// amount SUM is scoped to exactly that date, same pattern as Fix 5's
+// entityHistoryQuery first-sale-amount fix below.
 function recoveryGapQuery(legalEntityKeys: number[], currentDateWhere: string): string {
   const placeholders = legalEntityKeys.map((_, i) => `@entity${i}`).join(', ');
   return `
+    ;WITH RecoveryDate AS (
+      SELECT c.LegalEntityKey, MIN(d.FullDate) AS RecoverySaleDate
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.LegalEntityKey IN (${placeholders}) ${currentDateWhere}
+      GROUP BY c.LegalEntityKey
+    )
     SELECT
-      c.LegalEntityKey,
-      MIN(d.FullDate) AS RecoverySaleDate,
+      rd.LegalEntityKey,
+      rd.RecoverySaleDate,
       ${dualAmountExpr('fs', 'NetAmount', 'RecoveryAmountBs', 'RecoveryAmountUsd')},
       (SELECT MAX(d2.FullDate) FROM fact.Fact_Sales f2
         JOIN dim.Dim_Customer c2 ON c2.CustomerKey = f2.CustomerKey
         JOIN dim.Dim_Date d2 ON d2.DateKey = f2.DateKey
-        WHERE f2.IsVoided = 0 AND c2.LegalEntityKey = c.LegalEntityKey
+        WHERE f2.IsVoided = 0 AND c2.LegalEntityKey = rd.LegalEntityKey
           AND d2.FullDate < @priorStart
       ) AS LastSaleBeforeGap
-    FROM fact.Fact_Sales fs
+    FROM RecoveryDate rd
+    JOIN dim.Dim_Customer c ON c.LegalEntityKey = rd.LegalEntityKey
+    JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
     ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.LegalEntityKey IN (${placeholders}) ${currentDateWhere}
-    GROUP BY c.LegalEntityKey
+    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey AND d.FullDate = rd.RecoverySaleDate
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey
+    GROUP BY rd.LegalEntityKey, rd.RecoverySaleDate
   `;
 }
 

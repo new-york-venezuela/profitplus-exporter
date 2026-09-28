@@ -26,12 +26,12 @@ describe('GET /api/dwh/vendedor-360', () => {
   });
 });
 
-// Live-DWH-verified regression coverage for the final-review Fix 2 SQL
-// change. Runs against whatever DWH_AlimentosNY this environment's
+// Live-DWH-verified regression coverage for the final-review Fix 2/5/6 SQL
+// changes. Runs against whatever DWH_AlimentosNY this environment's
 // .env.local/DW_* points at (a real, confirmed-safe non-production instance
-// per this task's brief) — read-only queries only, no writes. Skips its own
-// assertions (rather than failing) when the DWH doesn't have any flagged
-// root-billed entities in range, so this file stays safe to run against a
+// per this task's brief) — read-only queries only, no writes. Each test
+// skips its own assertions (rather than failing) when the DWH doesn't have
+// the shape of data it needs, so this file stays safe to run against a
 // differently-seeded DWH (a fresh/empty one, or a future refresh) without
 // becoming a false failure.
 describe('vendedor-360 SQL fixes — live DWH verification', () => {
@@ -97,5 +97,110 @@ describe('vendedor-360 SQL fixes — live DWH verification', () => {
     // asserting on the route's HTTP response here.
     const res = await GET(req);
     expect(res.status).toBe(401);
+  }, 30_000);
+
+  test('Fix 5: first-sale amount sums ALL Fact_Sales lines on the first-sale date, not just one', async () => {
+    const pool = await getDwhPool();
+    // Find a real entity/date with >1 Fact_Sales line — the exact shape of
+    // bug Fix 5 corrects (Fact_Sales is per invoice LINE, so a multi-line
+    // invoice/day was previously understated by a correlated TOP-1 subquery).
+    const candidate = await pool.request().query(`
+      SELECT TOP 1 c.LegalEntityKey, d.FullDate, COUNT(*) AS LineCount, SUM(fs.NetAmount) AS TotalNetAmount
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0
+      GROUP BY c.LegalEntityKey, d.FullDate
+      HAVING COUNT(*) > 1
+      ORDER BY COUNT(*) DESC
+    `);
+    if (candidate.recordset.length === 0) {
+      console.warn('Fix 5 live check skipped: no multi-line entity/date found in this DWH.');
+      return;
+    }
+    const { LegalEntityKey, FullDate, TotalNetAmount } = candidate.recordset[0];
+
+    // Reproduce the OLD buggy behavior (TOP 1, no amount tie-break) to prove
+    // it would understate the correct total for this real row.
+    const oldBehavior = await pool.request().query(`
+      SELECT TOP 1 fs3.NetAmount
+      FROM fact.Fact_Sales fs3
+      JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
+      JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
+      WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = ${Number(LegalEntityKey)}
+        AND d3.FullDate = '${new Date(FullDate).toISOString().slice(0, 10)}'
+      ORDER BY fs3.DateKey
+    `);
+    expect(Number(oldBehavior.recordset[0].NetAmount)).not.toBe(Number(TotalNetAmount));
+
+    // The fixed entityHistoryQuery's own FirstSaleAmountBs subquery shape:
+    // ISNULL(SUM(...), 0) over every line matching that exact date.
+    const newBehavior = await pool.request().query(`
+      SELECT ISNULL(SUM(fs3.NetAmount), 0) AS FirstSaleAmountBs
+      FROM fact.Fact_Sales fs3
+      JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
+      JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
+      WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = ${Number(LegalEntityKey)}
+        AND d3.FullDate = '${new Date(FullDate).toISOString().slice(0, 10)}'
+    `);
+    expect(Number(newBehavior.recordset[0].FirstSaleAmountBs)).toBeCloseTo(Number(TotalNetAmount), 2);
+  }, 30_000);
+
+  test('Fix 6: recovery amount is scoped to the recovery SALE DATE only, not the whole period', async () => {
+    const pool = await getDwhPool();
+    // Any seller/entity pair with sales spanning more than one date is
+    // enough to prove the date-scoped SUM differs from a period-wide SUM
+    // whenever the entity has more than one sales day with that seller —
+    // reproducing the bug pattern (period total shown where a single sale's
+    // amount was implied) without needing a real churn/recovery scenario to
+    // exist in this dev DWH (confirmed via manual verification: this
+    // environment currently has zero qualifying recuperados rows for any
+    // seller, likely because Fact_Sales only spans since 2026-03-16 — too
+    // short a history for a genuine churn-then-return gap).
+    const candidate = await pool.request().query(`
+      SELECT TOP 1 fs.SalesRepKey, c.LegalEntityKey, COUNT(DISTINCT d.FullDate) AS DistinctDates
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0
+      GROUP BY fs.SalesRepKey, c.LegalEntityKey
+      HAVING COUNT(DISTINCT d.FullDate) > 1
+      ORDER BY COUNT(DISTINCT d.FullDate) DESC
+    `);
+    if (candidate.recordset.length === 0) {
+      console.warn('Fix 6 live check skipped: no multi-date seller/entity pair found in this DWH.');
+      return;
+    }
+    const { SalesRepKey, LegalEntityKey } = candidate.recordset[0];
+
+    const periodTotal = await pool.request().query(`
+      SELECT SUM(fs.NetAmount) AS PeriodTotal
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      WHERE fs.IsVoided = 0 AND fs.SalesRepKey = ${Number(SalesRepKey)} AND c.LegalEntityKey = ${Number(LegalEntityKey)}
+    `);
+
+    // The fixed recoveryGapQuery's own shape: RecoveryDate CTE (MIN date),
+    // then a SUM scoped to exactly that date.
+    const scoped = await pool.request().query(`
+      ;WITH RecoveryDate AS (
+        SELECT c.LegalEntityKey, MIN(d.FullDate) AS RecoverySaleDate
+        FROM fact.Fact_Sales fs
+        JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+        JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+        WHERE fs.IsVoided = 0 AND fs.SalesRepKey = ${Number(SalesRepKey)} AND c.LegalEntityKey = ${Number(LegalEntityKey)}
+        GROUP BY c.LegalEntityKey
+      )
+      SELECT rd.LegalEntityKey, rd.RecoverySaleDate, SUM(fs.NetAmount) AS RecoveryAmountBs
+      FROM RecoveryDate rd
+      JOIN dim.Dim_Customer c ON c.LegalEntityKey = rd.LegalEntityKey
+      JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey AND d.FullDate = rd.RecoverySaleDate
+      WHERE fs.IsVoided = 0 AND fs.SalesRepKey = ${Number(SalesRepKey)}
+      GROUP BY rd.LegalEntityKey, rd.RecoverySaleDate
+    `);
+
+    expect(scoped.recordset).toHaveLength(1);
+    expect(Number(scoped.recordset[0].RecoveryAmountBs)).toBeLessThan(Number(periodTotal.recordset[0].PeriodTotal));
   }, 30_000);
 });
