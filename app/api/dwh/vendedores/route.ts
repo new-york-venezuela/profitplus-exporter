@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
-import { isConsignmentPattern, DEFAULT_ROOT_SHARE_THRESHOLD } from './consignment';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from './consignment';
 import type { VendedoresResponse, VendedoresRow, VendedoresExcludedInvoice, VendedoresExcludedResponse } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -41,24 +41,6 @@ function breakdownQuery(dimension: Dimension, salesDateWhere: string, flaggedRoo
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere} ${excludeClause}
     GROUP BY ${spec.groupByColumn}
     ORDER BY SalesNetBs DESC
-  `;
-}
-
-// Per legal-entity root-billing ratio, scoped to the current date range —
-// recomputed per request rather than persisted, since this is a reporting
-// judgment (tunable threshold) not a stable ERP fact.
-function consignmentFlagsQuery(dateWhere: string): string {
-  return `
-    SELECT
-      le.LegalEntityKey,
-      SUM(CASE WHEN c.CustomerCode = le.RootCustomerCode THEN fs.NetAmount ELSE 0 END) AS SalesOnRoot,
-      SUM(fs.NetAmount) AS TotalSales
-    FROM fact.Fact_Sales fs
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
-    WHERE fs.IsVoided = 0 AND le.StoreCount > 1 ${dateWhere}
-    GROUP BY le.LegalEntityKey
-    HAVING SUM(fs.NetAmount) > 0
   `;
 }
 
@@ -141,26 +123,6 @@ function excludedInvoicesQuery(salesDateWhere: string, flaggedRootCodes: string[
     GROUP BY c.CustomerName, fs.InvoiceNumber, d.FullDate
     ORDER BY d.FullDate DESC
   `;
-}
-
-async function getFlaggedRootCodes(dateWhere: string, rootShareThreshold: number): Promise<string[]> {
-  const pool = await getDwhPool();
-  const result = await pool.request().query(consignmentFlagsQuery(dateWhere));
-  const flaggedEntityKeys = result.recordset
-    .filter(r => isConsignmentPattern(Number(r.SalesOnRoot), Number(r.TotalSales), rootShareThreshold))
-    .map(r => Number(r.LegalEntityKey));
-
-  if (flaggedEntityKeys.length === 0) return [];
-
-  const rootReq = pool.request();
-  const placeholders = flaggedEntityKeys.map((_, i) => {
-    rootReq.input(`entityKey${i}`, flaggedEntityKeys[i]);
-    return `@entityKey${i}`;
-  });
-  const rootResult = await rootReq.query(`
-    SELECT RootCustomerCode FROM dim.Dim_LegalEntity WHERE LegalEntityKey IN (${placeholders.join(', ')})
-  `);
-  return rootResult.recordset.map(r => String(r.RootCustomerCode).trim());
 }
 
 export async function GET(request: NextRequest) {

@@ -10,6 +10,7 @@ import {
 import { resolveQuotaSum } from './quota-resolution';
 import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
 import { GET as getProfundidadLinea } from '@/app/api/dwh/profundidad-linea/route';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/vendedores/consignment';
 import type { ActivacionWeekRow, AgingBucketRow, Seller360Response } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -40,12 +41,27 @@ function activacionQuery(entityGrain: EntityGrain, dateWhere: string): string {
   `;
 }
 
-const CUOTA_SALES_QUERY = `
-  SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
-  FROM fact.Fact_Sales fs
-  ${usdConversionJoin('fs')}
-  WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${'{{dateWhere}}'}
-`;
+// Excludes the same flagged-root-billed invoices vendedores/route.ts's own
+// salesRepQuery excludes from SalesNetBs/Usd (see app/api/dwh/vendedores/
+// consignment.ts's getFlaggedRootCodes) — otherwise this profile's sales
+// figure double-counts consignment-pattern root invoices that the
+// Vendedores tab list deliberately excludes as unreliable per-seller
+// attribution, inflating this KPI relative to that list for the same
+// seller/period. Requires a join to Dim_Customer (the base CUOTA query
+// didn't need one before this fix) purely to read CustomerCode for the
+// exclusion check.
+function cuotaSalesQuery(flaggedRootCodes: string[]): string {
+  const excludeClause = flaggedRootCodes.length > 0
+    ? `AND c.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`
+    : '';
+  return `
+    SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+    FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${'{{dateWhere}}'} ${excludeClause}
+  `;
+}
 
 // Seller-scoped AR: entities with >=1 sale from this seller in the selected
 // period, joined against the latest Fact_AR_Snapshot. An entity split across
@@ -289,9 +305,14 @@ export async function GET(request: NextRequest) {
     // month over month the way a sales target does.
     const latestMonthRow = targetRows.find(t => t.periodMonth === months[months.length - 1]);
 
-    // Section 2: Cuota de ventas mensual
-    const cuotaResult = await pool.request().input('salesRepKey', salesRepKey)
-      .query(CUOTA_SALES_QUERY.replace('{{dateWhere}}', dateWhere));
+    // Section 2: Cuota de ventas mensual — same flagged-root-invoice
+    // exclusion as the Vendedores tab list (see cuotaSalesQuery above), so
+    // this profile's sales figure matches that list exactly for the same
+    // seller/period.
+    const flaggedRootCodes = await getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD);
+    const cuotaReq = pool.request().input('salesRepKey', salesRepKey);
+    flaggedRootCodes.forEach((code, i) => cuotaReq.input(`flaggedRoot${i}`, code));
+    const cuotaResult = await cuotaReq.query(cuotaSalesQuery(flaggedRootCodes).replace('{{dateWhere}}', dateWhere));
     const salesNetBs = Number(cuotaResult.recordset[0]?.SalesNetBs ?? 0);
     const salesNetUsdRaw = cuotaResult.recordset[0]?.SalesNetUsd;
     const salesNetUsd = salesNetUsdRaw === null || salesNetUsdRaw === undefined ? null : Number(salesNetUsdRaw);
