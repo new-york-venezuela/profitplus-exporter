@@ -40,7 +40,11 @@ BEGIN
         ('Pan Blanco 600gr',     '0000022', CAST(0 AS bit)),
         ('Magdalena',            '0000016', CAST(0 AS bit)),
         ('Molido 300gr',         '0000011', CAST(0 AS bit)),
-        ('Baguette 220gr',       '0000004', CAST(0 AS bit)),
+        -- 0000003 "Baguette Blanco 225gr", not 0000004 "Baguette Topping
+        -- Oregano 220gr" as the spec originally guessed from the name alone —
+        -- Gama has real invoice history under 0000003 (18 lines) and none
+        -- under 0000004, confirmed against live Fact_Sales before correcting.
+        ('Baguette 220gr',       '0000003', CAST(0 AS bit)),
         ('cheese Cake fresa',    '0000017', CAST(0 AS bit)),
         ('cheese Cake Choco',    '0000018', CAST(0 AS bit)),
         ('Pizza Margarita 270',  '0000002', CAST(0 AS bit)),
