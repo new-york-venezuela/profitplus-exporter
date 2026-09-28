@@ -1,13 +1,13 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import type { PivotDimension, BreakdownRow } from '../types';
 
 export interface DrilldownColumn<TRow> {
   key: string;
   label: string;
   align?: 'left' | 'right';
-  format: (row: TRow) => string;
+  format: (row: TRow) => ReactNode;
   /** Optional tooltip text shown on hover over the column header (e.g. to clarify a confusing metric). */
   title?: string;
 }

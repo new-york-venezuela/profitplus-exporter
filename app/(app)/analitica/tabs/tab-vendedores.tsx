@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
+import SellerProfile from './seller-profile';
 import type { BreakdownRow, Currency, DateRange, PivotDimension, VendedoresResponse, VendedoresRow, VendedoresExcludedResponse } from '../types';
 
 function pct(n: number | null): string {
@@ -60,6 +61,7 @@ export default function TabVendedores({
   const [excludedExpandedFor, setExcludedExpandedFor] = useState<string | null>(null);
   const [excludedData, setExcludedData] = useState<VendedoresExcludedResponse | null>(null);
   const [excludedLoading, setExcludedLoading] = useState(false);
+  const [selectedSellerKey, setSelectedSellerKey] = useState<string | null>(null);
 
   async function handleToggleExcluded(salesRepValue: string) {
     if (excludedExpandedFor === salesRepValue) {
@@ -157,7 +159,31 @@ export default function TabVendedores({
       align: 'right',
       format: row => pct(row.avgDiscount),
     },
+    {
+      key: 'perfil',
+      label: '',
+      align: 'right',
+      format: row => (
+        <button
+          onClick={() => setSelectedSellerKey(row.value)}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          Ver perfil
+        </button>
+      ),
+    },
   ];
+
+  if (selectedSellerKey) {
+    return (
+      <SellerProfile
+        salesRepKey={selectedSellerKey}
+        dateRange={dateRange}
+        currency={currency}
+        onBack={() => setSelectedSellerKey(null)}
+      />
+    );
+  }
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
