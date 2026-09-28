@@ -509,6 +509,78 @@ export interface SellerCoverageResponse {
   rows: SellerCoverageRow[];
 }
 
+// Seller 360° profile — manager-facing per-seller scorecard reached from the
+// Vendedores tab. See docs/superpowers/specs/
+// 2026-09-27-seller-360-dashboard-design.md.
+
+export interface ActivacionWeekRow {
+  weekStart: string;       // ISO date, Monday of the week (Dim_Date.WeekStartDate)
+  distinctReached: number; // distinct CustomerKey or LegalEntityKey per entityGrain
+}
+
+// Re-declared here (not imported from the route's customer-classification.ts)
+// so app/(app) code never imports from app/api/* — this app's existing
+// layering convention (route-local pure-function files stay import-only from
+// their own route, never from UI code). Field shapes must stay identical to
+// customer-classification.ts's NewCustomerRow/RecoveredCustomerRow; Task 6's
+// route is responsible for mapping one to the other 1:1.
+export interface NewCustomerRow {
+  legalEntityKey: number;
+  legalEntityName: string;
+  firstSaleDate: string;
+  firstSaleAmount: DualAmount;
+}
+
+export interface RecoveredCustomerRow {
+  legalEntityKey: number;
+  legalEntityName: string;
+  lastSaleBeforeGap: string;
+  gapDays: number;
+  recoverySaleDate: string;
+  recoverySaleAmount: DualAmount;
+}
+
+export interface ReturnBreakdownRow {
+  label: string; // product name or tienda name
+  quantity: number;
+  amount: DualAmount;
+}
+
+export interface Seller360Response {
+  salesRepKey: string;
+  salesRepName: string;
+  activacion: {
+    weeks: ActivacionWeekRow[];
+    entityGrain: 'entity' | 'tienda';
+    weeklyVisitQuota: number | null;
+  };
+  cuota: {
+    salesNet: DualAmount;
+    quotaUsd: number | null;
+    isPartial: boolean; // true when any month in the selected range has no salesQuotaUsd row
+  };
+  cobranza: {
+    buckets: AgingBucketRow[];
+    baselineBuckets: AgingBucketRow[];
+  };
+  nuevosClientes: {
+    rows: NewCustomerRow[];
+    quota: number | null;
+    isPartial: boolean;
+  };
+  clientesRecuperados: {
+    rows: RecoveredCustomerRow[];
+  };
+  devoluciones: {
+    byProduct: ReturnBreakdownRow[];
+    byTienda: ReturnBreakdownRow[];
+  };
+  profundidad: {
+    coverage: SellerCoverageRow | null; // null when the seller served zero entities in range
+  };
+  usdRate: number | null;
+}
+
 // Cadencia tab — per-customer purchase frequency, with an optional manual
 // target overlay. See docs/superpowers/specs/
 // 2026-09-21-active-customer-visit-cadence-design.md.
