@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, integer, text, real, unique } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id:           integer('id').primaryKey({ autoIncrement: true }),
@@ -85,3 +85,27 @@ export const visitCadenceTargets = sqliteTable('visit_cadence_targets', {
 
 export type VisitCadenceTarget    = typeof visitCadenceTargets.$inferSelect;
 export type NewVisitCadenceTarget = typeof visitCadenceTargets.$inferInsert;
+
+// ── Seller 360° targets ─────────────────────────────────────────────
+// Manual per-seller monthly quotas (sales, weekly visit reach, new
+// customers), used by the Seller 360° profile drill-down (reached from the
+// Vendedores tab). One row per seller per month; all three quota columns
+// are independently nullable — a seller can have a sales quota set without
+// a visit quota yet defined. No segment-level default/fallback row (unlike
+// visitCadenceTargets) — the seller list is small and known (Dim_SalesRep),
+// so a missing row for a given month means "no quota set," full stop. See
+// docs/superpowers/specs/2026-09-27-seller-360-dashboard-design.md.
+
+export const sellerTargets = sqliteTable('seller_targets', {
+  id:               integer('id').primaryKey({ autoIncrement: true }),
+  salesRepKey:      text('sales_rep_key').notNull(),
+  periodMonth:      text('period_month').notNull(), // 'YYYY-MM'
+  salesQuotaUsd:    real('sales_quota_usd'),
+  weeklyVisitQuota: integer('weekly_visit_quota'),
+  newCustomerQuota: integer('new_customer_quota'),
+}, (t) => ({
+  uniq: unique('seller_targets_rep_month_unique').on(t.salesRepKey, t.periodMonth),
+}));
+
+export type SellerTarget    = typeof sellerTargets.$inferSelect;
+export type NewSellerTarget = typeof sellerTargets.$inferInsert;
