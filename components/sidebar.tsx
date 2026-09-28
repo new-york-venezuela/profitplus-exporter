@@ -5,11 +5,13 @@ import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import posthog from 'posthog-js';
 import type { SessionPayload } from '@/lib/auth/session';
+import type { PricingAccessLevel } from '@/lib/pricing/access';
 
 interface Props {
   user: SessionPayload;
   canSeeInventory: boolean;
   canSeeAnalitica: boolean;
+  pricingAccessLevel: PricingAccessLevel;
 }
 
 const NAV_REPORTS = [
@@ -21,7 +23,7 @@ const NAV_TOOLS = [
     { href: '/firmas', label: 'Firma Corporativa' },
 ]
 
-export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
+export function Sidebar({ user, canSeeInventory, canSeeAnalitica, pricingAccessLevel }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -93,6 +95,17 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica }: Props) {
             </Link>
             <Link href="/inventario/ajustes" className={navClass('/inventario/ajustes')}>
               Ajustes
+            </Link>
+          </>
+        )}
+
+        {pricingAccessLevel !== 'none' && (
+          <>
+            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Precios
+            </p>
+            <Link href="/pricing" className={navClass('/pricing')}>
+              Listas de Precio
             </Link>
           </>
         )}
