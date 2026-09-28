@@ -15,32 +15,6 @@ BEGIN
 END
 GO
 
--- Ensure seed products exist for testing (these codes are from the Excel mapping)
--- In production, Load_Dim_Product syncs with the ERP; in test/dev they must be pre-seeded
-IF NOT EXISTS (SELECT 1 FROM dim.Dim_Product WHERE RTRIM(ProductCode) = '0000007' AND IsCurrent = 1)
-BEGIN
-    INSERT INTO dim.Dim_Product (
-        ProductCode, ProductName, ProductTypeCode, CostingMethodCode, LineCode, LineName,
-        SubLineCode, SubLineName, CategoryCode, CategoryName, MarginMinPercent, MarginMaxPercent,
-        IsInactive, ValidFrom, ValidTo, IsCurrent
-    )
-    VALUES
-        ('0000007', '4 Granos 500gr',      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000008', '7 Cereales 600gr',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000009', 'Miel y pasas 600gr',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000022', 'Pan Blanco 600gr',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000016', 'Magdalena',           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000011', 'Molido 300gr',        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000004', 'Baguette 220gr',      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000017', 'cheese Cake fresa',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000018', 'cheese Cake Choco',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000002', 'Pizza Margarita 270', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000014', 'Pizza Magarita Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000015', 'Pizza New York Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
-        ('0000020', 'Pizza Americana Cj',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1);
-END
-GO
-
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'ConsignmentProductMap' AND schema_id = SCHEMA_ID('dwh'))
 BEGIN
     CREATE TABLE dwh.ConsignmentProductMap (

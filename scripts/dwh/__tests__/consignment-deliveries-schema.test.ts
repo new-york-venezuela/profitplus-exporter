@@ -22,8 +22,33 @@ describe('0035_consignment_store_deliveries migration', () => {
   let pool: sql.ConnectionPool;
 
   beforeAll(async () => {
+    // First run migrations to set up schema
     await runDwhMigrations();
     pool = await new sql.ConnectionPool(testConfig(dwhDatabaseName())).connect();
+
+    // Seed test fixture products for ConsignmentProductMap tests
+    // (In production, Load_Dim_Product syncs from ERP; in test we must pre-seed)
+    await pool.request().query(`
+      INSERT INTO dim.Dim_Product (
+        ProductCode, ProductName, ProductTypeCode, CostingMethodCode, LineCode, LineName,
+        SubLineCode, SubLineName, CategoryCode, CategoryName, MarginMinPercent, MarginMaxPercent,
+        IsInactive, ValidFrom, ValidTo, IsCurrent
+      )
+      VALUES
+        ('0000007', '4 Granos 500gr',      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000008', '7 Cereales 600gr',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000009', 'Miel y pasas 600gr',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000022', 'Pan Blanco 600gr',    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000016', 'Magdalena',           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000011', 'Molido 300gr',        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000004', 'Baguette 220gr',      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000017', 'cheese Cake fresa',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000018', 'cheese Cake Choco',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000002', 'Pizza Margarita 270', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000014', 'Pizza Magarita Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000015', 'Pizza New York Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
+        ('0000020', 'Pizza Americana Cj',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1)
+    `);
   }, 60_000);
 
   afterAll(async () => {
