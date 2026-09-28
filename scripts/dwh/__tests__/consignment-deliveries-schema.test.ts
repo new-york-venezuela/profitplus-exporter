@@ -22,12 +22,11 @@ describe('0035_consignment_store_deliveries migration', () => {
   let pool: sql.ConnectionPool;
 
   beforeAll(async () => {
-    // First run migrations to set up schema
+    // First run migrations to set up schema (0035 will try to seed ConsignmentProductMap but will find 0 products)
     await runDwhMigrations();
     pool = await new sql.ConnectionPool(testConfig(dwhDatabaseName())).connect();
 
-    // Seed test fixture products for ConsignmentProductMap tests
-    // (In production, Load_Dim_Product syncs from ERP; in test we must pre-seed)
+    // Seed test fixture products (In production, Load_Dim_Product syncs from ERP; in test we must pre-seed)
     await pool.request().query(`
       INSERT INTO dim.Dim_Product (
         ProductCode, ProductName, ProductTypeCode, CostingMethodCode, LineCode, LineName,
@@ -48,6 +47,28 @@ describe('0035_consignment_store_deliveries migration', () => {
         ('0000014', 'Pizza Magarita Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
         ('0000015', 'Pizza New York Cj',   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1),
         ('0000020', 'Pizza Americana Cj',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, SYSUTCDATETIME(), NULL, 1)
+    `);
+
+    // Seed ConsignmentProductMap now that products exist (replicates the migration's logic)
+    await pool.request().query(`
+      INSERT INTO dwh.ConsignmentProductMap (SourceClientTag, ExcelProductName, ProductKey, IsBoxUnit)
+      SELECT 'gama', v.ExcelProductName, p.ProductKey, v.IsBoxUnit
+      FROM (VALUES
+        ('4 Granos 500gr',       '0000007', CAST(0 AS bit)),
+        ('7 Cereales 600gr',     '0000008', CAST(0 AS bit)),
+        ('Miel y pasas 600gr',   '0000009', CAST(0 AS bit)),
+        ('Pan Blanco 600gr',     '0000022', CAST(0 AS bit)),
+        ('Magdalena',            '0000016', CAST(0 AS bit)),
+        ('Molido 300gr',         '0000011', CAST(0 AS bit)),
+        ('Baguette 220gr',       '0000004', CAST(0 AS bit)),
+        ('cheese Cake fresa',    '0000017', CAST(0 AS bit)),
+        ('cheese Cake Choco',    '0000018', CAST(0 AS bit)),
+        ('Pizza Margarita 270',  '0000002', CAST(0 AS bit)),
+        ('Pizza Magarita Cj',    '0000014', CAST(1 AS bit)),
+        ('Pizza New York Cj',    '0000015', CAST(1 AS bit)),
+        ('Pizza Americana Cj',   '0000020', CAST(1 AS bit))
+      ) AS v(ExcelProductName, ProductCode, IsBoxUnit)
+      INNER JOIN dim.Dim_Product p ON RTRIM(p.ProductCode) = v.ProductCode AND p.IsCurrent = 1
     `);
   }, 60_000);
 
