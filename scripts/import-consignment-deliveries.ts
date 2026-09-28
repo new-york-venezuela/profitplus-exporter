@@ -46,6 +46,11 @@ const PRODUCT_COLUMNS = [
 
 export type ParsedRow = {
   storeName: string;
+  // Constructed via Date.UTC(y, m-1, d) from the workbook's raw Excel date
+  // serial (see parseWorkbook) -- never from a locale-sensitive Date
+  // constructor or from SheetJS's `cellDates: true` mode, both of which are
+  // timezone-dependent. Always read this back with UTC getters (toDateKey
+  // does) so the round-trip is stable regardless of the host TZ.
   date: Date;
   notaEntregaNum: string | null;
   productName: string;
@@ -54,7 +59,15 @@ export type ParsedRow = {
 
 export function parseWorkbook(filePath: string): ParsedRow[] {
   const buffer = readFileSync(filePath);
-  const workbook = XLSX.read(buffer, { cellDates: true });
+  // cellDates is intentionally omitted (raw serial numbers are the
+  // default) -- SheetJS's cellDates: true mode constructs Date objects
+  // representing local midnight of the spreadsheet's date serial, which
+  // makes any later reading of that Date with UTC getters (as toDateKey
+  // must, to be host-TZ-independent) produce a different calendar day
+  // depending on the timezone of the machine running the import. Parsing
+  // the raw serial number directly via XLSX.SSF.parse_date_code sidesteps
+  // Date construction entirely and is timezone-independent.
+  const workbook = XLSX.read(buffer);
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rawRows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
@@ -64,8 +77,10 @@ export function parseWorkbook(filePath: string): ParsedRow[] {
     if (typeof storeName !== 'string' || storeName.trim() === '') continue;
     if (SUMMARY_ROW_STORE_NAMES.has(storeName)) continue;
 
-    const date = raw['Fecha de Despacho'];
-    if (!(date instanceof Date)) continue;
+    const dateSerial = raw['Fecha de Despacho'];
+    if (typeof dateSerial !== 'number') continue;
+    const { y, m, d } = XLSX.SSF.parse_date_code(dateSerial);
+    const date = new Date(Date.UTC(y, m - 1, d));
 
     const notaRaw = raw['Orden de Compra'];
     const notaEntregaNum = notaRaw === null || notaRaw === undefined ? null : String(notaRaw).trim();
@@ -80,6 +95,11 @@ export function parseWorkbook(filePath: string): ParsedRow[] {
 }
 
 export function toDateKey(date: Date): number {
+  // Safe to read with UTC getters specifically because ParsedRow.date (the
+  // only intended input) is always constructed via Date.UTC(y, m-1, d) --
+  // see parseWorkbook. Do not pass a Date built from a locale-sensitive
+  // constructor (e.g. `new Date(y, m, d)`) here, or this becomes
+  // timezone-dependent again.
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   const d = String(date.getUTCDate()).padStart(2, '0');
@@ -106,6 +126,7 @@ export type ImportReport = {
   updated: { rowKey: string; oldQuantity: number; newQuantity: number }[];
   unmappedStores: string[];
   unmappedProducts: string[];
+  unresolvedCustomerCodes: string[];
   pricesNotFound: { productKey: number; dateKey: number }[];
 };
 
@@ -162,12 +183,31 @@ export async function lookupAsOfPrice(
   return price === undefined || price === null ? null : Number(price);
 }
 
+// One resolved-but-not-yet-written row from PASS 1, carrying everything
+// PASS 2 needs so it never has to re-run the STORE_MAP/productMap/
+// customerKeyByCode lookups.
+type ResolvedRow = {
+  row: ParsedRow;
+  customerCode: string;
+  productKey: number;
+  customerKey: number;
+  dateKey: number;
+  rowKey: string;
+};
+
 export async function importDeliveries(
   pool: sql.ConnectionPool, filePath: string, sourceClientTag: string,
 ): Promise<ImportReport> {
   const parsedRows = parseWorkbook(filePath);
   const productMap = await resolveProductMap(pool, sourceClientTag);
 
+  // PASS 1 -- resolve/classify every row against the static maps and
+  // dim.Dim_Customer, without writing anything to the DB yet. A row can
+  // fail to resolve in three independent ways: unmapped store, unmapped
+  // product, or a store that mapped to a customerCode with no matching
+  // *current* Dim_Customer row. Collect all three, plus duplicate
+  // SourceRowKeys among rows that did fully resolve, before deciding
+  // whether the run may proceed.
   const unmappedStores = new Set<string>();
   const unmappedProducts = new Set<string>();
   const neededCustomerCodes = new Set<string>();
@@ -178,33 +218,71 @@ export async function importDeliveries(
     if (!productMap.has(row.productName)) unmappedProducts.add(row.productName);
   }
 
-  const report: ImportReport = {
-    inserted: 0, updated: [], unmappedStores: [...unmappedStores], unmappedProducts: [...unmappedProducts], pricesNotFound: [],
-  };
-
   const customerKeyByCode = await resolveCustomerKeys(pool, [...neededCustomerCodes]);
-  const priceCache = new Map<string, number | null>();
-  const fileName = filePath.split('/').pop() ?? filePath;
+  const unresolvedCustomerCodes = new Set<string>();
 
+  const resolvedRows: ResolvedRow[] = [];
+  const rowsByKey = new Map<string, ResolvedRow[]>();
   for (const row of parsedRows) {
     const customerCode = STORE_MAP[row.storeName];
     if (customerCode === undefined) continue; // already recorded in unmappedStores
     const productEntry = productMap.get(row.productName);
     if (productEntry === undefined) continue; // already recorded in unmappedProducts
     const customerKey = customerKeyByCode.get(customerCode);
-    if (customerKey === undefined) continue; // resolved code but no current Dim_Customer row -- shouldn't happen given Task 1's seed, but fail closed rather than crash
+    if (customerKey === undefined) { unresolvedCustomerCodes.add(customerCode); continue; }
 
     const dateKey = toDateKey(row.date);
-    const priceCacheKey = `${productEntry.productKey}|${dateKey}`;
+    const rowKey = computeRowKey(sourceClientTag, customerCode, dateKey, row.notaEntregaNum, productEntry.productKey);
+    const resolved: ResolvedRow = { row, customerCode, productKey: productEntry.productKey, customerKey, dateKey, rowKey };
+    resolvedRows.push(resolved);
+    const bucket = rowsByKey.get(rowKey);
+    if (bucket) bucket.push(resolved); else rowsByKey.set(rowKey, [resolved]);
+  }
+
+  const duplicateGroups = [...rowsByKey.values()].filter(group => group.length > 1);
+
+  if (unmappedStores.size > 0 || unmappedProducts.size > 0 || unresolvedCustomerCodes.size > 0 || duplicateGroups.length > 0) {
+    const messages: string[] = [];
+    if (unmappedStores.size > 0) {
+      messages.push(`Unmapped stores (no STORE_MAP entry): ${[...unmappedStores].join(', ')}`);
+    }
+    if (unmappedProducts.size > 0) {
+      messages.push(`Unmapped products (no ConsignmentProductMap entry for tag "${sourceClientTag}"): ${[...unmappedProducts].join(', ')}`);
+    }
+    if (unresolvedCustomerCodes.size > 0) {
+      messages.push(`Customer codes with no current Dim_Customer row: ${[...unresolvedCustomerCodes].join(', ')}`);
+    }
+    if (duplicateGroups.length > 0) {
+      const descriptions = duplicateGroups.map(group => {
+        const { row } = group[0];
+        const notaDesc = row.notaEntregaNum ?? '(sin nota)';
+        const dateDesc = row.date.toISOString().slice(0, 10);
+        return `store="${row.storeName}" date=${dateDesc} nota=${notaDesc} product="${row.productName}" (${group.length} rows)`;
+      });
+      messages.push(`Duplicate identity rows (same store/date/nota/product) found in the source file -- fix the file and re-run:\n  ${descriptions.join('\n  ')}`);
+    }
+    throw new Error(`Consignment delivery import for "${sourceClientTag}" aborted before any write:\n${messages.join('\n')}`);
+  }
+
+  // PASS 2 -- every row resolved cleanly and no duplicate identities exist;
+  // safe to do the pricing lookups and upserts now.
+  const report: ImportReport = {
+    inserted: 0, updated: [], unmappedStores: [], unmappedProducts: [], unresolvedCustomerCodes: [], pricesNotFound: [],
+  };
+
+  const priceCache = new Map<string, number | null>();
+  const fileName = filePath.split('/').pop() ?? filePath;
+
+  for (const { row, customerCode, productKey, customerKey, dateKey, rowKey } of resolvedRows) {
+    const priceCacheKey = `${productKey}|${dateKey}`;
     if (!priceCache.has(priceCacheKey)) {
-      const price = await lookupAsOfPrice(pool, productEntry.productKey, dateKey);
+      const price = await lookupAsOfPrice(pool, productKey, dateKey);
       priceCache.set(priceCacheKey, price);
-      if (price === null) report.pricesNotFound.push({ productKey: productEntry.productKey, dateKey });
+      if (price === null) report.pricesNotFound.push({ productKey, dateKey });
     }
     const unitPriceUsd = priceCache.get(priceCacheKey) ?? null;
     const lineAmountUsd = unitPriceUsd === null ? null : Number((row.quantity * unitPriceUsd).toFixed(2));
 
-    const rowKey = computeRowKey(sourceClientTag, customerCode, dateKey, row.notaEntregaNum, productEntry.productKey);
     const contentHash = computeContentHash(row.quantity);
 
     const existing = await pool.request()
@@ -215,7 +293,7 @@ export async function importDeliveries(
       await pool.request()
         .input('dateKey', sql.Int, dateKey)
         .input('customerKey', sql.Int, customerKey)
-        .input('productKey', sql.Int, productEntry.productKey)
+        .input('productKey', sql.Int, productKey)
         .input('nota', sql.VarChar(30), row.notaEntregaNum)
         .input('quantity', sql.Decimal(18, 5), row.quantity)
         .input('unitPrice', sql.Decimal(18, 5), unitPriceUsd)
@@ -260,11 +338,14 @@ export async function main(): Promise<void> {
   const pool = await getDwhPool();
   const report = await importDeliveries(pool, filePath, sourceClientTag);
 
+  // importDeliveries throws before returning if any row was unmapped/
+  // unresolved or if duplicate identity rows were found -- see PASS 1/PASS 2
+  // above -- so a normal return here means every row resolved and wrote
+  // cleanly. unmappedStores/unmappedProducts/unresolvedCustomerCodes are
+  // therefore always empty at this point; nothing to print for them.
   console.log(`✓ Inserted: ${report.inserted}`);
   console.log(`✓ Updated: ${report.updated.length}`);
   for (const u of report.updated) console.log(`  - ${u.rowKey}: ${u.oldQuantity} → ${u.newQuantity}`);
-  if (report.unmappedStores.length > 0) console.log(`✗ Unmapped stores: ${report.unmappedStores.join(', ')}`);
-  if (report.unmappedProducts.length > 0) console.log(`✗ Unmapped products: ${report.unmappedProducts.join(', ')}`);
   if (report.pricesNotFound.length > 0) console.log(`⚠ No price found for ${report.pricesNotFound.length} (productKey, dateKey) pair(s)`);
 }
 

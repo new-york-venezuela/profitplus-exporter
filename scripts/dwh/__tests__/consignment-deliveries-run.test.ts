@@ -159,14 +159,14 @@ describe('importDeliveries', () => {
     expect(Number(afterSecond.recordset[0].QuantityDelivered)).toBe(20);
   });
 
-  test('a row whose product/store has no map entry is reported as unmapped, not silently dropped or crashed on', async () => {
+  test('a row whose product/store has no map entry hard-fails the whole run before any write, naming the unmapped value', async () => {
     // Use a real PRODUCT_COLUMNS name so parseWorkbook actually reads it into a
     // ParsedRow (an unrecognized column header is invisible to parseWorkbook by
     // design -- see PRODUCT_COLUMNS, scripts/import-consignment-deliveries.ts --
-    // so it could never surface in unmappedProducts; that's not the realistic
-    // failure mode anyway). Instead, import under a sourceClientTag with zero
-    // seeded dwh.ConsignmentProductMap rows, so resolveProductMap(pool, tag)
-    // comes back empty and this otherwise-valid product correctly fails the
+    // so it could never surface as unmapped; that's not the realistic failure
+    // mode anyway). Instead, import under a sourceClientTag with zero seeded
+    // dwh.ConsignmentProductMap rows, so resolveProductMap(pool, tag) comes
+    // back empty and this otherwise-valid product correctly fails the
     // productMap.has(row.productName) check -- the actual real-world scenario
     // of "a product not yet mapped for this client."
     const XLSX = await import('xlsx');
@@ -181,8 +181,73 @@ describe('importDeliveries', () => {
     // See the writeFileSync workaround note above -- XLSX.writeFile() doesn't work under bun:test.
     writeFileSync(badFixturePath, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
-    const report = await importDeliveries(pool, badFixturePath, 'unmapped-test-tag');
-    expect(report.unmappedProducts).toContain('4 Granos 500gr');
-    expect(report.inserted).toBe(0);
+    // Baseline: nothing under this tag exists yet -- confirms the assertion
+    // below ("still 0 after the throw") is actually testing something.
+    const before = await pool.request()
+      .input('tag', sql.VarChar(40), 'unmapped-test-tag')
+      .query(`SELECT COUNT(*) AS Count FROM fact.Fact_ConsignmentDeliveries WHERE SourceClientTag = @tag`);
+    expect(before.recordset[0].Count).toBe(0);
+
+    let thrown: unknown;
+    try {
+      await importDeliveries(pool, badFixturePath, 'unmapped-test-tag');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('4 Granos 500gr');
+
+    const after = await pool.request()
+      .input('tag', sql.VarChar(40), 'unmapped-test-tag')
+      .query(`SELECT COUNT(*) AS Count FROM fact.Fact_ConsignmentDeliveries WHERE SourceClientTag = @tag`);
+    expect(after.recordset[0].Count).toBe(0); // zero rows written -- hard-fail happened before any DB write
+  });
+
+  test('two rows resolving to the same identity tuple hard-fail the whole run, writing nothing', async () => {
+    // 16% of the real file's rows have a NULL notaEntregaNum -- two genuine
+    // same-day deliveries to the same store without a delivery-note number
+    // would otherwise resolve to the identical SourceRowKey, and the second
+    // would silently overwrite the first as an UPDATE. Build a fixture with
+    // two rows that are identical on every identity field (store, date,
+    // nota, product) but differ in quantity, and assert the whole run
+    // throws with zero rows written for this tag.
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ['Nombre de Cliente', 'Fecha de Despacho', 'Orden de Compra', '4 Granos 500gr'],
+      ['Gama Vizcaya', new Date(2026, 5, 1), null, 7],
+      ['Gama Vizcaya', new Date(2026, 5, 1), null, 9],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'GAMA');
+    const dupFixturePath = join(import.meta.dir, 'fixtures', 'despacho-duplicate-identity.xlsx');
+    writeFileSync(dupFixturePath, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+
+    // Use the 'gama' tag (seeded with ConsignmentProductMap/Dim_Customer rows
+    // in beforeAll) so the only failure mode in play is the duplicate
+    // identity, not an unrelated unmapped-product/store failure. Query by
+    // NotaEntregaNum IS NULL + a distinctive date to isolate this test's rows
+    // from the other 'gama' fixtures in this file.
+    const before = await pool.request().query(`
+      SELECT COUNT(*) AS Count FROM fact.Fact_ConsignmentDeliveries
+      WHERE SourceClientTag = 'gama' AND DateKey = 20260601
+    `);
+    expect(before.recordset[0].Count).toBe(0);
+
+    let thrown: unknown;
+    try {
+      await importDeliveries(pool, dupFixturePath, 'gama');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('Gama Vizcaya');
+    expect((thrown as Error).message).toContain('4 Granos 500gr');
+
+    const after = await pool.request().query(`
+      SELECT COUNT(*) AS Count FROM fact.Fact_ConsignmentDeliveries
+      WHERE SourceClientTag = 'gama' AND DateKey = 20260601
+    `);
+    expect(after.recordset[0].Count).toBe(0); // zero rows written -- neither the insert nor the silent-overwrite update happened
   });
 });

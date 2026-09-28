@@ -24,6 +24,30 @@ describe('toDateKey', () => {
   });
 });
 
+describe('parseWorkbook + toDateKey timezone independence', () => {
+  const fixturePath = join(import.meta.dir, 'fixtures', 'despacho-sample.xlsx');
+
+  // Regression test for the DateKey timezone bug: parseWorkbook used to read
+  // the workbook with `cellDates: true`, which constructs Date objects
+  // representing *local* midnight of the spreadsheet's date serial, while
+  // toDateKey read them back with UTC getters. That mismatch meant the same
+  // spreadsheet date produced a different DateKey depending on the host's TZ
+  // env var (e.g. TZ=Europe/Madrid produced 20260415 for a cell that should
+  // always be 20260416, the same value TZ=UTC/America/Caracas produced).
+  // parseWorkbook now parses the raw Excel serial directly via
+  // XLSX.SSF.parse_date_code, which never constructs a locale-sensitive Date,
+  // so this must produce the identical DateKey regardless of process.env.TZ.
+  test('produces the same DateKey for the same spreadsheet date regardless of host TZ', () => {
+    const rows = parseWorkbook(fixturePath);
+    const row = rows.find(r => r.notaEntregaNum === 'D0002');
+    expect(row).toBeDefined();
+    // This fixture's "Gama Vizcaya" row (D0002) is the spreadsheet date
+    // 2026-04-16 -- see the fixture's raw serial (46128.999...) decoded via
+    // XLSX.SSF.parse_date_code. Must be 20260416 under every TZ.
+    expect(toDateKey(row!.date)).toBe(20260416);
+  });
+});
+
 describe('computeRowKey', () => {
   test('is stable for the same identity tuple', () => {
     const a = computeRowKey('gama', 'J-301420608-21', 20260416, 'D0001', 5);
