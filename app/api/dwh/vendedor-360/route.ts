@@ -8,6 +8,8 @@ import {
   buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr, getUsdRate,
 } from '@/app/api/dwh/lib/query-builder';
 import { resolveQuotaSum } from './quota-resolution';
+import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
+import { GET as getProfundidadLinea } from '@/app/api/dwh/profundidad-linea/route';
 import type { ActivacionWeekRow, AgingBucketRow, Seller360Response } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -123,6 +125,119 @@ function resolveDateBounds(dateRange: string): { start: string; end: string } {
   return { start, end };
 }
 
+// Section 4/5 support: for every entity with >=1 sale from this seller in
+// the CURRENT period, find its true first-sale-ever date (unbounded
+// lookback) and which seller made that first sale. Whether the entity had a
+// prior-period sale, and the gap/recovery detail when it didn't, are
+// resolved separately below (the inline prior-flag query in Step 3's GET
+// handler update, and recoveryGapQuery).
+function entityHistoryQuery(currentDateWhere: string): string {
+  return `
+    ;WITH SellerEntities AS (
+      SELECT DISTINCT c.LegalEntityKey
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${currentDateWhere}
+    ),
+    FirstSaleEver AS (
+      SELECT c.LegalEntityKey, MIN(d.FullDate) AS FirstSaleDateEver
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0 AND c.LegalEntityKey IN (SELECT LegalEntityKey FROM SellerEntities)
+      GROUP BY c.LegalEntityKey
+    )
+    SELECT
+      fse.LegalEntityKey,
+      le.LegalEntityName,
+      fse.FirstSaleDateEver,
+      (SELECT TOP 1 fs2.SalesRepKey
+       FROM fact.Fact_Sales fs2
+       JOIN dim.Dim_Customer c2 ON c2.CustomerKey = fs2.CustomerKey
+       JOIN dim.Dim_Date d2 ON d2.DateKey = fs2.DateKey
+       WHERE fs2.IsVoided = 0 AND c2.LegalEntityKey = fse.LegalEntityKey AND d2.FullDate = fse.FirstSaleDateEver
+       ORDER BY fs2.DateKey) AS FirstSaleSalesRepKey,
+      (SELECT TOP 1 fs3.NetAmount
+       FROM fact.Fact_Sales fs3
+       JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
+       JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
+       WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = fse.LegalEntityKey AND d3.FullDate = fse.FirstSaleDateEver
+       ORDER BY fs3.DateKey) AS FirstSaleAmountBs,
+      (SELECT TOP 1 fs3.NetAmount / NULLIF(COALESCE(fs3.DocumentExchangeRate, fx3.RateSell), 0)
+       FROM fact.Fact_Sales fs3
+       ${usdConversionJoin('fs3', 'DateKey', 'fx3')}
+       JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
+       JOIN dim.Dim_Date d3 ON d3.DateKey = fs3.DateKey
+       WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = fse.LegalEntityKey AND d3.FullDate = fse.FirstSaleDateEver
+       ORDER BY fs3.DateKey) AS FirstSaleAmountUsd
+    FROM FirstSaleEver fse
+    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = fse.LegalEntityKey
+  `;
+}
+
+// Run only for entities flagged
+// !HadPrior by the main query — for those entities, find their last sale
+// strictly before the FIRST current-period sale from this seller (the gap
+// start), and that first current-period sale itself (the recovery sale).
+function recoveryGapQuery(legalEntityKeys: number[], currentDateWhere: string): string {
+  const placeholders = legalEntityKeys.map((_, i) => `@entity${i}`).join(', ');
+  return `
+    SELECT
+      c.LegalEntityKey,
+      MIN(d.FullDate) AS RecoverySaleDate,
+      ${dualAmountExpr('fs', 'NetAmount', 'RecoveryAmountBs', 'RecoveryAmountUsd')},
+      (SELECT MAX(d2.FullDate) FROM fact.Fact_Sales f2
+        JOIN dim.Dim_Customer c2 ON c2.CustomerKey = f2.CustomerKey
+        JOIN dim.Dim_Date d2 ON d2.DateKey = f2.DateKey
+        WHERE f2.IsVoided = 0 AND c2.LegalEntityKey = c.LegalEntityKey
+          AND d2.FullDate < (SELECT MIN(d3.FullDate) FROM fact.Fact_Sales f3
+            JOIN dim.Dim_Customer c3 ON c3.CustomerKey = f3.CustomerKey
+            JOIN dim.Dim_Date d3 ON d3.DateKey = f3.DateKey
+            WHERE f3.IsVoided = 0 AND c3.LegalEntityKey = c.LegalEntityKey AND f3.SalesRepKey = @salesRepKey ${currentDateWhere.replace(/\bfs\b/g, 'f3')})
+      ) AS LastSaleBeforeGap
+    FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+    WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey AND c.LegalEntityKey IN (${placeholders}) ${currentDateWhere}
+    GROUP BY c.LegalEntityKey
+  `;
+}
+
+// Devoluciones: this seller's returns, grouped by product and by tienda,
+// top 10 each by amount — same TOP-10 convention as cxc's topDebtorsQuery.
+function returnsByProductQuery(dateWhere: string): string {
+  return `
+    SELECT TOP 10 ISNULL(p.ProductName, p.ProductCode) AS Label,
+      SUM(fr.QuantityReturned) AS Quantity,
+      ${dualAmountExpr('fr', 'NetAmount', 'AmountBs', 'AmountUsd')}
+    FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
+    JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
+    WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere.replace(/\bfs\b/g, 'fr')}
+    GROUP BY ISNULL(p.ProductName, p.ProductCode)
+    ORDER BY AmountBs DESC
+  `;
+}
+
+function returnsByTiendaQuery(dateWhere: string): string {
+  return `
+    SELECT TOP 10 ISNULL(c.CustomerName, c.CustomerCode) AS Label,
+      SUM(fr.QuantityReturned) AS Quantity,
+      ${dualAmountExpr('fr', 'NetAmount', 'AmountBs', 'AmountUsd')}
+    FROM fact.Fact_Returns fr
+    ${usdConversionJoin('fr')}
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
+    WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere.replace(/\bfs\b/g, 'fr')}
+    GROUP BY ISNULL(c.CustomerName, c.CustomerCode)
+    ORDER BY AmountBs DESC
+  `;
+}
+
+const SELLER_NAME_QUERY = `
+  SELECT ISNULL(SalesRepName, SalesRepCode) AS SalesRepName FROM dim.Dim_SalesRep WHERE SalesRepKey = @salesRepKey
+`;
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -196,18 +311,146 @@ export async function GET(request: NextRequest) {
 
     const usdRate = await getUsdRate();
 
-    // Sections 4-7 are added in Task 7; placeholder empty shapes here so this
-    // task's route is independently valid/testable before Task 7 lands.
+    // Prior-period date window — same trailing/calendar-boundary arithmetic
+    // buildDateWhereClause's own fallback uses, re-derived here (not
+    // imported) since clientes/route.ts's buildPrevPeriodDateWhereClause is
+    // unexported. Re-uses this route's own dateRange parsing (resolveDateBounds)
+    // rather than duplicating buildDateWhereClause's regex matching a second
+    // time.
+    const periodDays = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000) + 1;
+    const priorEnd = new Date(new Date(start).getTime() - 86_400_000).toISOString().slice(0, 10);
+    const priorStart = new Date(new Date(start).getTime() - periodDays * 86_400_000).toISOString().slice(0, 10);
+    const priorDateWhere = `AND fs.DateKey >= ${priorStart.replace(/-/g, '')} AND fs.DateKey <= ${priorEnd.replace(/-/g, '')}`;
+
+    // Section 4/5: Nuevos clientes + Clientes recuperados
+    const historyResult = await pool.request().input('salesRepKey', salesRepKey).query(entityHistoryQuery(dateWhere));
+    const priorFlags = await Promise.all(
+      historyResult.recordset.map(async r => {
+        const req = pool.request().input('salesRepKey', salesRepKey);
+        const res = await req.query(`
+          SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM fact.Fact_Sales fp
+            JOIN dim.Dim_Customer cp ON cp.CustomerKey = fp.CustomerKey
+            WHERE fp.IsVoided = 0 AND cp.LegalEntityKey = ${Number(r.LegalEntityKey)} ${priorDateWhere.replace(/\bfs\b/g, 'fp')}
+          ) THEN 1 ELSE 0 END AS HadPrior
+        `);
+        return { legalEntityKey: Number(r.LegalEntityKey), hadPrior: Number(res.recordset[0].HadPrior) === 1 };
+      }),
+    );
+    const priorFlagMap = new Map(priorFlags.map(p => [p.legalEntityKey, p.hadPrior]));
+
+    const noPriorEntityKeys = historyResult.recordset
+      .map(r => Number(r.LegalEntityKey))
+      .filter(key => priorFlagMap.get(key) === false);
+
+    const recoveryByEntity = new Map<number, { lastSaleBeforeGap: string | null; recoverySaleDate: string; recoveryAmountBs: number; recoveryAmountUsd: number | null }>();
+    if (noPriorEntityKeys.length > 0) {
+      const req = pool.request().input('salesRepKey', salesRepKey);
+      noPriorEntityKeys.forEach((key, i) => req.input(`entity${i}`, key));
+      const recoveryResult = await req.query(recoveryGapQuery(noPriorEntityKeys, dateWhere));
+      for (const r of recoveryResult.recordset) {
+        recoveryByEntity.set(Number(r.LegalEntityKey), {
+          lastSaleBeforeGap: r.LastSaleBeforeGap ? new Date(r.LastSaleBeforeGap).toISOString().slice(0, 10) : null,
+          recoverySaleDate: new Date(r.RecoverySaleDate).toISOString().slice(0, 10),
+          recoveryAmountBs: Number(r.RecoveryAmountBs),
+          recoveryAmountUsd: r.RecoveryAmountUsd === null ? null : Number(r.RecoveryAmountUsd),
+        });
+      }
+    }
+
+    const entityHistories: EntitySaleHistory[] = historyResult.recordset.map(r => {
+      const legalEntityKey = Number(r.LegalEntityKey);
+      const recovery = recoveryByEntity.get(legalEntityKey);
+      const hadPrior = priorFlagMap.get(legalEntityKey) ?? true;
+      return {
+        legalEntityKey,
+        legalEntityName: String(r.LegalEntityName),
+        firstSaleDateEver: new Date(r.FirstSaleDateEver).toISOString().slice(0, 10),
+        firstSaleSellerMatches: Number(r.FirstSaleSalesRepKey) === salesRepKey,
+        firstSaleAmount: { bs: Number(r.FirstSaleAmountBs ?? 0), usd: r.FirstSaleAmountUsd === null ? null : Number(r.FirstSaleAmountUsd) },
+        hadSaleInPriorPeriod: hadPrior,
+        hadSaleInCurrentPeriod: true, // every row in historyResult sold to this seller in-period, by construction
+        recoverySale: !hadPrior && recovery && recovery.lastSaleBeforeGap
+          ? {
+              lastSaleBeforeGap: recovery.lastSaleBeforeGap,
+              gapDays: Math.round((new Date(recovery.recoverySaleDate).getTime() - new Date(recovery.lastSaleBeforeGap).getTime()) / 86_400_000),
+              recoverySaleDate: recovery.recoverySaleDate,
+              recoverySaleAmount: { bs: recovery.recoveryAmountBs, usd: recovery.recoveryAmountUsd },
+            }
+          : null,
+      };
+    });
+
+    const { nuevos, recuperados } = classifyCustomers(entityHistories, start, end);
+    const newCustomerQuotaResult = resolveQuotaSum(
+      targetRows.map(t => ({ periodMonth: t.periodMonth, quotaValue: t.newCustomerQuota })),
+      months,
+    );
+
+    // Section 6: Devoluciones
+    const [byProductResult, byTiendaResult] = await Promise.all([
+      pool.request().input('salesRepKey', salesRepKey).query(returnsByProductQuery(dateWhere)),
+      pool.request().input('salesRepKey', salesRepKey).query(returnsByTiendaQuery(dateWhere)),
+    ]);
+    const byProduct = byProductResult.recordset.map(r => ({
+      label: String(r.Label),
+      quantity: Number(r.Quantity),
+      amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) },
+    }));
+    const byTienda = byTiendaResult.recordset.map(r => ({
+      label: String(r.Label),
+      quantity: Number(r.Quantity),
+      amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) },
+    }));
+
+    // Section 7: Profundidad — this seller's own SellerCoverageRow, derived
+    // the same way profundidad-linea/route.ts's handleLeaderboard computes
+    // its full leaderboard, but this route only needs one seller's row, so
+    // it queries dim.Dim_SalesRep + a scoped rebuild rather than fetching
+    // every seller. Kept intentionally simple: reruns the unscoped matrix's
+    // tiered-line-set computation (cheap, already the pattern
+    // handleLeaderboard itself uses) and then this one seller's coverage.
+    const sellerNameResult = await pool.request().input('salesRepKey', salesRepKey).query(SELLER_NAME_QUERY);
+    const salesRepName = sellerNameResult.recordset[0]?.SalesRepName ? String(sellerNameResult.recordset[0].SalesRepName) : `Vendedor ${salesRepKey}`;
+
+    // profundidad-linea/route.ts's handleLeaderboard is not exported and
+    // returns a NextResponse, not raw data — rather than refactor that
+    // shipped route (out of scope per the spec), this route calls it the
+    // same way any other consumer would: an internal fetch to its own
+    // deployment is unnecessary complexity for a same-process call. Instead,
+    // import and invoke its exported GET handler directly (Next.js Route
+    // Handlers are plain async functions — calling one from another route in
+    // the same process is supported and already how this route imports work).
+    let coverage: Seller360Response['profundidad']['coverage'] = null;
+    try {
+      const leaderboardReq = new NextRequest(
+        `http://localhost/api/dwh/profundidad-linea?section=leaderboard&dateRange=${encodeURIComponent(dateRange)}`,
+        { headers: request.headers },
+      );
+      const leaderboardRes = await getProfundidadLinea(leaderboardReq);
+      if (leaderboardRes.ok) {
+        const leaderboardBody = await leaderboardRes.json() as { rows: Array<Seller360Response['profundidad']['coverage']> };
+        coverage = leaderboardBody.rows.find(r => r?.salesRepKey === salesRepKeyParam) ?? null;
+      }
+    } catch {
+      // Profundidad coverage is supplementary context on this profile, not a
+      // hard dependency — if the leaderboard call fails for any reason, the
+      // rest of the profile still renders with coverage: null (UI shows its
+      // existing empty state for this one section), rather than failing the
+      // whole vendedor-360 response.
+      coverage = null;
+    }
+
     const response: Seller360Response = {
       salesRepKey: salesRepKeyParam,
-      salesRepName: '', // filled in Task 7 alongside the seller-name lookup
+      salesRepName,
       activacion: { weeks, entityGrain, weeklyVisitQuota: latestMonthRow?.weeklyVisitQuota ?? null },
       cuota: { salesNet: { bs: salesNetBs, usd: salesNetUsd }, quotaUsd: quotaResult.total, isPartial: quotaResult.isPartial },
       cobranza: { buckets: sellerBuckets, baselineBuckets },
-      nuevosClientes: { rows: [], quota: null, isPartial: false },
-      clientesRecuperados: { rows: [] },
-      devoluciones: { byProduct: [], byTienda: [] },
-      profundidad: { coverage: null },
+      nuevosClientes: { rows: nuevos, quota: newCustomerQuotaResult.total, isPartial: newCustomerQuotaResult.isPartial },
+      clientesRecuperados: { rows: recuperados },
+      devoluciones: { byProduct, byTienda },
+      profundidad: { coverage },
       usdRate,
     };
 
