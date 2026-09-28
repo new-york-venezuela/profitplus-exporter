@@ -91,6 +91,23 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
     }
   }
 
+  async function handleTogglePricing(user: UserRow, level: 'view' | 'edit') {
+    const moduleValue = level === 'view' ? 'pricing_view' : 'pricing_edit';
+    const hasIt = user.modules.includes(moduleValue);
+    const nextModules = hasIt
+      ? user.modules.filter(m => m !== moduleValue)
+      : [...user.modules, moduleValue];
+
+    const res = await fetch(`/api/admin/users/${user.id}/modules`, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ modules: nextModules }),
+    });
+    if (res.ok) {
+      setUserList(prev => prev.map(u => u.id === user.id ? { ...u, modules: nextModules } : u));
+    }
+  }
+
   async function handleDelete(id: number, name: string) {
     if (!confirm(`¿Eliminar a ${name}?`)) return;
     if (deleting !== null) return;
@@ -130,7 +147,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Creado', 'Acciones'].map(h => (
+              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Precios', 'Creado', 'Acciones'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold
                                        text-gray-600 uppercase tracking-wider">
                   {h}
@@ -175,6 +192,34 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
                     />
                     {user.role === 'admin' ? 'Incluido (admin)' : 'Analítica'}
                   </label>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-col gap-1 text-xs text-gray-700">
+                    {user.role === 'admin' ? (
+                      <span>Incluido (admin)</span>
+                    ) : (
+                      <>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={user.modules.includes('pricing_view') || user.modules.includes('pricing_edit')}
+                            onChange={() => handleTogglePricing(user, 'view')}
+                            className="rounded border-gray-300"
+                          />
+                          Ver Precios
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={user.modules.includes('pricing_edit')}
+                            onChange={() => handleTogglePricing(user, 'edit')}
+                            className="rounded border-gray-300"
+                          />
+                          Editar Precios
+                        </label>
+                      </>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {new Date(user.createdAt).toLocaleDateString('es-VE')}
