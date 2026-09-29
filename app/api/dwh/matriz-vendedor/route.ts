@@ -41,7 +41,7 @@ function summaryQuery(salesDateWhere: string, returnsDateWhere: string): string 
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsBs,
-      (SELECT SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, fxr.RateSell), 0))
+      (SELECT SUM(fr.NetAmount / NULLIF(fxr.RateSell, 0))
          FROM fact.Fact_Returns fr
          ${usdConversionJoin('fr', 'DateKey', 'fxr')}
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsUsd
@@ -182,8 +182,8 @@ async function handleMatrix(salesDateWhere: string, returnsDateWhere: string, sa
 }
 
 // Grouped at (SalesRepKey, ProductKey, CustomerKey, WeekStartDate) grain --
-// dualAmountExpr converts each underlying invoice LINE at its own historical
-// DocumentExchangeRate before this SUM aggregates it, so a week bucket
+// dualAmountExpr converts each underlying invoice LINE at its own date's
+// Fact_ExchangeRate.RateSell before this SUM aggregates it, so a week bucket
 // spanning invoices issued on different days (at different rates) is
 // correct, unlike summing raw BS first and dividing by one rate. When
 // salesRepKey is null, every seller is included (the "export all" variant);

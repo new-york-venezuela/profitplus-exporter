@@ -25,16 +25,19 @@ export interface BreakdownRow {
 }
 
 // Every money figure sourced from Fact_Sales/Fact_Returns/Fact_Collections/
-// Fact_AR_Snapshot/Fact_Purchases (the 5 fact tables with a per-row
-// DocumentExchangeRate — see docs/superpowers/specs/
+// Fact_AR_Snapshot/Fact_Purchases (see docs/superpowers/specs/
 // 2026-09-23-historical-usd-conversion-design.md) is shipped as both
 // currencies, computed server-side with each row converted at ITS OWN
-// historical rate before summing — never a single current rate applied to
-// an already-summed total. `usd` is null only when no rate (the row's own
-// DocumentExchangeRate, or that date's Fact_ExchangeRate fallback) was
-// resolvable for any of the underlying rows. Finanzas/Multimoneda money
-// fields (backed by Fact_Expenses/Fact_CashMovements, which have no rate
-// column) are NOT DualAmount — they remain plain `number`, out of scope.
+// date's fact.Fact_ExchangeRate.RateSell before summing — never a single
+// current rate applied to an already-summed total, and never the fact
+// table's own DocumentExchangeRate column (root-caused live 2026-09-28:
+// that column, sourced from the ERP document's own `tasa`, is an unreliable
+// divisor — it's a literal `1` "no conversion" placeholder for BS-denominated
+// documents, not a real rate). `usd` is null only when that date has no
+// resolvable Fact_ExchangeRate row for any of the underlying rows.
+// Finanzas/Multimoneda money fields (backed by Fact_Expenses/
+// Fact_CashMovements, which have no rate column) are NOT DualAmount — they
+// remain plain `number`, out of scope.
 export interface DualAmount {
   bs: number;
   usd: number | null;

@@ -45,8 +45,9 @@ export async function getUsdRate(): Promise<number | null> {
  * LEFT JOIN fragment resolving the USD exchange rate for a fact table's own
  * date, keyed to a scalar CurrencyKey lookup for 'USD' rather than a second
  * join to dim.Dim_Currency (Fact_ExchangeRate itself has no CurrencyCode
- * column, only CurrencyKey). Used as a fallback when a row's own
- * DocumentExchangeRate is NULL/0 — see dualAmountExpr.
+ * column, only CurrencyKey). This is the ONLY rate source dualAmountExpr
+ * uses — see that function's doc comment for why the fact table's own
+ * DocumentExchangeRate column is never used for the conversion.
  *
  * dateColumn defaults to 'DateKey' (Fact_Sales/Fact_Returns/Fact_Collections/
  * Fact_Purchases all use this name); Fact_AR_Snapshot uses 'SnapshotDateKey'
@@ -68,26 +69,47 @@ export function usdConversionJoin(factAlias: string, dateColumn: string = 'DateK
 }
 
 /**
- * Paired BS/USD SUM expression for a money column on a fact table already
- * carrying a DocumentExchangeRate column (Fact_Sales, Fact_Returns,
- * Fact_Collections, Fact_AR_Snapshot, Fact_Purchases only — see
+ * Paired BS/USD SUM expression for a money column on a fact table (Fact_Sales,
+ * Fact_Returns, Fact_Collections, Fact_AR_Snapshot, Fact_Purchases — see
  * docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md).
  * Requires the query to also include usdConversionJoin(factAlias, ...)'s
- * join for the fallback rate lookup, using the SAME joinAlias passed here
- * (both default to 'fx' — pass a matching non-default alias to both
- * functions if a query needs more than one such join in scope).
+ * join, using the SAME joinAlias passed here (both default to 'fx' — pass a
+ * matching non-default alias to both functions if a query needs more than
+ * one such join in scope).
+ *
+ * The divisor is ALWAYS that row's own DateKey's fact.Fact_ExchangeRate.RateSell
+ * — never the fact table's own DocumentExchangeRate column (sourced from the
+ * ERP document's own `tasa`), even though that column exists and is
+ * populated. Root-caused live (2026-09-28): `tasa` is not a reliable
+ * BS→USD divisor across this ERP's real data — it is genuinely the exchange
+ * rate only for documents denominated directly in USD (co_mone='USD'); for a
+ * BS-denominated document (co_mone='BSD', the overwhelming majority) the ERP
+ * sets tasa=1 as a "no conversion" placeholder, NOT because BS was ever at
+ * parity with USD. Fact_Sales.NetAmount is BS regardless of co_mone (verified
+ * live: the same product's prec_vta lands in the same BS magnitude on both a
+ * tasa=1 invoice and a tasa=709 invoice), so dividing a tasa=1 row's BS
+ * amount by 1 silently reports the raw BS figure as USD — an ~400-700x
+ * inflation for exactly the rows where tasa=1, which is most rows. Confirmed
+ * live: March 2026 had 300 Fact_Sales rows at tasa=1 totaling 2.65M BS,
+ * reported as $2.65M USD instead of the correct ~$5,900 at that month's real
+ * ~450 rate — this single bucket accounted for nearly all of a whole-dashboard
+ * ~100-170x USD inflation once this per-row conversion shipped (previously
+ * masked because the pre-2026-09-23 code never read DocumentExchangeRate at
+ * all, and instead divided a BS-summed total by one current-day rate).
+ * Fact_ExchangeRate.RateSell (sourced from Ncake_a.dbo.saTasa, independent of
+ * any document) has no such ambiguity — it's the daily market rate, full stop.
  *
  * Division happens per-row, inside the SUM — NOT SUM(column) / rate — so a
  * group spanning multiple historical rates converts each row at its own
  * rate before aggregating, rather than distorting the whole group by
- * today's rate. NULLIF(...,0) on the divisor means a row with neither its
- * own DocumentExchangeRate nor a same-day Fact_ExchangeRate row produces
- * NULL for that row's USD contribution (SQL Server's SUM ignores NULLs),
- * rather than a divide-by-zero error.
+ * today's rate. NULLIF(...,0) on the divisor means a row whose own DateKey
+ * has no matching Fact_ExchangeRate row produces NULL for that row's USD
+ * contribution (SQL Server's SUM ignores NULLs), rather than a divide-by-zero
+ * error.
  */
 export function dualAmountExpr(factAlias: string, column: string, bsAlias: string, usdAlias: string, joinAlias: string = 'fx'): string {
   const col = `${factAlias}.${column}`;
-  const rate = `NULLIF(COALESCE(${factAlias}.DocumentExchangeRate, ${joinAlias}.RateSell), 0)`;
+  const rate = `NULLIF(${joinAlias}.RateSell, 0)`;
   return `SUM(${col}) AS ${bsAlias}, SUM(${col} / ${rate}) AS ${usdAlias}`;
 }
 
