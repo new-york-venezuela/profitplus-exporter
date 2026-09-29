@@ -27,7 +27,7 @@ function monthlyTrendQuery(dateWhere: string): string {
          FROM fact.Fact_Returns fr
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
          WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns fr
          ${usdConversionJoin('fr', undefined, 'frfx')}
          JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
@@ -83,7 +83,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, frfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns fr
          ${usdConversionJoin('fr', undefined, 'frfx')}
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetUsd
@@ -103,11 +103,12 @@ const LATEST_SNAPSHOT_QUERY = `
   SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
 `;
 
-// AR balances are valued at the SNAPSHOT date's rate, not each invoice's own
-// historical DocumentExchangeRate — a deliberate exception to this file's
-// otherwise-universal historical-rate rule, confirmed with the user: an
-// outstanding balance is a present-day obligation, so it's priced in USD as
-// of today (the snapshot), not as of the original sale. See
+// AR balances are valued at the SNAPSHOT date's rate (usdConversionJoin('a',
+// 'SnapshotDateKey')), not the original invoice's own DateKey — a deliberate
+// exception to this file's otherwise-universal per-row-historical-rate rule,
+// confirmed with the user: an outstanding balance is a present-day
+// obligation, so it's priced in USD as of today (the snapshot), not as of
+// the original sale. See
 // docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md and
 // the final-review fix-up that added this exception. Every other fact table
 // (Fact_Sales/Fact_Returns/Fact_Collections/Fact_Purchases) keeps the
@@ -146,17 +147,17 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
     SELECT
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Sales fs
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moBs,
-      (SELECT CASE WHEN COUNT(fs.NetAmount) = 0 THEN 0 ELSE SUM(fs.NetAmount / NULLIF(COALESCE(fs.DocumentExchangeRate, sfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fs.NetAmount) = 0 THEN 0 ELSE SUM(fs.NetAmount / NULLIF(sfx.RateSell, 0)) END
          FROM fact.Fact_Sales fs ${usdConversionJoin('fs', undefined, 'sfx')}
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moUsd,
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Returns fr
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(rfx.RateSell, 0)) END
          FROM fact.Fact_Returns fr ${usdConversionJoin('fr', undefined, 'rfx')}
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moUsd,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moBs,
-      (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, cfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(cfx.RateSell, 0)) END
          FROM fact.Fact_Collections fc ${usdConversionJoin('fc', undefined, 'cfx')}
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS Collected12moUsd
   `;

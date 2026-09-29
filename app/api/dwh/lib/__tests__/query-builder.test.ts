@@ -236,7 +236,15 @@ describe('dualAmountExpr', () => {
     expect(sql).toContain('SUM(fs.NetAmount) AS SalesNetBs');
     expect(sql).toContain('AS SalesNetUsd');
     expect(sql).toContain('fs.NetAmount /');
-    expect(sql).toContain('NULLIF(COALESCE(fs.DocumentExchangeRate, fx.RateSell), 0)');
+    // The divisor is always fact.Fact_ExchangeRate.RateSell for the row's own
+    // date — never the fact table's own DocumentExchangeRate column. Root-caused
+    // live (2026-09-28): DocumentExchangeRate (sourced from the ERP document's
+    // own `tasa`) is unreliable as a BS→USD divisor — it's set to a literal `1`
+    // "no conversion" placeholder for BS-denominated documents (the overwhelming
+    // majority), not a real exchange rate, so dividing by it silently reported
+    // raw BS amounts as USD.
+    expect(sql).toContain('NULLIF(fx.RateSell, 0)');
+    expect(sql).not.toContain('DocumentExchangeRate');
   });
 
   test('division happens inside the SUM, not after it', () => {
@@ -249,13 +257,9 @@ describe('dualAmountExpr', () => {
     expect(usdSumStart).toBeGreaterThan(-1);
   });
 
-  test('dualAmountExpr accepts a matching joinAlias for its fallback rate reference', () => {
+  test('dualAmountExpr accepts a matching joinAlias for its rate reference', () => {
     const sql = dualAmountExpr('fr', 'NetAmount', 'Bs', 'Usd', 'frfx');
-    // Assert the exact expected fallback-rate reference is present, rather
-    // than a negative substring check for "fx.RateSell" — that substring is
-    // a suffix of "frfx.RateSell" itself, so a naive `.not.toContain('fx.RateSell')`
-    // would fail even on a fully correct implementation whenever the custom
-    // alias happens to end in "fx" (as "frfx" does here).
-    expect(sql).toContain('COALESCE(fr.DocumentExchangeRate, frfx.RateSell)');
+    expect(sql).toContain('NULLIF(frfx.RateSell, 0)');
+    expect(sql).not.toContain('DocumentExchangeRate');
   });
 });

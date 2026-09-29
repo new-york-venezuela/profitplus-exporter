@@ -22,11 +22,12 @@ const LATEST_SNAPSHOT_QUERY = `
   SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
 `;
 
-// AR balances are valued at the SNAPSHOT date's rate, not each invoice's own
-// historical DocumentExchangeRate — a deliberate exception to this file's
-// otherwise-universal historical-rate rule, confirmed with the user: an
-// outstanding balance is a present-day obligation, so it's priced in USD as
-// of today (the snapshot), not as of the original sale. See
+// AR balances are valued at the SNAPSHOT date's rate (usdConversionJoin('a',
+// 'SnapshotDateKey')), not the original invoice's own DateKey — a deliberate
+// exception to this file's otherwise-universal per-row-historical-rate rule,
+// confirmed with the user: an outstanding balance is a present-day
+// obligation, so it's priced in USD as of today (the snapshot), not as of
+// the original sale. See
 // docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md and
 // the final-review fix-up that added this exception. Every other fact table
 // (Fact_Sales/Fact_Returns/Fact_Collections/Fact_Purchases) keeps the
@@ -106,13 +107,13 @@ const WEEKDAY_VENCIMIENTO_QUERY = `
     dd.DayName,
     SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS VenceHoyBs,
     CASE WHEN COUNT(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
-         ELSE SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS VenceHoyUsd,
+         ELSE SUM(CASE WHEN fc.DateKey = fc.DueDateKey THEN fc.AmountCollected / NULLIF(fx.RateSell, 0) END) END AS VenceHoyUsd,
     SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS VencidaBs,
     CASE WHEN COUNT(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
-         ELSE SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS VencidaUsd,
+         ELSE SUM(CASE WHEN fc.DateKey > fc.DueDateKey THEN fc.AmountCollected / NULLIF(fx.RateSell, 0) END) END AS VencidaUsd,
     SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected ELSE 0 END) AS NoVencidaBs,
     CASE WHEN COUNT(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected END) = 0 THEN 0
-         ELSE SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, fx.RateSell), 0) END) END AS NoVencidaUsd
+         ELSE SUM(CASE WHEN fc.DateKey < fc.DueDateKey THEN fc.AmountCollected / NULLIF(fx.RateSell, 0) END) END AS NoVencidaUsd
   FROM fact.Fact_Collections fc
   ${usdConversionJoin('fc')}
   JOIN dim.Dim_Date dd ON dd.DateKey = fc.DateKey

@@ -70,7 +70,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
   const flaggedCase = flaggedRootCodes.length > 0
     ? `CASE WHEN c.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')}) THEN 1 ELSE 0 END`
     : '0';
-  const salesRate = `NULLIF(COALESCE(fs.DocumentExchangeRate, fx.RateSell), 0)`;
+  const salesRate = `NULLIF(fx.RateSell, 0)`;
   return `
     SELECT
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKeyValue,
@@ -90,7 +90,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
       ) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(COALESCE(fr.DocumentExchangeRate, rfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(rfx.RateSell, 0)) END
          FROM fact.Fact_Returns fr
          ${usdConversionJoin('fr', undefined, 'rfx')}
          JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
@@ -109,7 +109,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
          WHERE fc.SalesRepKey = fs.SalesRepKey AND fc.IsVoided = 0 ${collectionsDateWhere}
            AND ${flaggedRootCodes.length > 0 ? `cc.CustomerCode IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 0'}
       ) AS ExcludedCollectedBs,
-      (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(COALESCE(fc.DocumentExchangeRate, ecfx.RateSell), 0)) END
+      (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(ecfx.RateSell, 0)) END
          FROM fact.Fact_Collections fc
          ${usdConversionJoin('fc', undefined, 'ecfx')}
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey

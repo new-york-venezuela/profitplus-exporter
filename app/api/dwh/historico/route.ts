@@ -19,10 +19,14 @@ export const dynamic = 'force-dynamic';
 // comments for why). No prev-period comparison: there is no meaningful
 // "before" this dataset's own start.
 //
-// Both Fact_Sales_Legacy and Fact_Returns_Legacy carry their own
-// DocumentExchangeRate column (see the 0034 migration), so every money
-// figure here goes through dualAmountExpr/usdConversionJoin — same
-// convention as ventas/route.ts — rather than a bare number.
+// Every money figure here goes through dualAmountExpr/usdConversionJoin —
+// same convention as ventas/route.ts — rather than a bare number. Both
+// Fact_Sales_Legacy and Fact_Returns_Legacy also carry their own
+// DocumentExchangeRate column (see the 0034 migration), but per
+// dualAmountExpr's own doc comment that column is never used for the BS→USD
+// conversion (it's an unreliable source: 1 is the ERP's "no conversion"
+// placeholder for BS-denominated documents, not a real rate) — conversion is
+// always via fact.Fact_ExchangeRate.RateSell for the row's own DateKey.
 const DATE_WINDOW = 'AND fsl.DateKey BETWEEN 20250101 AND 20260228';
 const RETURNS_DATE_WINDOW = 'AND frl.DateKey BETWEEN 20250101 AND 20260228';
 
