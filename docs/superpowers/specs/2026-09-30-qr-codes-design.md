@@ -64,7 +64,7 @@ MIME/size checked server-side, stored filename generated server-side (never from
 
 ## Rendering
 
-- Error correction level H so a logo covering ~20% of the area still scans.
+- Error correction level H so a logo covering ~15% of the area still scans.
 - Logo drawn on a white rounded backing square in the center.
 - Default logo: copy of `../web/public/favicon.svg` placed at `public/qr-default-logo.svg`
   (`../web` is not part of this app's deploy). One-time copy; does not stay in sync.
