@@ -27,7 +27,7 @@ async function findOwned(request: NextRequest, ctx: Ctx) {
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   try {
     const found = await findOwned(request, ctx);
-    if ('error' in found) return found.error;
+    if (found.error) return found.error;
     const { session, row } = found;
 
     const form = await request.formData().catch(() => null);
@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 export async function DELETE(request: NextRequest, ctx: Ctx) {
   try {
     const found = await findOwned(request, ctx);
-    if ('error' in found) return found.error;
+    if (found.error) return found.error;
     const { session, row } = found;
 
     getDb().delete(qrCodes).where(eq(qrCodes.id, row.id)).run();

@@ -32,7 +32,7 @@ async function userToken(email: string) {
 function form(fields: Record<string, string>, logo?: { bytes: Uint8Array; type: string; name?: string }) {
   const f = new FormData();
   for (const [k, v] of Object.entries(fields)) f.set(k, v);
-  if (logo) f.set('logo', new File([logo.bytes], logo.name ?? 'logo.bin', { type: logo.type }));
+  if (logo) f.set('logo', new File([logo.bytes as BlobPart], logo.name ?? 'logo.bin', { type: logo.type }));
   return f;
 }
 
