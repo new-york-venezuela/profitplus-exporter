@@ -21,6 +21,7 @@ const NAV_REPORTS = [
 
 const NAV_TOOLS = [
     { href: '/firmas', label: 'Firma Corporativa' },
+    { href: '/qr', label: 'Códigos QR' },
 ]
 
 export function Sidebar({ user, canSeeInventory, canSeeAnalitica, pricingAccessLevel }: Props) {
