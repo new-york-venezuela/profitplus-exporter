@@ -696,6 +696,47 @@ ORDER BY CASE
     ELSE 4 END;
 ```
 
+### Production Diagnostics (Read-Only)
+Run in SSMS against `DWH_AlimentosNY` when a load, import, or the dashboard hangs or shows no data (e.g. the one-time Histórico 2025 import). All read-only.
+```sql
+USE DWH_AlimentosNY;
+
+-- 1. Running requests / blocking (is a load or import still active or stuck?)
+SELECT r.session_id, r.status, r.command, r.blocking_session_id, r.wait_type,
+       r.total_elapsed_time/1000 AS sec, DB_NAME(r.database_id) AS db,
+       LEFT(t.text, 120) AS sql_text
+FROM sys.dm_exec_requests r
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+WHERE r.session_id > 50 AND r.session_id <> @@SPID;
+
+-- 2. Sessions holding open transactions (a killed import can leave one)
+SELECT s.session_id, s.login_name, s.status, s.host_name, s.program_name,
+       s.last_request_end_time, at.transaction_begin_time
+FROM sys.dm_exec_sessions s
+JOIN sys.dm_tran_session_transactions st ON st.session_id = s.session_id
+JOIN sys.dm_tran_active_transactions at ON at.transaction_id = st.transaction_id;
+
+-- 3. Histórico 2025 legacy tables: partial load?
+SELECT 'Fact_Sales_Legacy' AS TableName, COUNT(*) AS Rows, MIN(DateKey) AS MinDateKey, MAX(DateKey) AS MaxDateKey FROM fact.Fact_Sales_Legacy
+UNION ALL SELECT 'Fact_Returns_Legacy', COUNT(*), MIN(DateKey), MAX(DateKey) FROM fact.Fact_Returns_Legacy
+UNION ALL SELECT 'Dim_Customer_Legacy', COUNT(*), NULL, NULL FROM dim.Dim_Customer_Legacy
+UNION ALL SELECT 'Dim_Product_Legacy', COUNT(*), NULL, NULL FROM dim.Dim_Product_Legacy
+UNION ALL SELECT 'Dim_SalesRep_Legacy', COUNT(*), NULL, NULL FROM dim.Dim_SalesRep_Legacy;
+
+-- 4. Regular (live) sales data still intact?
+SELECT COUNT(*) AS Rows, MIN(DateKey) AS MinDateKey, MAX(DateKey) AS MaxDateKey FROM fact.Fact_Sales;
+SELECT COUNT(*) AS Rows, MAX(DateKey) AS MaxDateKey FROM fact.Fact_ExchangeRate;
+SELECT COUNT(*) AS Customers FROM dim.Dim_Customer;
+SELECT COUNT(*) AS Products FROM dim.Dim_Product;
+
+-- 5. Database state and transaction log pressure
+SELECT name, state_desc, log_reuse_wait_desc FROM sys.databases WHERE name = 'DWH_AlimentosNY';
+DBCC SQLPERF(LOGSPACE);
+
+-- 6. Latest applied migrations
+SELECT TOP 10 * FROM dwh.__dwh_migrations ORDER BY 1 DESC;
+```
+
 ### Legal Entity Rollup (Account for Multi-Store Customers)
 Many customers have multiple store/venue records that legally belong to one company (e.g., FARMATODO C.A has one corporate parent record but many individual store locations, each its own `saCliente`/`Dim_Customer` row). To aggregate at the **legal entity level**, join through `dim.Dim_LegalEntity` and group by `LegalEntityKey`:
 
