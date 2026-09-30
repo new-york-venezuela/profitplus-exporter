@@ -18,6 +18,7 @@ test.describe('qr codes', () => {
     await userPage.getByRole('button', { name: 'Guardar' }).click();
     const list = userPage.getByRole('list', { name: 'Mis códigos QR' });
     await expect(list.getByText('E2E QR')).toBeVisible();
+    await expect(list.getByRole('img', { name: 'Miniatura de E2E QR' })).toBeVisible();
 
     await list.getByRole('button', { name: 'Editar' }).click();
     await userPage.getByLabel('Nombre', { exact: true }).fill('E2E QR renamed');

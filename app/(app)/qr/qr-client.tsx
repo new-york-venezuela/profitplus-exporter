@@ -59,6 +59,30 @@ async function svgToPngBlob(svg: string, px = 1024): Promise<Blob> {
   }
 }
 
+function SavedThumb({ item }: { item: QrCodeDto }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    logoDataUrl(item.logoMode, null, item.id)
+      .catch(() => null)
+      .then(href => {
+        if (cancelled) return;
+        try {
+          const svg = buildQrSvg({ content: item.content, fgColor: item.fgColor, logoHref: href });
+          setSrc(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+        } catch {
+          setSrc(null);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [item.id, item.content, item.fgColor, item.logoMode, item.updatedAt]);
+
+  const box = 'w-14 h-14 shrink-0 rounded border';
+  // eslint-disable-next-line @next/next/no-img-element
+  return src ? <img alt={`Miniatura de ${item.name}`} src={src} className={box} /> : <div className={`${box} bg-slate-100`} />;
+}
+
 export function QrClient() {
   const [items, setItems] = useState<QrCodeDto[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -262,8 +286,9 @@ export function QrClient() {
         ) : (
           <ul className="divide-y border rounded-xl bg-white" aria-label="Mis códigos QR">
             {items.map(item => (
-              <li key={item.id} className="flex items-center justify-between gap-4 p-4">
-                <div className="min-w-0">
+              <li key={item.id} className="flex items-center gap-4 p-4">
+                <SavedThumb item={item} />
+                <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-900 truncate">{item.name}</p>
                   <p className="text-sm text-slate-500 truncate">{item.content}</p>
                 </div>
