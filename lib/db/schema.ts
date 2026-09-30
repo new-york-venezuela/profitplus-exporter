@@ -109,3 +109,18 @@ export const sellerTargets = sqliteTable('seller_targets', {
 
 export type SellerTarget    = typeof sellerTargets.$inferSelect;
 export type NewSellerTarget = typeof sellerTargets.$inferInsert;
+
+export const qrCodes = sqliteTable('qr_codes', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  userId:    integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name:      text('name').notNull(),
+  content:   text('content').notNull(),
+  logoMode:  text('logo_mode', { enum: ['default', 'custom', 'none'] }).notNull().default('default'),
+  logoPath:  text('logo_path'),                       // filename inside data/qr-logos/; set only when logoMode = 'custom'
+  fgColor:   text('fg_color').notNull().default('#000000'),
+  createdAt: integer('created_at').notNull(),         // unix ms
+  updatedAt: integer('updated_at').notNull(),         // unix ms
+});
+
+export type QrCode    = typeof qrCodes.$inferSelect;
+export type NewQrCode = typeof qrCodes.$inferInsert;
