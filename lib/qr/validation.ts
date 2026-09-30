@@ -2,14 +2,17 @@ export const MAX_CONTENT_BYTES = 1000;
 export const MAX_LOGO_BYTES = 1_000_000;
 const MAX_NAME_LENGTH = 100;
 
+const SVG_PROLOG = /^\s*(?:<\?xml[^>]*\?>\s*|<!--[\s\S]*?-->\s*|<!DOCTYPE[^>[]*(?:\[[\s\S]*?\])?\s*>\s*)*<svg[\s>]/i;
+
 export type LogoKind = 'png' | 'jpg' | 'svg';
 export type LogoMode = 'default' | 'custom' | 'none';
 
 export function sniffLogo(bytes: Uint8Array): LogoKind | null {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png';
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg';
-  const head = new TextDecoder().decode(bytes.subarray(0, 1024)).trimStart();
-  if ((head.startsWith('<?xml') || head.startsWith('<svg')) && /<svg[\s>]/.test(new TextDecoder().decode(bytes.subarray(0, 4096)))) return 'svg';
+  // Real-world SVGs (Illustrator, Inkscape) often open with an XML declaration, comments or a DOCTYPE.
+  const head = new TextDecoder().decode(bytes.subarray(0, 4096));
+  if (SVG_PROLOG.test(head)) return 'svg';
   return null;
 }
 
