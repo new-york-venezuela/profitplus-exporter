@@ -153,10 +153,12 @@ Same definition as the analytics Clientes tab (`app/api/dwh/clientes/route.ts`):
 ### UI
 
 - Draw/edit polygons with `@geoman-io/leaflet-geoman-free`; mode banner
-  ("Drawing area, double-click to finish, Esc to cancel"); name, color,
+  ("Dibujando zona: clic para agregar puntos, clic en el primero para cerrar, Esc cancela"); name, color,
   one or more sellers.
-- **Mismatches panel**: customers whose `co_ven` is not among the area's
-  sellers, and customers outside every area.
+- **Discrepancias panel**: customers inside an area that has at least one
+  seller where the customer's `co_ven` is not among them (areas with no
+  sellers never flag), and located customers outside every area. A customer
+  on a border resolves to the lowest area id.
 - **Layers**: pins (default on), area choropleth (sequential scale,
   numeric legend with scale breaks, visible boundary and direct label per
   area), density (`leaflet.heat`, revenue-weighted).

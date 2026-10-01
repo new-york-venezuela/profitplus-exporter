@@ -55,3 +55,62 @@ test.describe('mapa @mssql', () => {
     await expect(list.getByText(routeName)).not.toBeVisible();
   });
 });
+
+// @mssql — the page loads ERP + DWH data; the area flows themselves only need SQLite.
+test.describe('mapa sales areas @mssql', () => {
+  async function drawSquare(page: import('@playwright/test').Page, box: { x: number; y: number; width: number; height: number }, fx: number, fy: number, size: number) {
+    const p = (dx: number, dy: number) => ({ x: box.x + box.width * (fx + dx), y: box.y + box.height * (fy + dy) });
+    const pts = [p(0, 0), p(size, 0), p(size, size), p(0, size)];
+    for (const pt of pts) await page.mouse.click(pt.x, pt.y);
+    await page.mouse.click(pts[0].x, pts[0].y);              // clicking the first point closes the polygon
+  }
+
+  test('draw, save, reject an overlapping area, then delete', async ({ adminPage }) => {
+    const suffix = Date.now();
+    await adminPage.goto('/mapa');
+    const map = adminPage.getByTestId('customer-map');
+    await expect(map).toBeVisible({ timeout: 20_000 });
+    await adminPage.getByRole('tab', { name: /Zonas/ }).click();
+    const box = (await map.boundingBox())!;
+
+    // first area
+    await adminPage.getByRole('button', { name: 'Dibujar nueva zona' }).click();
+    await drawSquare(adminPage, box, 0.2, 0.2, 0.2);
+    await adminPage.getByLabel('Nombre').fill(`E2E Zona A ${suffix}`);
+    await adminPage.getByRole('button', { name: 'Guardar zona' }).click();
+    const list = adminPage.getByRole('list', { name: 'Zonas existentes' });
+    await expect(list.getByText(`E2E Zona A ${suffix}`)).toBeVisible();
+
+    // overlapping second area is rejected and names the first
+    await adminPage.getByRole('button', { name: 'Dibujar nueva zona' }).click();
+    await drawSquare(adminPage, box, 0.3, 0.3, 0.2);
+    await adminPage.getByLabel('Nombre').fill(`E2E Zona B ${suffix}`);
+    await adminPage.getByRole('button', { name: 'Guardar zona' }).click();
+    await expect(adminPage.getByRole('alert')).toContainText(`E2E Zona A ${suffix}`);
+    await adminPage.getByRole('button', { name: 'Cancelar' }).click();
+
+    // delete the first
+    await list.locator('li', { hasText: `E2E Zona A ${suffix}` }).getByRole('button', { name: 'Eliminar' }).click();
+    await adminPage.locator('div.fixed.inset-0').getByRole('button', { name: 'Eliminar', exact: true }).click();
+    await expect(list.getByText(`E2E Zona A ${suffix}`)).not.toBeVisible();
+  });
+
+  test('Esc cancels drawing without creating an area', async ({ adminPage }) => {
+    await adminPage.goto('/mapa');
+    await expect(adminPage.getByTestId('customer-map')).toBeVisible({ timeout: 20_000 });
+    await adminPage.getByRole('tab', { name: /Zonas/ }).click();
+    await adminPage.getByRole('button', { name: 'Dibujar nueva zona' }).click();
+    await expect(adminPage.getByText('Dibujando zona')).toBeVisible();
+    await adminPage.keyboard.press('Escape');
+    await expect(adminPage.getByText('Dibujando zona')).not.toBeVisible();
+  });
+
+  test('layer toggles show the choropleth legend', async ({ adminPage }) => {
+    await adminPage.goto('/mapa');
+    await expect(adminPage.getByTestId('customer-map')).toBeVisible({ timeout: 20_000 });
+    await adminPage.getByLabel('Ingresos por zona').check();
+    await expect(adminPage.getByRole('group', { name: 'Leyenda de ingresos por zona' })).toBeVisible();
+    await adminPage.getByLabel('Densidad de ingresos').check();
+    await adminPage.getByLabel('Clientes (pines)').uncheck();
+  });
+});

@@ -46,6 +46,11 @@ lib/
   geo/types.ts, pareto.ts, merge.ts, map-data.ts — customer-map types, Pareto, ERP+DWH merge, SQL fetchers
   geo/filters.ts, date-range.ts — URL-synced map filters, period helpers
   geo/routes-repo.ts, route-validation.ts, location-patch.ts — SQLite routes CRUD and request validators
+  geo/geometry.ts          — dependency-free planar geometry: point-in-polygon, polygon validity/overlap, GeoJSON [lng, lat] (de)serialization
+  geo/area-validation.ts, areas-repo.ts — sales-area request validators and SQLite CRUD (overlap/validity checks)
+  geo/area-match.ts        — applyAreaMatch() (customer → area, mismatch flag), areaRevenue()
+  geo/color-scale.ts, layers.ts — choropleth scale, heat-layer points
+  geo/discrepancies.ts     — findDiscrepancies(): seller mismatches and located customers outside every area
   reports/registry.ts      — ColumnDef, ReportConfig, REPORTS map
   reports/ventas.ts        — Ventas report config
   reports/compras.ts       — Compras report config
@@ -61,7 +66,8 @@ lib/
   geo/erp-location.ts     — updateCustomerLocation() → pApiActualizarUbicacionCliente (only way the app writes campo1/dir_ent2)
   geo/geocoding.ts        — Nominatim/Google geocoding used by scripts/geocode-customers.ts
 
-app/api/mapa/              — customer-map API (clientes, ubicacion, rutas), gated on 'geo'
+app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
+  app/api/mapa/zonas/      — sales-area CRUD (GET/POST, [id] PATCH/DELETE)
 
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
@@ -250,6 +256,16 @@ and write to the ERP only via `updateCustomerLocation`. Routes are SQLite
 (`routes`, `route_customers`). `GET /api/mapa/clientes` is the one route that
 merges live ERP customers with DWH revenue in TypeScript (by trimmed customer
 code); Pareto uses the same thresholds as the analytics Clientes tab.
+
+Sales areas live in SQLite (`sales_areas`, `sales_area_sellers`); polygons are
+GeoJSON `Polygon`s with `[lng, lat]` coordinates. Areas cannot overlap (shared
+borders are fine). Customer-to-area matching is computed on read in
+`GET /api/mapa/clientes` via `lib/geo/area-match.ts` — never stored, never
+written to the ERP (`saCliente.co_ven` is untouched). Mismatch = the customer's
+`co_ven` is not among the sellers of the area it falls in (areas with no
+sellers never flag). A customer on a border resolves to the lowest area id.
+Geometry is dependency-free (`lib/geo/geometry.ts`); Geoman and `leaflet.heat`
+are imported only inside the client-only map tree.
 
 ## Product Analytics (PostHog)
 
