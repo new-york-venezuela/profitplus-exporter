@@ -36,9 +36,14 @@ export function parseGeocodeArgs(argv: string[]): GeocodeArgs {
 
 export function pickAddress(row: { dirEnt2: string | null; direc1: string | null }):
   { address: string; source: 'dir_ent2' | 'direc1' } | null {
-  const ent = row.dirEnt2?.trim();
+  // Placeholders like "-" or "." geocode to the country centroid; require some real text.
+  const usable = (v: string | null | undefined) => {
+    const t = v?.trim();
+    return t && (t.match(/\p{L}/gu)?.length ?? 0) >= 4 ? t : null;
+  };
+  const ent = usable(row.dirEnt2);
   if (ent) return { address: ent, source: 'dir_ent2' };
-  const fis = row.direc1?.trim();
+  const fis = usable(row.direc1);
   if (fis) return { address: fis, source: 'direc1' };
   return null;
 }

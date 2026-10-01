@@ -49,11 +49,13 @@ export async function geocodeNominatim(address: string, fetchImpl: typeof fetch 
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ve&q=${encodeURIComponent(address)}`;
   const res = await fetchImpl(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
-  const body = (await res.json()) as { lat: string; lon: string; importance?: number }[];
+  const body = (await res.json()) as { lat: string; lon: string; importance?: number; addresstype?: string }[];
   const hit = body[0];
   if (!hit) return null;
   const importance = hit.importance ?? 0;
-  const confidence: Confidence = importance < 0.25 ? 'low' : importance < 0.4 ? 'medium' : 'high';
+  // Country/state-level hits are centroids, useless as a customer location.
+  const coarse = ['country', 'state', 'region', 'state_district', 'county'].includes(hit.addresstype ?? '');
+  const confidence: Confidence = coarse || importance < 0.25 ? 'low' : importance < 0.4 ? 'medium' : 'high';
   return { lat: Number(hit.lat), lng: Number(hit.lon), provider: 'osm', confidence, detail: `importance ${importance.toFixed(2)}` };
 }
 
