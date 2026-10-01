@@ -1,5 +1,10 @@
 // e2e/mapa.spec.ts
 import { test, expect } from './fixtures';
+import sql from 'mssql';
+import path from 'path';
+import fs from 'fs';
+import { updateCustomerLocation } from '../lib/geo/erp-location';
+import { formatCoordinates } from '../lib/geo/coordinates';
 
 test.describe('mapa access', () => {
   test('a user without the geo grant is redirected away from /mapa', async ({ userPage }) => {
@@ -112,5 +117,155 @@ test.describe('mapa sales areas @mssql', () => {
     await expect(adminPage.getByRole('group', { name: 'Leyenda de ingresos por zona' })).toBeVisible();
     await adminPage.getByLabel('Densidad de ingresos').check();
     await adminPage.getByLabel('Clientes (pines)').uncheck();
+  });
+});
+
+// Seeds real coordinates (via the app's own updateCustomerLocation) for a few
+// customers that have sales, so pins, area matching, the choropleth and the
+// discrepancias panel are exercised with real points. Runs serially: it
+// mutates shared ERP state (saCliente.campo1) and creates/deletes one area.
+function dbConfig(): sql.config {
+  const env: Record<string, string> = {};
+  for (const line of fs.readFileSync(path.resolve(__dirname, '..', '.env.test'), 'utf-8').split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq !== -1) env[t.slice(0, eq)] = t.slice(eq + 1);
+  }
+  const e = { ...env, ...process.env };
+  return {
+    server: e.DB_SERVER!, port: parseInt(e.DB_PORT ?? '1433'), database: e.DB_NAME!, user: e.DB_USER!, password: e.DB_PASSWORD!,
+    options: { encrypt: e.DB_ENCRYPT === 'true', trustServerCertificate: e.DB_TRUST_SERVER_CERT !== 'false' },
+  };
+}
+
+interface Seeded { coCli: string; name: string; coVen: string; original: string | null }
+
+test.describe.serial('mapa with seeded coordinates @mssql', () => {
+  let erp: sql.ConnectionPool;
+  let seeded: Seeded[] = [];
+  let sellerName = '';
+  let expectedUnlocated = 0;
+  const areaName = `E2E Zona Pines ${Date.now()}`;
+  const PERIOD = 'custom:2000-01-01:2099-12-31';   // whatever sales the mock holds, regardless of today's date
+
+  test.beforeAll(async () => {
+    erp = await new sql.ConnectionPool(dbConfig()).connect();
+    const dwh = await new sql.ConnectionPool({ ...dbConfig(), database: 'DWH_AlimentosNY' }).connect();
+    try {
+      // Customers with the most sales, so they carry revenue in the popup / choropleth.
+      const top = await dwh.request().query(`
+        SELECT TOP 40 RTRIM(c.CustomerCode) AS coCli
+        FROM fact.Fact_Sales fs JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+        WHERE fs.IsVoided = 0 GROUP BY RTRIM(c.CustomerCode) ORDER BY COUNT(*) DESC`);
+      const rows: Seeded[] = [];
+      for (const { coCli } of top.recordset as { coCli: string }[]) {
+        const r = await erp.request().input('c', sql.VarChar(16), coCli).query(
+          `SELECT RTRIM(co_cli) AS coCli, RTRIM(cli_des) AS name, RTRIM(co_ven) AS coVen, RTRIM(campo1) AS original
+           FROM saCliente WHERE co_cli = @c AND inactivo = 0 AND (campo1 IS NULL OR campo1 NOT LIKE 'Coordenadas:%')`);
+        if (r.recordset[0]) rows.push(r.recordset[0] as Seeded);
+      }
+      // Need >= 2 distinct sellers so some customers differ from the area's seller.
+      const firstSeller = rows[0]?.coVen;
+      const different = rows.find(r => r.coVen !== firstSeller);
+      if (!rows.length || !different) throw new Error('mock ERP lacks sold customers with 2+ distinct sellers');
+      const sameSeller = rows.filter(r => r.coVen === firstSeller).slice(0, 2);
+      seeded = [...sameSeller, different, rows.filter(r => r !== different && !sameSeller.includes(r))[0]].slice(0, 4);
+      const v = await erp.request().input('v', sql.VarChar(6), firstSeller).query(`SELECT RTRIM(ven_des) AS n FROM saVendedor WHERE co_ven = @v`);
+      sellerName = v.recordset[0].n;
+    } finally {
+      await dwh.close();
+    }
+
+    const origins: [number, number][] = [[10.46, -66.93], [10.51, -66.93], [10.46, -66.88], [10.51, -66.88]];   // ~0.05° box in Caracas
+    for (const [i, c] of seeded.entries()) {
+      await updateCustomerLocation(erp, { coCli: c.coCli, campo1: formatCoordinates({ lat: origins[i][0], lng: origins[i][1] }) });
+    }
+    const total = await erp.request().query(`SELECT COUNT(*) AS n FROM saCliente WHERE inactivo = 0 AND (campo1 IS NULL OR campo1 NOT LIKE 'Coordenadas:%')`);
+    expectedUnlocated = total.recordset[0].n;
+  });
+
+  test.afterAll(async () => {
+    try {
+      for (const c of seeded) {
+        if (c.original !== null) await updateCustomerLocation(erp, { coCli: c.coCli, campo1: c.original });
+        else {
+          // updateCustomerLocation treats NULL as "leave unchanged", so restoring a NULL needs a direct UPDATE.
+          await erp.request().input('c', sql.Char(16), c.coCli).query(`UPDATE saCliente SET campo1 = NULL WHERE co_cli = @c`);
+        }
+      }
+    } finally {
+      await erp?.close();
+    }
+  });
+
+  test('pins, popup, area around pins, seller mismatches and choropleth legend', async ({ adminPage }) => {
+    test.setTimeout(90_000);
+    await adminPage.goto(`/mapa?dateRange=${encodeURIComponent(PERIOD)}`);
+    const map = adminPage.getByTestId('customer-map');
+    await expect(map).toBeVisible({ timeout: 20_000 });
+
+    // Pins appear and the unlocated count dropped by exactly the seeded customers.
+    const pins = adminPage.locator('.leaflet-marker-icon');
+    await expect(pins).toHaveCount(4, { timeout: 20_000 });
+    await expect(adminPage.getByRole('tab', { name: `Sin ubicación (${expectedUnlocated})` })).toBeVisible();
+
+    // Popup shows name, segment and revenue.
+    const first = seeded[0];
+    await adminPage.locator('.leaflet-marker-icon').and(adminPage.locator(`[title="${first.name}"]`)).click();
+    const popup = adminPage.locator('.leaflet-popup-content');
+    await expect(popup.getByText(first.name, { exact: true })).toBeVisible();
+    await expect(popup.getByText('Segmento')).toBeVisible();
+    await expect(popup.locator('dt', { hasText: 'Ingresos' }).locator('+ dd')).toHaveText(/^USD\s*[\d.,]+$/);
+    await adminPage.locator('.leaflet-popup-close-button').click();   // an open popup would swallow the drawing clicks
+    await expect(popup).toHaveCount(0);
+
+    // Draw an area around all pins.
+    await adminPage.getByRole('tab', { name: /Zonas/ }).click();
+    await adminPage.getByRole('button', { name: 'Dibujar nueva zona' }).click();
+    const boxes = await pins.evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
+    const m = (await map.boundingBox())!;
+    const pad = 45;
+    const minX = Math.max(m.x + 10, Math.min(...boxes.map(b => b.x)) - pad), maxX = Math.min(m.x + m.width - 10, Math.max(...boxes.map(b => b.x)) + pad);
+    const minY = Math.max(m.y + 10, Math.min(...boxes.map(b => b.y)) - pad), maxY = Math.min(m.y + m.height - 10, Math.max(...boxes.map(b => b.y)) + pad);
+    const ring = [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }];
+    for (const pt of ring) await adminPage.mouse.click(pt.x, pt.y);
+    await adminPage.mouse.click(ring[0].x, ring[0].y);
+
+    await adminPage.getByLabel('Nombre').fill(areaName);
+    await adminPage.getByRole('group', { name: 'Vendedores de la zona' }).getByLabel(sellerName, { exact: true }).check();
+    await adminPage.getByRole('button', { name: 'Guardar zona' }).click();
+    const list = adminPage.getByRole('list', { name: 'Zonas existentes' });
+    await expect(list.getByText(areaName)).toBeVisible();
+    await expect(list.locator('li', { hasText: areaName })).toContainText('4 clientes');
+
+    // Discrepancias: customers whose seller differs from the area's seller.
+    const mismatched = seeded.filter(c => c.coVen !== seeded[0].coVen);
+    await adminPage.getByRole('tab', { name: new RegExp(`Discrepancias \\(${mismatched.length}\\)`) }).click();
+    const mismatchList = adminPage.getByRole('list', { name: 'Clientes con vendedor distinto al de la zona' });
+    await expect(mismatchList.locator('li')).toHaveCount(mismatched.length);
+    for (const c of mismatched) await expect(mismatchList.getByText(c.name, { exact: true })).toBeVisible();
+    await expect(adminPage.getByRole('list', { name: 'Clientes fuera de toda zona' }).locator('li')
+      .filter({ hasText: seeded[0].name })).toHaveCount(0);
+
+    // Choropleth legend.
+    await adminPage.getByLabel('Ingresos por zona').check();
+    await expect(adminPage.getByRole('group', { name: 'Leyenda de ingresos por zona' })).toBeVisible();
+
+    // Cleanup: delete the area.
+    await adminPage.getByRole('tab', { name: /Zonas/ }).click();
+    await list.locator('li', { hasText: areaName }).getByRole('button', { name: 'Eliminar' }).click();
+    await adminPage.locator('div.fixed.inset-0').getByRole('button', { name: 'Eliminar', exact: true }).click();
+    await expect(list.getByText(areaName)).not.toBeVisible();
+  });
+
+  test.afterEach(async ({ adminPage }, testInfo) => {
+    // If the test failed before its own cleanup, remove the area through the API.
+    if (testInfo.status === testInfo.expectedStatus) return;
+    const res = await adminPage.request.get('/api/mapa/zonas');
+    if (!res.ok()) return;
+    const body = await res.json();
+    const areas: { id: number; name: string }[] = Array.isArray(body) ? body : body.areas ?? [];
+    for (const a of areas.filter(x => x.name === areaName)) await adminPage.request.delete(`/api/mapa/zonas/${a.id}`);
   });
 });
