@@ -20,9 +20,9 @@ coordinates so the map works from day one.
 | Map unit | Each `saCliente` row is one pin. Stores with no ERP row are out of scope (data model leaves room). |
 | Coordinate storage | ERP `saCliente.campo1` (varchar(60)). `campo1`–`campo8` are all empty today (144 customers), so `campo1` is free. |
 | Coordinate syntax | `Coordenadas: (lat, lng)`, e.g. `Coordenadas: (10.480600, -66.903600)`. Order is **lat, lng**. |
-| Validation | Venezuela bounding box (≈ lat 0.6–12.3, lng −73.4 to −59.8). Swapped values are rejected with `SWAPPED_SUSPECTED`. |
+| Validation | Venezuela bounding box (≈ lat 0.6–12.3, lng −73.4 to −59.8). Swapped values are rejected with `SWAPPED_SUSPECTED`. Decimal separator is a dot only (a comma is ambiguous with the lat/lng separator). |
 | Delivery address | ERP `saCliente.dir_ent2`, edited from the map. |
-| Geocoding | Script, providers: Nominatim (OSM) then Google fallback (`--provider osm\|google\|both`, default `both`). Dry-run by default; `--apply` writes; only fills empty `campo1` unless `--force`. |
+| Geocoding | Script, providers: Nominatim (OSM) then Google fallback (`--provider osm\|google\|both`, default `both`). Dry-run by default; `--apply` writes; only fills empty `campo1` unless `--force`. Low-confidence and out-of-box results are never written, even with `--apply`; they are listed for manual placement. |
 | Data merge | Coordinates read live from the ERP, revenue/segment from the DWH, merged in TypeScript by `CustomerCode`. No DWH schema change. |
 | DWH rule | `AGENTS.md` rule "never query dim/fact outside the analytics routes" is relaxed: any module may read the DWH through `getDwhPool()` using `.input()` for user-controlled values. |
 | Sales areas | Polygons in SQLite. Several sellers per area. No overlaps between areas. Customer-to-area match is computed on read (point-in-polygon), never stored, never written back to the ERP. |
@@ -36,6 +36,14 @@ coordinates so the map works from day one.
 1. **Foundations** — coordinate module, ERP write procedure, geocoding script, remove Rutas stub, `AGENTS.md` update.
 2. **Map and routes** — `/mapa`, pins, popups, filters, location editing, routes.
 3. **Sales areas** — drawing, seller assignment, auto-match, mismatch list, heatmap layers.
+
+## Plans
+
+Dependency order; each plan must be merged before the next starts.
+
+1. `docs/superpowers/plans/2026-09-30-customer-map-1-foundations.md`
+2. `docs/superpowers/plans/2026-09-30-customer-map-2-map-and-routes.md`
+3. `docs/superpowers/plans/2026-09-30-customer-map-3-sales-areas.md`
 
 ## 1. Foundations
 
@@ -89,8 +97,8 @@ tests and docs for "Rutas y Logística".
 
 ### API (every route: `getSessionFromRequest` + `hasGeoAccess` → 403; errors `{ error }`; PostHog capture per convention)
 
-- `GET /api/mapa/clientes?from=&to=` — customers + coordinates (ERP,
-  live), revenue USD (converted via `saTasa`), Pareto segment, matched
+- `GET /api/mapa/clientes?dateRange=` — customers + coordinates (ERP,
+  live), revenue USD (per row via `usdConversionJoin`/`dualAmountExpr` from `app/api/dwh/lib/query-builder.ts`, never a single current rate), Pareto segment, matched
   area, routes, default seller. Merged in TypeScript by customer code.
 - `PATCH /api/mapa/clientes/[co_cli]/ubicacion` — validates with the
   coordinate module, calls the ERP procedure.
@@ -98,8 +106,7 @@ tests and docs for "Rutas y Logística".
 
 ### Pareto segment
 
-By period revenue: A = top customers up to 80% cumulative, B up to 95%,
-C the rest; no revenue in period = grey/none.
+Same definition as the analytics Clientes tab (`app/api/dwh/clientes/route.ts`): customers ranked by period net sales (BS), bucketed by cumulative share — A ≤ 20%, B ≤ 50%, C the rest (`PARETO_THRESHOLDS`). No revenue in period = grey/none.
 
 ### Page `/mapa`
 

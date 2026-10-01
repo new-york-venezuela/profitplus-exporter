@@ -21,11 +21,14 @@ the ERP is queried live, per-request, directly against Profit Plus tables
 (`saFacturaVenta`, `saArticulo`, etc.) with collation/RTRIM handling inline
 in each query. The DWH is a separate database (`DWH_AlimentosNY`) built
 ahead of time by `migrations/dwh/` and refreshed by `Load_*` stored
-procedures — the app's analytics dashboard queries `dim.*`/`fact.*` tables
-there directly, with no collation gymnastics needed since that was already
-handled at load time. Never query raw ERP tables from `app/api/dwh/*`, and
-never query `dim.*`/`fact.*` from anywhere that isn't the analytics
-dashboard's own routes.
+procedures — it holds pre-aggregated `dim.*`/`fact.*` tables with no
+collation gymnastics needed, since that was already handled at load time.
+Any module may read the DWH through `getDwhPool()` (using `.input()` for
+user-controlled values); a module that needs both ERP and DWH data (e.g.
+`/mapa`) queries each through its own pool and merges the results in
+TypeScript by customer code — never join across the two databases in SQL
+outside the `Load_*` procedures. Never query raw ERP tables from
+`app/api/dwh/*`.
 
 ## Directory Map
 
@@ -51,14 +54,19 @@ lib/
   csv.ts                   — buildCsv() with UTF-8 BOM
   xlsx.ts                  — XLSX export helper
   trim-strings.ts           — trimStrings() — strips char()-padding from ERP query results
+  geo/coordinates.ts      — parseCoordinates()/validateCoordinates()/formatCoordinates() for saCliente.campo1 ("Coordenadas: (lat, lng)")
+  geo/erp-location.ts     — updateCustomerLocation() → pApiActualizarUbicacionCliente (only way the app writes campo1/dir_ent2)
+  geo/geocoding.ts        — Nominatim/Google geocoding used by scripts/geocode-customers.ts
 
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
-                              (e.g. pApiCrearAjusteInventario for inventory adjustments)
+                              (e.g. pApiCrearAjusteInventario for inventory adjustments,
+                              pApiActualizarUbicacionCliente for customer location)
 scripts/migrate-dwh.ts     — runs migrations/dwh/ in order, tracked in dwh.__dwh_migrations
 scripts/migrate-mssql.ts    — runs migrations/mssql/ in order, against the ERP database
 scripts/migrate.ts          — runs migrations/sqlite/ (SQLite)
+scripts/geocode-customers.ts — bun run geocode:customers (dry-run by default)
 
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
@@ -299,5 +307,6 @@ See `.env.example` for the full list; `INSTRUCTIONS.md` covers setup end to end.
   `saTipoPrecio`/`saTipoCliente` row pair) and is excluded from `test`/`test:unit` via
   `--path-ignore-patterns`, matching how `compras-export.integration.test.ts` is excluded and run
   separately via `test:mssql`. Only run it against a non-production Profit Plus instance.
+- `bun run test:geo-erp` writes to the ERP (then restores) — non-production only.
 - See `INSTRUCTIONS.md` → "Running Tests" for the full command reference (unit, e2e, MSSQL
   integration).

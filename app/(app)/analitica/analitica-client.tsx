@@ -19,7 +19,6 @@ import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
 import TabCadencia from './tabs/tab-cadencia';
 import TabHistorico from './tabs/tab-historico';
-import TabStub from './tabs/tab-stub';
 
 export interface TabComponentProps {
   dateRange: DateRange;
@@ -47,7 +46,6 @@ const TABS: TabDef[] = [
   { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
   { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
   { key: 'compras', label: 'Compras', component: TabCompras },
-  { key: 'rutas', label: 'Rutas y Logística', component: () => <TabStub title="Rutas y Logística" /> },
 ];
 
 const DEFAULT_TAB = 'resumen';
@@ -118,7 +116,7 @@ function AnaliticaClientInner() {
   const searchParams = useSearchParams();
 
   const tabParam = searchParams.get('tab');
-  const activeTab = tabParam ?? DEFAULT_TAB;
+  const activeTab = TABS.some(t => t.key === tabParam) ? tabParam! : DEFAULT_TAB;
 
   const dateRangeParam = searchParams.get('dateRange');
   const dateRange: DateRange = isValidDateRange(dateRangeParam) ? dateRangeParam : DEFAULT_DATE_RANGE;
