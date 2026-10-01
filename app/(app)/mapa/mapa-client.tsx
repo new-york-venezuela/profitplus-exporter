@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { MapPayload } from '@/lib/geo/types';
+import type { AreaDto } from '@/lib/geo/areas-repo';
+import type { Ring } from '@/lib/geo/geometry';
 import { areaRevenue } from '@/lib/geo/area-match';
 import { buildScale } from '@/lib/geo/color-scale';
 import { heatPoints } from '@/lib/geo/layers';
@@ -17,6 +19,8 @@ import { LayerToggles, type LayerState } from './components/layer-toggles';
 import { AreaPolygons } from './components/area-polygons';
 import { HeatLayer } from './components/heat-layer';
 import { ChoroplethLegend } from './components/choropleth-legend';
+import { AreaDrawing } from './components/area-drawing';
+import { AreasPanel, type AreaDraft } from './components/areas-panel';
 
 export default function MapaClient() {
   const router = useRouter();
@@ -63,13 +67,16 @@ export default function MapaClient() {
 
   const visible = useMemo(() => (payload ? applyFilters(payload.customers, filters) : []), [payload, filters]);
 
-  const [view, setView] = useState<'map' | 'table'>('map');
-  const [rightTab, setRightTab] = useState<'unlocated' | 'routes'>('unlocated');
+  const [areaDraft, setAreaDraft] = useState<AreaDraft | null>(null);
+  const [tableView, setView] = useState<'map' | 'table'>('map');
+  // Drawing needs the map, so an open area draft forces the map view.
+  const view = areaDraft ? 'map' : tableView;
+  const [rightTab, setRightTab] = useState<'unlocated' | 'routes' | 'areas'>('unlocated');
   const sellers = payload?.sellers ?? [];
   const routes = payload?.routes ?? [];
   const areas = useMemo(() => payload?.areas ?? [], [payload]);
   const [layers, setLayers] = useState<LayerState>({ pins: true, areas: true, choropleth: false, density: false });
-  const [highlightAreaId] = useState<number | null>(null);
+  const [highlightAreaId, setHighlightAreaId] = useState<number | null>(null);
   const stats = useMemo(() => areaRevenue(visible, areas), [visible, areas]);
   const scale = useMemo(() => (layers.choropleth ? buildScale([...stats.values()].map(s => s.revenueUsd)) : null), [layers.choropleth, stats]);
   const heat = useMemo(() => (layers.density ? heatPoints(visible) : []), [layers.density, visible]);
@@ -77,9 +84,58 @@ export default function MapaClient() {
 
   const [draft, setDraft] = useState<EditDraft | null>(null);
 
+  const startDraw = useCallback(() => {
+    setDraft(null);                                               // cancel any customer-location edit
+    setAreaDraft({ id: null, name: '', color: '#2563eb', sellerCodes: [], ring: null, phase: 'draw', saving: false, error: null });
+    setHighlightAreaId(null);
+  }, []);
+
+  const editArea = useCallback((a: AreaDto) => {
+    setDraft(null);
+    setAreaDraft({ id: a.id, name: a.name, color: a.color, sellerCodes: a.sellerCodes, ring: a.ring, phase: 'form', saving: false, error: null });
+    setHighlightAreaId(null);
+  }, []);
+
+  const onDrawn = useCallback((ring: Ring) => setAreaDraft(d => d && { ...d, ring, phase: 'form' }), []);
+  const onShapeEdited = useCallback((ring: Ring) => setAreaDraft(d => d && { ...d, ring }), []);
+  const cancelArea = useCallback(() => { setAreaDraft(null); setHighlightAreaId(null); }, []);
+
+  async function saveArea() {
+    if (!areaDraft?.ring) return;
+    setAreaDraft({ ...areaDraft, saving: true, error: null });
+    const body = { name: areaDraft.name, color: areaDraft.color, ring: areaDraft.ring, sellerCodes: areaDraft.sellerCodes };
+    let res: Response;
+    try {
+      res = await fetch(areaDraft.id === null ? '/api/mapa/zonas' : `/api/mapa/zonas/${areaDraft.id}`, {
+        method: areaDraft.id === null ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } catch {
+      setAreaDraft(d => d && { ...d, saving: false, error: 'Error de red al guardar la zona' });
+      return;
+    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      setHighlightAreaId(json?.conflictAreaId ?? null);           // overlap: highlight the area we collide with
+      setAreaDraft(d => d && { ...d, saving: false, error: json?.error ?? 'Error al guardar la zona' });
+      return;
+    }
+    setAreaDraft(null); setHighlightAreaId(null);
+    setReloadKey(k => k + 1);                                     // matches/revenue change when an area changes
+  }
+
+  async function deleteAreaById(a: AreaDto): Promise<string | null> {
+    const res = await fetch(`/api/mapa/zonas/${a.id}`, { method: 'DELETE' });
+    if (!res.ok) return (await res.json().catch(() => null))?.error ?? 'Error al eliminar la zona';
+    setReloadKey(k => k + 1);
+    return null;
+  }
+
+
   const startEditing = useCallback((coCli: string) => {
     const c = payload?.customers.find(x => x.coCli === coCli);
     if (!c) return;
+    setAreaDraft(null);
+    setHighlightAreaId(null);
     setView('map');
     setDraft({
       coCli, lat: c.lat === null ? '' : String(c.lat), lng: c.lng === null ? '' : String(c.lng),
@@ -190,6 +246,13 @@ export default function MapaClient() {
             >
               {(layers.areas || layers.choropleth) && <AreaPolygons areas={areas} stats={stats} scale={scale} highlightId={highlightAreaId} />}
               {layers.density && <HeatLayer points={heat} />}
+              <AreaDrawing
+                mode={areaDraft?.phase === 'draw' ? 'draw' : areaDraft?.phase === 'shape' ? 'edit' : 'idle'}
+                editRing={areaDraft?.ring ?? null}
+                onDrawn={onDrawn}
+                onEdited={onShapeEdited}
+                onCancel={cancelArea}
+              />
             </CustomerMap>
           ) : (
             <CustomerTable customers={visible} onSelect={c => { setSelected(c); setView('map'); }} />
@@ -209,7 +272,7 @@ export default function MapaClient() {
           />
         )}
         <div role="tablist" aria-label="Paneles" className="flex border-b border-gray-200">
-          {([['unlocated', `Sin ubicación (${unlocated.length})`], ['routes', `Rutas (${routes.length})`]] as const).map(([id, label]) => (
+          {([['unlocated', `Sin ubicación (${unlocated.length})`], ['routes', `Rutas (${routes.length})`], ['areas', `Zonas (${areas.length})`]] as const).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -224,6 +287,15 @@ export default function MapaClient() {
         </div>
         {rightTab === 'unlocated' ? (
           <UnlocatedList customers={unlocated} onLocate={startEditing} />
+        ) : rightTab === 'areas' ? (
+          <AreasPanel
+            areas={areas} stats={stats} sellers={sellers} draft={areaDraft}
+            onStartDraw={startDraw} onEditArea={editArea}
+            onChangeDraft={patch => setAreaDraft(d => d && { ...d, ...patch })}
+            onEditShape={() => setAreaDraft(d => d && { ...d, phase: 'shape' })}
+            onDoneShape={() => setAreaDraft(d => d && { ...d, phase: 'form' })}
+            onSave={saveArea} onCancel={cancelArea} onDelete={deleteAreaById}
+          />
         ) : (
           <RoutesPanel
             routes={routes}
