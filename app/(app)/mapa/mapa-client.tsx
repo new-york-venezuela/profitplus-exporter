@@ -1,8 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { MapPayload } from '@/lib/geo/types';
+import { areaRevenue } from '@/lib/geo/area-match';
+import { buildScale } from '@/lib/geo/color-scale';
+import { heatPoints } from '@/lib/geo/layers';
 import { parseFilters, serializeFilters, normalizeFilters, applyFilters, type MapFilters } from '@/lib/geo/filters';
 import CustomerMap from './components/customer-map';
 import { FilterPanel } from './components/filter-panel';
@@ -10,6 +13,10 @@ import { CustomerTable } from './components/customer-table';
 import { UnlocatedList } from './components/unlocated-list';
 import { RoutesPanel } from './components/routes-panel';
 import { LocationEditor, type EditDraft } from './components/location-editor';
+import { LayerToggles, type LayerState } from './components/layer-toggles';
+import { AreaPolygons } from './components/area-polygons';
+import { HeatLayer } from './components/heat-layer';
+import { ChoroplethLegend } from './components/choropleth-legend';
 
 export default function MapaClient() {
   const router = useRouter();
@@ -21,6 +28,8 @@ export default function MapaClient() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [fitKey, setFitKey] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
+  const lastRange = useRef<string | null>(null);
 
   // Only the period needs a server round-trip; every other filter is applied in memory.
   useEffect(() => {
@@ -35,14 +44,19 @@ export default function MapaClient() {
         if (!res.ok) throw new Error(body?.error ?? 'Error al cargar el mapa');
         return body as MapPayload;
       })
-      .then(p => { if (!cancelled) { setPayload(p); setFitKey(k => k + 1); } })
+            .then(p => {
+        if (cancelled) return;
+        setPayload(p);
+        // Re-fits only when the period changed, not on area/route save reloads.
+        if (lastRange.current !== filters.dateRange) { lastRange.current = filters.dateRange; setFitKey(k => k + 1); }
+      })
       .catch(e => { if (!cancelled) setError((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [filters.dateRange]);
+  }, [filters.dateRange, reloadKey]);
 
   const setFilters = useCallback((next: MapFilters) => {
-    const normalized = normalizeFilters(next, payload?.routes ?? []);
+    const normalized = normalizeFilters(next, payload?.routes ?? [], payload?.areas ?? []);
     const qs = serializeFilters(normalized).toString();
     router.replace(qs ? `/mapa?${qs}` : '/mapa', { scroll: false });
   }, [payload, router]);
@@ -53,6 +67,12 @@ export default function MapaClient() {
   const [rightTab, setRightTab] = useState<'unlocated' | 'routes'>('unlocated');
   const sellers = payload?.sellers ?? [];
   const routes = payload?.routes ?? [];
+  const areas = useMemo(() => payload?.areas ?? [], [payload]);
+  const [layers, setLayers] = useState<LayerState>({ pins: true, areas: true, choropleth: false, density: false });
+  const [highlightAreaId] = useState<number | null>(null);
+  const stats = useMemo(() => areaRevenue(visible, areas), [visible, areas]);
+  const scale = useMemo(() => (layers.choropleth ? buildScale([...stats.values()].map(s => s.revenueUsd)) : null), [layers.choropleth, stats]);
+  const heat = useMemo(() => (layers.density ? heatPoints(visible) : []), [layers.density, visible]);
   const unlocated = useMemo(() => (payload ? payload.customers.filter(c => c.lat === null) : []), [payload]);
 
   const [draft, setDraft] = useState<EditDraft | null>(null);
@@ -131,10 +151,12 @@ export default function MapaClient() {
           filters={filters}
           sellers={sellers}
           routes={routes}
+          areas={areas}
           onChange={setFilters}
           onFit={() => setFitKey(k => k + 1)}
           counts={{ shown: visible.length, total: payload?.customers.length ?? 0 }}
         />
+        <LayerToggles layers={layers} onChange={setLayers} />
       </aside>
 
       <div className="flex min-h-[50vh] min-w-0 flex-1 flex-col">
@@ -164,10 +186,15 @@ export default function MapaClient() {
               fitKey={fitKey}
               editing={editingPosition}
               onPlace={place}
-            />
+              showPins={layers.pins}
+            >
+              {(layers.areas || layers.choropleth) && <AreaPolygons areas={areas} stats={stats} scale={scale} highlightId={highlightAreaId} />}
+              {layers.density && <HeatLayer points={heat} />}
+            </CustomerMap>
           ) : (
             <CustomerTable customers={visible} onSelect={c => { setSelected(c); setView('map'); }} />
           )}
+          {view === 'map' && scale && <ChoroplethLegend scale={scale} />}
         </div>
       </div>
 

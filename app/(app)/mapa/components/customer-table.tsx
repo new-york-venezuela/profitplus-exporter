@@ -45,6 +45,7 @@ export function CustomerTable({ customers, onSelect }: { customers: MapCustomer[
             {header('seller', 'Vendedor')}
             {header('revenueUsd', 'Ingresos (USD)')}
             {header('pareto', 'Segmento')}
+            <th scope="col" className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Zona</th>
             <th scope="col" className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Ubicación</th>
           </tr>
         </thead>
@@ -60,6 +61,10 @@ export function CustomerTable({ customers, onSelect }: { customers: MapCustomer[
               <td className="px-3 py-2">{c.sellerName ?? c.coVen}</td>
               <td className="px-3 py-2 tabular-nums">{c.revenueUsd === null ? 'Sin tasa' : usd.format(c.revenueUsd)}</td>
               <td className="px-3 py-2">{c.pareto ?? '—'}</td>
+              <td className="px-3 py-2">
+                {c.areaName ?? '—'}
+                {c.sellerMismatch && <span className="block text-xs text-amber-800">⚠ vendedor distinto</span>}
+              </td>
               <td className="px-3 py-2">
                 {c.lat !== null ? `${c.lat.toFixed(5)}, ${c.lng!.toFixed(5)}` : (
                   <span className="text-amber-800">{c.coordinatesIssue ? ISSUE_TEXT[c.coordinatesIssue] : 'Sin coordenadas'}</span>

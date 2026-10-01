@@ -19,11 +19,18 @@ export function CustomerPopup({
         <dd>{customer.pareto ?? 'Sin ventas'}</dd>
         <dt className="text-gray-500">Vendedor</dt>
         <dd>{customer.sellerName ?? customer.coVen}</dd>
+        <dt className="text-gray-500">Zona</dt>
+        <dd>{customer.areaName ?? 'Sin zona'}</dd>
         <dt className="text-gray-500">Entrega</dt>
         <dd>{customer.dirEnt2 ?? customer.direc1 ?? '—'}</dd>
         <dt className="text-gray-500">Rutas</dt>
         <dd>{customerRoutes.length ? customerRoutes.map(r => r.name).join(', ') : '—'}</dd>
       </dl>
+      {customer.sellerMismatch && (
+        <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900" role="note">
+          Vendedor distinto al de la zona ({customer.areaSellerCodes.join(', ')})
+        </p>
+      )}
       <button
         type="button"
         onClick={() => onEditLocation(customer.coCli)}

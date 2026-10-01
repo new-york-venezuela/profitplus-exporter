@@ -19,6 +19,8 @@ export interface CustomerMapProps {
   fitKey: number;
   editing: { lat: number | null; lng: number | null } | null;
   onPlace: (lat: number, lng: number) => void;
+  showPins?: boolean;
+  focus?: { lat: number; lng: number; key: number } | null;
   children?: React.ReactNode;
 }
 
@@ -35,13 +37,22 @@ function FitBounds({ points, fitKey }: { points: [number, number][]; fitKey: num
   return null;
 }
 
+function FocusOn({ focus }: { focus: { lat: number; lng: number; key: number } | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (focus) map.setView([focus.lat, focus.lng], Math.max(map.getZoom(), 14), { animate: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.key, map]);
+  return null;
+}
+
 function ClickToPlace({ active, onPlace }: { active: boolean; onPlace: (lat: number, lng: number) => void }) {
   useMapEvents({ click(e) { if (active) onPlace(e.latlng.lat, e.latlng.lng); } });
   return null;
 }
 
 export default function CustomerMap({
-  customers, routes, selectedCoCli, onSelect, onEditLocation, fitKey, editing, onPlace, children,
+  customers, routes, selectedCoCli, onSelect, onEditLocation, fitKey, editing, onPlace, showPins, focus, children,
 }: CustomerMapProps) {
   const located = useMemo(() => customers.filter(c => c.lat !== null && c.lng !== null), [customers]);
   const points = useMemo(() => located.map(c => [c.lat!, c.lng!] as [number, number]), [located]);
@@ -54,8 +65,9 @@ export default function CustomerMap({
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitBounds points={points} fitKey={fitKey} />
+        <FocusOn focus={focus ?? null} />
         <ClickToPlace active={editing !== null} onPlace={onPlace} />
-        {located.map(c => (
+        {showPins !== false && located.map(c => (
           <Marker
             key={c.coCli}
             position={[c.lat!, c.lng!]}

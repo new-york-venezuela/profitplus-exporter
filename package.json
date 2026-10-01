@@ -31,6 +31,7 @@
     "dwh:backfill": "bun --bun run scripts/dwh-backfill.ts"
   },
   "dependencies": {
+    "@geoman-io/leaflet-geoman-free": "^2.20.2",
     "@types/handlebars": "^4.1.0",
     "@types/nodemailer": "^8.0.1",
     "bcrypt": "^6.0.0",
@@ -39,6 +40,7 @@
     "handlebars": "^4.7.9",
     "jose": "^6.2.3",
     "leaflet": "^1.9.4",
+    "leaflet.heat": "^0.2.0",
     "mssql": "^12.7.0",
     "next": "16.2.11",
     "nodemailer": "^9.0.5",

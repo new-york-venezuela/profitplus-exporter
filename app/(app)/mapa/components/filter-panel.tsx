@@ -3,12 +3,14 @@
 import SearchableSelect from '@/lib/components/searchable-select';
 import { periodOptions, previousMonthRange } from '@/lib/geo/date-range';
 import { filterChips, type MapFilters } from '@/lib/geo/filters';
+import type { AreaDto } from '@/lib/geo/areas-repo';
 import type { MapSeller, Pareto, RouteDto } from '@/lib/geo/types';
 
 interface Props {
   filters: MapFilters;
   sellers: MapSeller[];
   routes: RouteDto[];
+  areas: AreaDto[];
   onChange: (f: MapFilters) => void;
   onFit: () => void;
   counts: { shown: number; total: number };
@@ -17,8 +19,8 @@ interface Props {
 const fieldLabel = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-600';
 const controlClass = 'min-h-11 w-full rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600';
 
-export function FilterPanel({ filters, sellers, routes, onChange, onFit, counts }: Props) {
-  const chips = filterChips(filters, { sellers, routes });
+export function FilterPanel({ filters, sellers, routes, areas, onChange, onFit, counts }: Props) {
+  const chips = filterChips(filters, { sellers, routes, areas });
   const visibleRoutes = filters.seller ? routes.filter(r => r.sellerCode === filters.seller) : routes;
 
   function clear(key: (typeof chips)[number]['key']) {
@@ -26,6 +28,7 @@ export function FilterPanel({ filters, sellers, routes, onChange, onFit, counts 
     if (key === 'dateRange') next.dateRange = previousMonthRange();
     if (key === 'seller') next.seller = null;
     if (key === 'route') next.route = null;
+    if (key === 'area') next.area = null;
     if (key === 'pareto') next.pareto = null;
     if (key === 'noCoords') next.noCoords = false;
     onChange(next);
@@ -64,6 +67,17 @@ export function FilterPanel({ filters, sellers, routes, onChange, onFit, counts 
           options={visibleRoutes.map(r => ({ value: String(r.id), label: r.name }))}
           placeholder="Buscar ruta…"
           allLabel="Todas las rutas"
+        />
+      </div>
+
+      <div>
+        <span className={fieldLabel}>Zona</span>
+        <SearchableSelect
+          value={filters.area === null ? null : String(filters.area)}
+          onChange={v => onChange({ ...filters, area: v === null ? null : Number(v) })}
+          options={areas.map(a => ({ value: String(a.id), label: a.name }))}
+          placeholder="Buscar zona…"
+          allLabel="Todas las zonas"
         />
       </div>
 
