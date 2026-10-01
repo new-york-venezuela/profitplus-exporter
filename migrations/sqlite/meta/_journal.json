@@ -43,6 +43,13 @@
       "when": 1790797609258,
       "tag": "0005_qr_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790818669724,
+      "tag": "0006_geo_routes",
+      "breakpoints": true
     }
   ]
 }

@@ -124,3 +124,26 @@ export const qrCodes = sqliteTable('qr_codes', {
 
 export type QrCode    = typeof qrCodes.$inferSelect;
 export type NewQrCode = typeof qrCodes.$inferInsert;
+
+export const routes = sqliteTable('routes', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  name:       text('name').notNull(),
+  sellerCode: text('seller_code').notNull(),          // saVendedor.co_ven, trimmed
+  createdAt:  integer('created_at').notNull(),        // unix ms
+}, (t) => ({
+  uniq: unique('routes_seller_name_unique').on(t.sellerCode, t.name),
+}));
+
+export type Route    = typeof routes.$inferSelect;
+export type NewRoute = typeof routes.$inferInsert;
+
+export const routeCustomers = sqliteTable('route_customers', {
+  id:           integer('id').primaryKey({ autoIncrement: true }),
+  routeId:      integer('route_id').notNull().references(() => routes.id, { onDelete: 'cascade' }),
+  customerCode: text('customer_code').notNull(),      // saCliente.co_cli, trimmed
+}, (t) => ({
+  uniq: unique('route_customers_route_customer_unique').on(t.routeId, t.customerCode),
+}));
+
+export type RouteCustomer    = typeof routeCustomers.$inferSelect;
+export type NewRouteCustomer = typeof routeCustomers.$inferInsert;
