@@ -86,7 +86,7 @@ test.describe('mapa sales areas @mssql', () => {
     await drawSquare(adminPage, box, 0.3, 0.3, 0.2);
     await adminPage.getByLabel('Nombre').fill(`E2E Zona B ${suffix}`);
     await adminPage.getByRole('button', { name: 'Guardar zona' }).click();
-    await expect(adminPage.getByRole('alert')).toContainText(`E2E Zona A ${suffix}`);
+    await expect(adminPage.locator('p[role="alert"]')).toContainText(`E2E Zona A ${suffix}`);
     await adminPage.getByRole('button', { name: 'Cancelar' }).click();
 
     // delete the first
