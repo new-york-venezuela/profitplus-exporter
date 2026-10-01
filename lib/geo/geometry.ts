@@ -92,16 +92,39 @@ export function interiorPoint(ring: Ring): Point {
   return [(xs[0] + xs[1]) / 2, y];
 }
 
+// Inside-intervals of a polygon along the horizontal line at height y
+// (y must not pass through a vertex).
+function scanIntervals(ring: Ring, y: number): [number, number][] {
+  const xs: number[] = [];
+  for (const [a, b] of edges(ring)) {
+    if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + ((y - a[1]) * (b[0] - a[0])) / (b[1] - a[1]));
+  }
+  xs.sort((p, q) => p - q);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+
 // Interiors intersect iff some edges properly cross, or a vertex of one is
-// strictly inside the other, or (for identical/contained shapes whose
-// vertices only touch the other's boundary) an interior point of one is
-// strictly inside the other. Shared borders and shared corners do NOT overlap.
+// strictly inside the other, or — for shapes whose vertices only touch the
+// other's boundary (identical, diamond-in-square, shifted rectangles on the
+// same band) — some horizontal scanline, taken between two consecutive vertex
+// heights of either polygon, has inside-intervals that overlap with positive
+// length. The scanline test is exact for simple polygons: if the interiors
+// share any area, they share it on a band between vertex heights.
+// Shared borders and shared corners do NOT overlap.
 export function polygonsOverlap(a: Ring, b: Ring): boolean {
   const ea = edges(a), eb = edges(b);
   for (const [p, q] of ea) for (const [r, s] of eb) if (properCross(p, q, r, s)) return true;
   if (a.some(p => pointInPolygon(p, b, 'outside'))) return true;
   if (b.some(p => pointInPolygon(p, a, 'outside'))) return true;
-  return pointInPolygon(interiorPoint(a), b, 'outside') || pointInPolygon(interiorPoint(b), a, 'outside');
+  const ys = [...new Set([...a, ...b].map(p => p[1]))].sort((p, q) => p - q);
+  for (let i = 0; i + 1 < ys.length; i++) {
+    const y = (ys[i] + ys[i + 1]) / 2;
+    const ia = scanIntervals(a, y), ib = scanIntervals(b, y);
+    for (const [l1, r1] of ia) for (const [l2, r2] of ib) if (Math.min(r1, r2) - Math.max(l1, l2) > EPS) return true;
+  }
+  return false;
 }
 
 export function toGeoJsonPolygon(ring: Ring): string {

@@ -89,6 +89,10 @@ describe('polygonsOverlap', () => {
   test('half-rectangle sharing the square\'s boundary → true', () => {
     expect(polygonsOverlap(square, [[0, 0], [1, 0], [1, 2], [0, 2]])).toBe(true);
   });
+  test('rectangles shifted along a shared band (all vertices on the other\'s boundary) → true', () => {
+    expect(polygonsOverlap(shift(square, 1, 0), shift(square, 2, 0))).toBe(true);
+    expect(polygonsOverlap(shift(square, 2, 0), shift(square, 1, 0))).toBe(true);
+  });
   test('either winding gives the same answer', () => {
     expect(polygonsOverlap(squareCw, shift(square, 1, 1))).toBe(true);
     expect(polygonsOverlap(squareCw, shift(square, 2, 0))).toBe(false);

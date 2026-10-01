@@ -147,3 +147,25 @@ export const routeCustomers = sqliteTable('route_customers', {
 
 export type RouteCustomer    = typeof routeCustomers.$inferSelect;
 export type NewRouteCustomer = typeof routeCustomers.$inferInsert;
+
+export const salesAreas = sqliteTable('sales_areas', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  name:      text('name').notNull().unique(),
+  color:     text('color').notNull(),                  // '#RRGGBB'
+  polygon:   text('polygon').notNull(),                // GeoJSON Polygon text, [lng, lat], closed ring
+  createdAt: integer('created_at').notNull(),          // unix ms
+});
+
+export type SalesArea    = typeof salesAreas.$inferSelect;
+export type NewSalesArea = typeof salesAreas.$inferInsert;
+
+export const salesAreaSellers = sqliteTable('sales_area_sellers', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  areaId:     integer('area_id').notNull().references(() => salesAreas.id, { onDelete: 'cascade' }),
+  sellerCode: text('seller_code').notNull(),           // saVendedor.co_ven, trimmed
+}, (t) => ({
+  uniq: unique('sales_area_sellers_area_seller_unique').on(t.areaId, t.sellerCode),
+}));
+
+export type SalesAreaSeller    = typeof salesAreaSellers.$inferSelect;
+export type NewSalesAreaSeller = typeof salesAreaSellers.$inferInsert;
