@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { MapPayload } from '@/lib/geo/types';
 import type { AreaDto } from '@/lib/geo/areas-repo';
 import type { Ring } from '@/lib/geo/geometry';
+import { findDiscrepancies } from '@/lib/geo/discrepancies';
 import { areaRevenue } from '@/lib/geo/area-match';
 import { buildScale } from '@/lib/geo/color-scale';
 import { heatPoints } from '@/lib/geo/layers';
@@ -19,6 +20,7 @@ import { LayerToggles, type LayerState } from './components/layer-toggles';
 import { AreaPolygons } from './components/area-polygons';
 import { HeatLayer } from './components/heat-layer';
 import { ChoroplethLegend } from './components/choropleth-legend';
+import { MismatchPanel } from './components/mismatch-panel';
 import { AreaDrawing } from './components/area-drawing';
 import { AreasPanel, type AreaDraft } from './components/areas-panel';
 
@@ -71,10 +73,18 @@ export default function MapaClient() {
   const [tableView, setView] = useState<'map' | 'table'>('map');
   // Drawing needs the map, so an open area draft forces the map view.
   const view = areaDraft ? 'map' : tableView;
-  const [rightTab, setRightTab] = useState<'unlocated' | 'routes' | 'areas'>('unlocated');
+  const [rightTab, setRightTab] = useState<'unlocated' | 'routes' | 'areas' | 'mismatch'>('unlocated');
   const sellers = payload?.sellers ?? [];
   const routes = payload?.routes ?? [];
   const areas = useMemo(() => payload?.areas ?? [], [payload]);
+  const discrepancies = useMemo(() => findDiscrepancies(payload?.customers ?? [], areas.length > 0), [payload, areas]);
+  const [focus, setFocus] = useState<{ lat: number; lng: number; key: number } | null>(null);
+  const focusCustomer = useCallback((coCli: string) => {
+    const c = payload?.customers.find(x => x.coCli === coCli);
+    if (!c || c.lat === null || c.lng === null) return;
+    setView('map'); setSelected(coCli);
+    setFocus(f => ({ lat: c.lat!, lng: c.lng!, key: (f?.key ?? 0) + 1 }));
+  }, [payload]);
   const [layers, setLayers] = useState<LayerState>({ pins: true, areas: true, choropleth: false, density: false });
   const [highlightAreaId, setHighlightAreaId] = useState<number | null>(null);
   const stats = useMemo(() => areaRevenue(visible, areas), [visible, areas]);
@@ -243,6 +253,7 @@ export default function MapaClient() {
               editing={editingPosition}
               onPlace={place}
               showPins={layers.pins}
+              focus={focus}
             >
               {(layers.areas || layers.choropleth) && <AreaPolygons areas={areas} stats={stats} scale={scale} highlightId={highlightAreaId} />}
               {layers.density && <HeatLayer points={heat} />}
@@ -271,8 +282,8 @@ export default function MapaClient() {
             onCancel={() => setDraft(null)}
           />
         )}
-        <div role="tablist" aria-label="Paneles" className="flex border-b border-gray-200">
-          {([['unlocated', `Sin ubicación (${unlocated.length})`], ['routes', `Rutas (${routes.length})`], ['areas', `Zonas (${areas.length})`]] as const).map(([id, label]) => (
+        <div role="tablist" aria-label="Paneles" className="flex flex-wrap border-b border-gray-200">
+          {([['unlocated', `Sin ubicación (${unlocated.length})`], ['routes', `Rutas (${routes.length})`], ['areas', `Zonas (${areas.length})`], ['mismatch', `Discrepancias (${discrepancies.mismatched.length + discrepancies.outside.length})`]] as const).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -287,6 +298,8 @@ export default function MapaClient() {
         </div>
         {rightTab === 'unlocated' ? (
           <UnlocatedList customers={unlocated} onLocate={startEditing} />
+        ) : rightTab === 'mismatch' ? (
+          <MismatchPanel customers={payload?.customers ?? []} hasAreas={areas.length > 0} sellers={sellers} onFocus={focusCustomer} />
         ) : rightTab === 'areas' ? (
           <AreasPanel
             areas={areas} stats={stats} sellers={sellers} draft={areaDraft}
