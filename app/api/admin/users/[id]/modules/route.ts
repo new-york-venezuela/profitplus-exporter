@@ -7,7 +7,7 @@ import { captureEvent } from '@/lib/analytics/posthog';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_MODULES = ['inventory', 'dwh', 'pricing_view', 'pricing_edit'] as const;
+const VALID_MODULES = ['inventory', 'dwh', 'pricing_view', 'pricing_edit', 'geo'] as const;
 
 export async function PUT(
   request: NextRequest,

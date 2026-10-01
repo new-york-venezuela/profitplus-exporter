@@ -52,8 +52,8 @@ test.describe('admin user management', () => {
     await adminPage.getByRole('button', { name: 'Crear', exact: true }).click();
     await expect(adminPage.getByRole('cell', { name: 'Module Grant Target' })).toBeVisible();
 
-    // Two module checkboxes exist per row now ("Inventario" and
-    // "Analítica", for the inventory/dwh modules — see AGENTS.md's
+    // Three module checkboxes exist per row now ("Inventario", "Analítica"
+    // and "Mapa", for the inventory/dwh/geo modules — see AGENTS.md's
     // Module-Based Permissions section) — scope by accessible name so this
     // test only exercises the inventory grant, not both.
     const row = adminPage.getByRole('row', { name: /Module Grant Target/ });

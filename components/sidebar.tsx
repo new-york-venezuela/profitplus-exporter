@@ -11,6 +11,7 @@ interface Props {
   user: SessionPayload;
   canSeeInventory: boolean;
   canSeeAnalitica: boolean;
+  canSeeMapa: boolean;
   pricingAccessLevel: PricingAccessLevel;
 }
 
@@ -24,7 +25,7 @@ const NAV_TOOLS = [
     { href: '/qr', label: 'Códigos QR' },
 ]
 
-export function Sidebar({ user, canSeeInventory, canSeeAnalitica, pricingAccessLevel }: Props) {
+export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, pricingAccessLevel }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -79,6 +80,17 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica, pricingAccessL
             </p>
             <Link href="/analitica" className={navClass('/analitica')}>
               Panel Analítico
+            </Link>
+          </>
+        )}
+
+        {canSeeMapa && (
+          <>
+            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Geografía
+            </p>
+            <Link href="/mapa" className={navClass('/mapa')}>
+              Mapa de Clientes
             </Link>
           </>
         )}
