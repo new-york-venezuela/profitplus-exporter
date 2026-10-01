@@ -8,6 +8,7 @@ import CustomerMap from './components/customer-map';
 import { FilterPanel } from './components/filter-panel';
 import { CustomerTable } from './components/customer-table';
 import { UnlocatedList } from './components/unlocated-list';
+import { LocationEditor, type EditDraft } from './components/location-editor';
 
 export default function MapaClient() {
   const router = useRouter();
@@ -51,6 +52,75 @@ export default function MapaClient() {
   const routes = payload?.routes ?? [];
   const unlocated = useMemo(() => (payload ? payload.customers.filter(c => c.lat === null) : []), [payload]);
 
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+
+  const startEditing = useCallback((coCli: string) => {
+    const c = payload?.customers.find(x => x.coCli === coCli);
+    if (!c) return;
+    setView('map');
+    setDraft({
+      coCli, lat: c.lat === null ? '' : String(c.lat), lng: c.lng === null ? '' : String(c.lng),
+      dirEnt2: c.dirEnt2 ?? c.direc1 ?? '', saving: false, errors: {},
+    });
+  }, [payload]);
+
+  const place = useCallback((lat: number, lng: number) => {
+    setDraft(d => (d ? { ...d, lat: lat.toFixed(6), lng: lng.toFixed(6), errors: { ...d.errors, coordinates: undefined } } : d));
+  }, []);
+
+  // Escape cancels an in-progress edit.
+  const isEditing = draft !== null;
+  useEffect(() => {
+    if (!isEditing) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDraft(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isEditing]);
+
+  const editingCustomer = draft ? payload?.customers.find(c => c.coCli === draft.coCli) ?? null : null;
+  const editingPosition = draft && Number.isFinite(parseFloat(draft.lat)) && Number.isFinite(parseFloat(draft.lng))
+    ? { lat: parseFloat(draft.lat), lng: parseFloat(draft.lng) } : draft ? { lat: null, lng: null } : null;
+
+  async function saveLocation() {
+    if (!draft || !editingCustomer) return;
+    const body: Record<string, unknown> = {};
+    const lat = parseFloat(draft.lat), lng = parseFloat(draft.lng);
+    const hasCoords = draft.lat.trim() !== '' || draft.lng.trim() !== '';
+    if (hasCoords) { body.lat = Number.isFinite(lat) ? lat : draft.lat; body.lng = Number.isFinite(lng) ? lng : draft.lng; }
+    const address = draft.dirEnt2.trim();
+    if (address && address !== (editingCustomer.dirEnt2 ?? editingCustomer.direc1 ?? '')) body.dirEnt2 = address;
+    if (Object.keys(body).length === 0) { setDraft({ ...draft, errors: { form: 'No hay cambios para guardar' } }); return; }
+
+    setDraft({ ...draft, saving: true, errors: {} });
+    let res: Response;
+    try {
+      res = await fetch(`/api/mapa/clientes/${encodeURIComponent(draft.coCli)}/ubicacion`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } catch {
+      setDraft(d => d && ({ ...d, saving: false, errors: { form: 'Error de red al guardar' } }));
+      return;
+    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      const message = json?.error ?? 'Error al guardar';
+      setDraft(d => d && ({
+        ...d, saving: false,
+        errors: json?.field === 'coordinates' ? { coordinates: message } : json?.field === 'dirEnt2' ? { dirEnt2: message } : { form: message },
+      }));
+      return;
+    }
+    setPayload(p => p && ({
+      ...p,
+      customers: p.customers.map(c => c.coCli !== draft.coCli ? c : {
+        ...c,
+        ...(json.coordinates ? { lat: json.coordinates.lat, lng: json.coordinates.lng, coordinatesIssue: null } : {}),
+        ...(json.dirEnt2 ? { dirEnt2: json.dirEnt2 } : {}),
+      }),
+    }));
+    setDraft(null);
+  }
+
   return (
     <div className="flex h-full flex-col md:flex-row">
       <aside className="max-h-[40vh] w-full shrink-0 overflow-auto border-b border-gray-200 bg-white md:max-h-none md:w-72 md:border-b-0 md:border-r">
@@ -87,10 +157,10 @@ export default function MapaClient() {
               routes={routes}
               selectedCoCli={selected}
               onSelect={setSelected}
-              onEditLocation={() => {}}
+              onEditLocation={startEditing}
               fitKey={fitKey}
-              editing={null}
-              onPlace={() => {}}
+              editing={editingPosition}
+              onPlace={place}
             />
           ) : (
             <CustomerTable customers={visible} onSelect={c => { setSelected(c); setView('map'); }} />
@@ -99,12 +169,21 @@ export default function MapaClient() {
       </div>
 
       <aside className="max-h-[40vh] w-full shrink-0 overflow-auto border-t border-gray-200 bg-white md:max-h-none md:w-72 md:border-l md:border-t-0">
+        {draft && editingCustomer && (
+          <LocationEditor
+            customer={editingCustomer}
+            draft={draft}
+            onChange={patch => setDraft(d => d && { ...d, ...patch })}
+            onSave={saveLocation}
+            onCancel={() => setDraft(null)}
+          />
+        )}
         <div role="tablist" aria-label="Paneles" className="flex border-b border-gray-200">
           <button role="tab" aria-selected={rightTab === 'unlocated'} className="min-h-11 flex-1 px-3 text-sm font-medium text-blue-700">
             Sin ubicación ({unlocated.length})
           </button>
         </div>
-        <UnlocatedList customers={unlocated} onLocate={() => {}} />
+        <UnlocatedList customers={unlocated} onLocate={startEditing} />
       </aside>
     </div>
   );
