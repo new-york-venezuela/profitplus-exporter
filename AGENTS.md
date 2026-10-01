@@ -43,6 +43,9 @@ lib/
   inventory/access.ts      — hasInventoryAccess(), getSessionFromRequest() (shared by every module)
   inventory/item-fields.ts — EDITABLE_ITEM_FIELDS allowlist for the inventory quick-edit module
   dwh/access.ts             — hasDwhAccess() — same shape as hasInventoryAccess(), gates /analitica
+  geo/types.ts, pareto.ts, merge.ts, map-data.ts — customer-map types, Pareto, ERP+DWH merge, SQL fetchers
+  geo/filters.ts, date-range.ts — URL-synced map filters, period helpers
+  geo/routes-repo.ts, route-validation.ts, location-patch.ts — SQLite routes CRUD and request validators
   reports/registry.ts      — ColumnDef, ReportConfig, REPORTS map
   reports/ventas.ts        — Ventas report config
   reports/compras.ts       — Compras report config
@@ -58,6 +61,8 @@ lib/
   geo/erp-location.ts     — updateCustomerLocation() → pApiActualizarUbicacionCliente (only way the app writes campo1/dir_ent2)
   geo/geocoding.ts        — Nominatim/Google geocoding used by scripts/geocode-customers.ts
 
+app/api/mapa/              — customer-map API (clientes, ubicacion, rutas), gated on 'geo'
+
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
@@ -71,6 +76,7 @@ scripts/geocode-customers.ts — bun run geocode:customers (dry-run by default)
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
   inventario/                — stock/adjustments module, gated on the 'inventory' module
+  mapa/                      — customer map, gated on the 'geo' module
   admin/users/                — user + per-user module-grant management (admin only)
   admin/config-inventario/    — inventory module settings (admin only)
   reports/ventas, reports/compras — ERP report exports (no module gate, all authenticated users)
@@ -86,8 +92,10 @@ Server Components use `getSession()`; API Route Handlers use
 
 Beyond `role` (`'user' | 'admin'`), individual features are gated by a
 **module grant** stored in the `user_modules` SQLite table
-(`lib/db/schema.ts`): one row per `(userId, module)` pair. Two modules
-exist today: `'inventory'` and `'dwh'` (the latter gates `/analitica`).
+(`lib/db/schema.ts`): one row per `(userId, module)` pair. Modules today: `'inventory'`, `'dwh'`
+(gates `/analitica`), `'geo'` (gates `/mapa`; `lib/geo/access.ts` exports
+`hasGeoAccess`, `requireGeoAccess`), plus `'pricing_view'`/`'pricing_edit'`
+(see `lib/pricing/access.ts`).
 
 Each module has its own `has<X>Access()` helper (`lib/inventory/access.ts`,
 `lib/dwh/access.ts`) with an identical shape:
@@ -232,6 +240,16 @@ Module-gated page (e.g. /analitica, /inventario/*)
 Module-gated API route
   → getSessionFromRequest(request) → has<Module>Access(db, sub, role) → 403 if false
 ```
+
+## Customer Map (`/mapa`)
+
+Gated on the `'geo'` module (page redirects, every `/api/mapa/*` route
+returns 401/403 itself). Customer coordinates live in `saCliente.campo1` as
+`Coordenadas: (lat, lng)` — parse/format only via `lib/geo/coordinates.ts`,
+and write to the ERP only via `updateCustomerLocation`. Routes are SQLite
+(`routes`, `route_customers`). `GET /api/mapa/clientes` is the one route that
+merges live ERP customers with DWH revenue in TypeScript (by trimmed customer
+code); Pareto uses the same thresholds as the analytics Clientes tab.
 
 ## Product Analytics (PostHog)
 

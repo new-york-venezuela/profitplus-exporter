@@ -165,8 +165,8 @@ Same definition as the analytics Clientes tab (`app/api/dwh/clientes/route.ts`):
 
 - Style: data-dense dashboard, low motion; reuse the app's existing
   Tailwind 4 tokens (do not adopt a new palette or fonts).
-- Layout: full-height map; filter panel left, lists panel right; on narrow
-  screens panels collapse to bottom sheets and the map keeps ≥ ~50% height.
+- Layout: full-height map; filter panel left, lists panel right; below `md`
+  the panels stack above/below the map (each ≤ 40vh, scrollable) and the map keeps ≥ 50vh.
 - Accessibility: contrast ≥ 4.5:1 light and dark; visible focus rings;
   pins keyboard-focusable (Enter opens popup); labeled map controls; color
   never the only signal; numeric legends; `prefers-reduced-motion`

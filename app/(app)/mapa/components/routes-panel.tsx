@@ -17,7 +17,7 @@ interface Props {
 
 const btn = 'min-h-11 rounded-md border px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600';
 
-async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; json: any }> {
+async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; json: { error?: string; item?: RouteDto } | null }> {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   return { ok: res.ok, json: await res.json().catch(() => null) };
 }
@@ -41,7 +41,7 @@ export function RoutesPanel({ routes, sellers, customers, sellerFilter, onRoutes
     const { ok, json } = await call('/api/mapa/rutas', 'POST', { name, sellerCode: seller });
     if (!ok) { setError(json?.error ?? 'Error al crear la ruta'); return; }
     setError(null); setName('');
-    onRoutesChanged([...routes, json.item]);
+    if (json?.item) onRoutesChanged([...routes, json.item]);
   }
 
   function openEditor(route: RouteDto) {
@@ -53,7 +53,8 @@ export function RoutesPanel({ routes, sellers, customers, sellerFilter, onRoutes
     const { ok, json } = await call(`/api/mapa/rutas/${editing.id}`, 'PATCH', { customerCodes: [...selection] });
     if (!ok) { setError(json?.error ?? 'Error al guardar la ruta'); return; }
     setError(null);
-    onRoutesChanged(routes.map(r => (r.id === editing.id ? json.item : r)));
+    const item = json?.item;
+    if (item) onRoutesChanged(routes.map(r => (r.id === editing.id ? item : r)));
     setEditing(null);
   }
 
@@ -117,7 +118,7 @@ export function RoutesPanel({ routes, sellers, customers, sellerFilter, onRoutes
               <li key={c.coCli}>
                 <label className="flex min-h-11 items-center gap-3 text-sm text-gray-800">
                   <input type="checkbox" className="h-4 w-4" checked={selection.has(c.coCli)}
-                    onChange={e => setSelection(s => { const n = new Set(s); e.target.checked ? n.add(c.coCli) : n.delete(c.coCli); return n; })} />
+                    onChange={e => setSelection(s => { const n = new Set(s); if (e.target.checked) n.add(c.coCli); else n.delete(c.coCli); return n; })} />
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
                   <span className="text-xs text-gray-500">{c.sellerName ?? c.coVen}</span>
                 </label>

@@ -25,6 +25,8 @@ export default function MapaClient() {
   // Only the period needs a server round-trip; every other filter is applied in memory.
   useEffect(() => {
     let cancelled = false;
+    // Resetting loading/error when the period changes is part of the fetch lifecycle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     fetch(`/api/mapa/clientes?dateRange=${encodeURIComponent(filters.dateRange)}`)
