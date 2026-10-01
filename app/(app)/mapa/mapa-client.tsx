@@ -8,6 +8,7 @@ import CustomerMap from './components/customer-map';
 import { FilterPanel } from './components/filter-panel';
 import { CustomerTable } from './components/customer-table';
 import { UnlocatedList } from './components/unlocated-list';
+import { RoutesPanel } from './components/routes-panel';
 import { LocationEditor, type EditDraft } from './components/location-editor';
 
 export default function MapaClient() {
@@ -47,7 +48,7 @@ export default function MapaClient() {
   const visible = useMemo(() => (payload ? applyFilters(payload.customers, filters) : []), [payload, filters]);
 
   const [view, setView] = useState<'map' | 'table'>('map');
-  const [rightTab, setRightTab] = useState<'unlocated'>('unlocated');
+  const [rightTab, setRightTab] = useState<'unlocated' | 'routes'>('unlocated');
   const sellers = payload?.sellers ?? [];
   const routes = payload?.routes ?? [];
   const unlocated = useMemo(() => (payload ? payload.customers.filter(c => c.lat === null) : []), [payload]);
@@ -179,11 +180,39 @@ export default function MapaClient() {
           />
         )}
         <div role="tablist" aria-label="Paneles" className="flex border-b border-gray-200">
-          <button role="tab" aria-selected={rightTab === 'unlocated'} className="min-h-11 flex-1 px-3 text-sm font-medium text-blue-700">
-            Sin ubicación ({unlocated.length})
-          </button>
+          {([['unlocated', `Sin ubicación (${unlocated.length})`], ['routes', `Rutas (${routes.length})`]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={rightTab === id}
+              onClick={() => setRightTab(id)}
+              className={`min-h-11 flex-1 px-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${rightTab === id ? 'border-b-2 border-blue-600 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <UnlocatedList customers={unlocated} onLocate={startEditing} />
+        {rightTab === 'unlocated' ? (
+          <UnlocatedList customers={unlocated} onLocate={startEditing} />
+        ) : (
+          <RoutesPanel
+            routes={routes}
+            sellers={sellers}
+            customers={payload?.customers ?? []}
+            sellerFilter={filters.seller}
+            onRoutesChanged={next => {
+              setPayload(p => p && ({
+                ...p,
+                routes: next,
+                customers: p.customers.map(c => ({ ...c, routeIds: next.filter(r => r.customerCodes.includes(c.coCli)).map(r => r.id) })),
+              }));
+              // Drop a route filter whose route was deleted.
+              if (filters.route !== null && !next.some(r => r.id === filters.route)) setFilters({ ...filters, route: null });
+            }}
+            onShowRoute={id => { setFilters({ ...filters, route: id }); setFitKey(k => k + 1); }}
+          />
+        )}
       </aside>
     </div>
   );
