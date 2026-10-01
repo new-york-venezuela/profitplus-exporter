@@ -22,7 +22,8 @@ BEGIN
 
         IF NOT EXISTS (SELECT 1 FROM saCliente WHERE co_cli = @sCoCli)
         BEGIN
-            RAISERROR('Cliente %s no encontrado', 16, 1, @sCoCli);
+            DECLARE @sCoCliTrim VARCHAR(16) = RTRIM(@sCoCli);
+            RAISERROR('Cliente %s no encontrado', 16, 1, @sCoCliTrim);
         END
 
         UPDATE saCliente

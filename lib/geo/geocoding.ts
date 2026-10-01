@@ -16,6 +16,16 @@ export interface GeocodeCandidate {
 export interface GeocodeResult {
   candidate: GeocodeCandidate | null;
   rejected: string[];
+  /** Set when Google returned an auth/quota error: callers should stop calling Google. */
+  googleFatal?: string;
+}
+
+/** Google auth/quota failure (REQUEST_DENIED / OVER_QUERY_LIMIT): retrying is pointless. */
+export class GoogleFatalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GoogleFatalError';
+  }
 }
 
 const ABBREVIATIONS: [RegExp, string][] = [
@@ -60,6 +70,9 @@ export async function geocodeGoogle(address: string, apiKey: string, fetchImpl: 
     results: { geometry: { location: { lat: number; lng: number }; location_type: string } }[];
   };
   if (body.status === 'ZERO_RESULTS') return null;
+  if (body.status === 'REQUEST_DENIED' || body.status === 'OVER_QUERY_LIMIT' || body.status === 'OVER_DAILY_LIMIT') {
+    throw new GoogleFatalError(`Google ${body.status}${body.error_message ? `: ${body.error_message}` : ''}`);
+  }
   if (body.status !== 'OK') throw new Error(`Google ${body.status}${body.error_message ? `: ${body.error_message}` : ''}`);
   const g = body.results[0]?.geometry;
   if (!g) return null;
@@ -81,16 +94,26 @@ export async function geocodeAddress(
 
   const rejected: string[] = [];
   let best: GeocodeCandidate | null = null;
+  let googleFatal: string | undefined;
 
   for (const provider of attempts) {
-    const c = provider === 'osm'
-      ? await geocodeNominatim(address, fetchImpl)
-      : await geocodeGoogle(address, googleKey!, fetchImpl);
+    let c: GeocodeCandidate | null;
+    try {
+      c = provider === 'osm'
+        ? await geocodeNominatim(address, fetchImpl)
+        : await geocodeGoogle(address, googleKey!, fetchImpl);
+    } catch (err) {
+      // Single-provider mode: nothing to fall back to, surface the error.
+      if (attempts.length === 1) throw err;
+      rejected.push(`${provider}: error ${(err as Error).message}`);
+      if (err instanceof GoogleFatalError) googleFatal = err.message;
+      continue;
+    }
     if (!c) continue;
     const v = validateCoordinates({ lat: c.lat, lng: c.lng });
     if (!v.ok) { rejected.push(`${provider}: ${v.error}`); continue; }
     if (c.confidence !== 'low') return { candidate: c, rejected };
     best ??= c;
   }
-  return { candidate: best, rejected };
+  return googleFatal ? { candidate: best, rejected, googleFatal } : { candidate: best, rejected };
 }

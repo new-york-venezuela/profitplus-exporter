@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import {
-  normalizeAddress, geocodeNominatim, geocodeGoogle, geocodeAddress,
+  GoogleFatalError, normalizeAddress, geocodeNominatim, geocodeGoogle, geocodeAddress,
 } from '@/lib/geo/geocoding';
 
 const json = (body: unknown, status = 200) =>
@@ -132,5 +132,28 @@ describe('geocodeAddress', () => {
     const r = await geocodeAddress('a', { mode: 'osm', fetchImpl: impl });
     expect(r.candidate).toBeNull();
     expect(r.rejected).toEqual(['osm: SWAPPED_SUSPECTED']);
+  });
+
+  test('both: Nominatim throwing is recorded and Google is still tried', async () => {
+    const { impl } = fakeFetch(u => u.includes('googleapis')
+      ? json({ status: 'OK', results: [{ geometry: { location: { lat: 10.5, lng: -66.9 }, location_type: 'ROOFTOP' } }] })
+      : json({}, 503));
+    const r = await geocodeAddress('a', { mode: 'both', googleKey: 'K', fetchImpl: impl });
+    expect(r.candidate?.provider).toBe('google');
+    expect(r.rejected[0]).toContain('osm: error');
+  });
+
+  test('both: Google REQUEST_DENIED is recorded and flagged googleFatal, OSM result kept', async () => {
+    const { impl } = fakeFetch(u => u.includes('googleapis')
+      ? json({ status: 'REQUEST_DENIED', results: [] })
+      : json([{ lat: '10.5', lon: '-66.9', importance: 0.1, display_name: 'x' }]));
+    const r = await geocodeAddress('a', { mode: 'both', googleKey: 'K', fetchImpl: impl });
+    expect(r.googleFatal).toContain('REQUEST_DENIED');
+    expect(r.candidate?.provider).toBe('osm');
+  });
+
+  test('geocodeGoogle throws GoogleFatalError on auth/quota status', async () => {
+    const f = fakeFetch(() => json({ status: 'OVER_QUERY_LIMIT', results: [] })).impl;
+    await expect(geocodeGoogle('a', 'K', f)).rejects.toBeInstanceOf(GoogleFatalError);
   });
 });

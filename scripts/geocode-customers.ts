@@ -25,6 +25,10 @@ async function main() {
   const googleKey = process.env.GOOGLE_MAPS_API_KEY || undefined;
   if (args.provider === 'google' && !googleKey) throw new Error('Falta GOOGLE_MAPS_API_KEY');
 
+  if (args.force && args.apply) {
+    console.warn('⚠ --force --apply: se sobrescribirán las coordenadas existentes en campo1.');
+  }
+
   const pool = await getPool();
   const rows = (await pool.request().query(`
     SELECT RTRIM(co_cli) AS coCli, RTRIM(cli_des) AS name,
@@ -40,17 +44,26 @@ async function main() {
   const ok: Record<string, string | number>[] = [];
   const manual: Record<string, string>[] = [];
 
+  let mode = args.provider;
   for (const row of todo) {
     const picked = pickAddress(row);
     if (!picked) { manual.push({ cliente: row.coCli, nombre: row.name, motivo: 'sin dirección' }); continue; }
 
     let result;
     try {
-      result = await geocodeAddress(normalizeAddress(picked.address), { mode: args.provider, googleKey });
+      result = await geocodeAddress(normalizeAddress(picked.address), { mode, googleKey });
     } catch (err) {
+      if (/^Google (REQUEST_DENIED|OVER_)/.test((err as Error).message)) {
+        if (mode === 'google') { manual.push({ cliente: row.coCli, nombre: row.name, motivo: `error: ${(err as Error).message}` }); break; }
+      }
       manual.push({ cliente: row.coCli, nombre: row.name, motivo: `error: ${(err as Error).message}` });
       await sleep(NOMINATIM_DELAY_MS);
       continue;
+    }
+
+    if (result.googleFatal && mode === 'both') {
+      console.warn(`⚠ Google deshabilitado para el resto de la corrida: ${result.googleFatal}`);
+      mode = 'osm';
     }
 
     const c = result.candidate;
@@ -61,7 +74,14 @@ async function main() {
     } else {
       const campo1 = formatCoordinates({ lat: c.lat, lng: c.lng });
       ok.push({ cliente: row.coCli, nombre: row.name, dirección: `${picked.source}: ${picked.address}`, proveedor: c.provider, confianza: `${c.confidence} (${c.detail})`, campo1 });
-      if (args.apply) await updateCustomerLocation(pool, { coCli: row.coCli, campo1 });
+      if (args.apply) {
+        try {
+          await updateCustomerLocation(pool, { coCli: row.coCli, campo1 });
+        } catch (err) {
+          ok.pop();
+          manual.push({ cliente: row.coCli, nombre: row.name, motivo: `error al escribir: ${(err as Error).message}` });
+        }
+      }
     }
     await sleep(NOMINATIM_DELAY_MS);
   }
