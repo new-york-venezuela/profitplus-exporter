@@ -1,4 +1,5 @@
 import type { CoordinateError } from './coordinates';
+import type { AreaDto } from './areas-repo';
 
 export type Pareto = 'A' | 'B' | 'C';
 
@@ -28,6 +29,11 @@ export interface MapCustomer {
   revenueUsd: number | null;
   pareto: Pareto | null;
   routeIds: number[];
+  areaId: number | null;
+  areaName: string | null;
+  areaSellerCodes: string[];
+  /** Inside an area that has sellers, but the customer's own seller (coVen) is not one of them. */
+  sellerMismatch: boolean;
 }
 
 export interface MapSeller { code: string; name: string }
@@ -37,5 +43,6 @@ export interface MapPayload {
   customers: MapCustomer[];
   sellers: MapSeller[];
   routes: RouteDto[];
+  areas: AreaDto[];
   paretoThresholds: typeof PARETO_THRESHOLDS;
 }

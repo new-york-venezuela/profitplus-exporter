@@ -59,6 +59,7 @@ export function mergeCustomers(erp: ErpCustomerRow[], revenue: RevenueRow[], rou
       revenueUsd: rev ? rev.revenueUsd : 0,
       pareto: pareto.get(code) ?? null,
       routeIds: routeIdsByCustomer.get(code) ?? [],
+      areaId: null, areaName: null, areaSellerCodes: [], sellerMismatch: false,
     };
   });
 }

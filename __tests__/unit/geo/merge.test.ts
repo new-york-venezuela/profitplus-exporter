@@ -9,6 +9,7 @@ describe('mergeCustomers', () => {
   test('parses valid coordinates into lat/lng', () => {
     const [c] = mergeCustomers([erp({ coCli: 'A', campo1: 'Coordenadas: (10.5, -66.9)' })], [], []);
     expect(c).toMatchObject({ lat: 10.5, lng: -66.9, coordinatesIssue: null });
+    expect(c).toMatchObject({ areaId: null, sellerMismatch: false });
   });
   test('empty / null campo1 → no pin and NO issue (just unlocated)', () => {
     const rows = mergeCustomers([erp({ coCli: 'A', campo1: null }), erp({ coCli: 'B', campo1: '   ' })], [], []);

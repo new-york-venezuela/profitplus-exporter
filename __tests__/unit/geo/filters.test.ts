@@ -3,11 +3,12 @@ import { parseFilters, serializeFilters, normalizeFilters, applyFilters, filterC
 import type { MapCustomer, RouteDto } from '@/lib/geo/types';
 
 const NOW = new Date(2026, 8, 30);
-const base: MapFilters = { dateRange: 'month:2026-08', seller: null, route: null, pareto: null, noCoords: false };
+const base: MapFilters = { dateRange: 'month:2026-08', seller: null, route: null, area: null, pareto: null, noCoords: false };
 
 const cust = (over: Partial<MapCustomer> & { coCli: string }): MapCustomer => ({
   name: over.coCli, rif: null, coVen: '000001', sellerName: 'Ana', direc1: null, dirEnt2: null,
-  lat: 10, lng: -66, coordinatesIssue: null, revenueBs: 0, revenueUsd: 0, pareto: null, routeIds: [], ...over,
+  lat: 10, lng: -66, coordinatesIssue: null, revenueBs: 0, revenueUsd: 0, pareto: null, routeIds: [],
+  areaId: null, areaName: null, areaSellerCodes: [], sellerMismatch: false, ...over,
 });
 
 describe('parseFilters / serializeFilters', () => {
@@ -16,7 +17,7 @@ describe('parseFilters / serializeFilters', () => {
   });
   test('parses every key', () => {
     const f = parseFilters(new URLSearchParams('dateRange=ytd:2026&seller=000002&route=7&pareto=B&noCoords=1'), NOW);
-    expect(f).toEqual({ dateRange: 'ytd:2026', seller: '000002', route: 7, pareto: 'B', noCoords: true });
+    expect(f).toEqual({ dateRange: 'ytd:2026', seller: '000002', route: 7, area: null, pareto: 'B', noCoords: true });
   });
   test('garbage values fall back to defaults instead of throwing', () => {
     const f = parseFilters(new URLSearchParams("dateRange=evil';--&route=abc&pareto=Z&noCoords=maybe"), NOW);
@@ -24,7 +25,7 @@ describe('parseFilters / serializeFilters', () => {
   });
   test('serialize omits defaults and round-trips', () => {
     expect(serializeFilters(base, NOW).toString()).toBe('');
-    const f: MapFilters = { dateRange: 'ytd:2026', seller: '000002', route: 7, pareto: 'A', noCoords: true };
+    const f: MapFilters = { dateRange: 'ytd:2026', seller: '000002', route: 7, area: 5, pareto: 'A', noCoords: true };
     expect(parseFilters(serializeFilters(f, NOW), NOW)).toEqual(f);
   });
 });
@@ -67,7 +68,7 @@ describe('filterChips', () => {
   });
   test('one chip per active non-default filter, human-labelled', () => {
     const chips = filterChips(
-      { dateRange: 'ytd:2026', seller: '000001', route: 1, pareto: 'A', noCoords: true },
+      { dateRange: 'ytd:2026', seller: '000001', route: 1, area: null, pareto: 'A', noCoords: true },
       { sellers: [{ code: '000001', name: 'Ana' }], routes: [{ id: 1, name: 'Lunes', sellerCode: '000001', customerCodes: [] }] },
       NOW,
     );
@@ -76,5 +77,18 @@ describe('filterChips', () => {
     expect(chips.find(c => c.key === 'route')!.label).toBe('Ruta: Lunes');
     expect(chips.find(c => c.key === 'pareto')!.label).toBe('Segmento: A');
     expect(chips.find(c => c.key === 'noCoords')!.label).toBe('Sin coordenadas');
+  });
+});
+
+describe('area filter', () => {
+  test('parse, serialize, apply, and clear when the area no longer exists', () => {
+    expect(parseFilters(new URLSearchParams('area=5'), NOW).area).toBe(5);
+    expect(parseFilters(new URLSearchParams('area=x'), NOW).area).toBeNull();
+    expect(serializeFilters({ ...base, area: 5 }, NOW).toString()).toBe('area=5');
+    const rows = [cust({ coCli: 'A', areaId: 5 }), cust({ coCli: 'B', areaId: 6 }), cust({ coCli: 'C' })];
+    expect(applyFilters(rows, { ...base, area: 5 }).map(r => r.coCli)).toEqual(['A']);
+    expect(normalizeFilters({ ...base, area: 9 }, [], [{ id: 5, name: 'N', color: '#000000', ring: [], sellerCodes: [] }]).area).toBeNull();
+    expect(filterChips({ ...base, area: 5 }, { sellers: [], routes: [], areas: [{ id: 5, name: 'Norte', color: '#000000', ring: [], sellerCodes: [] }] }, NOW)
+      .find(c => c.key === 'area')!.label).toBe('Zona: Norte');
   });
 });

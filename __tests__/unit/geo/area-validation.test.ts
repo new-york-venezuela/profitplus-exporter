@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { parseAreaCreate, parseAreaPatch } from '@/lib/geo/area-validation';
 
-const ring = [[0, 0], [2, 0], [2, 2], [0, 2]];
+const ring: [number, number][] = [[0, 0], [2, 0], [2, 2], [0, 2]];
 
 describe('parseAreaCreate', () => {
   test('accepts and trims; dedupes seller codes', () => {
