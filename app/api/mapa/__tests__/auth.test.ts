@@ -4,6 +4,8 @@ import { GET as getClientes } from '../clientes/route';
 import { PATCH as patchUbicacion } from '../clientes/[co_cli]/ubicacion/route';
 import { POST as postRuta } from '../rutas/route';
 import { PATCH as patchRuta, DELETE as deleteRuta } from '../rutas/[id]/route';
+import { POST as postZona } from '../zonas/route';
+import { PATCH as patchZona, DELETE as deleteZona } from '../zonas/[id]/route';
 
 const ctx = <T extends object>(p: T) => ({ params: Promise.resolve(p) });
 const json = (url: string, method: string, body?: unknown) =>
@@ -23,5 +25,15 @@ describe('/api/mapa/* reject unauthenticated requests with 401', () => {
   test('PATCH / DELETE rutas/[id]', async () => {
     expect((await patchRuta(json('http://localhost/api/mapa/rutas/1', 'PATCH', { name: 'x' }), ctx({ id: '1' }))).status).toBe(401);
     expect((await deleteRuta(json('http://localhost/api/mapa/rutas/1', 'DELETE'), ctx({ id: '1' }))).status).toBe(401);
+  });
+});
+
+describe('/api/mapa/zonas rejects unauthenticated requests with 401', () => {
+  test('POST zonas', async () => {
+    expect((await postZona(json('http://localhost/api/mapa/zonas', 'POST', { name: 'x' }))).status).toBe(401);
+  });
+  test('PATCH / DELETE zonas/[id]', async () => {
+    expect((await patchZona(json('http://localhost/api/mapa/zonas/1', 'PATCH', { name: 'x' }), ctx({ id: '1' }))).status).toBe(401);
+    expect((await deleteZona(json('http://localhost/api/mapa/zonas/1', 'DELETE'), ctx({ id: '1' }))).status).toBe(401);
   });
 });

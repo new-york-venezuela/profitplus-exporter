@@ -7,6 +7,8 @@ import { captureEvent, captureException } from '@/lib/analytics/posthog';
 import { fetchErpCustomers, fetchRevenue } from '@/lib/geo/map-data';
 import { mergeCustomers, distinctSellers } from '@/lib/geo/merge';
 import { listRoutes } from '@/lib/geo/routes-repo';
+import { listAreas } from '@/lib/geo/areas-repo';
+import { applyAreaMatch } from '@/lib/geo/area-match';
 import { isValidDateRange, previousMonthRange } from '@/lib/geo/date-range';
 import { PARETO_THRESHOLDS, type MapPayload } from '@/lib/geo/types';
 
@@ -30,11 +32,13 @@ export async function GET(request: NextRequest) {
       fetchErpCustomers(erpPool),
       fetchRevenue(dwhPool, dateRange),
     ]);
-    const routes = listRoutes(getDb());
-    const customers = mergeCustomers(erpCustomers, revenue, routes);
+    const db = getDb();
+    const routes = listRoutes(db);
+    const areas = listAreas(db);
+    const customers = applyAreaMatch(mergeCustomers(erpCustomers, revenue, routes), areas);
 
     const payload: MapPayload = {
-      dateRange, customers, sellers: distinctSellers(customers), routes, paretoThresholds: PARETO_THRESHOLDS,
+      dateRange, customers, sellers: distinctSellers(customers), routes, areas, paretoThresholds: PARETO_THRESHOLDS,
     };
     captureEvent(auth.session.sub, 'mapa_viewed', { dateRange, customers: customers.length });
     return NextResponse.json(payload);
