@@ -22,16 +22,16 @@ function locate(campo1: string | null): Pick<MapCustomer, 'lat' | 'lng' | 'coord
 }
 
 export function mergeCustomers(erp: ErpCustomerRow[], revenue: RevenueRow[], routes: RouteDto[]): MapCustomer[] {
-  const known = new Set(erp.map(c => c.coCli.trim()));
   const revenueByCode = new Map<string, RevenueRow>();
   for (const r of revenue) {
     const code = r.coCli.trim();
-    if (!known.has(code)) continue;
     const prev = revenueByCode.get(code);
     revenueByCode.set(code, prev
       ? { coCli: code, revenueBs: prev.revenueBs + r.revenueBs, revenueUsd: prev.revenueUsd === null && r.revenueUsd === null ? null : (prev.revenueUsd ?? 0) + (r.revenueUsd ?? 0) }
       : { ...r, coCli: code });
   }
+  // Rank over ALL revenue rows (inactive customers included), like the analytics
+  // customers route does; only then look up the known active customers.
   const pareto = assignPareto([...revenueByCode.values()]);
 
   const routeIdsByCustomer = new Map<string, number[]>();

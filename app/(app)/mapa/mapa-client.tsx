@@ -24,6 +24,14 @@ import { MismatchPanel } from './components/mismatch-panel';
 import { AreaDrawing } from './components/area-drawing';
 import { AreasPanel, type AreaDraft } from './components/areas-panel';
 
+// Strict numeric parse: parseFloat('10.5abc') would silently accept garbage.
+function parseCoord(raw: string): number | null {
+  const t = raw.trim().replace(',', '.');
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function MapaClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -36,6 +44,14 @@ export default function MapaClient() {
   const [fitKey, setFitKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const lastRange = useRef<string | null>(null);
+
+  // Refit when a route filter becomes active. Adjusting state during render (not in the
+  // click handler) guarantees the fit runs against the already-filtered point set.
+  const [prevRoute, setPrevRoute] = useState<number | null>(filters.route);
+  if (prevRoute !== filters.route) {
+    setPrevRoute(filters.route);
+    if (filters.route !== null) setFitKey(k => k + 1);
+  }
 
   // Only the period needs a server round-trip; every other filter is applied in memory.
   useEffect(() => {
@@ -134,8 +150,16 @@ export default function MapaClient() {
   }
 
   async function deleteAreaById(a: AreaDto): Promise<string | null> {
-    const res = await fetch(`/api/mapa/zonas/${a.id}`, { method: 'DELETE' });
+    let res: Response;
+    try {
+      res = await fetch(`/api/mapa/zonas/${a.id}`, { method: 'DELETE' });
+    } catch {
+      return 'Error de red al eliminar la zona';
+    }
     if (!res.ok) return (await res.json().catch(() => null))?.error ?? 'Error al eliminar la zona';
+    if (filters.area === a.id) setFilters({ ...filters, area: null });
+    setAreaDraft(d => (d && d.id === a.id ? null : d));
+    setHighlightAreaId(null);
     setReloadKey(k => k + 1);
     return null;
   }
@@ -167,15 +191,23 @@ export default function MapaClient() {
   }, [isEditing]);
 
   const editingCustomer = draft ? payload?.customers.find(c => c.coCli === draft.coCli) ?? null : null;
-  const editingPosition = draft && Number.isFinite(parseFloat(draft.lat)) && Number.isFinite(parseFloat(draft.lng))
-    ? { lat: parseFloat(draft.lat), lng: parseFloat(draft.lng) } : draft ? { lat: null, lng: null } : null;
+  const editLat = draft ? parseCoord(draft.lat) : null;
+  const editLng = draft ? parseCoord(draft.lng) : null;
+  const editingPosition = draft && editLat !== null && editLng !== null
+    ? { lat: editLat, lng: editLng } : draft ? { lat: null, lng: null } : null;
 
   async function saveLocation() {
     if (!draft || !editingCustomer) return;
     const body: Record<string, unknown> = {};
-    const lat = parseFloat(draft.lat), lng = parseFloat(draft.lng);
+    const lat = parseCoord(draft.lat), lng = parseCoord(draft.lng);
     const hasCoords = draft.lat.trim() !== '' || draft.lng.trim() !== '';
-    if (hasCoords) { body.lat = Number.isFinite(lat) ? lat : draft.lat; body.lng = Number.isFinite(lng) ? lng : draft.lng; }
+    if (hasCoords) {
+      if (lat === null || lng === null) {
+        setDraft({ ...draft, errors: { coordinates: 'Latitud y longitud deben ser números válidos' } });
+        return;
+      }
+      body.lat = lat; body.lng = lng;
+    }
     const address = draft.dirEnt2.trim();
     if (address && address !== (editingCustomer.dirEnt2 ?? editingCustomer.direc1 ?? '')) body.dirEnt2 = address;
     if (Object.keys(body).length === 0) { setDraft({ ...draft, errors: { form: 'No hay cambios para guardar' } }); return; }
@@ -208,6 +240,7 @@ export default function MapaClient() {
       }),
     }));
     setDraft(null);
+    setReloadKey(k => k + 1);                                     // area match / mismatch depend on the new location
   }
 
   return (
@@ -324,7 +357,7 @@ export default function MapaClient() {
               // Drop a route filter whose route was deleted.
               if (filters.route !== null && !next.some(r => r.id === filters.route)) setFilters({ ...filters, route: null });
             }}
-            onShowRoute={id => { setFilters({ ...filters, route: id }); setFitKey(k => k + 1); }}
+            onShowRoute={id => setFilters({ ...filters, route: id })}
           />
         )}
       </aside>

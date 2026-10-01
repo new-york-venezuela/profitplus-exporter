@@ -36,3 +36,11 @@ export function parseLocationPatch(body: unknown): Result {
   if (!value.campo1 && !value.dirEnt2) return { ok: false, error: 'Nada que actualizar' };
   return { ok: true, value };
 }
+
+// co_cli is char(16) in the ERP; anything longer (after trimming) cannot exist.
+export function normalizeCoCli(raw: string): string | null {
+  let decoded: string;
+  try { decoded = decodeURIComponent(raw); } catch { return null; }
+  const code = decoded.trim();
+  return code.length > 0 && code.length <= 16 ? code : null;
+}

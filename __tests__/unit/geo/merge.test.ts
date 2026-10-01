@@ -40,6 +40,16 @@ describe('mergeCustomers', () => {
     const rows = mergeCustomers([erp({ coCli: 'A' })], [{ coCli: 'GHOST', revenueBs: 999, revenueUsd: 9 }], []);
     expect(rows.map(r => r.coCli)).toEqual(['A']);
   });
+  test('Pareto ranks over ALL revenue rows, including inactive customers', () => {
+    const revenue = [
+      { coCli: 'A', revenueBs: 100, revenueUsd: 1 },
+      ...['G1', 'G2', 'G3', 'G4'].map(coCli => ({ coCli, revenueBs: 100, revenueUsd: 1 })),
+    ];
+    const [c] = mergeCustomers([erp({ coCli: 'A' })], revenue, []);
+    // 100 of 500 total -> cumulative 20% -> A (ranking only active codes would give C).
+    expect(c.pareto).toBe('A');
+    expect(c.revenueBs).toBe(100);
+  });
   test('null USD (no exchange rate) stays null, not 0', () => {
     const [c] = mergeCustomers([erp({ coCli: 'A' })], [{ coCli: 'A', revenueBs: 10, revenueUsd: null }], []);
     expect(c.revenueUsd).toBeNull();

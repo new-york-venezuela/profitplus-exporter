@@ -148,7 +148,7 @@ Same definition as the analytics Clientes tab (`app/api/dwh/clientes/route.ts`):
   polygon overlap (no external geometry library).
 - Auto-match on read: each customer tested against all polygons;
   result is added to the `/api/mapa/clientes` payload.
-- `GET/POST/PATCH/DELETE /api/mapa/zonas`.
+- `POST/PATCH/DELETE /api/mapa/zonas` (areas are read through `GET /api/mapa/clientes`, which returns them in the payload).
 
 ### UI
 

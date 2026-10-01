@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireGeoAccess } from '@/lib/geo/access';
 import { getPool } from '@/lib/db/mssql';
 import { captureEvent, captureException } from '@/lib/analytics/posthog';
-import { parseLocationPatch } from '@/lib/geo/location-patch';
+import { parseLocationPatch, normalizeCoCli } from '@/lib/geo/location-patch';
 import { updateCustomerLocation, CustomerNotFoundError } from '@/lib/geo/erp-location';
 
 export const dynamic = 'force-dynamic';
@@ -12,13 +12,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!auth.ok) return auth.response;
 
   const { co_cli } = await params;
+  const coCli = normalizeCoCli(co_cli);
+  if (!coCli) return NextResponse.json({ error: 'Código de cliente inválido' }, { status: 400 });
   const body = await request.json().catch(() => null);
   const parsed = parseLocationPatch(body);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: 400 });
 
   try {
     await updateCustomerLocation(await getPool(), {
-      coCli: decodeURIComponent(co_cli),
+      coCli,
       campo1: parsed.value.campo1,
       dirEnt2: parsed.value.dirEnt2,
     });

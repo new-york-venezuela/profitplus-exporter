@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { parseLocationPatch } from '@/lib/geo/location-patch';
+import { parseLocationPatch, normalizeCoCli } from '@/lib/geo/location-patch';
 
 describe('parseLocationPatch', () => {
   test('coordinates only → canonical campo1', () => {
@@ -38,5 +38,15 @@ describe('parseLocationPatch', () => {
     expect(parseLocationPatch(null).ok).toBe(false);
     expect(parseLocationPatch({ dirEnt2: '   ' })).toMatchObject({ ok: false, field: 'dirEnt2' });
     expect(parseLocationPatch({ dirEnt2: 'x'.repeat(501) })).toMatchObject({ ok: false, field: 'dirEnt2' });
+  });
+});
+
+describe('normalizeCoCli', () => {
+  test('decodes and trims', () => expect(normalizeCoCli('%20C001%20')).toBe('C001'));
+  test('rejects empty, >16 chars and bad encoding', () => {
+    expect(normalizeCoCli('   ')).toBeNull();
+    expect(normalizeCoCli('x'.repeat(17))).toBeNull();
+    expect(normalizeCoCli('x'.repeat(16))).toBe('x'.repeat(16));
+    expect(normalizeCoCli('%E0%A4%A')).toBeNull();
   });
 });

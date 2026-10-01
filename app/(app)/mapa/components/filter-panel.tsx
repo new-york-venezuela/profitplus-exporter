@@ -115,7 +115,7 @@ export function FilterPanel({ filters, sellers, routes, areas, onChange, onFit, 
                 type="button"
                 onClick={() => clear(chip.key)}
                 aria-label={`Quitar filtro ${chip.label}`}
-                className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+                className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
               >
                 ×
               </button>

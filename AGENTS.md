@@ -67,7 +67,7 @@ lib/
   geo/geocoding.ts        — Nominatim/Google geocoding used by scripts/geocode-customers.ts
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
-  app/api/mapa/zonas/      — sales-area CRUD (GET/POST, [id] PATCH/DELETE)
+  app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
 
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
