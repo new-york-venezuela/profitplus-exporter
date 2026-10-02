@@ -30,6 +30,7 @@ Plan 1 and Plan 2 *Global Constraints* apply unchanged. Plan-specific:
 - Wizard/dialog confirmations use `Modal` (no `window.confirm/alert/prompt`).
 - Task Scheduler instructions go in `INSTRUCTIONS.md` right after the invoice-reminders step.
 - `HELP_PAGES` gets `'pricing-promociones'`; the content file is `content/help/pricing-promociones.md`.
+- **NEVER run `bun run test`, `bun run test:unit`, bare `bun test`, or any whole-folder run of `__tests__/integration` or `scripts/dwh`**: they load `.env.local` (SQLITE_PATH=./) and wipe the developer's real `data/exporter.db`. Run only the specific test files named in your task (unit tests use `makeMemoryDb()`); e2e only with `SQLITE_PATH=./e2e/.tmp` and Node 22 on PATH (see Plan 1's e2e-run-report.md). Two `scripts/dwh` tests (dim-customer, dim-legal-entity) fail on the mock ERP for unrelated pre-existing reasons.
 
 ## Review Focus
 

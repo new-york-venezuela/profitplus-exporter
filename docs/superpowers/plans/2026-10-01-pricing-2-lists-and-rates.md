@@ -38,6 +38,8 @@ Everything in Plan 1's *Global Constraints* applies unchanged (branch `feat/pric
 - Past `effectiveFrom` (< today) is rejected. Active rows only (`Inactivo = 0`) are read.
 - List codes: next free 2-digit numeric (`01`..`99`), else 6-digit numeric; non-numeric codes (`TP1151`, `2023`) are ignored for allocation but never collided with.
 - Catalog is small (~30 priced articles of 167): the rates endpoint returns the full list and the client filters; no pagination.
+- Plan 1 outcomes to respect: `upsertSegmentMeta` does not reset omitted nullable columns (pass explicit `null` when updating an existing row); `assignCustomers` now rejects moves into special segments other than their own customer; `createSegment` returns an optional `warning`; `SearchableSelect` has an optional `ariaLabel` prop (use it for every picker you add); `Modal` has no `role="dialog"` (use page-scoped locators in e2e); the `pricing-shell` tablist is incomplete and **this plan completes it** (Task 8): `role="tabpanel"` with `aria-controls`/`aria-labelledby`, roving `tabIndex`, Left/Right/Home/End keyboard navigation.
+- **NEVER run `bun run test`, `bun run test:unit`, bare `bun test`, or any whole-folder run of `__tests__/integration` or `scripts/dwh`**: they load `.env.local` (SQLITE_PATH=./) and wipe the developer's real `data/exporter.db`. Run only the specific test files named in your task (unit tests use `makeMemoryDb()`); e2e only with `SQLITE_PATH=./e2e/.tmp` and Node 22 on PATH (see Plan 1's e2e-run-report.md). Two `scripts/dwh` tests (dim-customer, dim-legal-entity) fail on the mock ERP for unrelated pre-existing reasons.
 
 ## Review Focus
 
@@ -1274,7 +1276,7 @@ export function visibleRows(rows: GridRow[], opts: { search: string; category: s
 - `ListsTab({ canEdit })`: two sub-views toggled by a small segmented control `Tarifas | Artículos`; state: `lists`, `currencies`, `selected` (URL `?list=`), `grid`, `compareTo`, `effectiveFrom` (default `todayIso()`), `staged`, `selected` rows, filters; `loadGrid` re-fetches `/api/pricing/lists/<co>/rates?compareTo=`; `onApply` opens `ApplyDialog` with `pendingChanges(...)`; on success clear staged and `loadGrid`; switching lists with pending edits asks for confirmation (`window.confirm` is **not** allowed — use a `Modal` "Hay cambios sin aplicar. ¿Descartar?"); `onExport` navigates to the export URL; `onBulk` runs `bulkNewPrices` over the selected rows' `referenceMonto` and `stageEdit`s each result.
 
 - [ ] **Step 1: Help + e2e.** Write `content/help/pricing-listas.md` (Spanish): what a list is; how a price change works (close-and-insert, history preserved, "Vigente desde" in the future = scheduled); price↔% linking and rounding ("5 % puede mostrarse como 5,02 %"); "Comparar con"; clone; the *varios almacenes* badge; article lookup. Write `e2e/pricing-lists.spec.ts` tagged `@mssql` following `e2e/help-panel.spec.ts` conventions: view-only user sees the grid read-only (no `Aplicar`), help panel shows the Listas content.
-- [ ] **Step 2: Implement** the files above. `ListsTab` must never call `window.confirm/alert/prompt`.
+- [ ] **Step 2: Implement** the files above. `ListsTab` must never call `window.confirm/alert/prompt`. Also complete the tab a11y in `pricing-shell.tsx` (see Global Constraints): tabpanel wiring, roving tabindex, arrow/Home/End keys, with a small pure helper `nextTabId(ids, current, key)` unit-tested in `__tests__/unit/pricing/tab-nav.test.ts`.
 - [ ] **Step 3: Final verification (Plan 2 done criteria)** — all green:
 
 ```bash

@@ -29,6 +29,7 @@ Plan 1 *Global Constraints* apply unchanged. Plan-specific:
 - Alert settings are admin-only (`session.role === 'admin'`), checked in the route and hidden in the UI.
 - The sweep heartbeat is written even when the sweep throws (state `failed`, error text), so the dashboard can tell "never ran" from "ran and broke".
 - Dates `YYYY-MM-DD`; timestamps unix ms; Spanish copy.
+- **NEVER run `bun run test`, `bun run test:unit`, bare `bun test`, or any whole-folder run of `__tests__/integration` or `scripts/dwh`**: they load `.env.local` (SQLITE_PATH=./) and wipe the developer's real `data/exporter.db`. Run only the specific test files named in your task (unit tests use `makeMemoryDb()`); e2e only with `SQLITE_PATH=./e2e/.tmp` and Node 22 on PATH (see Plan 1's e2e-run-report.md). Two `scripts/dwh` tests (dim-customer, dim-legal-entity) fail on the mock ERP for unrelated pre-existing reasons.
 
 ## Review Focus
 
