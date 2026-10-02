@@ -405,3 +405,24 @@ export async function assignCustomerPriceList(
     return { coCli, outcome: 'error', message: 'Error al actualizar el cliente' };
   }
 }
+
+export type SegmentMoveOutcome =
+  | { coCli: string; outcome: 'success'; previousTipCli: string }
+  | { coCli: string; outcome: 'conflict'; previousTipCli: string }
+  | { coCli: string; outcome: 'error'; message: string };
+
+export async function assignCustomerToSegment(
+  pool: ConnectionPool, coCli: string, targetTipCli: string, modifyingUser: string,
+): Promise<SegmentMoveOutcome> {
+  try {
+    const current = await readFullCustomerRow(pool, coCli);
+    if (!current) return { coCli, outcome: 'error', message: 'Cliente no encontrado' };
+    const previousTipCli = current.tipCli.trim();
+    if (previousTipCli === targetTipCli.trim()) return { coCli, outcome: 'success', previousTipCli };
+    const outcome = await updateCustomerTipCli(pool, current, targetTipCli, modifyingUser);
+    return { coCli, outcome, previousTipCli };
+  } catch (error) {
+    console.error(`Segment move error for ${coCli}:`, error);
+    return { coCli, outcome: 'error', message: 'Error al actualizar el cliente' };
+  }
+}
