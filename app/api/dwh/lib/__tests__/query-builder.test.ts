@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '../query-builder';
+import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr, bucketKeyExpr, buildPrevThirtyDayWhereClause } from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -163,17 +163,12 @@ describe('buildDateWhereClause', () => {
     expect(clause).toBe(`AND fe.DateKey >= ${currentYear}0101 AND fe.DateKey <= ${todayKey}`);
   });
 
-  test('30d and 90d are no longer recognized as rolling windows — they fall through to the 12m default', () => {
-    // 30d/90d are removed from the UI (analitica-client.tsx) but the function
-    // must not throw or silently mishandle a stale/bookmarked URL still
-    // carrying one of these values — falling through to the 365-day (12m)
-    // default is the safe, unsurprising behavior for a value this function
-    // no longer specifically recognizes.
-    const clause30 = buildDateWhereClause('30d', 'fe');
-    const clause90 = buildDateWhereClause('90d', 'fe');
-    const clause12m = buildDateWhereClause('12m', 'fe');
-    expect(clause30).toBe(clause12m);
-    expect(clause90).toBe(clause12m);
+  test('90d is not a recognized window — it falls through to the 12m default', () => {
+    // 90d is not offered in the UI but the function must not throw or
+    // silently mishandle a stale/bookmarked URL still carrying it — falling
+    // through to the 365-day (12m) default is the safe behavior. (30d is a
+    // real window again — see 'buildDateWhereClause 30d' below.)
+    expect(buildDateWhereClause('90d', 'fe')).toBe(buildDateWhereClause('12m', 'fe'));
   });
 
   test('12m and custom:start:end are unchanged', () => {
@@ -261,5 +256,48 @@ describe('dualAmountExpr', () => {
     const sql = dualAmountExpr('fr', 'NetAmount', 'Bs', 'Usd', 'frfx');
     expect(sql).toContain('NULLIF(frfx.RateSell, 0)');
     expect(sql).not.toContain('DocumentExchangeRate');
+  });
+});
+
+describe('buildDateWhereClause 30d', () => {
+  test('filters to the last 30 days including today', () => {
+    const sql = buildDateWhereClause('30d', 'fs');
+    expect(sql).toContain('fs.DateKey >=');
+    expect(sql).toContain('DATEADD(DAY, -29, GETDATE())');
+  });
+});
+
+describe('bucketKeyExpr', () => {
+  test('month groups by YearMonth', () => {
+    expect(bucketKeyExpr('month')).toBe('d.YearMonth');
+  });
+
+  test('day groups by ISO date', () => {
+    expect(bucketKeyExpr('day')).toBe('CONVERT(char(10), d.FullDate, 23)');
+  });
+
+  test('week keys are YYYY-Www, Monday-first and DATEFIRST-independent', () => {
+    const sql = bucketKeyExpr('week');
+    expect(sql).toContain("'-W'");
+    expect(sql).toContain("'19000101'"); // 1900-01-01 was a Monday
+    expect(sql).not.toContain('DATEPART(WEEKDAY');
+    expect(sql).not.toContain('DATEPART(WEEK,');
+  });
+
+  test('range is a constant that still references a column (SQL Server rejects pure constants in GROUP BY/ORDER BY)', () => {
+    expect(bucketKeyExpr('range')).toBe("CASE WHEN d.DateKey IS NOT NULL THEN 'range' END");
+    expect(bucketKeyExpr('range', 'dr')).toContain('dr.DateKey');
+  });
+
+  test('honors a custom date alias', () => {
+    expect(bucketKeyExpr('month', 'dr')).toBe('dr.YearMonth');
+  });
+});
+
+describe('buildPrevThirtyDayWhereClause', () => {
+  test('is the 30 days immediately before the 30d window, with no overlap', () => {
+    const sql = buildPrevThirtyDayWhereClause('prev_fs');
+    expect(sql).toContain("prev_fs.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -59, GETDATE()), 'yyyyMMdd'))");
+    expect(sql).toContain("prev_fs.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))");
   });
 });

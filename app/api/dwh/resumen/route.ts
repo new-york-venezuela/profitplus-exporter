@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
+import { buildDateWhereClause, buildPrevThirtyDayWhereClause, getDimensionSpec, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -18,26 +19,43 @@ export const dynamic = 'force-dynamic';
 // so no COLLATE/RTRIM gymnastics are needed here, that work already
 // happened at load time.
 
-function monthlyTrendQuery(dateWhere: string): string {
+// `bucket` picks the trend grain (day/week/month/aggregate range). Sales and
+// returns are aggregated per bucket in separate CTEs and joined on the bucket
+// key, rather than via a correlated subquery: the bucket is a GROUP BY
+// *expression*, and SQL Server rejects a subquery that references the outer
+// query's un-grouped Dim_Date columns. Both sides are range-scoped, so the
+// aggregate 'range' bucket can't sum returns outside the period.
+function monthlyTrendQuery(dateWhere: string, returnsDateWhere: string, bucket: TrendBucket): string {
   return `
+    WITH sales AS (
+      SELECT
+        ${bucket.keyExpr('d')} AS Bucket,
+        ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      FROM fact.Fact_Sales fs
+      ${usdConversionJoin('fs')}
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0 ${dateWhere}
+      GROUP BY ${bucket.keyExpr('d')}
+    ),
+    rets AS (
+      SELECT
+        ${bucket.keyExpr('dr')} AS Bucket,
+        ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd', 'frfx')}
+      FROM fact.Fact_Returns fr
+      ${usdConversionJoin('fr', undefined, 'frfx')}
+      JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
+      WHERE fr.IsVoided = 0 ${returnsDateWhere}
+      GROUP BY ${bucket.keyExpr('dr')}
+    )
     SELECT
-      d.YearMonth,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(frfx.RateSell, 0)) END
-         FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr', undefined, 'frfx')}
-         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0) AS ReturnsNetUsd
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    WHERE fs.IsVoided = 0 ${dateWhere}
-    GROUP BY d.YearMonth
-    ORDER BY d.YearMonth
+      s.Bucket,
+      s.SalesNetBs,
+      s.SalesNetUsd,
+      ISNULL(r.ReturnsNetBs, 0) AS ReturnsNetBs,
+      ISNULL(r.ReturnsNetUsd, 0) AS ReturnsNetUsd
+    FROM sales s
+    LEFT JOIN rets r ON r.Bucket = s.Bucket
+    ORDER BY s.Bucket
   `;
 }
 
@@ -217,6 +235,8 @@ function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): s
     return `AND ${tableName}.DateKey >= ${prevStartKey} AND ${tableName}.DateKey <= ${prevEndKey}`;
   }
 
+  if (dateRange === '30d') return buildPrevThirtyDayWhereClause(tableName);
+
   // Trailing-365-day default (buildDateWhereClause's own fallback): the
   // previous period is the 365 days immediately before that window.
   return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -730, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
@@ -270,6 +290,7 @@ export async function GET(request: NextRequest) {
   try {
     const pool = await getDwhPool();
 
+    const trendBucket = parseTrendBucket(searchParams, dateRange);
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
@@ -286,7 +307,7 @@ export async function GET(request: NextRequest) {
     const salesDateWhereFs2 = buildDateWhereClause(dateRange, 'fs2');
 
     const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult] = await Promise.all([
-      pool.request().query(monthlyTrendQuery(salesDateWhere)),
+      pool.request().query(monthlyTrendQuery(salesDateWhere, returnsDateWhere, trendBucket)),
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
       pool.request().query(salesRepQuery(salesDateWhere, returnsDateWhere)),
@@ -336,7 +357,7 @@ export async function GET(request: NextRequest) {
         : null;
 
     const monthlyTrend: MonthlyTrendRow[] = trend.recordset.map(r => ({
-      yearMonth: r.YearMonth,
+      bucket: String(r.Bucket),
       salesNet: { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) },
       returnsNet: { bs: Number(r.ReturnsNetBs), usd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd) },
     }));
@@ -373,6 +394,7 @@ export async function GET(request: NextRequest) {
 
     const response: ResumenResponse = {
       monthlyTrend,
+      trendMode: trendBucket.mode,
       topCustomers: topCustomersMapped,
       topProducts: topProductsMapped,
       salesReps: salesRepsMapped,

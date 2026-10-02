@@ -6,6 +6,8 @@ import {
 } from 'recharts';
 import { moneyLabel } from '../lib/format';
 import SearchableSelect from '@/lib/components/searchable-select';
+import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import type { Granularity } from '../lib/granularity';
 import type {
   Currency, DateRange, ProductosResponse, ProductosRow,
   ProfundidadLineaResponse, UnitsByLineaResponse,
@@ -71,9 +73,11 @@ function rowKey(row: ProductosRow, i: number): string {
 export default function TabProductos({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
   const [groupBy, setGroupBy] = useState<ProductosGroupBy>('linea');
   const [linea, setLinea] = useState<string | null>(null);
@@ -176,7 +180,7 @@ export default function TabProductos({
       setPorLineaMesError(null);
       setPorLineaMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, section: 'porLineaMes' });
+        const params = new URLSearchParams({ dateRange, section: 'porLineaMes', granularity });
         if (tienda) params.set('tienda', tienda);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
@@ -196,7 +200,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, tienda]);
+  }, [dateRange, granularity, tienda]);
 
   function handleRowClick(row: ProductosRow) {
     if (groupBy === 'linea') {
@@ -233,7 +237,14 @@ export default function TabProductos({
   }
 
   const drillable = groupBy !== 'sku';
-  const porLineaMesChartData = (porLineaMesData?.rows ?? []).map(r => ({ ...r.units, yearMonth: r.yearMonth, yearMonthValue: r.yearMonthValue }));
+  const trendMode = porLineaMesData?.trendMode ?? 'month';
+  const porLineaMesLabels = bucketLabels(trendMode, (porLineaMesData?.rows ?? []).map(r => r.bucket));
+  const porLineaMesChartData = (porLineaMesData?.rows ?? []).map((r, i) => ({
+    ...r.units,
+    label: porLineaMesLabels[i],
+    bucket: r.bucket,
+    title: bucketTitle(trendMode, r.bucket),
+  }));
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -323,7 +334,7 @@ export default function TabProductos({
 
       {/* Unidades vendidas por mes, apiladas por línea */}
       <ChartCard
-        title="Unidades vendidas por mes, por línea"
+        title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por línea`}
         subtitle="Clic en un segmento para ver las sublíneas de esa línea"
       >
         {porLineaMesLoading ? (
@@ -336,17 +347,18 @@ export default function TabProductos({
           <ResponsiveContainer width="100%" height={380}>
             <BarChart data={porLineaMesChartData} margin={{ top: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} tickFormatter={v => qty(Number(v))} />
               <Tooltip
                 formatter={(value, name, entry) => {
-                  const row = porLineaMesData.rows.find(r => r.yearMonth === (entry.payload as { yearMonth: string })?.yearMonth);
+                  const row = porLineaMesData.rows.find(r => r.bucket === (entry.payload as { bucket: string })?.bucket);
                   const lineaName = String(name);
                   const salesNetAmount = row?.salesNet[lineaName] ?? { bs: 0, usd: 0 };
                   const totalBs = row?.totalSalesNet.bs ?? 0;
                   const share = totalBs > 0 ? salesNetAmount.bs / totalBs : null;
-                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNetAmount, currency)} (${pct(share)} del mes)`, lineaName];
+                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNetAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
                 }}
+                labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {porLineaMesData.lineas.map(lineaName => (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import type {
   ProductosResponse, ProductosRow, GroupBy,
@@ -138,7 +139,7 @@ function activeTotalsQuery(dateWhere: string, tiendaWhere: string): string {
   `;
 }
 
-// Units sold by month, stacked by línea — top 7 líneas by total volume in
+// Units sold per trend bucket (day/week/month), stacked by línea — top 7 líneas by total volume in
 // range get their own series, the rest are bucketed into "Otras" so the
 // stacked bar chart stays legible regardless of how many líneas exist.
 function topLineasQuery(dateWhere: string, tiendaWhere: string): string {
@@ -152,10 +153,10 @@ function topLineasQuery(dateWhere: string, tiendaWhere: string): string {
   `;
 }
 
-function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string): string {
+function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: TrendBucket): string {
   return `
     SELECT
-      d.YearMonth AS YearMonth,
+      ${bucket.keyExpr('d')} AS Bucket,
       ISNULL(p.LineName, '${NO_LINEA}') AS LineName,
       SUM(fs.QuantitySold) AS QuantitySold,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
@@ -164,17 +165,9 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string): string 
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-    GROUP BY d.YearMonth, ISNULL(p.LineName, '${NO_LINEA}')
-    ORDER BY d.YearMonth
+    GROUP BY ${bucket.keyExpr('d')}, ISNULL(p.LineName, '${NO_LINEA}')
+    ORDER BY ${bucket.keyExpr('d')}
   `;
-}
-
-const MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-function formatYearMonth(ym: string): string {
-  const [y, m] = ym.split('-');
-  const idx = parseInt(m, 10) - 1;
-  return MONTH_NAMES[idx] ? `${MONTH_NAMES[idx]} ${y.slice(2)}` : ym;
 }
 
 async function handleProfundidad(dateWhere: string, returnsDateWhere: string, tiendaWhere: string, tiendaKey: number | null): Promise<NextResponse> {
@@ -218,7 +211,7 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
   return jsonWithCache(response);
 }
 
-async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaKey: number | null): Promise<NextResponse> {
+async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaKey: number | null, trend: TrendBucket): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
@@ -228,41 +221,41 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
 
   const monthReq = pool.request();
   if (tiendaKey !== null) monthReq.input('tiendaKey', tiendaKey);
-  const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, tiendaWhere));
+  const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, tiendaWhere, trend));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
   // Tracks whether ANY row contributing to a given salesNet[linea]/totalSalesNet
   // accumulator had a resolvable USD rate — null propagates to the accumulated
   // total only when EVERY contributing row lacked a rate, not when any single
   // one did (see the SQL-side CASE WHEN COUNT(...) = 0 rule this mirrors).
-  const sawUsd = new Map<string, Set<string>>(); // yearMonthValue -> set of lineas with at least one non-null usd row
-  const sawUsdTotal = new Set<string>(); // yearMonthValue with at least one non-null usd row overall
+  const sawUsd = new Map<string, Set<string>>(); // bucketKey -> set of lineas with at least one non-null usd row
+  const sawUsdTotal = new Set<string>(); // bucketKey with at least one non-null usd row overall
   const lineasSeen: string[] = [];
   let hasOtras = false;
 
   for (const r of monthResult.recordset) {
-    const yearMonthValue = String(r.YearMonth);
+    const bucketKey = String(r.Bucket); // bucket key (YYYY-MM-DD | YYYY-Www | YYYY-MM | 'range')
     const rawLinea = String(r.LineName);
     const linea = topLineas.has(rawLinea) ? rawLinea : 'Otras';
     if (linea === 'Otras') hasOtras = true;
     else if (!lineasSeen.includes(linea)) lineasSeen.push(linea);
 
-    let bucket = byMonth.get(yearMonthValue);
+    let bucket = byMonth.get(bucketKey);
     if (!bucket) {
-      bucket = { yearMonth: formatYearMonth(yearMonthValue), yearMonthValue, units: {}, salesNet: {}, totalSalesNet: { bs: 0, usd: 0 } };
-      byMonth.set(yearMonthValue, bucket);
+      bucket = { bucket: bucketKey, units: {}, salesNet: {}, totalSalesNet: { bs: 0, usd: 0 } };
+      byMonth.set(bucketKey, bucket);
     }
-    let lineaUsdSeen = sawUsd.get(yearMonthValue);
+    let lineaUsdSeen = sawUsd.get(bucketKey);
     if (!lineaUsdSeen) {
       lineaUsdSeen = new Set<string>();
-      sawUsd.set(yearMonthValue, lineaUsdSeen);
+      sawUsd.set(bucketKey, lineaUsdSeen);
     }
 
     const rowSalesNetBs = Number(r.SalesNetBs);
     const rowSalesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
     if (rowSalesNetUsd !== null) {
       lineaUsdSeen.add(linea);
-      sawUsdTotal.add(yearMonthValue);
+      sawUsdTotal.add(bucketKey);
     }
     bucket.units[linea] = (bucket.units[linea] ?? 0) + Number(r.QuantitySold);
     const existing = bucket.salesNet[linea] ?? { bs: 0, usd: 0 };
@@ -278,22 +271,22 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
 
   // Second pass: null out usd for any linea/total accumulator that never saw
   // a single resolvable rate (the "all contributors lacked a rate" case).
-  for (const [yearMonthValue, bucket] of byMonth) {
-    const lineaUsdSeen = sawUsd.get(yearMonthValue) ?? new Set<string>();
+  for (const [bucketKey, bucket] of byMonth) {
+    const lineaUsdSeen = sawUsd.get(bucketKey) ?? new Set<string>();
     for (const linea of Object.keys(bucket.salesNet)) {
       if (!lineaUsdSeen.has(linea)) {
         bucket.salesNet[linea] = { ...bucket.salesNet[linea], usd: null };
       }
     }
-    if (!sawUsdTotal.has(yearMonthValue)) {
+    if (!sawUsdTotal.has(bucketKey)) {
       bucket.totalSalesNet = { ...bucket.totalSalesNet, usd: null };
     }
   }
 
-  const rows = Array.from(byMonth.values()).sort((a, b) => a.yearMonthValue.localeCompare(b.yearMonthValue));
+  const rows = Array.from(byMonth.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
   const lineas = hasOtras ? [...lineasSeen, 'Otras'] : lineasSeen;
 
-  const response: UnitsByLineaResponse = { rows, lineas };
+  const response: UnitsByLineaResponse = { rows, lineas, trendMode: trend.mode };
   return jsonWithCache(response);
 }
 
@@ -329,7 +322,7 @@ export async function GET(request: NextRequest) {
       const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
       return section === 'profundidad'
         ? await handleProfundidad(dateWhere, returnsDateWhere, tiendaWhere, tiendaKey)
-        : await handlePorLineaMes(dateWhere, tiendaWhere, tiendaKey);
+        : await handlePorLineaMes(dateWhere, tiendaWhere, tiendaKey, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }

@@ -112,7 +112,7 @@ function monthsInRange(startDate: string, endDate: string): string[] {
   return months;
 }
 
-// dateRange is app-shell-encoded ('12m' | month:YYYY-MM | ytd:YYYY |
+// dateRange is app-shell-encoded ('12m' | '30d' | month:YYYY-MM | ytd:YYYY |
 // custom:start:end) — this route needs concrete start/end ISO dates (not
 // just a SQL WHERE fragment) for the quota-month resolution, so it parses
 // the same formats buildDateWhereClause does, independently, since that
@@ -137,7 +137,8 @@ function resolveDateBounds(dateRange: string): { start: string; end: string } {
   }
 
   const end = new Date().toISOString().slice(0, 10);
-  const start = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const windowDays = dateRange === '30d' ? 29 : 365;
+  const start = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10);
   return { start, end };
 }
 

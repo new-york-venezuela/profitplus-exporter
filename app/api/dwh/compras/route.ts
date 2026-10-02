@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { parseTrendBucket, bucketFilterClause, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
+import { bucketLabels, bucketTitle } from '@/app/(app)/analitica/lib/granularity';
 import { buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { ComprasResponse, ComprasRow, GroupBy } from '@/app/(app)/analitica/types';
 
@@ -12,11 +14,11 @@ export const dynamic = 'force-dynamic';
 // equivalent in scope, so (unlike Ventas) there is no ReturnsNet subquery
 // and ComprasRow has no returnRate.
 
-function monthlyQuery(dateWhere: string): string {
+function monthlyQuery(dateWhere: string, bucket: TrendBucket): string {
   return `
     SELECT
-      d.YearMonth AS GroupValue,
-      d.YearMonth AS GroupLabel,
+      ${bucket.keyExpr('d')} AS GroupValue,
+      ${bucket.keyExpr('d')} AS GroupLabel,
       ${dualAmountExpr('fp', 'NetAmount', 'PurchasesNetBs', 'PurchasesNetUsd')},
       SUM(fp.GrossAmount) AS GrossAmount,
       SUM(fp.DiscountAmount) AS DiscountAmount
@@ -24,8 +26,8 @@ function monthlyQuery(dateWhere: string): string {
     ${usdConversionJoin('fp')}
     JOIN dim.Dim_Date d ON d.DateKey = fp.DateKey
     WHERE fp.IsVoided = 0 ${dateWhere}
-    GROUP BY d.YearMonth
-    ORDER BY d.YearMonth
+    GROUP BY ${bucket.keyExpr('d')}
+    ORDER BY ${bucket.keyExpr('d')}
   `;
 }
 
@@ -114,6 +116,8 @@ export async function GET(request: NextRequest) {
   const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
   const month = searchParams.get('month');
+  const bucketParam = searchParams.get('bucket');
+  const trendBucket = parseTrendBucket(searchParams, dateRange);
 
   try {
     const pool = await getDwhPool();
@@ -167,37 +171,48 @@ export async function GET(request: NextRequest) {
     if (groupBy === 'proveedor') {
       let monthFilter = '';
       const req = pool.request();
-      if (month) {
+      if (bucketParam) {
+        // Drill-down from a trend bar: filter to that bucket's date span (the
+        // clause is built from regex-validated digits, not user text).
+        const clause = bucketFilterClause(trendBucket.mode, bucketParam, 'fp');
+        if (clause === null) {
+          return NextResponse.json({ error: 'Parámetro bucket inválido' }, { status: 400 });
+        }
+        monthFilter = clause;
+      } else if (month) {
         req.input('month', month);
         monthFilter = 'AND d.YearMonth = @month';
       }
       const result = await req.query(proveedorQuery(purchasesDateWhere, monthFilter));
       recordset = result.recordset;
-      breadcrumb.push({ label: month ? formatYearMonth(month) : 'Proveedores', groupBy: 'proveedor' });
+      breadcrumb.push({ label: bucketParam ? bucketTitle(trendBucket.mode, bucketParam) : month ? formatYearMonth(month) : 'Proveedores', groupBy: 'proveedor' });
     } else if (groupBy === 'linea') {
       const result = await pool.request().query(lineaQuery(purchasesDateWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: 'Líneas', groupBy: 'linea' });
     } else {
-      const result = await pool.request().query(monthlyQuery(purchasesDateWhere));
+      const result = await pool.request().query(monthlyQuery(purchasesDateWhere, trendBucket));
       recordset = result.recordset;
     }
 
-    const rows: ComprasRow[] = recordset.map(r => {
+    const trendKeys = groupBy === 'mes' ? recordset.map(r => String(r.GroupValue)) : [];
+    const trendXLabels = bucketLabels(trendBucket.mode, trendKeys);
+    const rows: ComprasRow[] = recordset.map((r, i) => {
       const purchasesNetBs = Number(r.PurchasesNetBs);
       const purchasesNetUsd = r.PurchasesNetUsd === null ? null : Number(r.PurchasesNetUsd);
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
-      const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
+      const label = groupBy === 'mes' ? trendXLabels[i] : String(r.GroupLabel);
       return {
         label,
+        ...(groupBy === 'mes' ? { title: bucketTitle(trendBucket.mode, String(r.GroupValue)) } : {}),
         value: String(r.GroupValue),
         purchasesNet: { bs: purchasesNetBs, usd: purchasesNetUsd },
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
       };
     });
 
-    const response: ComprasResponse = { rows, groupBy, breadcrumb };
+    const response: ComprasResponse = { rows, groupBy, breadcrumb, ...(groupBy === 'mes' ? { trendMode: trendBucket.mode } : {}) };
 
     return jsonWithCache(response);
   } catch {
