@@ -78,7 +78,12 @@ describe('distinctSellers', () => {
     ], [], []);
     expect(distinctSellers(rows)).toEqual([
       // sorted by display name: the code-fallback "000003" sorts before letters
-      { code: '000003', name: '000003' }, { code: '000001', name: 'Ana' }, { code: '000002', name: 'Zoe' },
+      { code: '000003', name: '000003', inactive: false }, { code: '000001', name: 'Ana', inactive: false }, { code: '000002', name: 'Zoe', inactive: false },
     ]);
+  });
+
+  test('carries the ERP inactive flag so inactive sellers are not offered for reassignment', () => {
+    const rows = mergeCustomers([erp({ coCli: 'A', coVen: '000001', sellerName: 'Ana', sellerInactive: true })], [], []);
+    expect(distinctSellers(rows)).toEqual([{ code: '000001', name: 'Ana', inactive: true }]);
   });
 });

@@ -13,7 +13,7 @@ const ISSUE_TEXT: Record<NonNullable<MapCustomer['coordinatesIssue']>, string> =
   OUT_OF_RANGE: 'fuera de Venezuela',
 };
 
-export function CustomerTable({ customers, onSelect }: { customers: MapCustomer[]; onSelect: (coCli: string) => void }) {
+export function CustomerTable({ customers, onSelect, onChangeSeller }: { customers: MapCustomer[]; onSelect: (coCli: string) => void; onChangeSeller: (coCli: string) => void }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'revenueUsd', dir: -1 });
 
   const rows = useMemo(() => {
@@ -58,7 +58,17 @@ export function CustomerTable({ customers, onSelect }: { customers: MapCustomer[
                 </button>
                 <span className="block text-xs text-gray-500">{c.coCli}</span>
               </td>
-              <td className="px-3 py-2">{c.sellerName ?? c.coVen}</td>
+              <td className="px-3 py-2">
+                {c.sellerName ?? c.coVen}
+                <button
+                  type="button"
+                  aria-label={`Cambiar vendedor de ${c.name}`}
+                  onClick={() => onChangeSeller(c.coCli)}
+                  className="block min-h-11 text-left text-xs font-medium text-blue-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+                >
+                  Cambiar vendedor
+                </button>
+              </td>
               <td className="px-3 py-2 tabular-nums">{c.revenueUsd === null ? 'Sin tasa' : usd.format(c.revenueUsd)}</td>
               <td className="px-3 py-2">{c.pareto ?? '—'}</td>
               <td className="px-3 py-2">

@@ -261,11 +261,19 @@ Sales areas live in SQLite (`sales_areas`, `sales_area_sellers`); polygons are
 GeoJSON `Polygon`s with `[lng, lat]` coordinates. Areas cannot overlap (shared
 borders are fine). Customer-to-area matching is computed on read in
 `GET /api/mapa/clientes` via `lib/geo/area-match.ts` — never stored, never
-written to the ERP (`saCliente.co_ven` is untouched). Mismatch = the customer's
+written to the ERP. Mismatch = the customer's
 `co_ven` is not among the sellers of the area it falls in (areas with no
 sellers never flag). A customer on a border resolves to the lowest area id.
 Geometry is dependency-free (`lib/geo/geometry.ts`); Geoman and `leaflet.heat`
 are imported only inside the client-only map tree.
+
+`saCliente.co_ven` has exactly one writer: a user's manual "Cambiar vendedor"
+action (popup / table row), `PATCH /api/mapa/clientes/[co_cli]/vendedor` →
+`updateCustomerSeller` (`lib/geo/erp-seller.ts`) → `pApiActualizarVendedorCliente`
+(`migrations/mssql/0009`, rejects unknown customers and unknown/inactive
+sellers, stamps `co_us_mo`/`fe_us_mo`). Area matching never changes a seller
+automatically. The seller picker lists `payload.sellers` (sellers with at least
+one active customer; inactive ones, flagged `inactive`, are excluded).
 
 ## Product Analytics (PostHog)
 

@@ -5,8 +5,8 @@ import type { MapCustomer, RouteDto } from '@/lib/geo/types';
 const usd = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 export function CustomerPopup({
-  customer, routes, onEditLocation,
-}: { customer: MapCustomer; routes: RouteDto[]; onEditLocation: (coCli: string) => void }) {
+  customer, routes, onEditLocation, onChangeSeller,
+}: { customer: MapCustomer; routes: RouteDto[]; onEditLocation: (coCli: string) => void; onChangeSeller: (coCli: string) => void }) {
   const customerRoutes = routes.filter(r => customer.routeIds.includes(r.id));
   return (
     <div className="min-w-56 max-w-72 text-sm text-gray-800">
@@ -37,6 +37,13 @@ export function CustomerPopup({
         className="mt-3 min-h-11 w-full rounded-md border border-blue-600 px-3 text-sm font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
       >
         Editar ubicación
+      </button>
+      <button
+        type="button"
+        onClick={() => onChangeSeller(customer.coCli)}
+        className="mt-2 min-h-11 w-full rounded-md border border-gray-400 px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+      >
+        Cambiar vendedor
       </button>
     </div>
   );

@@ -205,5 +205,7 @@ Same definition as the analytics Clientes tab (`app/api/dwh/clientes/route.ts`):
 
 ## Out of scope
 
-Stores without a `saCliente` row, per-route visit schedules, writing the
-matched seller back to the ERP, marker clustering.
+Stores without a `saCliente` row, per-route visit schedules, automatically
+writing the matched seller back to the ERP (a user may change a customer's
+seller manually from the map via `pApiActualizarVendedorCliente`; never
+automatic), marker clustering.

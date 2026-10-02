@@ -16,6 +16,7 @@ export interface CustomerMapProps {
   selectedCoCli: string | null;
   onSelect: (coCli: string | null) => void;
   onEditLocation: (coCli: string) => void;
+  onChangeSeller: (coCli: string) => void;
   fitKey: number;
   editing: { lat: number | null; lng: number | null } | null;
   onPlace: (lat: number, lng: number) => void;
@@ -52,7 +53,7 @@ function ClickToPlace({ active, onPlace }: { active: boolean; onPlace: (lat: num
 }
 
 export default function CustomerMap({
-  customers, routes, selectedCoCli, onSelect, onEditLocation, fitKey, editing, onPlace, showPins, focus, children,
+  customers, routes, selectedCoCli, onSelect, onEditLocation, onChangeSeller, fitKey, editing, onPlace, showPins, focus, children,
 }: CustomerMapProps) {
   const located = useMemo(() => customers.filter(c => c.lat !== null && c.lng !== null), [customers]);
   const points = useMemo(() => located.map(c => [c.lat!, c.lng!] as [number, number]), [located]);
@@ -77,7 +78,7 @@ export default function CustomerMap({
             eventHandlers={{ click: () => onSelect(c.coCli), popupclose: () => onSelect(null) }}
           >
             <Popup>
-              <CustomerPopup customer={c} routes={routes} onEditLocation={onEditLocation} />
+              <CustomerPopup customer={c} routes={routes} onEditLocation={onEditLocation} onChangeSeller={onChangeSeller} />
             </Popup>
           </Marker>
         ))}

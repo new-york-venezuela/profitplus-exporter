@@ -269,3 +269,71 @@ test.describe.serial('mapa with seeded coordinates @mssql', () => {
     for (const a of areas.filter(x => x.name === areaName)) await adminPage.request.delete(`/api/mapa/zonas/${a.id}`);
   });
 });
+
+// Changes a customer's seller through the modal (real pApiActualizarVendedorCliente
+// write on the mock ERP) and restores co_ven + audit columns afterwards.
+test.describe.serial('mapa change seller @mssql', () => {
+  let erp: sql.ConnectionPool;
+  let customer: { coCli: string; name: string; coVen: string; coUsMo: string; feUsMo: Date } | null = null;
+  let newSeller: { coVen: string; name: string } | null = null;
+
+  test.beforeAll(async () => {
+    erp = await new sql.ConnectionPool(dbConfig()).connect();
+    // Unique-named active customer whose seller is active, plus a different active seller that has customers.
+    const c = await erp.request().query(`
+      SELECT TOP 1 RTRIM(c.co_cli) AS coCli, RTRIM(c.cli_des) AS name, RTRIM(c.co_ven) AS coVen, c.co_us_mo AS coUsMo, c.fe_us_mo AS feUsMo
+      FROM saCliente c JOIN saVendedor v ON v.co_ven = c.co_ven AND v.inactivo = 0
+      WHERE c.inactivo = 0 AND (SELECT COUNT(*) FROM saCliente d WHERE d.cli_des = c.cli_des) = 1
+      ORDER BY c.co_cli DESC`);
+    customer = c.recordset[0] ?? null;
+    if (!customer) throw new Error('mock ERP lacks a suitable customer');
+    const s = await erp.request().input('cur', sql.VarChar(6), customer.coVen).query(`
+      SELECT TOP 1 RTRIM(v.co_ven) AS coVen, RTRIM(v.ven_des) AS name FROM saVendedor v
+      WHERE v.inactivo = 0 AND v.co_ven <> @cur AND EXISTS (SELECT 1 FROM saCliente k WHERE k.co_ven = v.co_ven AND k.inactivo = 0)
+      ORDER BY v.co_ven`);
+    newSeller = s.recordset[0] ?? null;
+    if (!newSeller) throw new Error('mock ERP lacks a second active seller with customers');
+  });
+
+  test.afterAll(async () => {
+    try {
+      if (customer) {
+        await erp.request()
+          .input('c', sql.Char(16), customer.coCli).input('v', sql.Char(6), customer.coVen)
+          .input('u', sql.Char(6), customer.coUsMo).input('f', sql.DateTime, customer.feUsMo)
+          .query(`UPDATE saCliente SET co_ven=@v, co_us_mo=@u, fe_us_mo=@f WHERE co_cli=@c`);
+      }
+    } finally {
+      await erp?.close();
+    }
+  });
+
+  test('Cancelar closes without changes; Guardar changes the seller and reloads the table', async ({ adminPage }) => {
+    test.setTimeout(60_000);
+    const c = customer!, s = newSeller!;
+    await adminPage.goto('/mapa');
+    await expect(adminPage.getByTestId('customer-map')).toBeVisible({ timeout: 20_000 });
+    await adminPage.getByRole('button', { name: 'Tabla' }).click();
+    const table = adminPage.getByRole('table', { name: 'Clientes' });
+    const row = table.locator('tr', { has: adminPage.getByRole('button', { name: c.name, exact: true }) });
+    const openModal = () => row.getByRole('button', { name: `Cambiar vendedor de ${c.name}` }).click();
+
+    await openModal();
+    const dialog = adminPage.locator('div.fixed.inset-0');
+    await expect(dialog.getByRole('heading', { name: 'Cambiar vendedor' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Guardar' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Seleccione un vendedor');   // field error, nothing sent
+    await dialog.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await openModal();
+    await dialog.getByPlaceholder('Buscar vendedor…').click();
+    await dialog.getByRole('button', { name: new RegExp(`· ${s.coVen}$`) }).click();
+    await dialog.getByRole('button', { name: 'Guardar' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+    await expect(row).toContainText(s.name);
+
+    const after = await erp.request().input('c', sql.Char(16), c.coCli).query(`SELECT RTRIM(co_ven) AS coVen FROM saCliente WHERE co_cli = @c`);
+    expect(after.recordset[0].coVen).toBe(s.coVen);
+  });
+});

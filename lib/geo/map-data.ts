@@ -11,6 +11,7 @@ export async function fetchErpCustomers(pool: sql.ConnectionPool): Promise<ErpCu
            RTRIM(c.rif)      AS rif,
            RTRIM(c.co_ven)   AS coVen,
            RTRIM(v.ven_des)  AS sellerName,
+           v.inactivo        AS sellerInactive,
            RTRIM(c.direc1)   AS direc1,
            RTRIM(c.dir_ent2) AS dirEnt2,
            RTRIM(c.campo1)   AS campo1

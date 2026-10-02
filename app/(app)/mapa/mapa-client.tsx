@@ -16,6 +16,7 @@ import { FilterPanel } from './components/filter-panel';
 import { CustomerTable } from './components/customer-table';
 import { UnlocatedList } from './components/unlocated-list';
 import { RoutesPanel } from './components/routes-panel';
+import { SellerChangeModal } from './components/seller-change-modal';
 import { LocationEditor, type EditDraft } from './components/location-editor';
 import { LayerToggles, type LayerState } from './components/layer-toggles';
 import { AreaPolygons } from './components/area-polygons';
@@ -110,6 +111,8 @@ export default function MapaClient() {
   const unlocated = useMemo(() => (payload ? payload.customers.filter(c => c.lat === null) : []), [payload]);
 
   const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [sellerFor, setSellerFor] = useState<string | null>(null);
+  const sellerCustomer = sellerFor ? payload?.customers.find(c => c.coCli === sellerFor) ?? null : null;
 
   const startDraw = useCallback(() => {
     setDraft(null);                                               // cancel any customer-location edit
@@ -290,6 +293,7 @@ export default function MapaClient() {
               selectedCoCli={selected}
               onSelect={setSelected}
               onEditLocation={startEditing}
+              onChangeSeller={setSellerFor}
               fitKey={fitKey}
               editing={editingPosition}
               onPlace={place}
@@ -307,7 +311,7 @@ export default function MapaClient() {
               />
             </CustomerMap>
           ) : (
-            <CustomerTable customers={visible} onSelect={c => { setSelected(c); setView('map'); }} />
+            <CustomerTable customers={visible} onSelect={c => { setSelected(c); setView('map'); }} onChangeSeller={setSellerFor} />
           )}
           {view === 'map' && scale && <ChoroplethLegend scale={scale} />}
         </div>
@@ -369,6 +373,14 @@ export default function MapaClient() {
           />
         )}
       </aside>
+      {sellerCustomer && (
+        <SellerChangeModal
+          customer={sellerCustomer}
+          sellers={sellers}
+          onClose={() => setSellerFor(null)}
+          onSaved={() => { setSellerFor(null); setReloadKey(k => k + 1); }}   // area match / mismatch / seller filter depend on co_ven
+        />
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ export interface MapCustomer {
   rif: string | null;
   coVen: string;
   sellerName: string | null;
+  sellerInactive?: boolean;
   direc1: string | null;
   dirEnt2: string | null;
   lat: number | null;
@@ -36,7 +37,7 @@ export interface MapCustomer {
   sellerMismatch: boolean;
 }
 
-export interface MapSeller { code: string; name: string }
+export interface MapSeller { code: string; name: string; /** saVendedor.inactivo: cannot be assigned to customers. */ inactive?: boolean }
 
 export interface MapPayload {
   dateRange: string;

@@ -4,7 +4,7 @@ import type { MapCustomer, MapSeller, RouteDto } from './types';
 
 export interface ErpCustomerRow {
   coCli: string; name: string; rif: string | null;
-  coVen: string; sellerName: string | null;
+  coVen: string; sellerName: string | null; sellerInactive?: boolean;
   direc1: string | null; dirEnt2: string | null; campo1: string | null;
 }
 
@@ -52,6 +52,7 @@ export function mergeCustomers(erp: ErpCustomerRow[], revenue: RevenueRow[], rou
       rif: blankToNull(c.rif),
       coVen: c.coVen.trim(),
       sellerName: blankToNull(c.sellerName),
+      sellerInactive: c.sellerInactive === true,
       direc1: blankToNull(c.direc1),
       dirEnt2: blankToNull(c.dirEnt2),
       ...locate(c.campo1),
@@ -67,7 +68,7 @@ export function mergeCustomers(erp: ErpCustomerRow[], revenue: RevenueRow[], rou
 export function distinctSellers(customers: MapCustomer[]): MapSeller[] {
   const byCode = new Map<string, MapSeller>();
   for (const c of customers) {
-    if (!byCode.has(c.coVen)) byCode.set(c.coVen, { code: c.coVen, name: c.sellerName ?? c.coVen });
+    if (!byCode.has(c.coVen)) byCode.set(c.coVen, { code: c.coVen, name: c.sellerName ?? c.coVen, inactive: c.sellerInactive === true });
   }
   return [...byCode.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
