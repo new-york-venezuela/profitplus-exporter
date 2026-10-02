@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { planRatePeriod, type RateRow } from '@/lib/pricing/rate-planner';
+import { matchesExpectedCurrent, planRatePeriod, type RateRow } from '@/lib/pricing/rate-planner';
 
 const row = (desde: string, hasta: string | null, monto: number): RateRow =>
   ({ coArt: 'A', coPrecio: '08', coAlma: '000015', desde, hasta, monto, coMone: 'USD', validador: '0x0000000000000001' });
@@ -90,5 +90,18 @@ describe('bounded period (promotions, Plan 3)', () => {
     const promo = row('2026-10-05', '2026-10-15', 3);
     expect(planRatePeriod([row('2026-03-15', '2026-10-04', 4), promo, row('2026-10-16', null, 4)], { from: '2026-10-05', to: '2026-10-15', monto: 3, today }))
       .toEqual({ ok: true, skipped: true, ops: [] });
+  });
+});
+
+describe('matchesExpectedCurrent', () => {
+  const rows = [row('2026-03-15', null, 12.4)];
+  test('undefined = no check; null = nothing covers today; number = covering monto', () => {
+    expect(matchesExpectedCurrent(rows, today, undefined)).toBe(true);
+    expect(matchesExpectedCurrent(rows, today, 12.4)).toBe(true);
+    expect(matchesExpectedCurrent(rows, today, 12.5)).toBe(false);
+    expect(matchesExpectedCurrent(rows, today, null)).toBe(false);
+    expect(matchesExpectedCurrent([], today, null)).toBe(true);
+    expect(matchesExpectedCurrent([], today, 3)).toBe(false);
+    expect(matchesExpectedCurrent([row('2026-11-01', null, 5)], today, null)).toBe(true);   // only a future row
   });
 });

@@ -1,7 +1,7 @@
 import sql from 'mssql';
 import type { ConnectionPool, Transaction } from 'mssql';
 import { hexToBuffer } from './tipo-cliente';
-import { planRatePeriod, type RateRow } from './rate-planner';
+import { matchesExpectedCurrent, planRatePeriod, type RateRow } from './rate-planner';
 
 export interface PriceListRow { coPrecio: string; desPrecio: string; coMone: string | null; rateCount: number; segmentCount: number; customerCount: number; validador: string }
 export interface ArticleRow { coArt: string; artDes: string; coCat: string | null; catDes: string | null }
@@ -109,12 +109,13 @@ async function updateRowTx(tx: Transaction, row: RateRow, set: { desde?: string;
 
 export async function applyRatePeriodErp(
   pool: ConnectionPool,
-  a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string },
+  a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null },
 ): Promise<ApplyOutcome> {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
     const rows = await readRowsTx(tx, a);
+    if (!matchesExpectedCurrent(rows, a.today, a.expectedCurrent)) { await tx.rollback(); return { outcome: 'conflict' }; }
     const plan = planRatePeriod(rows, { from: a.from, to: a.to, monto: a.monto, today: a.today });
     if (!plan.ok) { await tx.rollback(); return { outcome: 'rejected', message: plan.error }; }
     if (plan.skipped) { await tx.rollback(); return { outcome: 'skipped' }; }

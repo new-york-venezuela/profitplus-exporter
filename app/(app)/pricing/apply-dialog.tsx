@@ -11,8 +11,9 @@ export interface ApplyChange { coArt: string; artDes: string; before: number | n
 interface Props {
   changes: ApplyChange[];
   effectiveFrom: string;
-  /** Called with no argument for the first run, and with the conflicting codes on "Reintentar". */
-  onConfirm: (only?: string[]) => Promise<ApplyResult[]>;
+  onConfirm: () => Promise<ApplyResult[]>;
+  /** Closes the dialog and reloads the grid keeping the staged edits (so conflicts show the fresh price). */
+  onReload: () => void;
   onClose: () => void;
 }
 
@@ -26,27 +27,16 @@ const GROUPS: { outcomes: ApplyResult['outcome'][]; title: string; box: string }
   { outcomes: ['rejected', 'error'], title: 'Rechazado', box: 'border-red-200 bg-red-50 text-red-800' },
 ];
 
-export default function ApplyDialog({ changes, effectiveFrom, onConfirm, onClose }: Props) {
+const STALE_MSG = 'El precio cambió desde que cargaste la lista';
+
+export default function ApplyDialog({ changes, effectiveFrom, onConfirm, onReload, onClose }: Props) {
   const [results, setResults] = useState<ApplyResult[] | null>(null);
-  const [retrying, setRetrying] = useState(false);
   const scheduled = effectiveFrom > todayIso();
   const nameByCode = new Map(changes.map(c => [c.coArt, c.artDes]));
 
   const first = useSubmit(useCallback(async () => { setResults(await onConfirm()); }, [onConfirm]));
 
-  async function retry(codes: string[]) {
-    setRetrying(true);
-    first.setError(null);
-    try {
-      const res = await onConfirm(codes);
-      const byCode = new Map(res.map(r => [r.coArt, r]));
-      setResults(prev => (prev ?? []).map(r => byCode.get(r.coArt) ?? r));
-    } catch (e) {
-      first.setError(e instanceof Error ? e : new Error('Error inesperado'));
-    } finally { setRetrying(false); }
-  }
-
-  const busy = first.submitting || retrying;
+  const busy = first.submitting;
   const close = () => { if (!busy) onClose(); };
 
   return (
@@ -103,9 +93,9 @@ export default function ApplyDialog({ changes, effectiveFrom, onConfirm, onClose
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-semibold">{g.title} ({items.length})</h3>
                       {g.title === 'Conflicto' && (
-                        <button type="button" disabled={busy} onClick={() => void retry(items.map(i => i.coArt))}
+                        <button type="button" disabled={busy} onClick={onReload}
                           className={`min-h-[44px] rounded-md border border-amber-300 bg-white px-3 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`}>
-                          {retrying ? 'Reintentando…' : 'Reintentar'}
+                          Recargar y revisar
                         </button>
                       )}
                     </div>
@@ -113,7 +103,7 @@ export default function ApplyDialog({ changes, effectiveFrom, onConfirm, onClose
                       {items.map(i => (
                         <li key={i.coArt}>
                           {nameByCode.get(i.coArt) ?? i.coArt}
-                          {i.message && <span className="opacity-80"> — {i.message}</span>}
+                          {(i.message || i.outcome === 'conflict') && <span className="opacity-80"> — {i.message ?? STALE_MSG}</span>}
                         </li>
                       ))}
                     </ul>

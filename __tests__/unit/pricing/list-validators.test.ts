@@ -34,3 +34,18 @@ describe('validateRenameListBody', () => {
     expect(validateRenameListBody({ desPrecio: 'Nuevo', validador: 'x' }).ok).toBe(false);
   });
 });
+
+describe('validateApplyRatesBody expected (stale-grid check)', () => {
+  const mk = (expected: unknown) => ({ effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 12.4, expected }] });
+  test('optional: absent, null and positive numbers are accepted and carried through', () => {
+    const none = validateApplyRatesBody({ effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 1 }] }, today);
+    expect(none.ok && 'expected' in none.value.changes[0]).toBe(false);
+    const nul = validateApplyRatesBody(mk(null), today);
+    expect(nul.ok && nul.value.changes[0].expected).toBeNull();
+    const num = validateApplyRatesBody(mk(12.34567), today);
+    expect(num.ok && num.value.changes[0].expected).toBe(12.34567);
+  });
+  test('rejects non-numbers, non-positive, >5 decimals', () => {
+    for (const bad of ['1', 0, -1, NaN, 1.123456, 2e9]) expect(validateApplyRatesBody(mk(bad), today).ok).toBe(false);
+  });
+});

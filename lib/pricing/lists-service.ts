@@ -20,7 +20,7 @@ export interface RatesErp {
   dominantWarehouse(coPrecio?: string): Promise<string | null>;
   listArticles(p: { search?: string; limit?: number }): Promise<ArticleRow[]>;
   getCustomerPriceList(coCli: string): Promise<{ coCli: string; cliDes: string; tipCli: string; coPrecio: string | null } | null>;
-  applyRatePeriod(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string }): Promise<ApplyOutcome>;
+  applyRatePeriod(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null }): Promise<ApplyOutcome>;
   createList(p: { coPrecio: string; desPrecio: string; user: string }): Promise<void>;
   updateList(p: { coPrecio: string; desPrecio: string; validador: string; user: string }): Promise<'success' | 'conflict'>;
   cloneList(p: { coPrecio: string; desPrecio: string; coMone: string | null; from: string; rows: { coArt: string; coAlma: string; monto: number }[]; user: string }): Promise<void>;
@@ -141,7 +141,7 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
       const before = currentOf(rs, input.effectiveFrom)?.monto ?? null;
       const out = await deps.erp.applyRatePeriod({
         coPrecio, coArt: change.coArt, coAlma, coMone, from: input.effectiveFrom, to: null,
-        monto: change.monto, today: t, user: actor.erpUser,
+        monto: change.monto, today: t, user: actor.erpUser, expectedCurrent: change.expected,
       });
       if (out.outcome === 'rejected') results.push({ coArt: change.coArt, outcome: 'rejected', message: out.message });
       else {

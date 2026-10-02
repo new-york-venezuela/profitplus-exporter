@@ -1,6 +1,6 @@
 import type { RatesErp } from '@/lib/pricing/lists-service';
 import type { ApplyOutcome, ArticleRow, PriceListRow } from '@/lib/pricing/rates-erp';
-import { planRatePeriod, type RateRow } from '@/lib/pricing/rate-planner';
+import { matchesExpectedCurrent, planRatePeriod, type RateRow } from '@/lib/pricing/rate-planner';
 
 export interface FakeList { coPrecio: string; desPrecio: string; validador?: string }
 export interface FakeRatesState {
@@ -65,6 +65,7 @@ export function makeFakeRatesErp(seed: {
     },
     applyRatePeriod: async a => {
       const rows = state.rates.filter(r => r.coArt === a.coArt && r.coPrecio === a.coPrecio && r.coAlma === a.coAlma);
+      if (!matchesExpectedCurrent(rows, a.today, a.expectedCurrent)) return { outcome: 'conflict' };
       const plan = planRatePeriod(rows.map(r => ({ ...r })), { from: a.from, to: a.to, monto: a.monto, today: a.today });
       if (!plan.ok) return { outcome: 'rejected', message: plan.error } satisfies ApplyOutcome;
       if (plan.skipped) return { outcome: 'skipped' };

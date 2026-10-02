@@ -4,7 +4,7 @@ import type { Valid } from './validators';
 export type CreateListInput =
   | { mode: 'create'; desPrecio: string; coMone: string }
   | { mode: 'clone'; sourceCoPrecio: string; desPrecio: string; percent: number | null; effectiveFrom: string };
-export interface ApplyRatesInput { effectiveFrom: string; changes: { coArt: string; monto: number }[] }
+export interface ApplyRatesInput { effectiveFrom: string; changes: { coArt: string; monto: number; expected?: number | null }[] }
 export interface RenameListInput { desPrecio: string; validador: string }
 
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -41,7 +41,7 @@ export function validateApplyRatesBody(body: unknown, today: string): Valid<Appl
   if (!Array.isArray(body.changes) || body.changes.length === 0) return fail('No hay cambios para aplicar');
   if (body.changes.length > 500) return fail('Demasiados cambios en una sola solicitud (máx. 500)');
   const seen = new Set<string>();
-  const changes: { coArt: string; monto: number }[] = [];
+  const changes: { coArt: string; monto: number; expected?: number | null }[] = [];
   for (const c of body.changes) {
     if (!obj(c)) return fail('Cambio inválido');
     const coArt = str(c.coArt, 30);
@@ -51,7 +51,13 @@ export function validateApplyRatesBody(body: unknown, today: string): Valid<Appl
     seen.add(key);
     if (typeof c.monto !== 'number' || !Number.isFinite(c.monto) || c.monto <= 0 || c.monto > 1e9) return fail(`Precio inválido para ${coArt}`);
     if (Math.abs(Math.round(c.monto * 1e5) / 1e5 - c.monto) > 1e-9) return fail(`Demasiados decimales para ${coArt} (máx. 5)`);
-    changes.push({ coArt, monto: c.monto });
+    let expected: number | null | undefined;
+    if (c.expected !== undefined && c.expected !== null) {
+      if (typeof c.expected !== 'number' || !Number.isFinite(c.expected) || c.expected <= 0 || c.expected > 1e9) return fail(`Precio esperado inválido para ${coArt}`);
+      if (Math.abs(Math.round(c.expected * 1e5) / 1e5 - c.expected) > 1e-9) return fail(`Precio esperado con demasiados decimales para ${coArt}`);
+      expected = c.expected;
+    } else if (c.expected === null) expected = null;
+    changes.push(expected === undefined ? { coArt, monto: c.monto } : { coArt, monto: c.monto, expected });
   }
   return { ok: true, value: { effectiveFrom: body.effectiveFrom, changes } };
 }

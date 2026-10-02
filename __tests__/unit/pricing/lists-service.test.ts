@@ -215,3 +215,22 @@ describe('fix round 1', () => {
     await expect(deps.erp.createList({ coPrecio: '08', desPrecio: 'dup', user: 'P' })).rejects.toThrow();
   });
 });
+
+describe('stale-grid expected check', () => {
+  test('a stale expected price is a conflict, nothing is written or audited', async () => {
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13, expected: 11 }] }, actor);
+    expect(res[0].outcome).toBe('conflict');
+    expect(state.rates.filter(r => r.coArt === 'A1' && r.coPrecio === '08').map(r => r.monto)).toEqual([12.4]);
+    expect(listAudit(deps.db)).toEqual([]);
+  });
+  test('matching expected applies; null expected on an unpriced article applies; omitted expected skips the check', async () => {
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [
+      { coArt: 'A1', monto: 13, expected: 12.4 }, { coArt: 'A4', monto: 3, expected: null }, { coArt: 'A2', monto: 22 },
+    ] }, actor);
+    expect(res.map(r => r.outcome)).toEqual(['success', 'success', 'success']);
+  });
+  test('expected null but the article has a current price → conflict', async () => {
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13, expected: null }] }, actor);
+    expect(res[0].outcome).toBe('conflict');
+  });
+});

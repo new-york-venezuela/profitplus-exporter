@@ -12,6 +12,17 @@ export type RatePlan = { ok: true; skipped: boolean; ops: RateOp[] } | { ok: fal
 const fail = (error: string): RatePlan => ({ ok: false, error });
 const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
+/**
+ * Optimistic stale-grid check: does the monto of the row covering `today` equal what the user saw?
+ * `undefined` = no check; `null` = the user saw no row covering today.
+ */
+export function matchesExpectedCurrent(rows: RateRow[], today: string, expected: number | null | undefined): boolean {
+  if (expected === undefined) return true;
+  const covering = rows.find(r => r.desde <= today && (r.hasta === null || r.hasta >= today));
+  if (expected === null) return covering === undefined;
+  return covering !== undefined && same(covering.monto, expected);
+}
+
 export function planRatePeriod(
   existing: RateRow[],
   p: { from: string; to: string | null; monto: number; today: string },

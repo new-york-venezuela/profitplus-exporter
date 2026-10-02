@@ -74,6 +74,7 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
     setCategory('');
     setShowUnpriced(false);
     setNotice(null);
+    setActionError(null);
     setDialog(null);
     setSnapshot(null);
     setPendingSwitch(null);
@@ -184,10 +185,11 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
     setDialog('apply');
   }
 
-  async function confirmApply(only?: string[]): Promise<ApplyResult[]> {
+  async function confirmApply(): Promise<ApplyResult[]> {
     if (!snapshot) return [];
     const co = snapshot.co;
-    const changes = snapshot.changes.filter(c => !only || only.includes(c.coArt)).map(c => ({ coArt: c.coArt, monto: c.after }));
+    // `expected` = the price the user saw; the server answers "conflict" when it has since changed.
+    const changes = snapshot.changes.map(c => ({ coArt: c.coArt, monto: c.after, expected: c.before }));
     const { results } = await apiSend<{ results: ApplyResult[] }>(
       `/api/pricing/lists/${encodeURIComponent(co)}/rates/apply`, 'POST', { effectiveFrom: snapshot.effectiveFrom, changes });
     if (selectedRef.current === co) {
@@ -280,7 +282,7 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
                 compareOptions={compareOptions}
                 onCompareChange={setCompareTo}
                 effectiveFrom={effectiveFrom}
-                onEffectiveFromChange={setEffectiveFrom}
+                onEffectiveFromChange={v => { setEffectiveFrom(v); setActionError(null); }}
                 canEdit={canEdit}
                 search={search}
                 onSearchChange={setSearch}
@@ -312,7 +314,8 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
         </Modal>
       )}
       {canEdit && dialog === 'apply' && snapshot && (
-        <ApplyDialog changes={snapshot.changes} effectiveFrom={snapshot.effectiveFrom} onConfirm={confirmApply} onClose={closeDialog} />
+        <ApplyDialog changes={snapshot.changes} effectiveFrom={snapshot.effectiveFrom} onConfirm={confirmApply}
+          onReload={() => { setDialog(null); setSnapshot(null); setDiscardNonce(n => n + 1); void loadGrid(); }} onClose={closeDialog} />
       )}
       {canEdit && dialog === 'new' && (
         <NewListDialog lists={lists} currencies={currencies} mode="create" onConfirm={createList} onClose={closeDialog} />

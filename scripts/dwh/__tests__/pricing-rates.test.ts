@@ -117,6 +117,17 @@ describe('pricing rates (ERP)', () => {
     });
   });
 
+  test('a wrong expected current price is a conflict and nothing is written; the right one applies', async () => {
+    const snapshot = async () => JSON.stringify((await readListRates(pool, list)).map(r => [r.coArt, r.desde, r.hasta, r.monto, r.validador]));
+    const cover = (await readListRates(pool, list)).find(r => r.coArt === art && r.desde <= today && (r.hasta === null || r.hasta >= today))!;
+    const base = { coPrecio: list, coArt: art, coAlma: alma, coMone: 'USD', from: addDaysIso(today, 40), to: null as string | null, monto: 11, today, user };
+    const before = await snapshot();
+    expect((await applyRatePeriodErp(pool, { ...base, expectedCurrent: cover.monto + 1 })).outcome).toBe('conflict');
+    expect((await applyRatePeriodErp(pool, { ...base, expectedCurrent: null })).outcome).toBe('conflict');
+    expect(await snapshot()).toBe(before);
+    expect((await applyRatePeriodErp(pool, { ...base, expectedCurrent: cover.monto })).outcome).toBe('success');
+  });
+
   describe('procedures stop after a validation error (direct EXEC, no transaction)', () => {
     const rateCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saArtPrecio`)).recordset[0].n as number;
     const listCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saTipoPrecio`)).recordset[0].n as number;
