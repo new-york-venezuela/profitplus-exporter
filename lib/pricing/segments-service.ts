@@ -128,6 +128,14 @@ export async function assignCustomers(deps: ServiceDeps, input: AssignmentInput,
   if (!target) throw new NotFoundError('Segmento destino no encontrado');
   const nowMs = (deps.now ?? (() => new Date()))().getTime();
 
+  const targetMeta = getSegmentMeta(deps.db, input.targetTipCli);
+  if (targetMeta?.kind === 'special') {
+    // Special segments only accept their own customer; checked before any write so nothing is moved.
+    if (input.customerCodes.some(c => c !== targetMeta.customerCoCli)) {
+      throw new ValidationError('Los segmentos especiales solo aceptan a su cliente');
+    }
+  }
+
   const results: SegmentMoveResult[] = [];
   for (const coCli of input.customerCodes) {
     const r = await deps.erp.moveCustomer(coCli, input.targetTipCli, actor.erpUser);

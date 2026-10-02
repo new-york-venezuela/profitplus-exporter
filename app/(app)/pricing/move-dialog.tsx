@@ -18,7 +18,7 @@ export default function MoveDialog({ segments, currentTipCli, selectedCount, onC
   const current = segments.find(s => s.tipCli === currentTipCli);
   const dest = segments.find(s => s.tipCli === target);
   const options = useMemo(
-    () => segments.filter(s => s.tipCli !== currentTipCli).map(s => ({ value: s.tipCli, label: s.desTipo })),
+    () => segments.filter(s => s.tipCli !== currentTipCli && s.kind !== 'special').map(s => ({ value: s.tipCli, label: s.desTipo })),
     [segments, currentTipCli],
   );
   const { submitting, error, run } = useSubmit(async () => { if (target) await onConfirm(target); });
@@ -28,7 +28,7 @@ export default function MoveDialog({ segments, currentTipCli, selectedCount, onC
     <Modal title="Mover a segmento" onClose={onClose}>
       <form onSubmit={e => { e.preventDefault(); void run(); }} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-          <span id="move-target-label">Segmento destino</span>
+          <span>Segmento destino</span>
           <SearchableSelect value={target} onChange={setTarget} options={options} placeholder="Buscar segmento" />
         </div>
         {dest && current && (

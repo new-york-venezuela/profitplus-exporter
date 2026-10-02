@@ -134,6 +134,28 @@ describe('assignCustomers', () => {
   });
 });
 
+describe('assignCustomers into special segments', () => {
+  test('moving customers other than its own into a special segment is rejected with no writes', async () => {
+    const { segment } = await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-31', coPrecio: '07' }, actor);
+    const auditBefore = listAudit(deps.db).length;
+    await expect(assignCustomers(deps, { customerCodes: ['C1', 'C2'], targetTipCli: segment.tipCli }, actor)).rejects.toBeInstanceOf(ValidationError);
+    expect(state.customers.C2.tipCli).toBe('000001');
+    expect(listAudit(deps.db).length).toBe(auditBefore);
+  });
+  test('moving only its own customer is ok', async () => {
+    const { segment } = await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-31', coPrecio: '07' }, actor);
+    state.customers.C1.tipCli = '000001';
+    const r = await assignCustomers(deps, { customerCodes: ['C1'], targetTipCli: segment.tipCli }, actor);
+    expect(r[0].outcome).toBe('success');
+  });
+  test('special segment with null customerCoCli rejects every code', async () => {
+    const { segment } = await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-31', coPrecio: '07' }, actor);
+    const { upsertSegmentMeta } = await import('@/lib/pricing/segments-repo');
+    upsertSegmentMeta(deps.db, { tipCli: segment.tipCli, kind: 'special', customerCoCli: null, createdBy: '7', createdAt: 1 });
+    await expect(assignCustomers(deps, { customerCodes: ['C1'], targetTipCli: segment.tipCli }, actor)).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
 describe('listSegmentDtos', () => {
   test('merges ERP rows with metadata; segments without metadata are groups; expired special has negative daysLeft', async () => {
     await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-05', coPrecio: '07' }, actor);
