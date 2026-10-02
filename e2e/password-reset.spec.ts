@@ -54,7 +54,7 @@ test.describe('forgot password', () => {
       await expect(passwordField).toHaveValue('NewPass456!');
       await page.getByRole('button', { name: 'Iniciar sesión' }).click();
     });
-    await expect(page).toHaveURL('/reports/ventas');
+    await expect(page).toHaveURL('/inicio');
   });
 
   test('invalid token shows an error state', async ({ page }) => {

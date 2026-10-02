@@ -27,7 +27,7 @@ async function loginAs(page: Page, email: string, password: string) {
     await expect(passwordField).toHaveValue(password);
     await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   });
-  await page.waitForURL('/reports/ventas');
+  await page.waitForURL('/inicio');
 }
 
 export const test = base.extend<{ adminPage: Page; userPage: Page }>({

@@ -15,7 +15,7 @@ export default async function AjustesPage({
 
   const db = getDb();
   const allowed = await hasInventoryAccess(db, session.sub, session.role);
-  if (!allowed) redirect('/reports/ventas');
+  if (!allowed) redirect('/inicio');
 
   const params = await searchParams;
 

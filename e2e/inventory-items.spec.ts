@@ -28,10 +28,10 @@ test.describe('inventario/articulos @mssql', () => {
       await page.getByLabel('Contraseña', { exact: true }).fill('ResetFlowPass123!');
       await page.getByRole('button', { name: 'Iniciar sesión' }).click();
     });
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
 
     await page.goto('/inventario/articulos');
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
   });
 
   test('lists real articles with their current stock', async ({ userPage }) => {

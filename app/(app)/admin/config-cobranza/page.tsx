@@ -8,7 +8,7 @@ import { ConfigCobranzaClient } from './config-client';
 export default async function ConfigCobranzaPage() {
   const session = await getSession();
   if (!session)                 redirect('/login');
-  if (session.role !== 'admin') redirect('/reports/ventas');
+  if (session.role !== 'admin') redirect('/inicio');
 
   const db = getDb();
   const settingsRow = db.select().from(invoiceReminderSettings).get();

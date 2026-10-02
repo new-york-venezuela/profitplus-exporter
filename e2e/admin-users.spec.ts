@@ -3,7 +3,7 @@ import { test, expect } from './fixtures';
 test.describe('admin user management', () => {
   test('non-admin cannot access the users page', async ({ userPage }) => {
     await userPage.goto('/admin/users');
-    await expect(userPage).toHaveURL('/reports/ventas');
+    await expect(userPage).toHaveURL('/inicio');
   });
 
   test('admin can view the seeded users', async ({ adminPage }) => {

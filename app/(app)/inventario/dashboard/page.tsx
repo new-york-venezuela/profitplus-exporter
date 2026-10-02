@@ -11,7 +11,7 @@ export default async function InventoryDashboardPage() {
 
   const db = getDb();
   const allowed = await hasInventoryAccess(db, session.sub, session.role);
-  if (!allowed) redirect('/reports/ventas');
+  if (!allowed) redirect('/inicio');
 
   return (
     <>

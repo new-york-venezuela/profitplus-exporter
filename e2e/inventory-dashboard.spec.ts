@@ -25,10 +25,10 @@ test.describe('inventario/dashboard @mssql', () => {
       await page.getByLabel('Contraseña', { exact: true }).fill('ResetFlowPass123!');
       await page.getByRole('button', { name: 'Iniciar sesión' }).click();
     });
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
 
     await page.goto('/inventario/dashboard');
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
   });
 
   test('loads and shows the threshold/window explanation', async ({ userPage }) => {

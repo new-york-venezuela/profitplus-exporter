@@ -7,7 +7,7 @@ import { UsersClient } from './users-client';
 export default async function UsersPage() {
   const session = await getSession();
   if (!session)               redirect('/login');
-  if (session.role !== 'admin') redirect('/reports/ventas');
+  if (session.role !== 'admin') redirect('/inicio');
 
   const db = getDb();
   const userList = db.select({
