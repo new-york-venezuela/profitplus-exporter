@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { NextRequest } from 'next/server';
 import { GET as getClientes } from '../clientes/route';
 import { PATCH as patchUbicacion } from '../clientes/[co_cli]/ubicacion/route';
+import { PATCH as patchVendedor } from '../clientes/[co_cli]/vendedor/route';
 import { POST as postRuta } from '../rutas/route';
 import { PATCH as patchRuta, DELETE as deleteRuta } from '../rutas/[id]/route';
 import { POST as postZona } from '../zonas/route';
@@ -17,6 +18,10 @@ describe('/api/mapa/* reject unauthenticated requests with 401', () => {
   });
   test('PATCH ubicacion', async () => {
     const res = await patchUbicacion(json('http://localhost/api/mapa/clientes/A/ubicacion', 'PATCH', { lat: 10, lng: -66 }), ctx({ co_cli: 'A' }));
+    expect(res.status).toBe(401);
+  });
+  test('PATCH vendedor', async () => {
+    const res = await patchVendedor(json('http://localhost/api/mapa/clientes/A/vendedor', 'PATCH', { coVen: '000003' }), ctx({ co_cli: 'A' }));
     expect(res.status).toBe(401);
   });
   test('POST rutas', async () => {
