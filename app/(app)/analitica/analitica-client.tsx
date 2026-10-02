@@ -5,6 +5,8 @@ import type { ComponentType } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import type { Currency, DateRange } from './types';
+import { allowedGranularities, resolveGranularity } from './lib/granularity';
+import type { Granularity } from './lib/granularity';
 import TabResumen from './tabs/tab-resumen';
 import TabVentas from './tabs/tab-ventas';
 import TabDevoluciones from './tabs/tab-devoluciones';
@@ -23,6 +25,7 @@ import TabHistorico from './tabs/tab-historico';
 export interface TabComponentProps {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }
 
 interface TabDef {
@@ -49,11 +52,19 @@ const TABS: TabDef[] = [
 ];
 
 const DEFAULT_TAB = 'resumen';
-const DEFAULT_DATE_RANGE: DateRange = '12m';
+const DEFAULT_DATE_RANGE: DateRange = '30d';
 const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
 
+// Tabs whose trend charts honor the granularity selector. Histórico is
+// excluded on purpose: it reads a fixed Jan 2025-Feb 2026 window and ignores
+// dateRange, so the range-based granularity rules do not apply to it.
+const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras']);
+
+const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
+
 const DATE_RANGE_OPTIONS: { value: string; label: string }[] = [
+  { value: '30d', label: '30 días' },
   { value: 'month', label: 'Mes Actual' },
   { value: 'month-prev', label: 'Mes Anterior' },
   { value: 'ytd', label: 'Año Actual' },
@@ -66,7 +77,7 @@ const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
 const YTD_RANGE_RE = /^ytd:(\d{4})$/;
 
 function isValidDateRange(value: string | null): value is DateRange {
-  if (value === '12m') return true;
+  if (value === '12m' || value === '30d') return true;
   if (value === null) return false;
   return CUSTOM_RANGE_RE.test(value) || MONTH_RANGE_RE.test(value) || YTD_RANGE_RE.test(value);
 }
@@ -132,6 +143,10 @@ function AnaliticaClientInner() {
   const monthMatch = MONTH_RANGE_RE.exec(dateRange);
   const isYtdRange = YTD_RANGE_RE.test(dateRange);
 
+  const granularityParam = searchParams.get('granularity');
+  const granularity: Granularity = resolveGranularity(dateRange, granularityParam);
+  const allowedGranularity = allowedGranularities(dateRange);
+
   const currencyParam = searchParams.get('currency');
   // Fallback currency for when the URL has no `currency` param: seeded from
   // localStorage on first render, updated whenever the user toggles currency.
@@ -168,6 +183,11 @@ function AnaliticaClientInner() {
       const params = new URLSearchParams(searchParams.toString());
       for (const [key, value] of Object.entries(updates)) {
         params.set(key, value);
+      }
+      // A new date range invalidates the previous granularity choice (the
+      // allowed set and the default depend on the range) — reset to default.
+      if ('dateRange' in updates && !('granularity' in updates)) {
+        params.delete('granularity');
       }
       router.push(`?${params.toString()}`, { scroll: false });
     },
@@ -208,14 +228,13 @@ function AnaliticaClientInner() {
     updateParams({ dateRange: value });
   };
 
-  const handleMonthPage = useCallback(
-    (delta: number) => {
-      if (!monthMatch) return;
-      const currentKey = `${monthMatch[1]}-${monthMatch[2]}`;
-      updateParams({ dateRange: `month:${shiftMonthKey(currentKey, delta)}` });
-    },
-    [updateParams, monthMatch]
-  );
+  // No useCallback here — same React Compiler preserve-manual-memoization
+  // reasoning as handleDateRangeChange below.
+  const handleMonthPage = (delta: number) => {
+    if (!monthMatch) return;
+    const currentKey = `${monthMatch[1]}-${monthMatch[2]}`;
+    updateParams({ dateRange: `month:${shiftMonthKey(currentKey, delta)}` });
+  };
 
   // No useCallback here — same React Compiler preserve-manual-memoization
   // reasoning as handleDateRangeChange above.
@@ -228,6 +247,14 @@ function AnaliticaClientInner() {
       updateParams({ dateRange: `custom:${nextStart}:${nextEnd}` });
     }
   };
+
+  const handleGranularityChange = useCallback(
+    (value: Granularity) => {
+      posthog.capture('analytics_granularity_changed', { tab: activeTab, granularity: value });
+      updateParams({ granularity: value });
+    },
+    [updateParams, activeTab]
+  );
 
   const handleCurrencyChange = useCallback(
     (value: Currency) => {
@@ -323,6 +350,25 @@ function AnaliticaClientInner() {
                 </div>
               )}
             </div>
+            {/* Trend granularity toggle — only on tabs with converted trend charts */}
+            {GRANULARITY_TABS.has(activeTab) && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Tendencia</span>
+                <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Granularidad de tendencias">
+                  {allowedGranularity.map(g => (
+                    <button
+                      key={g}
+                      onClick={() => handleGranularityChange(g)}
+                      className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                        granularity === g ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {GRANULARITY_LABELS[g]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Currency toggle */}
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               <button
@@ -378,7 +424,7 @@ function AnaliticaClientInner() {
           const TabComponent = tab.component;
           return (
             <div key={tab.key} className={tab.key === activeTab ? 'h-full print:h-auto' : 'hidden'}>
-              <TabComponent dateRange={dateRange} currency={currency} />
+              <TabComponent dateRange={dateRange} currency={currency} granularity={granularity} />
             </div>
           );
         })}

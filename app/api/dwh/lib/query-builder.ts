@@ -141,6 +141,10 @@ export function buildDateWhereClause(
     return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
   }
 
+  if (dateRange === '30d') {
+    return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
+  }
+
   const monthMatch = MONTH_RANGE_RE.exec(dateRange);
   if (monthMatch) {
     const [, yearStr, monthStr] = monthMatch;
@@ -171,6 +175,42 @@ export function buildDateWhereClause(
   // to the 365-day default rather than throwing, so an old link degrades
   // gracefully instead of erroring.
   return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
+}
+
+/**
+ * SQL expression for a trend chart's bucket key, over dim.Dim_Date aliased
+ * `dateAlias`. Keys sort lexically in chronological order. Week keys mirror
+ * weekOfYear() in analitica/lib/granularity.ts: Monday-first, week 1 holds
+ * Jan 1, numbering restarts each calendar year. 1900-01-01 was a Monday, so
+ * DATEDIFF from it mod 7 is days-since-Monday regardless of @@DATEFIRST.
+ */
+export function bucketKeyExpr(mode: 'day' | 'week' | 'month' | 'range', dateAlias: string = 'd'): string {
+  switch (mode) {
+    case 'month':
+      return `${dateAlias}.YearMonth`;
+    case 'day':
+      return `CONVERT(char(10), ${dateAlias}.FullDate, 23)`;
+    case 'range':
+      // One bucket for the whole period. SQL Server rejects a pure constant
+      // in GROUP BY/ORDER BY, so reference a never-NULL column (DateKey is
+      // the table's PK) to make it a real expression.
+      return `CASE WHEN ${dateAlias}.DateKey IS NOT NULL THEN 'range' END`;
+    case 'week': {
+      const jan1 = `DATEFROMPARTS(${dateAlias}.Year, 1, 1)`;
+      const firstMonday = `DATEADD(DAY, -(DATEDIFF(DAY, '19000101', ${jan1}) % 7), ${jan1})`;
+      const week = `(DATEDIFF(DAY, ${firstMonday}, ${dateAlias}.FullDate) / 7 + 1)`;
+      return `CONCAT(${dateAlias}.Year, '-W', RIGHT('0' + CAST(${week} AS varchar(2)), 2))`;
+    }
+  }
+}
+
+/**
+ * Previous-period window for the '30d' range: the 30 days immediately before
+ * it (days -59..-30 relative to today), so a KPI Δ% compares like with like.
+ * Shared by the ventas/resumen/clientes buildPrevPeriodDateWhereClause copies.
+ */
+export function buildPrevThirtyDayWhereClause(tableName: string): string {
+  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -59, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
 }
 
 export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, buildPrevThirtyDayWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
   ClientesResponse,
   ClientesRow,
@@ -61,6 +61,8 @@ function rangeStart(dateRange: string): Date {
   const ytdMatch = YTD_RANGE_RE.exec(dateRange);
   if (ytdMatch) return new Date(Date.UTC(parseInt(ytdMatch[1]), 0, 1));
 
+  if (dateRange === '30d') return new Date(Date.now() - 29 * 86_400_000);
+
   // Trailing-365-day default — same fallback as buildDateWhereClause.
   return new Date(Date.now() - 365 * 86_400_000);
 }
@@ -111,6 +113,8 @@ function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): s
     const prevStartKey = dateKey(prevStartDate);
     return `AND ${tableName}.DateKey >= ${prevStartKey} AND ${tableName}.DateKey <= ${prevEndKey}`;
   }
+
+  if (dateRange === '30d') return buildPrevThirtyDayWhereClause(tableName);
 
   // Trailing-365-day default (buildDateWhereClause's own fallback): the
   // previous period is the 365 days immediately before that window.

@@ -1,5 +1,6 @@
+import type { BucketMode } from './lib/granularity';
 export type Currency = 'bs' | 'usd';
-// '12m' | `month:${YYYY-MM}` | `ytd:${YYYY}` | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
+// '12m' | '30d' | `month:${YYYY-MM}` | `ytd:${YYYY}` | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
 // range is encoded as a single string (not separate start/end props) so it
 // flows through every tab's existing `dateRange: DateRange` prop and query
 // param unchanged; only buildDateWhereClause parses the custom: prefix.
@@ -61,7 +62,10 @@ export interface ResumenKPIs {
 }
 
 export interface MonthlyTrendRow {
-  yearMonth: string;
+  // Bucket key for the response's trendMode: YYYY-MM-DD (day), YYYY-Www
+  // (week), YYYY-MM (month) or 'range' (one aggregate bucket). Format it with
+  // bucketLabels()/bucketTitle() from ./lib/granularity.
+  bucket: string;
   salesNet: DualAmount;
   returnsNet: DualAmount;
 }
@@ -94,6 +98,7 @@ export interface DebtorRow {
 
 export interface ResumenResponse {
   monthlyTrend: MonthlyTrendRow[];
+  trendMode: BucketMode;
   topCustomers: NamedAmount[];
   topProducts: NamedAmount[];
   salesReps: SalesRepRow[];
@@ -105,8 +110,9 @@ export interface ResumenResponse {
 
 // Ventas tab
 export interface VentasRow {
-  label: string; // formatted month or customer or line name
-  value: string | number; // the groupBy identifier
+  label: string; // formatted trend bucket (groupBy=mes) or customer or line name
+  title?: string; // groupBy=mes only: full tooltip label, e.g. "Semana 2 · 5–11 ene 2026"
+  value: string | number; // the groupBy identifier (a bucket key for groupBy=mes)
   salesNet: DualAmount;
   returnRate: number | null;
   avgDiscount: number | null;
@@ -114,6 +120,7 @@ export interface VentasRow {
 
 export interface VentasResponse {
   rows: VentasRow[];
+  trendMode?: BucketMode; // groupBy=mes only: the grain `rows` are bucketed by
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
 }
@@ -149,13 +156,13 @@ export interface ComparisonOptionsResponse {
 }
 
 export interface ComparisonSeriesMonthRow {
-  yearMonth: string; // formatted label, e.g. "Ene 26"
-  yearMonthValue: string; // raw YYYY-MM
-  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesNet that month
+  bucket: string; // bucket key for the response's trendMode (see MonthlyTrendRow.bucket)
+  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesNet in that bucket
 }
 
 export interface VentasComparisonResponse {
   rows: ComparisonSeriesMonthRow[];
+  trendMode: BucketMode;
 }
 
 // Histórico 2025 tab — a fixed, closed Jan 2025-Feb 2026 window imported
@@ -195,14 +202,16 @@ export interface HistoricoKpisResponse {
 
 // Compras tab
 export interface ComprasRow {
-  label: string;
-  value: string;
+  label: string; // formatted trend bucket (groupBy=mes) or supplier/line name
+  title?: string; // groupBy=mes only: full tooltip label, e.g. "Semana 2 · 5–11 ene 2026"
+  value: string; // the groupBy identifier (a bucket key for groupBy=mes)
   purchasesNet: DualAmount;
   avgDiscount: number | null;
 }
 
 export interface ComprasResponse {
   rows: ComprasRow[];
+  trendMode?: BucketMode; // groupBy=mes only: the grain `rows` are bucketed by
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
 }
@@ -390,15 +399,15 @@ export interface ProfundidadLineaResponse {
 // Productos tab — units sold by month, stacked by línea (top lines by
 // volume; the rest bucketed as "Otras" to keep the stack legible).
 export interface UnitsByLineaMonthRow {
-  yearMonth: string; // formatted label, e.g. "Ene 26"
-  yearMonthValue: string; // raw YYYY-MM, used for drill-down filters
-  units: Record<string, number>; // línea name -> units sold that month
-  salesNet: Record<string, DualAmount>; // línea name -> sales net that month (for % of total)
-  totalSalesNet: DualAmount; // sum of salesNet across all líneas that month
+  bucket: string; // bucket key for the response's trendMode (see MonthlyTrendRow.bucket)
+  units: Record<string, number>; // línea name -> units sold in that bucket
+  salesNet: Record<string, DualAmount>; // línea name -> sales net in that bucket (for % of total)
+  totalSalesNet: DualAmount; // sum of salesNet across all líneas in that bucket
 }
 
 export interface UnitsByLineaResponse {
   rows: UnitsByLineaMonthRow[];
+  trendMode: BucketMode;
   lineas: string[]; // ordered list of línea names present (series keys), "Otras" last if present
 }
 

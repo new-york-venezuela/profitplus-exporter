@@ -6,6 +6,8 @@ import {
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
+import { bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import type { Granularity } from '../lib/granularity';
 import type { BreakdownRow, ComprasResponse, ComprasRow, Currency, DateRange, PivotDimension } from '../types';
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -55,15 +57,21 @@ interface ComprasTableRow extends ComprasRow {
 export default function TabCompras({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
   const [mesData, setMesData] = useState<ComprasResponse | null>(null);
   const [mesLoading, setMesLoading] = useState<boolean>(true);
   const [mesError, setMesError] = useState<string | null>(null);
 
-  const [month, setMonth] = useState<string | null>(null);
+  // The clicked trend bar. A bucket key only means something for the
+  // granularity/range it was clicked under, so it is dropped (derived, not
+  // reset in an effect) as soon as either changes.
+  const [bucketSel, setBucketSel] = useState<{ key: string; granularity: Granularity; dateRange: DateRange } | null>(null);
+  const bucket = bucketSel && bucketSel.granularity === granularity && bucketSel.dateRange === dateRange ? bucketSel.key : null;
   const [proveedorData, setProveedorData] = useState<ComprasResponse | null>(null);
   const [proveedorLoading, setProveedorLoading] = useState<boolean>(true);
   const [proveedorError, setProveedorError] = useState<string | null>(null);
@@ -79,7 +87,7 @@ export default function TabCompras({
       setMesError(null);
       setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'mes' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'mes', granularity });
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -98,7 +106,7 @@ export default function TabCompras({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, granularity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,8 +114,8 @@ export default function TabCompras({
       setProveedorError(null);
       setProveedorLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'proveedor' });
-        if (month) params.set('month', month);
+        const params = new URLSearchParams({ dateRange, groupBy: 'proveedor', granularity });
+        if (bucket) params.set('bucket', bucket);
         const res = await fetch(`/api/dwh/compras?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -126,7 +134,7 @@ export default function TabCompras({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, month]);
+  }, [dateRange, granularity, bucket]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,12 +164,14 @@ export default function TabCompras({
   }, [dateRange]);
 
   function handleBarClick(value: string) {
-    setMonth(value);
+    setBucketSel({ key: value, granularity, dateRange });
     document.getElementById('compras-proveedor-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  const trendMode = mesData?.trendMode ?? 'month';
   const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
+    title: r.title ?? r.label,
     value: String(r.value),
     purchasesNet: currency === 'usd' ? r.purchasesNet.usd : r.purchasesNet.bs,
   }));
@@ -230,13 +240,13 @@ export default function TabCompras({
     <div className="p-6 max-w-7xl space-y-8">
       {/* Por mes */}
       <section>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por mes</h3>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por {TREND_UNIT_LABEL[trendMode]}</h3>
         {mesLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
         {!mesLoading && mesError && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
         {!mesLoading && !mesError && (
-          <ChartCard title="Tendencia de compras" subtitle="Compras netas por mes — clic en una barra para ver proveedores de ese mes">
+          <ChartCard title="Tendencia de compras" subtitle={`Compras netas por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver proveedores de ese ${TREND_UNIT_LABEL[trendMode]}`}`}>
             {chartData.length === 0 ? (
               <EmptyState />
             ) : (
@@ -245,7 +255,7 @@ export default function TabCompras({
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-                  <Tooltip formatter={val => moneyTooltip(val, currency)} />
+                  <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
                   <Bar
                     dataKey="purchasesNet"
                     fill="#2563eb"
@@ -265,7 +275,7 @@ export default function TabCompras({
       {/* Por proveedor */}
       <section id="compras-proveedor-section">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-          Por proveedor{month ? ` — ${month}` : ''}
+          Por proveedor{bucket ? ` — ${bucketTitle(trendMode, bucket)}` : ''}
         </h3>
         {proveedorLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
         {!proveedorLoading && proveedorError && (
@@ -282,9 +292,9 @@ export default function TabCompras({
             hiddenMetricKeys={['purchasesNetUsd']}
           />
         )}
-        {month && (
-          <button onClick={() => setMonth(null)} className="mt-2 text-xs text-blue-600 hover:underline">
-            Quitar filtro de mes
+        {bucket && (
+          <button onClick={() => setBucketSel(null)} className="mt-2 text-xs text-blue-600 hover:underline">
+            Quitar filtro de {TREND_UNIT_LABEL[trendMode]}
           </button>
         )}
       </section>

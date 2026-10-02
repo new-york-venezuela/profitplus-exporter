@@ -7,6 +7,8 @@ import {
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
+import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import type { Granularity } from '../lib/granularity';
 import type {
   BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow,
   VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse,
@@ -70,8 +72,10 @@ function ComparisonChart({
   currency: Currency;
   maxSelected?: number;
 }) {
-  const chartData = (data?.rows ?? []).map(row => {
-    const flat: Record<string, string | number | null> = { yearMonth: row.yearMonth };
+  const mode = data?.trendMode ?? 'month';
+  const xLabels = bucketLabels(mode, (data?.rows ?? []).map(r => r.bucket));
+  const chartData = (data?.rows ?? []).map((row, i) => {
+    const flat: Record<string, string | number | null> = { label: xLabels[i], title: bucketTitle(mode, row.bucket) };
     for (const [key, amount] of Object.entries(row.values)) {
       flat[key] = currency === 'usd' ? amount.usd : amount.bs;
     }
@@ -115,9 +119,9 @@ function ComparisonChart({
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-            <Tooltip formatter={val => moneyTooltip(val, currency)} />
+            <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
             <Legend wrapperStyle={{ fontSize: 12 }} formatter={(value: string) => labelFor(value)} />
             {selected.map((key, i) => (
               <Line
@@ -191,9 +195,11 @@ function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
 export default function TabVentas({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
   // Three independently-fetched sections, always rendered together (Part 1
   // of docs/superpowers/specs/2026-09-15-analitica-ui-and-margin-design.md
@@ -204,7 +210,11 @@ export default function TabVentas({
   const [mesLoading, setMesLoading] = useState<boolean>(true);
   const [mesError, setMesError] = useState<string | null>(null);
 
-  const [month, setMonth] = useState<string | null>(null);
+  // The clicked trend bar. A bucket key only means something for the
+  // granularity/range it was clicked under, so it is dropped (derived, not
+  // reset in an effect) as soon as either changes.
+  const [bucketSel, setBucketSel] = useState<{ key: string; granularity: Granularity; dateRange: DateRange } | null>(null);
+  const bucket = bucketSel && bucketSel.granularity === granularity && bucketSel.dateRange === dateRange ? bucketSel.key : null;
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const [clienteData, setClienteData] = useState<VentasResponse | null>(null);
   const [clienteLoading, setClienteLoading] = useState<boolean>(true);
@@ -238,7 +248,7 @@ export default function TabVentas({
       setMesError(null);
       setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'mes' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'mes', granularity });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -257,7 +267,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, granularity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,8 +275,8 @@ export default function TabVentas({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension });
-        if (month) params.set('month', month);
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension, granularity });
+        if (bucket) params.set('bucket', bucket);
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -285,7 +295,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension, month]);
+  }, [dateRange, clienteDimension, granularity, bucket]);
 
   useEffect(() => {
     let cancelled = false;
@@ -388,7 +398,7 @@ export default function TabVentas({
       setLineaCompareError(null);
       setLineaCompareLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, section: 'comparisonLinea', keys: lineaCompareKeys.join(',') });
+        const params = new URLSearchParams({ dateRange, section: 'comparisonLinea', keys: lineaCompareKeys.join(','), granularity });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -407,7 +417,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, lineaCompareKeys]);
+  }, [dateRange, granularity, lineaCompareKeys]);
 
   useEffect(() => {
     if (clienteCompareKeys.length === 0) return;
@@ -416,7 +426,7 @@ export default function TabVentas({
       setClienteCompareError(null);
       setClienteCompareLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, section: 'comparisonCliente', keys: clienteCompareKeys.join(',') });
+        const params = new URLSearchParams({ dateRange, section: 'comparisonCliente', keys: clienteCompareKeys.join(','), granularity });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -435,7 +445,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteCompareKeys]);
+  }, [dateRange, granularity, clienteCompareKeys]);
 
   function toggleLineaCompare(value: string) {
     setLineaCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
@@ -445,16 +455,18 @@ export default function TabVentas({
     setClienteCompareKeys(prev => (prev.includes(value) ? prev.filter(v => v !== value) : prev.length >= 4 ? prev : [...prev, value]));
   }
 
-  // Clicking a month bar no longer swaps which section is visible (there is
+  // Clicking a trend bar no longer swaps which section is visible (there is
   // only one layout now) — it just scopes the always-visible cliente
-  // section to that month and scrolls it into view.
+  // section to that day/week/month and scrolls it into view.
   function handleBarClick(value: string) {
-    setMonth(value);
+    setBucketSel({ key: value, granularity, dateRange });
     document.getElementById('ventas-cliente-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  const trendMode = mesData?.trendMode ?? 'month';
   const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
+    title: r.title ?? r.label,
     value: String(r.value),
     salesNet: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
   }));
@@ -477,7 +489,8 @@ export default function TabVentas({
       breakdownBy: dimension,
       parentValue,
     });
-    if (month) params.set('month', month);
+    params.set('granularity', granularity);
+    if (bucket) params.set('bucket', bucket);
     const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
     if (!res.ok) return [];
     const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
@@ -572,13 +585,13 @@ export default function TabVentas({
 
       {/* Por mes */}
       <section>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por mes</h3>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por {TREND_UNIT_LABEL[trendMode]}</h3>
         {mesLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
         {!mesLoading && mesError && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
         {!mesLoading && !mesError && (
-          <ChartCard title="Tendencia de ventas" subtitle="Ventas netas por mes — clic en una barra para ver clientes de ese mes">
+          <ChartCard title="Tendencia de ventas" subtitle={`Ventas netas por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`}>
             {chartData.length === 0 ? (
               <EmptyState />
             ) : (
@@ -587,7 +600,7 @@ export default function TabVentas({
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-                  <Tooltip formatter={val => moneyTooltip(val, currency)} />
+                  <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
                   <Bar
                     dataKey="salesNet"
                     fill="#2563eb"
@@ -607,7 +620,7 @@ export default function TabVentas({
       {/* Por cliente */}
       <section id="ventas-cliente-section">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-          Por cliente{month ? ` — ${month}` : ''}
+          Por cliente{bucket ? ` — ${bucketTitle(trendMode, bucket)}` : ''}
         </h3>
         {clienteLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
         {!clienteLoading && clienteError && (
@@ -628,12 +641,12 @@ export default function TabVentas({
             hiddenMetricKeys={['salesNetUsd']}
           />
         )}
-        {month && (
+        {bucket && (
           <button
-            onClick={() => setMonth(null)}
+            onClick={() => setBucketSel(null)}
             className="mt-2 text-xs text-blue-600 hover:underline"
           >
-            Quitar filtro de mes
+            Quitar filtro de {TREND_UNIT_LABEL[trendMode]}
           </button>
         )}
       </section>

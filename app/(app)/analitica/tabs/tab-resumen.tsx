@@ -7,6 +7,8 @@ import {
 } from 'recharts';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import type { Currency, DateRange, ResumenResponse, AgingBucketRow } from '../types';
+import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import type { Granularity } from '../lib/granularity';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
 const BUCKET_COLORS: Record<string, string> = {
@@ -20,12 +22,6 @@ const BUCKET_COLORS: Record<string, string> = {
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
-}
-
-function formatYearMonth(ym: string): string {
-  const [y, m] = ym.split('-');
-  const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${names[parseInt(m, 10) - 1]} ${y.slice(2)}`;
 }
 
 function formatSnapshotDate(key: number | null): string {
@@ -82,9 +78,11 @@ function EmptyState({ message }: { message?: string }) {
 export default function TabResumen({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
   const [data, setData] = useState<ResumenResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -96,7 +94,7 @@ export default function TabResumen({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}`);
+        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}&granularity=${granularity}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -116,7 +114,7 @@ export default function TabResumen({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, granularity]);
 
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
@@ -138,8 +136,11 @@ export default function TabResumen({
     );
   }
 
-  const trendData = data.monthlyTrend.map(r => ({
-    label: formatYearMonth(r.yearMonth),
+  const trendKeys = data.monthlyTrend.map(r => r.bucket);
+  const trendXLabels = bucketLabels(data.trendMode, trendKeys);
+  const trendData = data.monthlyTrend.map((r, i) => ({
+    label: trendXLabels[i],
+    title: bucketTitle(data.trendMode, r.bucket),
     Ventas: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
     Devoluciones: currency === 'usd' ? r.returnsNet.usd : r.returnsNet.bs,
   }));
@@ -193,7 +194,7 @@ export default function TabResumen({
       </div>
 
       {/* Sales & returns trend */}
-      <ChartCard title="Tendencia de ventas y devoluciones" subtitle="Monto neto por mes">
+      <ChartCard title="Tendencia de ventas y devoluciones" subtitle={`Monto neto por ${TREND_UNIT_LABEL[data.trendMode]}`}>
         {trendData.length === 0 ? (
           <EmptyState />
         ) : (
@@ -202,7 +203,7 @@ export default function TabResumen({
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-              <Tooltip formatter={val => moneyTooltip(val, currency)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
               <Legend />
               <Bar dataKey="Ventas" fill="#2563eb" radius={[3, 3, 0, 0]} />
               <Line type="monotone" dataKey="Devoluciones" stroke="#dc2626" strokeWidth={2} dot={false} />

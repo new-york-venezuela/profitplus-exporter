@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { parseTrendBucket, bucketFilterClause, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
+import { bucketLabels, bucketTitle } from '@/app/(app)/analitica/lib/granularity';
+import { buildDateWhereClause, buildPrevThirtyDayWhereClause, getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type {
   VentasResponse, VentasRow, GroupBy,
   VentasKpis, VentasKpisResponse,
@@ -16,24 +18,44 @@ export const dynamic = 'force-dynamic';
 // so no COLLATE/RTRIM gymnastics are needed here, that work already
 // happened at load time.
 
-function monthlyQuery(dateWhere: string, returnsDateWhere: string): string {
+// Sales and returns are aggregated per bucket in separate CTEs and joined on
+// the bucket key (not a correlated subquery — see resumen/route.ts's
+// monthlyTrendQuery for why). Both sides are range-scoped so the aggregate
+// 'range' bucket can't sum returns outside the period.
+function monthlyQuery(dateWhere: string, returnsDateWhere: string, bucket: TrendBucket): string {
   return `
+    WITH sales AS (
+      SELECT
+        ${bucket.keyExpr('d')} AS Bucket,
+        ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+        SUM(fs.GrossAmount) AS GrossAmount,
+        SUM(fs.DiscountAmount) AS DiscountAmount
+      FROM fact.Fact_Sales fs
+      ${usdConversionJoin('fs')}
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      WHERE fs.IsVoided = 0 ${dateWhere}
+      GROUP BY ${bucket.keyExpr('d')}
+    ),
+    rets AS (
+      SELECT
+        ${bucket.keyExpr('dr')} AS Bucket,
+        SUM(fr.NetAmount) AS ReturnsNetBs
+      FROM fact.Fact_Returns fr
+      JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
+      WHERE fr.IsVoided = 0 ${returnsDateWhere}
+      GROUP BY ${bucket.keyExpr('dr')}
+    )
     SELECT
-      d.YearMonth AS GroupValue,
-      d.YearMonth AS GroupLabel,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
-      SUM(fs.GrossAmount) AS GrossAmount,
-      SUM(fs.DiscountAmount) AS DiscountAmount,
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         JOIN dim.Dim_Date dr ON dr.DateKey = fr.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    WHERE fs.IsVoided = 0 ${dateWhere}
-    GROUP BY d.YearMonth
-    ORDER BY d.YearMonth
+      s.Bucket AS GroupValue,
+      s.Bucket AS GroupLabel,
+      s.SalesNetBs,
+      s.SalesNetUsd,
+      s.GrossAmount,
+      s.DiscountAmount,
+      ISNULL(r.ReturnsNetBs, 0) AS ReturnsNetBs
+    FROM sales s
+    LEFT JOIN rets r ON r.Bucket = s.Bucket
+    ORDER BY s.Bucket
   `;
 }
 
@@ -165,6 +187,8 @@ function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): s
     return `AND ${tableName}.DateKey >= ${prevStartKey} AND ${tableName}.DateKey <= ${prevEndKey}`;
   }
 
+  if (dateRange === '30d') return buildPrevThirtyDayWhereClause(tableName);
+
   // Trailing-365-day default (buildDateWhereClause's own fallback): the
   // previous period is the 365 days immediately before that window.
   return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -730, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
@@ -220,34 +244,34 @@ function topClientesOptionsQuery(dateWhere: string): string {
   `;
 }
 
-// Monthly salesNet per selected línea/cadena, for the comparison line
+// Per-bucket (day/week/month) salesNet per selected línea/cadena, for the comparison line
 // charts. @keys is a comma-joined list of LineCode or LegalEntityKey
 // values (2-4 expected, validated by the caller) spliced directly into an
 // IN(...) list via parameterized inputs (kN), never string-concatenated.
-function comparisonByLineaQuery(dateWhere: string, keyParams: string[]): string {
+function comparisonByLineaQuery(dateWhere: string, keyParams: string[], bucket: TrendBucket): string {
   return `
-    SELECT d.YearMonth, ISNULL(p.LineCode, 'SIN_LINEA') AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+    SELECT ${bucket.keyExpr('d')} AS Bucket, ISNULL(p.LineCode, 'SIN_LINEA') AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} AND ISNULL(p.LineCode, 'SIN_LINEA') IN (${keyParams.join(', ')})
-    GROUP BY d.YearMonth, ISNULL(p.LineCode, 'SIN_LINEA')
-    ORDER BY d.YearMonth
+    GROUP BY ${bucket.keyExpr('d')}, ISNULL(p.LineCode, 'SIN_LINEA')
+    ORDER BY ${bucket.keyExpr('d')}
   `;
 }
 
-function comparisonByClienteQuery(dateWhere: string, keyParams: string[]): string {
+function comparisonByClienteQuery(dateWhere: string, keyParams: string[], bucket: TrendBucket): string {
   return `
-    SELECT d.YearMonth, CAST(le.LegalEntityKey AS varchar(20)) AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+    SELECT ${bucket.keyExpr('d')} AS Bucket, CAST(le.LegalEntityKey AS varchar(20)) AS SeriesKey, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
     WHERE fs.IsVoided = 0 ${dateWhere} AND le.LegalEntityKey IN (${keyParams.join(', ')})
-    GROUP BY d.YearMonth, le.LegalEntityKey
-    ORDER BY d.YearMonth
+    GROUP BY ${bucket.keyExpr('d')}, le.LegalEntityKey
+    ORDER BY ${bucket.keyExpr('d')}
   `;
 }
 
@@ -296,28 +320,28 @@ async function handleComparisonOptions(dateWhere: string) {
   return jsonWithCache(response);
 }
 
-async function handleComparison(dateWhere: string, keys: string[], mode: 'linea' | 'cliente'): Promise<NextResponse> {
+async function handleComparison(dateWhere: string, keys: string[], mode: 'linea' | 'cliente', bucket: TrendBucket): Promise<NextResponse> {
   const pool = await getDwhPool();
   const req = pool.request();
   const keyParams = keys.map((k, i) => {
     req.input(`k${i}`, k);
     return `@k${i}`;
   });
-  const query = mode === 'linea' ? comparisonByLineaQuery(dateWhere, keyParams) : comparisonByClienteQuery(dateWhere, keyParams);
+  const query = mode === 'linea' ? comparisonByLineaQuery(dateWhere, keyParams, bucket) : comparisonByClienteQuery(dateWhere, keyParams, bucket);
   const result = await req.query(query);
 
-  const byMonth = new Map<string, ComparisonSeriesMonthRow>();
-  for (const r of result.recordset as { YearMonth: string; SeriesKey: string; SalesNetBs: number; SalesNetUsd: number | null }[]) {
-    let entry = byMonth.get(r.YearMonth);
+  const byBucket = new Map<string, ComparisonSeriesMonthRow>();
+  for (const r of result.recordset as { Bucket: string; SeriesKey: string; SalesNetBs: number; SalesNetUsd: number | null }[]) {
+    let entry = byBucket.get(r.Bucket);
     if (!entry) {
-      entry = { yearMonth: formatYearMonth(r.YearMonth), yearMonthValue: r.YearMonth, values: {} };
-      byMonth.set(r.YearMonth, entry);
+      entry = { bucket: r.Bucket, values: {} };
+      byBucket.set(r.Bucket, entry);
     }
     entry.values[r.SeriesKey] = { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) };
   }
-  const rows = Array.from(byMonth.values()).sort((a, b) => a.yearMonthValue.localeCompare(b.yearMonthValue));
+  const rows = Array.from(byBucket.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
 
-  const response: VentasComparisonResponse = { rows };
+  const response: VentasComparisonResponse = { rows, trendMode: bucket.mode };
   return jsonWithCache(response);
 }
 
@@ -342,6 +366,8 @@ export async function GET(request: NextRequest) {
   const breakdownBy: Dimension | null = isDimension(breakdownByParam) ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
   const month = searchParams.get('month');
+  const bucketParam = searchParams.get('bucket');
+  const trendBucket = parseTrendBucket(searchParams, dateRange);
   const salesRepKeyParam = searchParams.get('salesRepKey');
   const salesRepKey = salesRepKeyParam && /^\d+$/.test(salesRepKeyParam) ? Number(salesRepKeyParam) : null;
 
@@ -370,7 +396,7 @@ export async function GET(request: NextRequest) {
     }
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
-      return await handleComparison(dateWhere, keys, section === 'comparisonLinea' ? 'linea' : 'cliente');
+      return await handleComparison(dateWhere, keys, section === 'comparisonLinea' ? 'linea' : 'cliente', parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -434,7 +460,15 @@ export async function GET(request: NextRequest) {
     if (groupBy === 'cliente') {
       const req = pool.request();
       let monthFilter = '';
-      if (month) {
+      if (bucketParam) {
+        // Drill-down from a trend bar: filter to that bucket's date span (the
+        // clause is built from regex-validated digits, not user text).
+        const clause = bucketFilterClause(trendBucket.mode, bucketParam, 'fs');
+        if (clause === null) {
+          return NextResponse.json({ error: 'Parámetro bucket inválido' }, { status: 400 });
+        }
+        monthFilter = clause;
+      } else if (month) {
         req.input('month', month);
         monthFilter = 'AND d.YearMonth = @month';
       }
@@ -445,25 +479,28 @@ export async function GET(request: NextRequest) {
       }
       const result = await req.query(clienteQuery(clienteDimension, salesDateWhere, clienteReturnsDateWhere, monthFilter, salesRepFilter));
       recordset = result.recordset;
-      breadcrumb.push({ label: month ? formatYearMonth(month) : 'Clientes', groupBy: 'cliente' });
+      breadcrumb.push({ label: bucketParam ? bucketTitle(trendBucket.mode, bucketParam) : month ? formatYearMonth(month) : 'Clientes', groupBy: 'cliente' });
     } else if (groupBy === 'linea') {
       const result = await pool.request().query(lineaQuery(salesDateWhere, returnsDateWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: 'Líneas', groupBy: 'linea' });
     } else {
-      const result = await pool.request().query(monthlyQuery(salesDateWhere, returnsDateWhere));
+      const result = await pool.request().query(monthlyQuery(salesDateWhere, returnsDateWhere, trendBucket));
       recordset = result.recordset;
     }
 
-    const rows: VentasRow[] = recordset.map(r => {
+    const trendKeys = groupBy === 'mes' ? recordset.map(r => String(r.GroupValue)) : [];
+    const trendXLabels = bucketLabels(trendBucket.mode, trendKeys);
+    const rows: VentasRow[] = recordset.map((r, i) => {
       const salesNetBs = Number(r.SalesNetBs);
       const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
       const returnsNetBs = Number(r.ReturnsNetBs);
-      const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
+      const label = groupBy === 'mes' ? trendXLabels[i] : String(r.GroupLabel);
       return {
         label,
+        ...(groupBy === 'mes' ? { title: bucketTitle(trendBucket.mode, String(r.GroupValue)) } : {}),
         value: r.GroupValue as string,
         salesNet: { bs: salesNetBs, usd: salesNetUsd },
         returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
@@ -471,7 +508,7 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const response: VentasResponse = { rows, groupBy, breadcrumb };
+    const response: VentasResponse = { rows, groupBy, breadcrumb, ...(groupBy === 'mes' ? { trendMode: trendBucket.mode } : {}) };
 
     return jsonWithCache(response);
   } catch {
