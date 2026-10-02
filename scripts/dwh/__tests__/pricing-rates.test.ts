@@ -87,6 +87,36 @@ describe('pricing rates (ERP)', () => {
     expect((await readListRates(pool, clone)).map(r => r.monto)).toEqual([3]);
   });
 
+  describe('hasta end-of-day and date-based row matching (0014)', () => {
+    let art2 = '';
+    const rawRows = async (a: string) => (await pool.request().input('l', sql.Char(6), list).input('a', sql.Char(30), a)
+      .query(`SELECT CONVERT(VARCHAR(23), desde, 121) AS desde, CONVERT(VARCHAR(23), hasta, 121) AS hasta FROM saArtPrecio WHERE co_precio = @l AND co_art = @a ORDER BY desde`)).recordset as { desde: string; hasta: string | null }[];
+
+    test('a closed period stores hasta at 23:59:59.997 while readListRates returns the plain date', async () => {
+      const rows = await rawRows(art);
+      const closed = rows.find(r => r.hasta !== null)!;
+      expect(closed.hasta!.slice(10)).toBe(' 23:59:59.997');
+      expect(closed.desde.slice(10)).toBe(' 00:00:00.000');
+      const read = (await readListRates(pool, list)).filter(r => r.coArt === art && r.hasta !== null);
+      expect(read.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.hasta!))).toBe(true);
+    });
+
+    test('a row with a time-of-day desde (written outside the app) can be closed by the app', async () => {
+      art2 = (await pool.request().input('a', sql.Char(30), art).query(`SELECT TOP 1 RTRIM(co_art) AS a FROM saArticulo WHERE anulado = 0 AND co_art > @a ORDER BY co_art`)).recordset[0].a;
+      await pool.request().input('l', sql.Char(6), list).input('a', sql.Char(30), art2).input('w', sql.Char(6), alma === 'TODOS' ? null : alma)
+        .query(`INSERT INTO saArtPrecio (co_art, co_precio, desde, hasta, co_alma, monto, precioOm, co_us_in, fe_us_in, co_us_mo, fe_us_mo, co_mone)
+                VALUES (@a, @l, DATEADD(HOUR, 10, DATEADD(MINUTE, 30, CONVERT(DATETIME, CONVERT(DATE, GETDATE())))), NULL, @w, 2, 0, 'PROFIT', GETDATE(), 'PROFIT', GETDATE(), 'USD')`);
+      const later = addDaysIso(today, 5);
+      const r = await applyRatePeriodErp(pool, { coPrecio: list, coArt: art2, coAlma: alma, coMone: 'USD', from: later, to: null, monto: 3, today, user });
+      expect(r.outcome).toBe('success');
+      const rows = (await readListRates(pool, list)).filter(x => x.coArt === art2);
+      expect(rows.map(x => [x.desde, x.hasta, x.monto])).toEqual([[today, addDaysIso(later, -1), 2], [later, null, 3]]);
+      // a same-day edit of the time-of-day row also updates in place (no duplicate-start conflict)
+      const r2 = await applyRatePeriodErp(pool, { coPrecio: list, coArt: art2, coAlma: alma, coMone: 'USD', from: today, to: null, monto: 9, today, user });
+      expect(r2.outcome).toBe('success');
+    });
+  });
+
   describe('procedures stop after a validation error (direct EXEC, no transaction)', () => {
     const rateCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saArtPrecio`)).recordset[0].n as number;
     const listCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saTipoPrecio`)).recordset[0].n as number;
