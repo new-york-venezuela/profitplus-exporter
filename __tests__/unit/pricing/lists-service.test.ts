@@ -125,6 +125,8 @@ describe('getArticlePrices', () => {
   });
 });
 
+const quiet = async <T,>(fn: () => Promise<T>) => { const o = console.error; console.error = () => {}; try { return await fn(); } finally { console.error = o; } };
+
 describe('extra behaviors', () => {
   test('apply with no success writes no audit', async () => {
     await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A2', monto: 21.1 }] }, actor);
@@ -133,8 +135,9 @@ describe('extra behaviors', () => {
   test('a thrown ERP error is reported per article as error', async () => {
     const orig = deps.erp.applyRatePeriod;
     deps.erp.applyRatePeriod = async a => { if (a.coArt === 'A1') throw new Error('boom'); return orig(a); };
-    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }, { coArt: 'A2', monto: 22 }] }, actor);
+    const res = await quiet(() => applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }, { coArt: 'A2', monto: 22 }] }, actor));
     expect(res.map(r => r.outcome)).toEqual(['error', 'success']);
+    expect(res[0].message).toBe('Error al aplicar el precio de este artículo');   // raw message never leaks
   });
   test('currency falls back to list meta when the list has no rates', async () => {
     const dto = await createList(deps, { mode: 'create', desPrecio: 'Nueva', coMone: 'BSD' }, actor);
@@ -155,9 +158,7 @@ describe('extra behaviors', () => {
   });
 });
 
-describe('fix round 1', () => {
-  const quiet = async <T,>(fn: () => Promise<T>) => { const o = console.error; console.error = () => {}; try { return await fn(); } finally { console.error = o; } };
-  const brokenDb = () => new Proxy(deps.db, { get: (t, k, r) => (k === 'insert' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+describe('fix round 1', () => {  const brokenDb = () => new Proxy(deps.db, { get: (t, k, r) => (k === 'insert' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
 
   test('grid names articles beyond the default 200 cap', async () => {
     for (let i = 0; i < 250; i++) state.articles.push({ coArt: `Z${i}`, artDes: `Zeta ${i}`, catDes: 'Cat' });
@@ -232,5 +233,35 @@ describe('stale-grid expected check', () => {
   test('expected null but the article has a current price → conflict', async () => {
     const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13, expected: null }] }, actor);
     expect(res[0].outcome).toBe('conflict');
+  });
+});
+
+describe('final fixes D/E', () => {
+  test('a RAISERROR (number 50000) message is shown; other errors are generic; both are logged', async () => {
+    const logged: unknown[][] = [];
+    const o = console.error; console.error = (...a: unknown[]) => { logged.push(a); };
+    try {
+      deps.erp.applyRatePeriod = async a => {
+        if (a.coArt === 'A1') throw Object.assign(new Error('Ya existe una tarifa que inicia en esa fecha'), { number: 50000 });
+        throw Object.assign(new Error('Violation of PRIMARY KEY constraint dbo.x'), { number: 2627 });
+      };
+      const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }, { coArt: 'A2', monto: 22 }] }, actor);
+      expect(res.map(r => r.message)).toEqual(['Ya existe una tarifa que inicia en esa fecha', 'Error al aplicar el precio de este artículo']);
+      expect(logged.length).toBe(2);
+    } finally { console.error = o; }
+  });
+  test('an audit failure does not turn a successful apply into an error', async () => {
+    const d = { ...deps, db: new Proxy(deps.db, { get: (t, k, r) => (k === 'insert' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) }) };
+    const res = await quiet(() => applyRates(d, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }] }, actor));
+    expect(res[0].outcome).toBe('success');
+  });
+  test('createList rejects an unknown currency', async () => {
+    await expect(createList(deps, { mode: 'create', desPrecio: 'N', coMone: 'XXX' }, actor)).rejects.toThrow('Moneda no válida');
+    expect(state.lists.length).toBe(3);
+  });
+  test('an article whose covering row has another currency is rejected', async () => {
+    state.rates.push({ coArt: 'A4', coPrecio: '08', coAlma: '000015', desde: '2026-03-15', hasta: null, monto: 5, coMone: 'BSD', validador: '0x0a' });
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A4', monto: 6 }, { coArt: 'A1', monto: 13 }] }, actor);
+    expect(res.map(r => [r.outcome, r.message])).toEqual([['rejected', 'El artículo tiene una moneda distinta a la de la lista'], ['success', undefined]]);
   });
 });

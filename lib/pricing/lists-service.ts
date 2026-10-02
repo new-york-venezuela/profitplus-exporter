@@ -48,6 +48,8 @@ export interface ArticlePrices {
 }
 
 const AMBIGUOUS_MSG = 'El artículo tiene tarifas en varios almacenes en esta lista';
+const GENERIC_APPLY_ERROR = 'Error al aplicar el precio de este artículo';
+const MIXED_CURRENCY_MSG = 'El artículo tiene una moneda distinta a la de la lista';
 const META_WARNING = 'Lista creada en Profit pero sin metadatos de moneda; avise a un administrador';
 const clock = (d: ListsDeps) => (d.now ?? (() => new Date()))();
 const today = (d: ListsDeps) => todayIso(clock(d));
@@ -133,6 +135,8 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
       const rs = rates.get(change.coArt) ?? [];
       const warehouses = [...new Set(rs.map(r => r.coAlma))];
       if (warehouses.length > 1) { results.push({ coArt: change.coArt, outcome: 'rejected', message: AMBIGUOUS_MSG }); continue; }
+      const covering = currentOf(rs, input.effectiveFrom) ?? currentOf(rs, t);
+      if (covering?.coMone && covering.coMone !== coMone) { results.push({ coArt: change.coArt, outcome: 'rejected', message: MIXED_CURRENCY_MSG }); continue; }
       let coAlma = warehouses[0];
       if (!coAlma) {
         if (fallbackAlma === undefined) fallbackAlma = (await deps.erp.dominantWarehouse(coPrecio)) ?? (await deps.erp.dominantWarehouse()) ?? 'TODOS';
@@ -149,14 +153,21 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
         if (out.outcome === 'success') done.push({ coArt: change.coArt, before, after: change.monto });
       }
     } catch (e) {
-      results.push({ coArt: change.coArt, outcome: 'error', message: e instanceof Error ? e.message : String(e) });
+      console.error(`Pricing: apply failed for list ${coPrecio}, article ${change.coArt}:`, e);
+      // only messages raised by our own procedures (RAISERROR → number 50000) are safe to show
+      const raised = typeof e === 'object' && e !== null && (e as { number?: unknown }).number === 50000 && e instanceof Error;
+      results.push({ coArt: change.coArt, outcome: 'error', message: raised ? (e as Error).message : GENERIC_APPLY_ERROR });
     }
   }
   if (done.length > 0) {
-    appendAudit(deps.db, {
-      userId: actor.id, action: 'rates_apply', target: coPrecio,
-      after: { effectiveFrom: input.effectiveFrom, changes: done }, now: clock(deps).getTime(),
-    });
+    try {
+      appendAudit(deps.db, {
+        userId: actor.id, action: 'rates_apply', target: coPrecio,
+        after: { effectiveFrom: input.effectiveFrom, changes: done }, now: clock(deps).getTime(),
+      });
+    } catch (e) {
+      console.error(`Pricing: rates applied to list ${coPrecio} but the audit write failed:`, e);
+    }
   }
   return results;
 }
@@ -164,6 +175,7 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
 export async function createList(
   deps: ListsDeps, input: Extract<CreateListInput, { mode: 'create' }>, actor: Actor,
 ): Promise<PriceListDto> {
+  if (!(await deps.erp.listCurrencies()).includes(input.coMone)) throw new ValidationError('Moneda no válida');
   const coPrecio = nextPriceListCode(await deps.erp.listCodes());
   await deps.erp.createList({ coPrecio, desPrecio: input.desPrecio, user: actor.erpUser });
   const nowMs = clock(deps).getTime();
