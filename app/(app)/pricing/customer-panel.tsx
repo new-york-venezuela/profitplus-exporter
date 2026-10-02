@@ -93,6 +93,7 @@ export default function CustomerPanel(props: CustomerPanelProps) {
             options={zonas}
             allLabel="Todas"
             placeholder="Zona"
+            ariaLabel="Zona"
           />
         </div>
         <div className="flex w-48 flex-col gap-1 text-xs font-medium text-gray-600">
@@ -103,6 +104,7 @@ export default function CustomerPanel(props: CustomerPanelProps) {
             options={vendedores}
             allLabel="Todos"
             placeholder="Vendedor"
+            ariaLabel="Vendedor"
           />
         </div>
       </div>
@@ -114,7 +116,7 @@ export default function CustomerPanel(props: CustomerPanelProps) {
       )}
 
       <div className="overflow-x-auto rounded-md border border-gray-200">
-        <table className="w-full text-left text-sm">
+        <table aria-busy={loading} className="w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs uppercase text-gray-600">
             <tr>
               <th scope="col" className="w-12 p-0">
@@ -131,6 +133,7 @@ export default function CustomerPanel(props: CustomerPanelProps) {
                     />
                   </label>
                 )}
+                {!canEdit && <span className="sr-only">Selección</span>}
               </th>
               {COLUMNS.map(col => {
                 const active = filters.sort === col.key;
@@ -209,7 +212,7 @@ export default function CustomerPanel(props: CustomerPanelProps) {
 
       {canEdit && selected.size > 0 && (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 shadow-lg">
-          <span className="text-sm font-medium text-gray-900">
+          <span aria-live="polite" className="text-sm font-medium text-gray-900">
             {selected.size} {selected.size === 1 ? 'seleccionado' : 'seleccionados'}
           </span>
           <button type="button" onClick={onMove} className={BTN}>Mover a segmento…</button>

@@ -11,7 +11,9 @@ export const dynamic = 'force-dynamic';
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ tipCli: string }> }) {
   const auth = await requirePricingAccess(request, 'edit');
   if (!auth.ok) return auth.response;
-  const { tipCli } = await params;
+  const { tipCli: rawTipCli } = await params;
+  const tipCli = rawTipCli.trim();
+  if (tipCli.length < 1 || tipCli.length > 6) return NextResponse.json({ error: 'Código de segmento inválido' }, { status: 400 });
   const body = await request.json().catch(() => null);
   const parsed = validatePatchSegmentBody(body, todayIso());
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });

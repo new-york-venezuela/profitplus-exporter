@@ -4,7 +4,7 @@ export class ApiError extends Error {
 
 async function parse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError((data && typeof data.error === 'string') ? data.error : 'Error de red', res.status);
+  if (!res.ok) throw new ApiError((data && typeof data.error === 'string') ? data.error : res.status > 0 ? `Error del servidor (${res.status})` : 'Error de red', res.status);
   return data as T;
 }
 

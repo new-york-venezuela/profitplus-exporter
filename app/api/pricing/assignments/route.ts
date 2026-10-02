@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const mapped = serviceErrorResponse(error);
     if (mapped) return mapped;
     console.error('Pricing assignment route error:', error);
-    captureException(error, auth.session.sub, { customerCount: parsed.value.customerCodes.length });
+    captureException(error, auth.session.sub, { customerCount: parsed.value.customerCodes.length, targetTipCli: parsed.value.targetTipCli });
     return NextResponse.json({ error: 'Error al aplicar las asignaciones' }, { status: 500 });
   }
 }

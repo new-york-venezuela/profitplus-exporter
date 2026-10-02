@@ -18,19 +18,20 @@ interface Props {
 
 export default function SpecialPriceDialog({ customer, currentSegment, segments, priceLists, onConfirm, onClose }: Props) {
   const today = todayIso();
+  // Browser-local date; production runs in Venezuelan local time on the server too, so no UTC off-by-one handling (ruling).
   const tomorrow = addDaysIso(today, 1);
   const [reason, setReason] = useState('');
   const [expiresOn, setExpiresOn] = useState('');
   const [coPrecio, setCoPrecio] = useState<string | null>(null);
-  const [fallback, setFallback] = useState<string | null>(currentSegment.tipCli);
+  const [fallback, setFallback] = useState<string | null>(currentSegment.kind === 'special' ? null : currentSegment.tipCli);
 
   const listOptions = useMemo(
     () => priceLists.map(p => ({ value: p.coPrecio, label: `${p.desPrecio} (${p.coPrecio})` })),
     [priceLists],
   );
   const segmentOptions = useMemo(
-    () => segments.filter(s => s.kind !== 'special' || s.tipCli === currentSegment.tipCli).map(s => ({ value: s.tipCli, label: s.desTipo })),
-    [segments, currentSegment.tipCli],
+    () => segments.filter(s => s.kind !== 'special').map(s => ({ value: s.tipCli, label: s.desTipo })),
+    [segments],
   );
 
   const dateOk = isValidIsoDate(expiresOn) && expiresOn >= tomorrow;
@@ -60,11 +61,11 @@ export default function SpecialPriceDialog({ customer, currentSegment, segments,
         </label>
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           <span>Lista de precios</span>
-          <SearchableSelect value={coPrecio} onChange={setCoPrecio} options={listOptions} placeholder="Buscar lista" />
+          <SearchableSelect value={coPrecio} onChange={setCoPrecio} options={listOptions} placeholder="Buscar lista" ariaLabel="Lista de precios" />
         </div>
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           <span>Segmento de respaldo (al vencer)</span>
-          <SearchableSelect value={fallback} onChange={setFallback} options={segmentOptions} placeholder="Buscar segmento" />
+          <SearchableSelect value={fallback} onChange={setFallback} options={segmentOptions} placeholder="Buscar segmento" ariaLabel="Segmento de respaldo" />
         </div>
         {preview && (
           <p className="rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700">Nombre en Profit: <strong>{preview}</strong></p>

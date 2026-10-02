@@ -69,5 +69,8 @@ export async function updateSegmentErp(
     .input('tsValidador', sql.Binary, hexToBuffer(p.validador))
     .input('sCoUsMo', sql.Char(6), p.user.slice(0, 6))
     .execute('pApiActualizarTipoCliente');
-  return r.recordset?.[0]?.updated === 1 ? 'success' : 'conflict';
+  const updated = r.recordset?.[0]?.updated;
+  if (updated === 1) return 'success';
+  if (updated === 0) return 'conflict';
+  throw new Error('Respuesta inesperada de pApiActualizarTipoCliente');
 }

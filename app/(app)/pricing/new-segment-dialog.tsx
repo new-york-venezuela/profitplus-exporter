@@ -33,7 +33,7 @@ export default function NewSegmentDialog({ priceLists, onConfirm, onClose }: Pro
         </label>
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           <span>Lista de precios</span>
-          <SearchableSelect value={coPrecio} onChange={setCoPrecio} options={options} placeholder="Buscar lista" />
+          <SearchableSelect value={coPrecio} onChange={setCoPrecio} options={options} placeholder="Buscar lista" ariaLabel="Lista de precios" />
         </div>
         {error && <ErrorBox>{error.message}</ErrorBox>}
         <DialogFooter onClose={onClose} confirmLabel="Crear segmento" disabled={!trimmed || !coPrecio} submitting={submitting} />

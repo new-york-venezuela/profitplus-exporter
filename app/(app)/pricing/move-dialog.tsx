@@ -29,7 +29,7 @@ export default function MoveDialog({ segments, currentTipCli, selectedCount, onC
       <form onSubmit={e => { e.preventDefault(); void run(); }} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           <span>Segmento destino</span>
-          <SearchableSelect value={target} onChange={setTarget} options={options} placeholder="Buscar segmento" />
+          <SearchableSelect value={target} onChange={setTarget} options={options} placeholder="Buscar segmento" ariaLabel="Segmento destino" />
         </div>
         {dest && current && (
           <div className="rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700">

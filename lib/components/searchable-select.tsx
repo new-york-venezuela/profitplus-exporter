@@ -14,6 +14,7 @@ export interface SearchableSelectProps {
   placeholder?: string;
   allLabel?: string;
   className?: string;
+  ariaLabel?: string;
 }
 
 // Client-only combobox filtering an already-fetched, in-memory option list
@@ -23,7 +24,7 @@ export interface SearchableSelectProps {
 // is data-driven and can grow past a handful of items -- see AGENTS.md's
 // "Code Conventions" for when to reach for this instead of <select>.
 export default function SearchableSelect({
-  value, onChange, options, placeholder = 'Buscar...', allLabel, className,
+  value, onChange, options, placeholder = 'Buscar...', allLabel, className, ariaLabel,
 }: SearchableSelectProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -66,6 +67,7 @@ export default function SearchableSelect({
         onFocus={() => { setOpen(true); setQuery(''); }}
         onChange={e => setQuery(e.target.value)}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         className="border border-gray-200 rounded px-2 py-1 text-sm w-full"
       />
       {open && (

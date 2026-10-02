@@ -38,7 +38,7 @@ export default function RepointDialog({ segment, priceLists, onConfirm, onReload
         <p className="text-sm text-gray-700">Segmento: <strong>{segment.desTipo}</strong></p>
         <div className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           <span>Nueva lista</span>
-          <SearchableSelect value={target} onChange={setTarget} options={options} placeholder="Buscar lista" />
+          <SearchableSelect value={target} onChange={setTarget} options={options} placeholder="Buscar lista" ariaLabel="Nueva lista" />
         </div>
         {next && (
           <p className="rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700">

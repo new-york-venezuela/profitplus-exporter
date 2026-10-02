@@ -40,12 +40,14 @@ function req(token: string | null, method: string, body?: unknown) {
 const tip = (t: string) => ({ params: Promise.resolve({ tipCli: t }) });
 
 let viewer: string;
+let editor: string;
 let nobody: string;
 
 beforeAll(async () => {
   migrate(getDb(), { migrationsFolder: './migrations/sqlite' });
   viewer = await makeUser('viewer@x.com', ['pricing_view']);
   nobody = await makeUser('nobody@x.com', []);
+  editor = await makeUser('editor@x.com', ['pricing_edit']);
 });
 afterAll(() => rmSync(sqliteDir, { recursive: true, force: true }));
 
@@ -67,5 +69,10 @@ describe('/api/pricing access', () => {
     expect((await segmentsRoute.GET(req(nobody, 'GET'))).status).toBe(403);
     expect((await customersRoute.GET(req(nobody, 'GET'))).status).toBe(403);
     expect((await filtersRoute.GET(req(nobody, 'GET'))).status).toBe(403);
+  });
+
+  test('PATCH rejects a tipCli param that is empty or longer than 6 chars with 400', async () => {
+    expect((await segmentRoute.PATCH(req(editor, 'PATCH', { desTipo: 'x', validador: '0x0000000000000001' }), tip('1234567'))).status).toBe(400);
+    expect((await segmentRoute.PATCH(req(editor, 'PATCH', { desTipo: 'x', validador: '0x0000000000000001' }), tip('   '))).status).toBe(400);
   });
 });
