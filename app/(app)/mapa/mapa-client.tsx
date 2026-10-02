@@ -9,6 +9,7 @@ import { findDiscrepancies } from '@/lib/geo/discrepancies';
 import { areaRevenue } from '@/lib/geo/area-match';
 import { buildScale } from '@/lib/geo/color-scale';
 import { heatPoints } from '@/lib/geo/layers';
+import { hasNoRevenue } from '@/lib/geo/period-empty';
 import { parseFilters, serializeFilters, normalizeFilters, applyFilters, type MapFilters } from '@/lib/geo/filters';
 import CustomerMap from './components/customer-map';
 import { FilterPanel } from './components/filter-panel';
@@ -260,6 +261,11 @@ export default function MapaClient() {
 
       <div className="flex min-h-[50vh] min-w-0 flex-1 flex-col">
         {error && <p role="alert" className="bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>}
+        {!loading && payload && hasNoRevenue(payload.customers) && (
+          <p role="status" className="bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Sin ventas en el período seleccionado. Pruebe otro período.
+          </p>
+        )}
         <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2" role="group" aria-label="Vista">
           {(['map', 'table'] as const).map(v => (
             <button
