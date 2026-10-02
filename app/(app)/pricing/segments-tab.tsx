@@ -40,6 +40,7 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
   const [results, setResults] = useState<SegmentMoveResult[] | null>(null);
   const [lastTarget, setLastTarget] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   // Names of every customer seen so far, so results can still show names after the page refreshes.
   const [names, setNames] = useState<Record<string, string>>({});
   const requestId = useRef(0);
@@ -192,6 +193,15 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
         {actionError && (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
         )}
+        {warning && (
+          <div role="status" className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <span>{warning}</span>
+            <button type="button" onClick={() => setWarning(null)}
+              className="min-h-[44px] rounded-md px-3 text-sm font-medium text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+              Cerrar
+            </button>
+          </div>
+        )}
         {results && results.length > 0 && (
           <ResultsPanel results={results} nameByCode={names} retrying={retrying} onRetry={codes => void retry(codes)} onDismiss={() => { setResults(null); setActionError(null); }} />
         )}
@@ -235,7 +245,7 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
           priceLists={priceLists}
           onReload={loadSegments}
           onConfirm={async coPrecio => {
-            await apiSend(`/api/pricing/segments/${segment.tipCli}`, 'PATCH', { coPrecio, validador: segment.validador });
+            await apiSend(`/api/pricing/segments/${encodeURIComponent(segment.tipCli)}`, 'PATCH', { coPrecio, validador: segment.validador });
             setDialog(null);
             await loadSegments();
           }}
@@ -246,8 +256,9 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
         <NewSegmentDialog
           priceLists={priceLists}
           onConfirm={async b => {
-            const r = await apiSend<{ segment: SegmentDto }>('/api/pricing/segments', 'POST', { kind: 'group', ...b });
+            const r = await apiSend<{ segment: SegmentDto; warning?: string }>('/api/pricing/segments', 'POST', { kind: 'group', ...b });
             setDialog(null);
+            setWarning(r.warning ?? null);
             await loadSegments();
             selectSegment(r.segment.tipCli);
           }}
@@ -261,10 +272,11 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
           segments={segments}
           priceLists={priceLists}
           onConfirm={async i => {
-            const r = await apiSend<{ segment: SegmentDto; move?: SegmentMoveResult }>('/api/pricing/segments', 'POST',
+            const r = await apiSend<{ segment: SegmentDto; move?: SegmentMoveResult; warning?: string }>('/api/pricing/segments', 'POST',
               { kind: 'special', customerCoCli: specialCustomer.coCli, ...i });
             setDialog(null);
             setActionError(null);
+            setWarning(r.warning ?? null);
             if (r.move && r.move.outcome !== 'success') {
               setLastTarget(r.segment.tipCli);
               setResults([r.move]);

@@ -60,38 +60,79 @@ export async function getSegmentDto(deps: ServiceDeps, tipCli: string): Promise<
   return toDto(row, getSegmentMeta(deps.db, tipCli), today(deps));
 }
 
+const META_WARNING = 'Segmento creado en Profit pero sin metadatos; avise a un administrador';
+
+const isDuplicateKey = (e: unknown) => {
+  const n = (e as { number?: number } | null)?.number;
+  return n === 2627 || n === 2601;
+};
+
+/** Allocates the next code and creates the ERP row; retries once when a concurrent creator took the same code. */
+async function createInErp(
+  deps: ServiceDeps, p: { desTipo: string; coPrecio: string; user: string },
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const tipCli = nextTipCliCode(await deps.erp.listCodes());
+    try {
+      await deps.erp.createSegment({ tipCli, ...p });
+      return tipCli;
+    } catch (e) {
+      if (attempt === 0 && isDuplicateKey(e)) continue;
+      throw e;
+    }
+  }
+}
+
 export async function createSegment(
   deps: ServiceDeps, input: CreateSegmentInput, actor: Actor,
-): Promise<{ segment: SegmentDto; move?: SegmentMoveResult }> {
+): Promise<{ segment: SegmentDto; move?: SegmentMoveResult; warning?: string }> {
   const t = today(deps);
   const nowMs = (deps.now ?? (() => new Date()))().getTime();
 
   if (input.kind === 'group') {
-    const tipCli = nextTipCliCode(await deps.erp.listCodes());
-    await deps.erp.createSegment({ tipCli, desTipo: input.desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
-    upsertSegmentMeta(deps.db, { tipCli, kind: 'group', createdBy: actor.id, createdAt: nowMs });
-    appendAudit(deps.db, { userId: actor.id, action: 'segment_create', target: tipCli, after: { desTipo: input.desTipo, coPrecio: input.coPrecio, kind: 'group' }, now: nowMs });
-    return { segment: await getSegmentDto(deps, tipCli) };
+    const tipCli = await createInErp(deps, { desTipo: input.desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
+    let warning: string | undefined;
+    try {
+      upsertSegmentMeta(deps.db, { tipCli, kind: 'group', createdBy: actor.id, createdAt: nowMs });
+      appendAudit(deps.db, { userId: actor.id, action: 'segment_create', target: tipCli, after: { desTipo: input.desTipo, coPrecio: input.coPrecio, kind: 'group' }, now: nowMs });
+    } catch (e) {
+      console.error(`Pricing: segment ${tipCli} created in ERP but metadata write failed:`, e);
+      warning = META_WARNING;
+    }
+    return { segment: await getSegmentDto(deps, tipCli), ...(warning ? { warning } : {}) };
   }
 
   const customer = await deps.erp.getCustomer(input.customerCoCli);
   if (!customer) throw new NotFoundError('Cliente no encontrado');
+  if (input.fallbackTipCli && !(await deps.erp.getSegment(input.fallbackTipCli))) {
+    throw new NotFoundError('Segmento de respaldo no encontrado');
+  }
   const desTipo = buildSegmentName({ customerName: customer.cliDes, reason: input.reason, endsOn: input.expiresOn, today: t });
-  const tipCli = nextTipCliCode(await deps.erp.listCodes());
+  const tipCli = await createInErp(deps, { desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
 
-  await deps.erp.createSegment({ tipCli, desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
-  upsertSegmentMeta(deps.db, {
-    tipCli, kind: 'special', customerCoCli: customer.coCli, reason: input.reason, expiresAt: input.expiresOn,
-    fallbackTipCli: input.fallbackTipCli ?? customer.tipCli, previousTipCli: customer.tipCli,
-    createdBy: actor.id, createdAt: nowMs,
-  });
-  appendAudit(deps.db, { userId: actor.id, action: 'segment_create', target: tipCli, after: { desTipo, coPrecio: input.coPrecio, kind: 'special', expiresOn: input.expiresOn }, now: nowMs });
+  let warning: string | undefined;
+  try {
+    upsertSegmentMeta(deps.db, {
+      tipCli, kind: 'special', customerCoCli: customer.coCli, reason: input.reason, expiresAt: input.expiresOn,
+      fallbackTipCli: input.fallbackTipCli ?? customer.tipCli, previousTipCli: customer.tipCli,
+      createdBy: actor.id, createdAt: nowMs,
+    });
+    appendAudit(deps.db, { userId: actor.id, action: 'segment_create', target: tipCli, after: { desTipo, coPrecio: input.coPrecio, kind: 'special', expiresOn: input.expiresOn }, now: nowMs });
+  } catch (e) {
+    console.error(`Pricing: segment ${tipCli} created in ERP but metadata write failed:`, e);
+    warning = META_WARNING;
+  }
 
   const move = await deps.erp.moveCustomer(customer.coCli, tipCli, actor.erpUser);
   if (move.outcome === 'success') {
-    appendAudit(deps.db, { userId: actor.id, action: 'customer_move', target: customer.coCli, before: { tipCli: customer.tipCli }, after: { tipCli }, now: nowMs });
+    try {
+      appendAudit(deps.db, { userId: actor.id, action: 'customer_move', target: customer.coCli, before: { tipCli: customer.tipCli }, after: { tipCli }, now: nowMs });
+    } catch (e) {
+      console.error(`Pricing: customer move ${customer.coCli} done but audit write failed:`, e);
+      warning = META_WARNING;
+    }
   }
-  return { segment: await getSegmentDto(deps, tipCli), move };
+  return { segment: await getSegmentDto(deps, tipCli), move, ...(warning ? { warning } : {}) };
 }
 
 export async function patchSegment(deps: ServiceDeps, tipCli: string, input: PatchSegmentInput, actor: Actor): Promise<SegmentDto> {
@@ -103,6 +144,7 @@ export async function patchSegment(deps: ServiceDeps, tipCli: string, input: Pat
   if (input.expiresOn !== undefined) {
     const meta = getSegmentMeta(deps.db, tipCli);
     if (!meta || meta.kind !== 'special') throw new ValidationError('Solo los segmentos especiales tienen vencimiento');
+    if (input.expiresOn === null) throw new ValidationError('El vencimiento de un segmento especial no se puede quitar');
   }
 
   if (input.desTipo !== undefined || input.coPrecio !== undefined) {
