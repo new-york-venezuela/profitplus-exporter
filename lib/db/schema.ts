@@ -169,3 +169,40 @@ export const salesAreaSellers = sqliteTable('sales_area_sellers', {
 
 export type SalesAreaSeller    = typeof salesAreaSellers.$inferSelect;
 export type NewSalesAreaSeller = typeof salesAreaSellers.$inferInsert;
+
+// ── Pricing workspace ─────────────────────────────────────────────────────
+// `action` is a TypeScript-only enum (no CHECK constraint): later pricing
+// plans add values without a migration.
+export const PRICING_AUDIT_ACTIONS = [
+  'segment_create', 'segment_repoint', 'segment_rename', 'customer_move',
+  'list_create', 'list_clone', 'rates_apply',
+  'promotion_create', 'promotion_cancel', 'promotion_extend', 'sweep_revert',
+] as const;
+export type PricingAuditAction = typeof PRICING_AUDIT_ACTIONS[number];
+
+export const pricingSegmentMeta = sqliteTable('pricing_segment_meta', {
+  tipCli:         text('tip_cli').primaryKey(),                 // saTipoCliente.tip_cli, trimmed
+  kind:           text('kind', { enum: ['group', 'special'] }).notNull(),
+  customerCoCli:  text('customer_co_cli'),                      // special only
+  reason:         text('reason'),
+  expiresAt:      text('expires_at'),                           // YYYY-MM-DD
+  fallbackTipCli: text('fallback_tip_cli'),
+  previousTipCli: text('previous_tip_cli'),
+  createdBy:      text('created_by').notNull(),                 // session.sub
+  createdAt:      integer('created_at').notNull(),              // unix ms
+});
+
+export type SegmentMeta    = typeof pricingSegmentMeta.$inferSelect;
+export type NewSegmentMeta = typeof pricingSegmentMeta.$inferInsert;
+
+export const pricingAuditLog = sqliteTable('pricing_audit_log', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  at:         integer('at').notNull(),                          // unix ms
+  userId:     text('user_id').notNull(),
+  action:     text('action', { enum: PRICING_AUDIT_ACTIONS }).notNull(),
+  target:     text('target').notNull(),                         // tip_cli, co_cli, co_precio or promotion id
+  beforeJson: text('before_json'),
+  afterJson:  text('after_json'),
+});
+
+export type PricingAuditRow = typeof pricingAuditLog.$inferSelect;
