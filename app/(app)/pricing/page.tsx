@@ -2,7 +2,8 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/get-session';
 import { getDb } from '@/lib/db/sqlite';
 import { getPricingAccessLevel } from '@/lib/pricing/access';
-import PricingClient from './pricing-client';
+import { Suspense } from 'react';
+import PricingShell from './pricing-shell';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,5 +15,5 @@ export default async function PricingPage() {
   const accessLevel = await getPricingAccessLevel(db, session.sub, session.role);
   if (accessLevel === 'none') redirect('/inicio');
 
-  return <PricingClient canEdit={accessLevel === 'edit'} />;
+  return <Suspense fallback={null}><PricingShell canEdit={accessLevel === 'edit'} /></Suspense>;
 }
