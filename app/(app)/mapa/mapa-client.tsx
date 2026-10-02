@@ -266,8 +266,10 @@ export default function MapaClient() {
               key={v}
               type="button"
               aria-pressed={view === v}
+              disabled={v === 'table' && !!areaDraft}
+              title={v === 'table' && areaDraft ? 'Termine o cancele la zona en edición para ver la tabla' : undefined}
               onClick={() => setView(v)}
-              className={`min-h-11 rounded-md px-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${view === v ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+              className={`min-h-11 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${view === v ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
             >
               {v === 'map' ? 'Mapa' : 'Tabla'}
             </button>
