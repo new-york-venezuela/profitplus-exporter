@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { FilterOption, GridData, GridRow } from '@/lib/pricing/client-types';
 import SearchableSelect from '@/lib/components/searchable-select';
 import {
@@ -10,6 +10,7 @@ import {
   priceFromPercent,
 } from '@/lib/pricing/rates-math';
 import {
+  cellKey,
   newDeltaPct,
   pendingChanges,
   referenceFor,
@@ -22,7 +23,7 @@ const NUM = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFr
 const fmt = (n: number) => NUM.format(n);
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
 const BTN = `min-h-[44px] rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`;
-const INPUT = `w-28 rounded-md border px-2 py-1.5 text-right text-sm tabular-nums disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 ${FOCUS}`;
+const INPUT = `min-h-[44px] w-28 rounded-md border px-2 py-1.5 text-right text-sm tabular-nums disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 ${FOCUS}`;
 
 function todayIso(): string {
   const d = new Date();
@@ -108,11 +109,14 @@ function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
         placeholder="—"
         onChange={e => { setDraft(e.target.value); setError(false); }}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setDraft(null); setError(false); }
+        }}
         className={`${INPUT} ${error ? 'border-red-500' : 'border-gray-300'} ${price !== undefined ? 'bg-amber-50' : ''}`}
       />
       {error && <span id={errId} className="text-xs text-red-700">Precio inválido</span>}
-      {price !== undefined && !error && <span className="sr-only">editado</span>}
+      {price !== undefined && !error && <span className="text-xs font-medium text-amber-800">editado</span>}
     </div>
   );
 }
@@ -160,7 +164,10 @@ function PctCell({ row, staged, onStage, readOnly }: CellProps) {
         placeholder="—"
         onChange={e => { setDraft(e.target.value); setError(false); }}
         onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setDraft(null); setError(false); }
+        }}
         className={`${INPUT} w-24 ${error ? 'border-red-500' : 'border-gray-300'} ${price !== undefined ? 'bg-amber-50' : ''}`}
       />
       {error && <span id={errId} className="text-xs text-red-700">Porcentaje inválido</span>}
@@ -175,6 +182,7 @@ function BulkBar({ count, onBulk }: { count: number; onBulk: (op: BulkOp) => voi
   const [open, setOpen] = useState<BulkKind | null>(null);
   const [text, setText] = useState('');
   const [error, setError] = useState(false);
+  const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
 
   function submit() {
     if (!open) return;
@@ -204,7 +212,7 @@ function BulkBar({ count, onBulk }: { count: number; onBulk: (op: BulkOp) => voi
     <div role="group" aria-label="Acciones masivas" className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
       <span className="text-sm font-medium text-gray-900">{count} seleccionados</span>
       {(['plus', 'minus', 'set'] as BulkKind[]).map(k => (
-        <button key={k} type="button" aria-pressed={open === k} onClick={() => toggle(k)} className={BTN}>
+        <button key={k} ref={el => { triggers.current[k] = el; }} type="button" aria-pressed={open === k} onClick={() => toggle(k)} className={BTN}>
           {labels[k]}
         </button>
       ))}
@@ -218,8 +226,8 @@ function BulkBar({ count, onBulk }: { count: number; onBulk: (op: BulkOp) => voi
             aria-invalid={error || undefined}
             value={text}
             onChange={e => { setText(e.target.value); setError(false); }}
-            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setOpen(null); }}
-            className={`w-24 rounded-md border px-2 py-1.5 text-right text-sm ${FOCUS} ${error ? 'border-red-500' : 'border-gray-300'}`}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') { const k = open; setOpen(null); triggers.current[k]?.focus(); } }}
+            className={`min-h-[44px] w-24 rounded-md border px-2 py-1.5 text-right text-sm ${FOCUS} ${error ? 'border-red-500' : 'border-gray-300'}`}
           />
           <button type="button" onClick={submit} className={`min-h-[44px] rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 ${FOCUS}`}>
             Aplicar a selección
@@ -275,7 +283,7 @@ export default function RatesGrid(props: RatesGridProps) {
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1">
-          <span id="compare-label" className="text-sm text-gray-700">Comparar con:</span>
+          <span className="text-sm text-gray-700">Comparar con:</span>
           <SearchableSelect
             value={compareTo}
             onChange={onCompareChange}
@@ -305,7 +313,7 @@ export default function RatesGrid(props: RatesGridProps) {
           placeholder="Buscar artículo"
           value={search}
           onChange={e => onSearchChange(e.target.value)}
-          className={`w-64 rounded-md border border-gray-300 px-3 py-2 text-sm ${FOCUS}`}
+          className={`min-h-[44px] w-64 rounded-md border border-gray-300 px-3 py-2 text-sm ${FOCUS}`}
         />
         <SearchableSelect
           value={category || null}
@@ -363,7 +371,7 @@ export default function RatesGrid(props: RatesGridProps) {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-500">
-                  {data && data.rows.length > 0 ? 'No hay artículos que coincidan con el filtro' : 'Esta lista no tiene tarifas'}
+                  {!data ? 'Selecciona una lista' : data.rows.length > 0 ? 'No hay artículos que coincidan con el filtro' : 'Esta lista no tiene tarifas'}
                 </td>
               </tr>
             ) : (
@@ -403,8 +411,8 @@ export default function RatesGrid(props: RatesGridProps) {
                     <td className="px-3 py-2 text-right tabular-nums">
                       {compareTo === null || delta === null ? '—' : `${delta > 0 ? '+' : ''}${fmt(delta)}%`}
                     </td>
-                    <td className="px-3 py-2"><PriceCell row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
-                    <td className="px-3 py-2"><PctCell row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
+                    <td className="px-3 py-2"><PriceCell key={cellKey(r, staged)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
+                    <td className="px-3 py-2"><PctCell key={cellKey(r, staged)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
                   </tr>
                 );
               })

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows } from '@/lib/pricing/rates-staging';
+import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows, cellKey } from '@/lib/pricing/rates-staging';
 import type { GridRow } from '@/lib/pricing/client-types';
 
 function row(p: Partial<GridRow> & { coArt: string }): GridRow {
@@ -77,5 +77,29 @@ describe('visibleRows', () => {
   });
   test('category matches catDes', () => {
     expect(visibleRows(rows, { ...base, category: 'Granos' }).map(r => r.coArt)).toEqual(['ARR1']);
+  });
+  test('ambiguous row stays visible when staged', () => {
+    expect(visibleRows(rows, { ...base, staged: { AMB: 5 } }).map(r => r.coArt)).toContain('AMB');
+  });
+  test('search and category combine', () => {
+    expect(visibleRows(rows, { ...base, showUnpriced: true, search: 'sin', category: 'Granos' }).map(r => r.coArt)).toEqual(['NOP']);
+    expect(visibleRows(rows, { ...base, search: 'harina', category: 'Granos' })).toEqual([]);
+  });
+});
+
+describe('cellKey', () => {
+  const r = row({ coArt: 'A' });
+  test('changes when staged price, reference, current or warehouse change', () => {
+    const k = cellKey(r, {});
+    expect(cellKey(r, { A: 9 })).not.toBe(k);
+    expect(cellKey({ ...r, referenceMonto: 7 }, {})).not.toBe(k);
+    expect(cellKey({ ...r, current: null }, {})).not.toBe(k);
+    expect(cellKey({ ...r, coAlma: 'X' }, {})).not.toBe(k);
+  });
+  test('stable otherwise and unaffected by other articles', () => {
+    expect(cellKey(r, { B: 3 })).toBe(cellKey(r, {}));
+  });
+  test('discard resets the key', () => {
+    expect(cellKey(r, {})).not.toBe(cellKey(r, { A: 9 }));
   });
 });

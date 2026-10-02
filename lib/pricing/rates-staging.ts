@@ -49,3 +49,10 @@ export function visibleRows(
 }
 
 export type BulkOp = { type: 'percent'; pct: number } | { type: 'set'; monto: number };
+
+// Identity of an editable cell's local draft: any change in the staged price,
+// reference, current rate or warehouse yields a new key, so a stale draft is
+// discarded when state changes from outside (Descartar, bulk, list switch).
+export function cellKey(row: GridRow, staged: Staged): string {
+  return [row.coArt, row.coAlma ?? '', staged[row.coArt] ?? 'none', row.referenceMonto ?? 'none', row.current?.monto ?? 'none'].join(':');
+}
