@@ -64,6 +64,13 @@
       "when": 1790913183916,
       "tag": "0008_yummy_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790923251796,
+      "tag": "0009_lovely_prodigy",
+      "breakpoints": true
     }
   ]
 }

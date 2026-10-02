@@ -206,3 +206,11 @@ export const pricingAuditLog = sqliteTable('pricing_audit_log', {
 });
 
 export type PricingAuditRow = typeof pricingAuditLog.$inferSelect;
+
+export const pricingListMeta = sqliteTable('pricing_list_meta', {
+  coPrecio:  text('co_precio').primaryKey(),     // saTipoPrecio.co_precio, trimmed
+  coMone:    text('co_mone').notNull(),          // currency chosen at creation (used until the list has rate rows)
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at').notNull(),    // unix ms
+});
+export type ListMeta = typeof pricingListMeta.$inferSelect;
