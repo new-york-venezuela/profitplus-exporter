@@ -41,18 +41,58 @@ test.describe('pricing segments @mssql', () => {
       await page.getByRole('button', { name: 'Iniciar sesión' }).click();
     });
     await page.waitForURL('/inicio');
-    return { page, context };
+    return { page, context, id };
   }
 
-  test('a pricing_view user sees the segment rail but no edit buttons', async ({ browser, adminPage }) => {
-    const { page, context } = await viewerPage(browser, adminPage);
+  test('a pricing_view user sees the segment rail but no edit controls', async ({ browser, adminPage }) => {
+    const { page, context, id } = await viewerPage(browser, adminPage);
     try {
-      await page.goto('/pricing');
+      const segs = (await (await page.request.get('/api/pricing/segments')).json()).segments as { tipCli: string; customerCount: number }[];
+      const withCustomers = segs.find(s => s.customerCount > 0)!;
+      const first = (await (await page.request.get(`/api/pricing/customers?tipCli=${withCustomers.tipCli}&pageSize=1`)).json()).customers[0] as { cliDes: string };
+
+      await page.goto(`/pricing?segment=${withCustomers.tipCli}`);
       await expect(page.getByRole('heading', { name: 'Segmentos', exact: true })).toBeVisible({ timeout: 20_000 });
+      // wait until a real customer row is rendered, so the zero-count assertions below are not vacuous
+      await expect(page.locator('tbody tr:not([aria-hidden])').first()).toContainText(first.cliDes, { timeout: 20_000 });
+
+      await expect(page.getByRole('button', { name: 'Cambiar lista' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '+ Nuevo' })).toHaveCount(0);
+      await expect(page.getByRole('checkbox')).toHaveCount(0);
       await expect(page.getByRole('button', { name: /Mover a segmento/ })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Precio especial' })).toHaveCount(0);
     } finally {
       await context.close();
+      await adminPage.request.delete(`/api/admin/users/${id}`);
+    }
+  });
+
+  test('an edit user moves a customer to another segment and sees it under Éxito', async ({ adminPage }) => {
+    const segs = (await (await adminPage.request.get('/api/pricing/segments')).json()).segments as
+      { tipCli: string; desTipo: string; kind: string; customerCount: number }[];
+    const source = segs.find(s => s.kind === 'group' && s.customerCount > 0)!;
+    const target = segs.find(s => s.kind === 'group' && s.tipCli !== source.tipCli)!;
+    const customer = (await (await adminPage.request.get(`/api/pricing/customers?tipCli=${source.tipCli}&pageSize=1`)).json())
+      .customers[0] as { coCli: string; cliDes: string };
+
+    try {
+      await adminPage.goto(`/pricing?segment=${source.tipCli}`);
+      const row = adminPage.locator('tbody tr', { hasText: customer.coCli });
+      await expect(row).toBeVisible({ timeout: 20_000 });
+      await row.getByRole('checkbox').check();
+      await expect(adminPage.getByText('1 seleccionado')).toBeVisible();
+
+      await adminPage.getByRole('button', { name: 'Mover a segmento…' }).click();
+      const dialog = adminPage.getByRole('dialog');
+      await dialog.getByPlaceholder('Buscar segmento').click();
+      await dialog.getByRole('button', { name: target.desTipo, exact: true }).click();
+      await dialog.getByRole('button', { name: 'Mover', exact: true }).click();
+
+      const ok = adminPage.locator('section').filter({ has: adminPage.getByRole('heading', { name: /^Éxito/ }) });
+      await expect(ok).toContainText(customer.cliDes, { timeout: 20_000 });
+    } finally {
+      // leave ERP state as found
+      const back = await adminPage.request.post('/api/pricing/assignments', { data: { customerCodes: [customer.coCli], targetTipCli: source.tipCli } });
+      expect(back.ok()).toBe(true);
     }
   });
 
