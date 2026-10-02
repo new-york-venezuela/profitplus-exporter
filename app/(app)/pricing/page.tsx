@@ -12,7 +12,7 @@ export default async function PricingPage() {
 
   const db = getDb();
   const accessLevel = await getPricingAccessLevel(db, session.sub, session.role);
-  if (accessLevel === 'none') redirect('/reports/ventas');
+  if (accessLevel === 'none') redirect('/inicio');
 
   return <PricingClient canEdit={accessLevel === 'edit'} />;
 }

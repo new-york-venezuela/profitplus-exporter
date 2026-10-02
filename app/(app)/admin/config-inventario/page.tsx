@@ -7,7 +7,7 @@ import { ConfigInventarioClient } from './config-client';
 export default async function ConfigInventarioPage() {
   const session = await getSession();
   if (!session)                 redirect('/login');
-  if (session.role !== 'admin') redirect('/reports/ventas');
+  if (session.role !== 'admin') redirect('/inicio');
 
   const db = getDb();
   const warehouses = db.select().from(inventoryWarehouses).all();

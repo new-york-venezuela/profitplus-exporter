@@ -7,7 +7,7 @@ test.describe.configure({ mode: 'serial' });
 test.describe('admin config-cobranza', () => {
   test('non-admin cannot access the page', async ({ userPage }) => {
     await userPage.goto('/admin/config-cobranza');
-    await expect(userPage).toHaveURL('/reports/ventas');
+    await expect(userPage).toHaveURL('/inicio');
   });
 
   test('sidebar link navigates admins to the page', async ({ adminPage }) => {

@@ -23,7 +23,7 @@ export default function LoginPage() {
     });
 
     if (res.ok) {
-      router.push('/reports/ventas');
+      router.push('/inicio');
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? 'Error de autenticación');

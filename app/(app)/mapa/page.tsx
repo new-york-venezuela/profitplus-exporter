@@ -11,7 +11,7 @@ export default async function MapaPage() {
   if (!session) redirect('/login');
 
   const allowed = await hasGeoAccess(getDb(), session.sub, session.role);
-  if (!allowed) redirect('/reports/ventas');
+  if (!allowed) redirect('/inicio');
 
   return <MapaLoader />;
 }

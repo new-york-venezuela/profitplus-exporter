@@ -36,10 +36,10 @@ test.describe('inventario/ajustes @mssql', () => {
       await page.getByLabel('Contraseña', { exact: true }).fill('ResetFlowPass123!');
       await page.getByRole('button', { name: 'Iniciar sesión' }).click();
     });
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
 
     await page.goto('/inventario/ajustes');
-    await page.waitForURL('/reports/ventas');
+    await page.waitForURL('/inicio');
   });
 
   // The page also renders the adjustment-history table (HistorialClient)

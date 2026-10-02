@@ -28,7 +28,7 @@ test.describe('login', () => {
   test('logs in successfully and redirects to reports', async ({ page }) => {
     await submitLogin(page, 'user@e2e.test', 'UserPass123!');
 
-    await expect(page).toHaveURL('/reports/ventas');
+    await expect(page).toHaveURL('/inicio');
   });
 });
 

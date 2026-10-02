@@ -22,7 +22,7 @@ import { test, expect } from './fixtures';
 //
 // /analitica is gated by hasDwhAccess (lib/dwh/access.ts), which only the
 // admin role bypasses unconditionally — the seeded user@e2e.test has no
-// 'dwh' module grant and gets redirected to /reports/ventas. These tests use
+// 'dwh' module grant and gets redirected to /inicio. These tests use
 // the adminPage fixture (same pattern as e2e/admin-users.spec.ts), not
 // userPage, to reach the page at all.
 

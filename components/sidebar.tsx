@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import posthog from 'posthog-js';
 import type { SessionPayload } from '@/lib/auth/session';
 import type { PricingAccessLevel } from '@/lib/pricing/access';
+import { visibleNavSections } from '@/lib/nav';
 
 interface Props {
   user: SessionPayload;
@@ -15,19 +16,16 @@ interface Props {
   pricingAccessLevel: PricingAccessLevel;
 }
 
-const NAV_REPORTS = [
-  { href: '/reports/ventas',  label: 'Ventas'  },
-  { href: '/reports/compras', label: 'Compras' },
-];
-
-const NAV_TOOLS = [
-    { href: '/firmas', label: 'Firma Corporativa' },
-    { href: '/qr', label: 'Códigos QR' },
-]
-
 export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, pricingAccessLevel }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
+  const sections = visibleNavSections({
+    isAdmin: user.role === 'admin',
+    inventory: canSeeInventory,
+    dwh: canSeeAnalitica,
+    geo: canSeeMapa,
+    pricing: pricingAccessLevel,
+  });
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -55,90 +53,21 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, pr
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4">
-        <p className="px-2 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          Reportes
-        </p>
-        {NAV_REPORTS.map(({ href, label }) => (
-          <Link key={href} href={href} className={navClass(href)}>
-            {label}
-          </Link>
-        ))}
-
-        <p className="px-2 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          Herramientas
-        </p>
-        {NAV_TOOLS.map(({ href, label }) => (
-            <Link key={href} href={href} className={navClass(href)}>
+        <Link href="/inicio" className={navClass('/inicio')}>
+          Inicio
+        </Link>
+        {sections.map(({ title, links }) => (
+          <div key={title}>
+            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              {title}
+            </p>
+            {links.map(({ href, label }) => (
+              <Link key={href} href={href} className={navClass(href)}>
                 {label}
-            </Link>
+              </Link>
+            ))}
+          </div>
         ))}
-
-        {canSeeAnalitica && (
-          <>
-            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Analítica
-            </p>
-            <Link href="/analitica" className={navClass('/analitica')}>
-              Panel Analítico
-            </Link>
-          </>
-        )}
-
-        {canSeeMapa && (
-          <>
-            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Geografía
-            </p>
-            <Link href="/mapa" className={navClass('/mapa')}>
-              Mapa de Clientes
-            </Link>
-          </>
-        )}
-
-        {canSeeInventory && (
-          <>
-            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Inventario
-            </p>
-            <Link href="/inventario/dashboard" className={navClass('/inventario/dashboard')}>
-              Panel
-            </Link>
-            <Link href="/inventario/articulos" className={navClass('/inventario/articulos')}>
-              Artículos
-            </Link>
-            <Link href="/inventario/ajustes" className={navClass('/inventario/ajustes')}>
-              Ajustes
-            </Link>
-          </>
-        )}
-
-        {pricingAccessLevel !== 'none' && (
-          <>
-            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Precios
-            </p>
-            <Link href="/pricing" className={navClass('/pricing')}>
-              Listas de Precio
-            </Link>
-          </>
-        )}
-
-        {user.role === 'admin' && (
-          <>
-            <p className="px-2 mt-5 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Admin
-            </p>
-            <Link href="/admin/users" className={navClass('/admin/users')}>
-              Usuarios
-            </Link>
-            <Link href="/admin/config-inventario" className={navClass('/admin/config-inventario')}>
-              Config. Inventario
-            </Link>
-            <Link href="/admin/config-cobranza" className={navClass('/admin/config-cobranza')}>
-              Config. Cobranza
-            </Link>
-          </>
-        )}
       </nav>
 
       {/* Footer */}
