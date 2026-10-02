@@ -46,7 +46,7 @@ test.describe('pricing lists @mssql', () => {
   test('a pricing_view user sees the rates grid read-only', async ({ browser, adminPage }) => {
     const { page, context, id } = await viewerPage(browser, adminPage);
     try {
-      const lists = (await (await page.request.get('/api/pricing/lists')).json()).priceLists as { coPrecio: string; rateCount: number }[];
+      const lists = (await (await page.request.get('/api/pricing/price-lists')).json()).priceLists as { coPrecio: string; rateCount: number }[];
       const withRates = lists.find(l => l.rateCount > 0)!;
       await page.goto(`/pricing?tab=listas&list=${withRates.coPrecio}`);
       await expect(page.getByRole('heading', { name: 'Tarifas de la lista' }).or(page.getByRole('region', { name: 'Tarifas de la lista' }))).toBeVisible({ timeout: 20_000 });
@@ -90,7 +90,7 @@ test.describe('pricing lists @mssql', () => {
     // removed in afterAll. The price change uses a FUTURE date, so no current price is touched.
     test('clones a list, stages a price and applies it as a scheduled change', async ({ adminPage }) => {
       test.skip(env.DB_SERVER !== 'localhost', 'writes to the ERP: local mock only');
-      const lists = (await (await adminPage.request.get('/api/pricing/lists')).json()).priceLists as
+      const lists = (await (await adminPage.request.get('/api/pricing/price-lists')).json()).priceLists as
         { coPrecio: string; rateCount: number; coMone: string | null }[];
       const source = lists.find(l => l.rateCount > 0 && l.coMone)!;
       const d = new Date(Date.now() + 2 * 86_400_000);

@@ -83,7 +83,7 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
   const loadLists = useCallback(async () => {
     const id = ++listsReq.current;
     try {
-      const d = await apiGet<{ priceLists: PriceListDto[]; currencies: string[] }>('/api/pricing/lists');
+      const d = await apiGet<{ priceLists: PriceListDto[]; currencies: string[] }>('/api/pricing/price-lists');
       if (id !== listsReq.current) return;
       setLists(d.priceLists);
       setCurrencies(d.currencies);
