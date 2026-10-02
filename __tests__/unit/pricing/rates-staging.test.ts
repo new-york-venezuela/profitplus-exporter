@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows, cellKey } from '@/lib/pricing/rates-staging';
+import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows, rowIdentityKey, visibleDraft } from '@/lib/pricing/rates-staging';
 import type { GridRow } from '@/lib/pricing/client-types';
 
 function row(p: Partial<GridRow> & { coArt: string }): GridRow {
@@ -87,19 +87,25 @@ describe('visibleRows', () => {
   });
 });
 
-describe('cellKey', () => {
+describe('rowIdentityKey', () => {
   const r = row({ coArt: 'A' });
-  test('changes when staged price, reference, current or warehouse change', () => {
-    const k = cellKey(r, {});
-    expect(cellKey(r, { A: 9 })).not.toBe(k);
-    expect(cellKey({ ...r, referenceMonto: 7 }, {})).not.toBe(k);
-    expect(cellKey({ ...r, current: null }, {})).not.toBe(k);
-    expect(cellKey({ ...r, coAlma: 'X' }, {})).not.toBe(k);
+  test('depends only on row identity and nonce', () => {
+    const k = rowIdentityKey(r, 0);
+    expect(rowIdentityKey({ ...r, current: null }, 0)).toBe(k);
+    expect(rowIdentityKey({ ...r, coAlma: 'X' }, 0)).not.toBe(k);
+    expect(rowIdentityKey({ ...r, referenceMonto: 7 }, 0)).not.toBe(k);
+    expect(rowIdentityKey(r, 1)).not.toBe(k);
   });
-  test('stable otherwise and unaffected by other articles', () => {
-    expect(cellKey(r, { B: 3 })).toBe(cellKey(r, {}));
+});
+
+describe('visibleDraft', () => {
+  test('shown only against the same staged price', () => {
+    expect(visibleDraft({ text: 'abc', base: null }, undefined)).toBe('abc');
+    expect(visibleDraft({ text: '9', base: 9 }, 9)).toBe('9');
+    expect(visibleDraft({ text: 'abc', base: null }, 12)).toBeNull();
+    expect(visibleDraft({ text: 'abc', base: 12 }, undefined)).toBeNull();
   });
-  test('discard resets the key', () => {
-    expect(cellKey(r, {})).not.toBe(cellKey(r, { A: 9 }));
+  test('null draft is null', () => {
+    expect(visibleDraft(null, 5)).toBeNull();
   });
 });

@@ -10,11 +10,13 @@ import {
   priceFromPercent,
 } from '@/lib/pricing/rates-math';
 import {
-  cellKey,
   newDeltaPct,
   pendingChanges,
   referenceFor,
+  visibleDraft,
   visibleRows,
+  rowIdentityKey,
+  type CellDraft,
   type BulkOp,
   type Staged,
 } from '@/lib/pricing/rates-staging';
@@ -62,6 +64,8 @@ export interface RatesGridProps {
   onApply: () => void;
   onClone: () => void;
   onExport: () => void;
+  /** Parent increments this on Descartar/Apply/list switch to remount (reset) every cell draft. */
+  discardNonce: number;
 }
 
 interface CellProps {
@@ -73,9 +77,11 @@ interface CellProps {
 
 function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
   const errId = useId();
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [rawDraft, setDraft] = useState<CellDraft | null>(null);
+  const [rawError, setError] = useState(false);
   const price = staged[row.coArt];
+  const draft = visibleDraft(rawDraft, price);
+  const error = rawError && draft !== null;
   const shown = draft ?? (price !== undefined ? fmt(price) : '');
 
   function commit() {
@@ -107,7 +113,7 @@ function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
         disabled={readOnly}
         value={shown}
         placeholder="—"
-        onChange={e => { setDraft(e.target.value); setError(false); }}
+        onChange={e => { setDraft({ text: e.target.value, base: price ?? null }); setError(false); }}
         onBlur={commit}
         onKeyDown={e => {
           if (e.key === 'Enter') commit();
@@ -124,10 +130,12 @@ function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
 function PctCell({ row, staged, onStage, readOnly }: CellProps) {
   const errId = useId();
   const hintId = useId();
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [rawDraft, setDraft] = useState<CellDraft | null>(null);
+  const [rawError, setError] = useState(false);
   const reference = referenceFor(row);
   const price = staged[row.coArt];
+  const draft = visibleDraft(rawDraft, price);
+  const error = rawError && draft !== null;
   const pct = newDeltaPct(row, staged);
   const shown = draft ?? (pct !== null ? fmt(pct) : '');
 
@@ -162,7 +170,7 @@ function PctCell({ row, staged, onStage, readOnly }: CellProps) {
         title={reference === null ? 'Sin precio de referencia' : undefined}
         value={shown}
         placeholder="—"
-        onChange={e => { setDraft(e.target.value); setError(false); }}
+        onChange={e => { setDraft({ text: e.target.value, base: price ?? null }); setError(false); }}
         onBlur={commit}
         onKeyDown={e => {
           if (e.key === 'Enter') commit();
@@ -243,7 +251,7 @@ export default function RatesGrid(props: RatesGridProps) {
   const {
     data, loading, error, staged, onStage, selected, onToggle, onToggleAll, compareTo, compareOptions,
     onCompareChange, effectiveFrom, onEffectiveFromChange, canEdit, search, onSearchChange, category,
-    onCategoryChange, showUnpriced, onShowUnpricedChange, onBulk, onClear, onApply, onClone, onExport,
+    onCategoryChange, showUnpriced, onShowUnpricedChange, onBulk, onClear, onApply, onClone, onExport, discardNonce,
   } = props;
 
   const rows = useMemo(
@@ -411,8 +419,8 @@ export default function RatesGrid(props: RatesGridProps) {
                     <td className="px-3 py-2 text-right tabular-nums">
                       {compareTo === null || delta === null ? '—' : `${delta > 0 ? '+' : ''}${fmt(delta)}%`}
                     </td>
-                    <td className="px-3 py-2"><PriceCell key={cellKey(r, staged)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
-                    <td className="px-3 py-2"><PctCell key={cellKey(r, staged)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
+                    <td className="px-3 py-2"><PriceCell key={rowIdentityKey(r, discardNonce)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
+                    <td className="px-3 py-2"><PctCell key={rowIdentityKey(r, discardNonce)} row={r} staged={staged} onStage={onStage} readOnly={readOnly} /></td>
                   </tr>
                 );
               })
