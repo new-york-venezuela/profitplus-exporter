@@ -55,8 +55,9 @@ export function makeFakeRatesErp(seed: {
     readListRates: async c => state.rates.filter(r => r.coPrecio === c).map(r => ({ ...r })),
     readArticleRates: async a => state.rates.filter(r => r.coArt === a).map(r => ({ ...r })),
     dominantWarehouse: async c => dominant(c ? state.rates.filter(r => r.coPrecio === c) : state.rates),
-    listArticles: async ({ search }) => state.articles
+    listArticles: async ({ search, limit }) => state.articles
       .filter(a => !search || a.artDes.toLowerCase().includes(search.toLowerCase()) || a.coArt.toLowerCase().includes(search.toLowerCase()))
+      .slice(0, limit ?? 200)
       .map((a): ArticleRow => ({ coArt: a.coArt, artDes: a.artDes, coCat: a.coCat ?? null, catDes: a.catDes ?? null })),
     getCustomerPriceList: async c => {
       const x = state.customers[c];
@@ -81,7 +82,10 @@ export function makeFakeRatesErp(seed: {
       }
       return { outcome: 'success' };
     },
-    createList: async p => { state.lists.push({ coPrecio: p.coPrecio, desPrecio: p.desPrecio }); },
+    createList: async p => {
+      if (state.lists.some(l => l.coPrecio === p.coPrecio)) throw Object.assign(new Error('Violation of PRIMARY KEY'), { number: 2627 });
+      state.lists.push({ coPrecio: p.coPrecio, desPrecio: p.desPrecio });
+    },
     updateList: async p => {
       if (state.conflictNext) { state.conflictNext = false; return 'conflict'; }
       const l = state.lists.find(x => x.coPrecio === p.coPrecio);

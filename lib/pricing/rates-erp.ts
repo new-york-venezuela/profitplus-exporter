@@ -55,12 +55,13 @@ export async function dominantWarehouse(pool: ConnectionPool, coPrecio?: string)
   const r = await req.query(`SELECT TOP 1 RTRIM(co_alma_calculado) AS w FROM saArtPrecio ${where} GROUP BY co_alma_calculado ORDER BY COUNT(*) DESC, co_alma_calculado`);
   return r.recordset[0]?.w ?? null;
 }
-export async function listArticles(pool: ConnectionPool, p: { search?: string }): Promise<ArticleRow[]> {
-  const req = pool.request();
+export async function listArticles(pool: ConnectionPool, p: { search?: string; limit?: number }): Promise<ArticleRow[]> {
+  const limit = Math.min(Math.max(Math.trunc(p.limit ?? 200) || 200, 1), 5000);
+  const req = pool.request().input('limit', sql.Int, limit);
   let where = 'WHERE a.anulado = 0';
   if (p.search) { req.input('s', sql.VarChar(120), `%${p.search.replace(/[\\%_[]/g, '\\$&')}%`); where += " AND (a.art_des LIKE @s ESCAPE '\\' OR RTRIM(a.co_art) LIKE @s ESCAPE '\\')"; }
   const r = await req.query(`
-    SELECT TOP 200 RTRIM(a.co_art) AS coArt, RTRIM(a.art_des) AS artDes, RTRIM(a.co_cat) AS coCat, RTRIM(c.cat_des) AS catDes
+    SELECT TOP (@limit) RTRIM(a.co_art) AS coArt, RTRIM(a.art_des) AS artDes, RTRIM(a.co_cat) AS coCat, RTRIM(c.cat_des) AS catDes
     FROM saArticulo a LEFT JOIN saCatArticulo c ON c.co_cat = a.co_cat ${where} ORDER BY a.art_des`);
   return r.recordset as ArticleRow[];
 }

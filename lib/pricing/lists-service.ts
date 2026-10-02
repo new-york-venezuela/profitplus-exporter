@@ -18,7 +18,7 @@ export interface RatesErp {
   readListRates(coPrecio: string): Promise<RateRow[]>;
   readArticleRates(coArt: string): Promise<RateRow[]>;
   dominantWarehouse(coPrecio?: string): Promise<string | null>;
-  listArticles(p: { search?: string }): Promise<ArticleRow[]>;
+  listArticles(p: { search?: string; limit?: number }): Promise<ArticleRow[]>;
   getCustomerPriceList(coCli: string): Promise<{ coCli: string; cliDes: string; tipCli: string; coPrecio: string | null } | null>;
   applyRatePeriod(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string }): Promise<ApplyOutcome>;
   createList(p: { coPrecio: string; desPrecio: string; user: string }): Promise<void>;
@@ -27,7 +27,7 @@ export interface RatesErp {
 }
 
 export interface ListsDeps { erp: RatesErp; db: AppDb; now?: () => Date }
-export interface PriceListDto extends PriceListRow { coMone: string | null; isEmpty: boolean }
+export interface PriceListDto extends PriceListRow { coMone: string | null; isEmpty: boolean; warning?: string }
 export interface GridRow {
   coArt: string; artDes: string; catDes: string | null; coAlma: string | null; ambiguous: boolean;
   current: { monto: number; desde: string; hasta: string | null } | null;
@@ -48,6 +48,7 @@ export interface ArticlePrices {
 }
 
 const AMBIGUOUS_MSG = 'El artículo tiene tarifas en varios almacenes en esta lista';
+const META_WARNING = 'Lista creada en Profit pero sin metadatos de moneda; avise a un administrador';
 const clock = (d: ListsDeps) => (d.now ?? (() => new Date()))();
 const today = (d: ListsDeps) => todayIso(clock(d));
 
@@ -78,7 +79,7 @@ function requireCurrency(list: PriceListDto): string {
 }
 
 export async function listPriceListDtos(deps: ListsDeps): Promise<{ priceLists: PriceListDto[]; currencies: string[] }> {
-  const [rows, currencies] = [await deps.erp.listLists(), await deps.erp.listCurrencies()];
+  const [rows, currencies] = await Promise.all([deps.erp.listLists(), deps.erp.listCurrencies()]);
   const metas = getListMetaMap(deps.db);
   return { priceLists: rows.map(r => toDto(r, metas.get(r.coPrecio)?.coMone)), currencies };
 }
@@ -86,8 +87,12 @@ export async function listPriceListDtos(deps: ListsDeps): Promise<{ priceLists: 
 export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo: string | null): Promise<GridData> {
   const list = await getListDto(deps, coPrecio);
   const t = today(deps);
-  const [rates, articles] = [await deps.erp.readListRates(coPrecio), await deps.erp.listArticles({})];
-  const refRates = compareTo ? groupBy(await deps.erp.readListRates(compareTo), r => r.coArt) : null;
+  if (compareTo && !(await deps.erp.getList(compareTo))) throw new NotFoundError('Lista de comparación no encontrada');
+  const [rates, articles, refAll] = await Promise.all([
+    deps.erp.readListRates(coPrecio), deps.erp.listArticles({ limit: 5000 }),
+    compareTo ? deps.erp.readListRates(compareTo) : Promise.resolve(null),
+  ]);
+  const refRates = refAll ? groupBy(refAll, r => r.coArt) : null;
   const names = new Map(articles.map(a => [a.coArt, a]));
 
   const rows: GridRow[] = [];
@@ -100,7 +105,10 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
     let referenceMonto: number | null;
     if (ambiguous) referenceMonto = null;
     else if (refRates === null) referenceMonto = current?.monto ?? null;
-    else referenceMonto = currentOf(refRates.get(coArt) ?? [], t)?.monto ?? null;
+    else {
+      const rr = refRates.get(coArt) ?? [];
+      referenceMonto = new Set(rr.map(r => r.coAlma)).size > 1 ? null : currentOf(rr, t)?.monto ?? null;
+    }
     rows.push({
       coArt, artDes: a?.artDes ?? coArt, catDes: a?.catDes ?? null,
       coAlma: ambiguous ? null : [...warehouses][0] ?? null, ambiguous,
@@ -159,9 +167,15 @@ export async function createList(
   const coPrecio = nextPriceListCode(await deps.erp.listCodes());
   await deps.erp.createList({ coPrecio, desPrecio: input.desPrecio, user: actor.erpUser });
   const nowMs = clock(deps).getTime();
-  setListMeta(deps.db, { coPrecio, coMone: input.coMone, createdBy: actor.id, createdAt: nowMs });
-  appendAudit(deps.db, { userId: actor.id, action: 'list_create', target: coPrecio, after: { desPrecio: input.desPrecio, coMone: input.coMone }, now: nowMs });
-  return getListDto(deps, coPrecio);
+  let warning: string | undefined;
+  try {
+    setListMeta(deps.db, { coPrecio, coMone: input.coMone, createdBy: actor.id, createdAt: nowMs });
+    appendAudit(deps.db, { userId: actor.id, action: 'list_create', target: coPrecio, after: { desPrecio: input.desPrecio, coMone: input.coMone }, now: nowMs });
+  } catch (e) {
+    console.error(`Pricing: list ${coPrecio} created in ERP but metadata write failed:`, e);
+    warning = META_WARNING;
+  }
+  return { ...(await getListDto(deps, coPrecio)), ...(warning ? { warning } : {}) };
 }
 
 export async function cloneList(
@@ -181,12 +195,18 @@ export async function cloneList(
   const coPrecio = nextPriceListCode(await deps.erp.listCodes());
   await deps.erp.cloneList({ coPrecio, desPrecio: input.desPrecio, coMone, from: input.effectiveFrom, rows, user: actor.erpUser });
   const nowMs = clock(deps).getTime();
-  setListMeta(deps.db, { coPrecio, coMone, createdBy: actor.id, createdAt: nowMs });
-  appendAudit(deps.db, {
-    userId: actor.id, action: 'list_clone', target: coPrecio, before: input.sourceCoPrecio,
-    after: { coPrecio, percent: input.percent, from: input.effectiveFrom, count: rows.length }, now: nowMs,
-  });
-  return getListDto(deps, coPrecio);
+  let warning: string | undefined;
+  try {
+    setListMeta(deps.db, { coPrecio, coMone, createdBy: actor.id, createdAt: nowMs });
+    appendAudit(deps.db, {
+      userId: actor.id, action: 'list_clone', target: coPrecio, before: input.sourceCoPrecio,
+      after: { coPrecio, percent: input.percent, from: input.effectiveFrom, count: rows.length }, now: nowMs,
+    });
+  } catch (e) {
+    console.error(`Pricing: list ${coPrecio} cloned in ERP but metadata write failed:`, e);
+    warning = META_WARNING;
+  }
+  return { ...(await getListDto(deps, coPrecio)), ...(warning ? { warning } : {}) };
 }
 
 export async function renameList(deps: ListsDeps, coPrecio: string, input: RenameListInput, actor: Actor): Promise<PriceListDto> {
@@ -204,7 +224,7 @@ export async function getArticlePrices(deps: ListsDeps, coArt: string, customerC
   const t = today(deps);
   const customer = customerCoCli ? await deps.erp.getCustomerPriceList(customerCoCli) : null;
   if (customerCoCli && !customer) throw new NotFoundError('Cliente no encontrado');
-  const [rates, listRows] = [await deps.erp.readArticleRates(coArt), await deps.erp.listLists()];
+  const [rates, listRows] = await Promise.all([deps.erp.readArticleRates(coArt), deps.erp.listLists()]);
   const metas = getListMetaMap(deps.db);
   const byList = groupBy(rates, r => r.coPrecio);
 

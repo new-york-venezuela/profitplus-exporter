@@ -154,3 +154,64 @@ describe('extra behaviors', () => {
     expect((await getArticlePrices(deps, 'A1', null)).effective).toBeNull();
   });
 });
+
+describe('fix round 1', () => {
+  const quiet = async <T,>(fn: () => Promise<T>) => { const o = console.error; console.error = () => {}; try { return await fn(); } finally { console.error = o; } };
+  const brokenDb = () => new Proxy(deps.db, { get: (t, k, r) => (k === 'insert' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+
+  test('grid names articles beyond the default 200 cap', async () => {
+    for (let i = 0; i < 250; i++) state.articles.push({ coArt: `Z${i}`, artDes: `Zeta ${i}`, catDes: 'Cat' });
+    state.rates.push({ coArt: 'Z249', coPrecio: '08', coAlma: '000015', desde: '2026-03-15', hasta: null, monto: 2, coMone: 'USD', validador: '0xzz' });
+    const row = (await getRatesGrid(deps, '08', null)).rows.find(r => r.coArt === 'Z249')!;
+    expect(row).toMatchObject({ artDes: 'Zeta 249', catDes: 'Cat' });
+  });
+  test('unknown compareTo → NotFoundError; ambiguous compare article → null reference', async () => {
+    await expect(getRatesGrid(deps, '08', 'ZZ')).rejects.toBeInstanceOf(NotFoundError);
+    const g = await getRatesGrid(deps, '01', '08');
+    expect(g.rows.find(r => r.coArt === 'A1')!.referenceMonto).toBe(12.4);
+    state.rates.push({ coArt: 'A1', coPrecio: '08', coAlma: '000002', desde: '2026-03-15', hasta: null, monto: 9, coMone: 'USD', validador: '0xaa' });
+    expect((await getRatesGrid(deps, '01', '08')).rows.find(r => r.coArt === 'A1')!.referenceMonto).toBeNull();
+  });
+  test('createList / cloneList metadata failure → dto with warning', async () => {
+    const d = { ...deps, db: brokenDb() };
+    const c = await quiet(() => createList(d, { mode: 'create', desPrecio: 'N', coMone: 'USD' }, actor));
+    expect(c.warning).toContain('sin metadatos');
+    expect(state.lists.some(l => l.coPrecio === c.coPrecio)).toBe(true);
+    const k = await quiet(() => cloneList(d, { mode: 'clone', sourceCoPrecio: '08', desPrecio: 'K', percent: null, effectiveFrom: '2026-10-01' }, actor));
+    expect(k.warning).toContain('sin metadatos');
+  });
+  test('clone audit payload and meta currency', async () => {
+    const dto = await cloneList(deps, { mode: 'clone', sourceCoPrecio: '08', desPrecio: 'Copia', percent: 10, effectiveFrom: '2026-10-05' }, actor);
+    expect(getListMeta(deps.db, dto.coPrecio)?.coMone).toBe('USD');
+    const a = listAudit(deps.db)[0];
+    expect(JSON.parse(a.beforeJson!)).toBe('08');
+    expect(JSON.parse(a.afterJson!)).toEqual({ coPrecio: dto.coPrecio, percent: 10, from: '2026-10-05', count: 4 });
+  });
+  test('clone copies ambiguous article to both warehouses', async () => {
+    const dto = await cloneList(deps, { mode: 'clone', sourceCoPrecio: '08', desPrecio: 'Copia', percent: null, effectiveFrom: '2026-10-01' }, actor);
+    const a3 = state.rates.filter(r => r.coPrecio === dto.coPrecio && r.coArt === 'A3').map(r => r.coAlma).sort();
+    expect(a3).toEqual(['000002', '000015']);
+  });
+  test('clone of a source without current rates → ValidationError', async () => {
+    await expect(cloneList(deps, { mode: 'clone', sourceCoPrecio: '05', desPrecio: 'X', percent: null, effectiveFrom: '2026-10-01' }, actor)).rejects.toBeInstanceOf(ValidationError);
+  });
+  test('effective is null when customer has no list or list has no current rate', async () => {
+    state.customers['C2'] = { cliDes: 'Sin lista', tipCli: '000001', coPrecio: null };
+    state.customers['C3'] = { cliDes: 'Lista 05', tipCli: '000001', coPrecio: '05' };
+    expect((await getArticlePrices(deps, 'A1', 'C2')).effective).toBeNull();
+    expect((await getArticlePrices(deps, 'A1', 'C3')).effective).toBeNull();
+  });
+  test('apply surfaces a conflict outcome and does not audit it', async () => {
+    deps.erp.applyRatePeriod = async () => ({ outcome: 'conflict' });
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }] }, actor);
+    expect(res[0].outcome).toBe('conflict');
+    expect(listAudit(deps.db)).toEqual([]);
+  });
+  test('renameList success returns the renamed dto', async () => {
+    const dto = await renameList(deps, '08', { desPrecio: 'Nuevo', validador: '0x00000000000000AA' }, actor);
+    expect(dto.desPrecio).toBe('Nuevo');
+  });
+  test('fake rejects duplicate list codes', async () => {
+    await expect(deps.erp.createList({ coPrecio: '08', desPrecio: 'dup', user: 'P' })).rejects.toThrow();
+  });
+});
