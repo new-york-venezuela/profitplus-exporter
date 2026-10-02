@@ -8,7 +8,9 @@ import type { MapCustomer, RouteDto } from '@/lib/geo/types';
 import { pinIcon, editIcon } from './pin-icon';
 import { CustomerPopup } from './customer-popup';
 
-const VENEZUELA_CENTER: [number, number] = [8.0, -66.0];
+// Default view: Caracas, where most customers are.
+const DEFAULT_CENTER: [number, number] = [10.4806, -66.9036];
+const DEFAULT_ZOOM = 12;
 
 export interface CustomerMapProps {
   customers: MapCustomer[];
@@ -60,7 +62,7 @@ export default function CustomerMap({
 
   return (
     <div className="relative z-0 isolate h-full w-full" data-testid="customer-map">
-      <MapContainer center={VENEZUELA_CENTER} zoom={6} className="h-full w-full" scrollWheelZoom>
+      <MapContainer center={DEFAULT_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full" scrollWheelZoom>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"

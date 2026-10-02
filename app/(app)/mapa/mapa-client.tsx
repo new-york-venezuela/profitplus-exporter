@@ -45,7 +45,6 @@ export default function MapaClient() {
   const [selected, setSelected] = useState<string | null>(null);
   const [fitKey, setFitKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
-  const lastRange = useRef<string | null>(null);
 
   // Refit when a route filter becomes active. Adjusting state during render (not in the
   // click handler) guarantees the fit runs against the already-filtered point set.
@@ -71,8 +70,7 @@ export default function MapaClient() {
             .then(p => {
         if (cancelled) return;
         setPayload(p);
-        // Re-fits only when the period changed, not on area/route save reloads.
-        if (lastRange.current !== filters.dateRange) { lastRange.current = filters.dateRange; setFitKey(k => k + 1); }
+        // The map opens on Caracas; refitting is explicit ("Ajustar" button, route filter).
       })
       .catch(e => { if (!cancelled) setError((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
