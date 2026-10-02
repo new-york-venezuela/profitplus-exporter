@@ -28,6 +28,8 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
   const [segmentsLoading, setSegmentsLoading] = useState(true);
   const [segmentsError, setSegmentsError] = useState<string | null>(null);
   const [page, setPage] = useState<CustomerPage | null>(null);
+  const [pageTip, setPageTip] = useState<string | null>(null); // segment the loaded page belongs to
+  const [retrying, setRetrying] = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [filters, setFilters] = useState<{
@@ -46,6 +48,19 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
   const selectedTip = params.get('segment');
   const segment = useMemo(() => segments.find(s => s.tipCli === selectedTip) ?? null, [segments, selectedTip]);
   const closeDialog = useCallback(() => setDialog(null), []);
+
+  // Reset page + selection whenever the selected segment changes (click, back/forward, redirect).
+  const [seenTip, setSeenTip] = useState(selectedTip);
+  if (seenTip !== selectedTip) {
+    setSeenTip(selectedTip);
+    setPage(null);
+    setPageTip(null);
+    setPageError(null);
+    setSelected(new Set());
+  }
+  const searchPending = filters.search !== debouncedSearch;
+  const visiblePage = pageTip === selectedTip ? page : null;
+  const panelLoading = pageLoading || searchPending || (Boolean(selectedTip) && pageTip !== selectedTip && !pageError);
 
   const loadSegments = useCallback(async () => {
     try {
@@ -66,7 +81,6 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
     const next = new URLSearchParams(params.toString());
     next.set('segment', tipCli);
     router.replace(`/pricing?${next.toString()}`);
-    setSelected(new Set());
     setFilters(f => ({ ...f, page: 1 }));
   }
 
@@ -84,20 +98,31 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
     if (debouncedSearch) q.set('search', debouncedSearch);
     if (filters.zona) q.set('zona', filters.zona);
     if (filters.vendedor) q.set('vendedor', filters.vendedor);
+    let clamped = false;
     try {
       const data = await apiGet<CustomerPage>(`/api/pricing/customers?${q}`);
       if (id !== requestId.current) return; // stale response
+      if (data.customers.length === 0 && data.total > 0 && filters.page > 1) {
+        // Emptied last page (e.g. after a move): step back; the filters change refetches.
+        clamped = true;
+        setFilters(f => ({ ...f, page: Math.max(Math.ceil(data.total / data.pageSize), 1) }));
+        return;
+      }
       setPage(data);
+      setPageTip(selectedTip);
+      const codes = new Set(data.customers.map(c => c.coCli));
+      setSelected(prev => (prev.size === 0 ? prev : new Set([...prev].filter(c => codes.has(c)))));
       setNames(n => ({ ...n, ...Object.fromEntries(data.customers.map(c => [c.coCli, c.cliDes])) }));
       setPageError(null);
     } catch (e) {
       if (id === requestId.current) setPageError(errMsg(e));
     } finally {
-      if (id === requestId.current) setPageLoading(false);
+      if (id === requestId.current && !clamped) setPageLoading(false);
     }
   }, [selectedTip, filters.sort, filters.dir, filters.page, filters.zona, filters.vendedor, debouncedSearch]);
 
-  useEffect(() => { void loadCustomers(); }, [loadCustomers]);
+  // While a search edit is still debouncing, wait: the settled value triggers the (single) fetch.
+  useEffect(() => { if (!searchPending) void loadCustomers(); }, [loadCustomers, searchPending]);
 
   function onFiltersChange(patch: Partial<CustomerPanelFilters>) {
     setFilters(f => ({ ...f, ...patch }));
@@ -114,23 +139,29 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
 
   // onTogglePage(false) clears the entire selection (selection never leaves the visible page)
   function onTogglePage(all: boolean) {
-    setSelected(all ? new Set((page?.customers ?? []).map(c => c.coCli)) : new Set());
+    setSelected(all ? new Set((visiblePage?.customers ?? []).map(c => c.coCli)) : new Set());
   }
 
-  async function moveCustomers(codes: string[], targetTipCli: string) {
-    const { results } = await apiSend<{ results: SegmentMoveResult[] }>('/api/pricing/assignments', 'POST', { customerCodes: codes, targetTipCli });
+  async function moveCustomers(codes: string[], targetTipCli: string, merge = false) {
+    setActionError(null);
+    const { results: res } = await apiSend<{ results: SegmentMoveResult[] }>('/api/pricing/assignments', 'POST', { customerCodes: codes, targetTipCli });
     setLastTarget(targetTipCli);
-    setResults(results);
+    setResults(prev => {
+      if (!merge || !prev) return res;
+      const byCode = new Map(res.map(r => [r.coCli, r]));
+      return [...prev.map(r => byCode.get(r.coCli) ?? r), ...res.filter(r => !prev.some(p => p.coCli === r.coCli))];
+    });
     setSelected(new Set());
     setDialog(null);
     await Promise.all([loadSegments(), loadCustomers()]);
   }
 
   async function retry(codes: string[]) {
-    if (!lastTarget) return;
-    setActionError(null);
-    try { await moveCustomers(codes, lastTarget); }
+    if (!lastTarget || retrying) return;
+    setRetrying(true);
+    try { await moveCustomers(codes, lastTarget, true); }
     catch (e) { setActionError(errMsg(e)); }
+    finally { setRetrying(false); }
   }
 
   const specialCustomerCode = selected.size === 1 ? [...selected][0] : null;
@@ -162,13 +193,13 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
         )}
         {results && results.length > 0 && (
-          <ResultsPanel results={results} nameByCode={names} onRetry={codes => void retry(codes)} onDismiss={() => setResults(null)} />
+          <ResultsPanel results={results} nameByCode={names} retrying={retrying} onRetry={codes => void retry(codes)} onDismiss={() => { setResults(null); setActionError(null); }} />
         )}
         {segment ? (
           <CustomerPanel
             segment={segment}
-            page={page}
-            loading={pageLoading}
+            page={visiblePage}
+            loading={panelLoading}
             error={pageError}
             filters={filters}
             onFiltersChange={onFiltersChange}
@@ -233,6 +264,7 @@ export default function SegmentsTab({ canEdit }: { canEdit: boolean }) {
             const r = await apiSend<{ segment: SegmentDto; move?: SegmentMoveResult }>('/api/pricing/segments', 'POST',
               { kind: 'special', customerCoCli: specialCustomer.coCli, ...i });
             setDialog(null);
+            setActionError(null);
             if (r.move && r.move.outcome !== 'success') {
               setLastTarget(r.segment.tipCli);
               setResults([r.move]);

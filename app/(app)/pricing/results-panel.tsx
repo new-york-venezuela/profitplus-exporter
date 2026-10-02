@@ -5,6 +5,7 @@ interface Props {
   results: SegmentMoveResult[];
   nameByCode: Record<string, string>;
   onRetry: (codes: string[]) => void;
+  retrying?: boolean;
   onDismiss: () => void;
 }
 
@@ -14,7 +15,7 @@ const GROUPS: { outcome: SegmentMoveResult['outcome']; title: string; box: strin
   { outcome: 'error', title: 'Error', box: 'border-red-200 bg-red-50 text-red-800' },
 ];
 
-export default function ResultsPanel({ results, nameByCode, onRetry, onDismiss }: Props) {
+export default function ResultsPanel({ results, nameByCode, onRetry, onDismiss, retrying = false }: Props) {
   return (
     <div role="status" aria-live="polite" className="flex flex-col gap-3 rounded-md border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between gap-2">
@@ -32,9 +33,9 @@ export default function ResultsPanel({ results, nameByCode, onRetry, onDismiss }
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">{g.title} ({items.length})</h3>
               {g.outcome === 'conflict' && (
-                <button type="button" onClick={() => onRetry(items.map(i => i.coCli))}
-                  className="min-h-[44px] rounded-md border border-amber-300 bg-white px-3 text-sm font-medium text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-                  Reintentar
+                <button type="button" onClick={() => onRetry(items.map(i => i.coCli))} disabled={retrying}
+                  className="min-h-[44px] rounded-md border border-amber-300 bg-white px-3 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                  {retrying ? 'Reintentando…' : 'Reintentar'}
                 </button>
               )}
             </div>
