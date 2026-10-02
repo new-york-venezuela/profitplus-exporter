@@ -70,7 +70,7 @@ test.describe('pricing segments @mssql', () => {
     const segs = (await (await adminPage.request.get('/api/pricing/segments')).json()).segments as
       { tipCli: string; desTipo: string; kind: string; customerCount: number }[];
     const source = segs.find(s => s.kind === 'group' && s.customerCount > 0)!;
-    const target = segs.find(s => s.kind === 'group' && s.tipCli !== source.tipCli)!;
+    const target = segs.find(s => s.kind === 'group' && s.tipCli !== source.tipCli && s.desTipo.trim() === s.desTipo && segs.filter(o => o.desTipo === s.desTipo).length === 1)!;
     const customer = (await (await adminPage.request.get(`/api/pricing/customers?tipCli=${source.tipCli}&pageSize=1`)).json())
       .customers[0] as { coCli: string; cliDes: string };
 
@@ -82,16 +82,18 @@ test.describe('pricing segments @mssql', () => {
       await expect(adminPage.getByText('1 seleccionado')).toBeVisible();
 
       await adminPage.getByRole('button', { name: 'Mover a segmento…' }).click();
-      const dialog = adminPage.getByRole('dialog');
-      await dialog.getByPlaceholder('Buscar segmento').click();
-      await dialog.getByRole('button', { name: target.desTipo, exact: true }).click();
-      await dialog.getByRole('button', { name: 'Mover', exact: true }).click();
+      const dialog = adminPage; // Modal has no dialog role
+      const picker = dialog.getByRole('textbox', { name: 'Segmento destino' });
+      await picker.click({ timeout: 8_000 });
+      await picker.fill(target.desTipo, { timeout: 8_000 });
+      await dialog.getByRole('button', { name: target.desTipo, exact: true }).click({ timeout: 8_000 });
+      await dialog.getByRole('button', { name: 'Mover', exact: true }).click({ timeout: 8_000 });
 
       const ok = adminPage.locator('section').filter({ has: adminPage.getByRole('heading', { name: /^Éxito/ }) });
       await expect(ok).toContainText(customer.cliDes, { timeout: 20_000 });
     } finally {
       // leave ERP state as found
-      const back = await adminPage.request.post('/api/pricing/assignments', { data: { customerCodes: [customer.coCli], targetTipCli: source.tipCli } });
+      const back = await adminPage.request.post('/api/pricing/assignments', { data: { customerCodes: [customer.coCli], targetTipCli: source.tipCli }, timeout: 15_000 });
       expect(back.ok()).toBe(true);
     }
   });
