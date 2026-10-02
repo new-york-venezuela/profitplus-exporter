@@ -23,7 +23,7 @@ export function parseCustomerFilters(p: URLSearchParams): CustomerFilters {
   const sortRaw = p.get('sort') ?? '';
   const sort = (Object.keys(SORT_SQL) as CustomerSortKey[]).includes(sortRaw as CustomerSortKey) ? (sortRaw as CustomerSortKey) : 'cliDes';
   const dir = p.get('dir') === 'desc' ? 'desc' : 'asc';
-  const page = Math.max(parseInt(p.get('page') ?? '1', 10) || 1, 1);
+  const page = Math.min(Math.max(parseInt(p.get('page') ?? '1', 10) || 1, 1), 100000);
   const pageSize = Math.min(Math.max(parseInt(p.get('pageSize') ?? '50', 10) || 50, 1), 200);
   return {
     search: (p.get('search') ?? '').trim(), tipCli: (p.get('tipCli') ?? '').trim(),
@@ -32,12 +32,16 @@ export function parseCustomerFilters(p: URLSearchParams): CustomerFilters {
   };
 }
 
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_[]/g, ch => `\\${ch}`);
+}
+
 export function buildCustomerQuery(f: CustomerFilters) {
   const conditions: string[] = [];
   const inputs: { name: string; type: 'VarChar'; length: number; value: string }[] = [];
   if (f.search) {
-    inputs.push({ name: 'search', type: 'VarChar', length: 120, value: `%${f.search}%` });
-    conditions.push(`(c.cli_des LIKE @search OR RTRIM(c.co_cli) LIKE @search OR c.rif LIKE @search)`);
+    inputs.push({ name: 'search', type: 'VarChar', length: 120, value: `%${escapeLike(f.search)}%` });
+    conditions.push(`(c.cli_des LIKE @search ESCAPE '\\' OR RTRIM(c.co_cli) LIKE @search ESCAPE '\\' OR c.rif LIKE @search ESCAPE '\\')`);
   }
   if (f.tipCli) { inputs.push({ name: 'tipCli', type: 'VarChar', length: 6, value: f.tipCli }); conditions.push(`RTRIM(c.tip_cli) = RTRIM(@tipCli)`); }
   if (f.zona) { inputs.push({ name: 'zona', type: 'VarChar', length: 6, value: f.zona }); conditions.push(`RTRIM(c.co_zon) = RTRIM(@zona)`); }
@@ -45,8 +49,8 @@ export function buildCustomerQuery(f: CustomerFilters) {
 
   const dir = f.dir.toUpperCase();
   const orderBy = f.sort === 'ultimoPedido'
-    ? `ORDER BY CASE WHEN ult.ultimoPedido IS NULL THEN 1 ELSE 0 END, ult.ultimoPedido ${dir}, c.cli_des ASC`
-    : `ORDER BY ${SORT_SQL[f.sort]} ${dir}${f.sort === 'cliDes' ? '' : ', c.cli_des ASC'}`;
+    ? `ORDER BY CASE WHEN ult.ultimoPedido IS NULL THEN 1 ELSE 0 END, ult.ultimoPedido ${dir}, c.cli_des ASC, c.co_cli ASC`
+    : `ORDER BY ${SORT_SQL[f.sort]} ${dir}${f.sort === 'cliDes' ? '' : ', c.cli_des ASC'}, c.co_cli ASC`;
 
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
@@ -86,8 +90,8 @@ export async function queryCustomers(pool: ConnectionPool, f: CustomerFilters) {
 
 export async function listCustomerFilterOptions(pool: ConnectionPool) {
   const [z, v] = await Promise.all([
-    pool.request().query(`SELECT RTRIM(co_zon) AS value, RTRIM(zon_des) AS label FROM saZona ORDER BY zon_des`),
-    pool.request().query(`SELECT RTRIM(co_ven) AS value, RTRIM(ven_des) AS label FROM saVendedor WHERE inactivo = 0 ORDER BY ven_des`),
+    pool.request().query(`SELECT RTRIM(co_zon) AS value, LTRIM(RTRIM(zon_des)) AS label FROM saZona ORDER BY zon_des`),
+    pool.request().query(`SELECT RTRIM(co_ven) AS value, LTRIM(RTRIM(ven_des)) AS label FROM saVendedor WHERE inactivo = 0 ORDER BY ven_des`),
   ]);
   return {
     zonas: z.recordset as { value: string; label: string }[],
