@@ -30,7 +30,7 @@ Produces for Plan 3: `planRatePeriod` (supports bounded `to`), `RatesErp.applyRa
 
 Everything in Plan 1's *Global Constraints* applies unchanged (branch `feat/pricing-redesign`, commit style, test commands, never touch `data/exporter.db`, route rules, ERP-only-through-procedures, spanish copy, `SearchableSelect`/`Modal` usage). Plan-specific:
 
-- Rate dates are `YYYY-MM-DD` strings in code; the ERP wrappers take `CHAR(10)` strings and convert with `CONVERT(DATETIME, x, 23)` (avoids timezone shifts). Read dates with `CONVERT(VARCHAR(10), col, 23)`.
+- Rate dates are `YYYY-MM-DD` strings in code; the ERP wrappers take `CHAR(10)` strings and convert with `CONVERT(DATETIME, x, 120)` (avoids timezone shifts). Read dates with `CONVERT(VARCHAR(10), col, 23)`.
 - Money: rates stored with 5 decimals, displayed/entered with 2; rounding is **half-up** via `roundHalfUp` (Task 1). Spanish input accepts `12,40` and `12.40`.
 - `saArtPrecio` row key is `(co_art, co_precio, co_alma_calculado, desde)`. Live data has **every row in warehouse `000015`** (none "TODOS"): a rate change keeps the warehouse of the row it replaces; new articles use the list's dominant warehouse; empty lists use the install-wide dominant warehouse; fallback `'TODOS'` (= `co_alma` NULL). An article with rows in two warehouses inside one list is read-only (`ambiguous`).
 - The app never creates overlapping periods for one `(article, list, warehouse)`.
@@ -734,8 +734,8 @@ BEGIN
     IF @deMonto <= 0
         RAISERROR('El monto debe ser mayor que cero', 16, 1);
 
-    DECLARE @dDesde DATETIME = CONVERT(DATETIME, @sDesde, 23);
-    DECLARE @dHasta DATETIME = CASE WHEN @sHasta IS NULL THEN NULL ELSE CONVERT(DATETIME, @sHasta, 23) END;
+    DECLARE @dDesde DATETIME = CONVERT(DATETIME, @sDesde, 120);
+    DECLARE @dHasta DATETIME = CASE WHEN @sHasta IS NULL THEN NULL ELSE CONVERT(DATETIME, @sHasta, 120) END;
     IF @dHasta IS NOT NULL AND @dHasta < @dDesde
         RAISERROR('La fecha final no puede ser anterior a la inicial', 16, 1);
 
@@ -769,14 +769,14 @@ BEGIN
         RAISERROR('El monto debe ser mayor que cero', 16, 1);
 
     UPDATE saArtPrecio
-    SET desde    = COALESCE(CASE WHEN @sDesde IS NULL THEN NULL ELSE CONVERT(DATETIME, @sDesde, 23) END, desde),
-        hasta    = CASE WHEN @bSetHasta = 1 THEN (CASE WHEN @sHasta IS NULL THEN NULL ELSE CONVERT(DATETIME, @sHasta, 23) END) ELSE hasta END,
+    SET desde    = COALESCE(CASE WHEN @sDesde IS NULL THEN NULL ELSE CONVERT(DATETIME, @sDesde, 120) END, desde),
+        hasta    = CASE WHEN @bSetHasta = 1 THEN (CASE WHEN @sHasta IS NULL THEN NULL ELSE CONVERT(DATETIME, @sHasta, 120) END) ELSE hasta END,
         monto    = COALESCE(@deMonto, monto),
         co_us_mo = @sCoUsMo,
         fe_us_mo = GETDATE()
     WHERE co_art = @sCoArt AND co_precio = @sCoPrecio
       AND co_alma_calculado = COALESCE(@sCoAlma, 'TODOS')
-      AND desde = CONVERT(DATETIME, @sDesdeOri, 23)
+      AND desde = CONVERT(DATETIME, @sDesdeOri, 120)
       AND validador = @tsValidador;
 
     SELECT @@ROWCOUNT AS updated;
