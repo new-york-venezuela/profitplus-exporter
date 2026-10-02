@@ -46,8 +46,9 @@ export function validateApplyRatesBody(body: unknown, today: string): Valid<Appl
     if (!obj(c)) return fail('Cambio inválido');
     const coArt = str(c.coArt, 30);
     if (!coArt) return fail('Código de artículo inválido');
-    if (seen.has(coArt)) return fail(`Artículo repetido: ${coArt}`);
-    seen.add(coArt);
+    const key = coArt.trim().toUpperCase();
+    if (seen.has(key)) return fail(`Artículo repetido: ${coArt}`);
+    seen.add(key);
     if (typeof c.monto !== 'number' || !Number.isFinite(c.monto) || c.monto <= 0 || c.monto > 1e9) return fail(`Precio inválido para ${coArt}`);
     if (Math.abs(Math.round(c.monto * 1e5) / 1e5 - c.monto) > 1e-9) return fail(`Demasiados decimales para ${coArt} (máx. 5)`);
     changes.push({ coArt, monto: c.monto });

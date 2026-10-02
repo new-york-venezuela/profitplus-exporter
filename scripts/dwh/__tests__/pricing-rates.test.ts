@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { getPool } from '@/lib/db/mssql';
 import { addDaysIso, todayIso } from '@/lib/pricing/dates';
+import { hexToBuffer } from '@/lib/pricing/tipo-cliente';
 import { nextPriceListCode } from '@/lib/pricing/list-code';
 import {
   applyRatePeriodErp, cloneListErp, createListErp, getPriceList, listPriceListCodes, listPriceLists,
@@ -84,5 +85,61 @@ describe('pricing rates (ERP)', () => {
 
     await cloneListErp(pool, { coPrecio: clone, desPrecio: 'Copia', coMone: 'USD', from: today, rows: [{ coArt: art, coAlma: alma, monto: 3 }], user });
     expect((await readListRates(pool, clone)).map(r => r.monto)).toEqual([3]);
+  });
+
+  describe('procedures stop after a validation error (direct EXEC, no transaction)', () => {
+    const rateCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saArtPrecio`)).recordset[0].n as number;
+    const listCount = async () => (await pool.request().query(`SELECT COUNT(*) AS n FROM saTipoPrecio`)).recordset[0].n as number;
+    const ins = (o: { art?: string; precio?: string; desde?: string; hasta?: string | null; monto?: number }) =>
+      pool.request()
+        .input('sCoArt', sql.Char(30), o.art ?? art).input('sCoPrecio', sql.Char(6), o.precio ?? list)
+        .input('sCoAlma', sql.Char(6), alma === 'TODOS' ? null : alma)
+        .input('sDesde', sql.Char(10), o.desde ?? addDaysIso(today, 200)).input('sHasta', sql.Char(10), o.hasta ?? null)
+        .input('deMonto', sql.Decimal(18, 5), o.monto ?? 1).input('sCoMone', sql.Char(6), 'USD').input('sCoUsIn', sql.Char(6), user)
+        .execute('pApiInsertarPrecioArticulo');
+
+    test('insert: monto 0, hasta < desde, duplicate start, unknown article, unknown list write nothing', async () => {
+      const d = addDaysIso(today, 200);
+      const before = await rateCount();
+      await expect(ins({ monto: 0 })).rejects.toThrow();
+      await expect(ins({ desde: d, hasta: addDaysIso(d, -1) })).rejects.toThrow();
+      await expect(ins({ art: 'NO-EXISTE' })).rejects.toThrow();
+      await expect(ins({ precio: '9Z9Z9Z' })).rejects.toThrow();
+      expect(await rateCount()).toBe(before);
+      // duplicate start date: the first insert is legitimate, the second must not add a row
+      await ins({ desde: d, monto: 1 });
+      expect(await rateCount()).toBe(before + 1);
+      await expect(ins({ desde: d, monto: 2 })).rejects.toThrow();
+      expect(await rateCount()).toBe(before + 1);
+    });
+
+    test('update: monto 0 and a stale validador change nothing', async () => {
+      const row = (await readListRates(pool, list))[0];
+      const upd = (monto: number | null, validador: string) =>
+        pool.request()
+          .input('sCoArt', sql.Char(30), row.coArt).input('sCoPrecio', sql.Char(6), row.coPrecio)
+          .input('sCoAlma', sql.Char(6), row.coAlma === 'TODOS' ? null : row.coAlma)
+          .input('sDesdeOri', sql.Char(10), row.desde).input('sDesde', sql.Char(10), null).input('sHasta', sql.Char(10), null)
+          .input('bSetHasta', sql.Bit, 0).input('deMonto', sql.Decimal(18, 5), monto)
+          .input('tsValidador', sql.Binary, hexToBuffer(validador)).input('sCoUsMo', sql.Char(6), user)
+          .execute('pApiActualizarPrecioArticulo');
+      await expect(upd(0, row.validador)).rejects.toThrow();
+      const stale = await upd(123, '0x0000000000000001');
+      expect(stale.recordset[0].updated).toBe(0);
+      const after = (await readListRates(pool, list)).find(r => r.coArt === row.coArt && r.desde === row.desde);
+      expect(after).toMatchObject({ monto: row.monto, validador: row.validador });
+    });
+
+    test('tipo precio: duplicate code and rename of an unknown list write nothing', async () => {
+      const before = await listCount();
+      await expect(createListErp(pool, { coPrecio: list, desPrecio: 'Duplicada', user })).rejects.toThrow();
+      expect(await listCount()).toBe(before);
+      expect((await getPriceList(pool, list))?.desPrecio).toBe('Prueba renombrada');
+      const r = await pool.request().input('sCoPrecio', sql.Char(6), '9Z9Z9Z').input('sDesPrecio', sql.VarChar(60), 'x')
+        .input('tsValidador', sql.Binary, hexToBuffer('0x0000000000000001')).input('sCoUsMo', sql.Char(6), user)
+        .execute('pApiActualizarTipoPrecio').then(() => 'ok', () => 'rejected');
+      expect(r).toBe('rejected');
+      expect(await listCount()).toBe(before);
+    });
   });
 });

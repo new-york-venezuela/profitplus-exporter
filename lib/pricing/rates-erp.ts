@@ -52,13 +52,13 @@ export async function dominantWarehouse(pool: ConnectionPool, coPrecio?: string)
   const req = pool.request();
   let where = 'WHERE Inactivo = 0';
   if (coPrecio) { req.input('p', sql.Char(6), coPrecio); where += ' AND RTRIM(co_precio) = RTRIM(@p)'; }
-  const r = await req.query(`SELECT TOP 1 RTRIM(co_alma_calculado) AS w FROM saArtPrecio ${where} GROUP BY co_alma_calculado ORDER BY COUNT(*) DESC`);
+  const r = await req.query(`SELECT TOP 1 RTRIM(co_alma_calculado) AS w FROM saArtPrecio ${where} GROUP BY co_alma_calculado ORDER BY COUNT(*) DESC, co_alma_calculado`);
   return r.recordset[0]?.w ?? null;
 }
 export async function listArticles(pool: ConnectionPool, p: { search?: string }): Promise<ArticleRow[]> {
   const req = pool.request();
   let where = 'WHERE a.anulado = 0';
-  if (p.search) { req.input('s', sql.VarChar(120), `%${p.search}%`); where += ' AND (a.art_des LIKE @s OR RTRIM(a.co_art) LIKE @s)'; }
+  if (p.search) { req.input('s', sql.VarChar(120), `%${p.search.replace(/[\\%_[]/g, '\\$&')}%`); where += " AND (a.art_des LIKE @s ESCAPE '\\' OR RTRIM(a.co_art) LIKE @s ESCAPE '\\')"; }
   const r = await req.query(`
     SELECT TOP 200 RTRIM(a.co_art) AS coArt, RTRIM(a.art_des) AS artDes, RTRIM(a.co_cat) AS coCat, RTRIM(c.cat_des) AS catDes
     FROM saArticulo a LEFT JOIN saCatArticulo c ON c.co_cat = a.co_cat ${where} ORDER BY a.art_des`);
@@ -77,7 +77,7 @@ async function readRowsTx(tx: Transaction, p: { coPrecio: string; coArt: string;
   const r = await new sql.Request(tx)
     .input('p', sql.Char(6), p.coPrecio).input('a', sql.Char(30), p.coArt).input('w', sql.Char(6), p.coAlma)
     .query(`${RATE_SELECT.replace('FROM saArtPrecio p', 'FROM saArtPrecio p WITH (UPDLOCK, HOLDLOCK)')}
-            WHERE RTRIM(p.co_precio) = RTRIM(@p) AND RTRIM(p.co_art) = RTRIM(@a) AND RTRIM(p.co_alma_calculado) = RTRIM(@w) AND p.Inactivo = 0`);
+            WHERE p.co_precio = @p AND p.co_art = @a AND p.co_alma_calculado = @w AND p.Inactivo = 0`);
   return r.recordset as RateRow[];
 }
 

@@ -22,6 +22,7 @@ describe('validateApplyRatesBody', () => {
     expect(validateApplyRatesBody({ ...ok, effectiveFrom: '2026-09-01' }, today).ok).toBe(false);
     expect(validateApplyRatesBody({ ...ok, changes: [] }, today).ok).toBe(false);
     expect(validateApplyRatesBody({ ...ok, changes: [{ coArt: 'A', monto: 1 }, { coArt: 'A', monto: 2 }] }, today).ok).toBe(false);
+    expect(validateApplyRatesBody({ ...ok, changes: [{ coArt: 'ab', monto: 1 }, { coArt: ' AB ', monto: 2 }] }, today).ok).toBe(false);
     expect(validateApplyRatesBody({ ...ok, changes: [{ coArt: 'A', monto: 0 }] }, today).ok).toBe(false);
     expect(validateApplyRatesBody({ ...ok, changes: [{ coArt: 'A', monto: 1.123456 }] }, today).ok).toBe(false);
     expect(validateApplyRatesBody({ ...ok, changes: Array.from({ length: 501 }, (_, i) => ({ coArt: `A${i}`, monto: 1 })) }, today).ok).toBe(false);
