@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { roundHalfUp, priceFromPercent, percentFromPrice, parseDecimalInput, parsePercentInput, bulkNewPrices } from '@/lib/pricing/rates-math';
+import { roundHalfUp, priceFromPercent, percentFromPrice, parseDecimalInput, parsePercentInput, parsePriceCell, bulkNewPrices } from '@/lib/pricing/rates-math';
 
 describe('roundHalfUp', () => {
   test('rounds .5 up even where binary floats misbehave', () => {
@@ -33,6 +33,19 @@ describe('parsing', () => {
     expect(parseDecimalInput('12.40')).toBe(12.4);
     expect(parseDecimalInput('1.234,50')).toBe(1234.5);
     expect(parseDecimalInput(' 7 ')).toBe(7);
+  });
+  test('comma-less Spanish thousands numbers are rejected (1.250, 12.500)', () => {
+    expect(parseDecimalInput('1.250')).toBeNull();
+    expect(parseDecimalInput('12.500')).toBeNull();
+    expect(parseDecimalInput('1.234.567')).toBeNull();
+    expect(parseDecimalInput('1.2345')).toBe(1.2345);
+  });
+  test('price cell rounds half-up to 2 decimals and explains the thousands case', () => {
+    expect(parsePriceCell('12,345')).toEqual({ ok: true, value: 12.35 });
+    expect(parsePriceCell('12.4049')).toEqual({ ok: true, value: 12.4 });
+    expect(parsePriceCell('1.250')).toEqual({ ok: false, message: 'Use coma para los decimales (ej. 12,40)' });
+    expect(parsePriceCell('abc')).toEqual({ ok: false, message: 'Precio inválido' });
+    expect(parsePriceCell('0,004')).toEqual({ ok: false, message: 'Precio inválido' });
   });
   test('garbage and empty are null', () => {
     expect(parseDecimalInput('')).toBeNull();

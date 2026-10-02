@@ -13,6 +13,17 @@ export function percentFromPrice(ref: number | null, price: number): number | nu
   return roundHalfUp((price / ref - 1) * 100, 2);
 }
 
+const THOUSANDS_NO_COMMA = /^\d{1,3}(\.\d{3})+$/;
+export const COMMA_HINT = 'Use coma para los decimales (ej. 12,40)';
+
+/** Price typed in a grid cell: what is shown (2 decimals, half-up) is what is staged and sent. */
+export function parsePriceCell(text: string): { ok: true; value: number } | { ok: false; message: string } {
+  const n = parseDecimalInput(text);
+  if (n === null) return { ok: false, message: THOUSANDS_NO_COMMA.test(text.trim()) ? COMMA_HINT : 'Precio inválido' };
+  const value = roundHalfUp(n, 2);
+  return value > 0 ? { ok: true, value } : { ok: false, message: 'Precio inválido' };
+}
+
 export function parseDecimalInput(text: string): number | null {
   const t = text.trim();
   if (!t) return null;
@@ -21,6 +32,8 @@ export function parseDecimalInput(text: string): number | null {
     if ((t.match(/,/g) ?? []).length > 1) return null;
     normalized = t.replace(/\./g, '').replace(',', '.');
   } else {
+    // "1.250" / "12.500" with no comma read as Spanish thousands: ambiguous, so reject (use a comma for decimals)
+    if (THOUSANDS_NO_COMMA.test(t)) return null;
     normalized = t;
   }
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;

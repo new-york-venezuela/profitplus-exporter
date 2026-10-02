@@ -6,6 +6,7 @@ import SearchableSelect from '@/lib/components/searchable-select';
 import {
   parseDecimalInput,
   parsePercentInput,
+  parsePriceCell,
   percentFromPrice,
   priceFromPercent,
 } from '@/lib/pricing/rates-math';
@@ -78,10 +79,10 @@ interface CellProps {
 function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
   const errId = useId();
   const [rawDraft, setDraft] = useState<CellDraft | null>(null);
-  const [rawError, setError] = useState(false);
+  const [rawError, setError] = useState<string | null>(null);
   const price = staged[row.coArt];
   const draft = visibleDraft(rawDraft, price);
-  const error = rawError && draft !== null;
+  const error = rawError !== null && draft !== null;
   const shown = draft ?? (price !== undefined ? fmt(price) : '');
 
   function commit() {
@@ -89,15 +90,15 @@ function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
     const text = draft;
     if (text.trim() === '') {
       onStage(row.coArt, null);
-      setError(false);
+      setError(null);
     } else {
-      const n = parseDecimalInput(text);
-      if (n === null || !(n > 0)) {
-        setError(true);
+      const parsed = parsePriceCell(text);
+      if (!parsed.ok) {
+        setError(parsed.message);
         return;
       }
-      onStage(row.coArt, n);
-      setError(false);
+      onStage(row.coArt, parsed.value);
+      setError(null);
     }
     setDraft(null);
   }
@@ -113,15 +114,15 @@ function PriceCell({ row, staged, onStage, readOnly }: CellProps) {
         disabled={readOnly}
         value={shown}
         placeholder="—"
-        onChange={e => { setDraft({ text: e.target.value, base: price ?? null }); setError(false); }}
+        onChange={e => { setDraft({ text: e.target.value, base: price ?? null }); setError(null); }}
         onBlur={commit}
         onKeyDown={e => {
           if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') { setDraft(null); setError(false); }
+          if (e.key === 'Escape') { setDraft(null); setError(null); }
         }}
         className={`${INPUT} ${error ? 'border-red-500' : 'border-gray-300'} ${price !== undefined ? 'bg-amber-50' : ''}`}
       />
-      {error && <span id={errId} className="text-xs text-red-700">Precio inválido</span>}
+      {error && <span id={errId} className="text-xs text-red-700">{rawError}</span>}
       {price !== undefined && !error && <span className="text-xs font-medium text-amber-800">editado</span>}
     </div>
   );
@@ -412,7 +413,7 @@ export default function RatesGrid(props: RatesGridProps) {
                         )}
                       </div>
                       {r.next && (
-                        <div className="text-xs text-gray-500">próximo: ${fmt(r.next.monto)} desde {shortDate(r.next.desde)}</div>
+                        <div className="text-xs text-gray-500">próximo: {fmt(r.next.monto)}{data?.list.coMone ? ` ${data.list.coMone}` : ''} desde {shortDate(r.next.desde)}</div>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{r.current ? fmt(r.current.monto) : '—'}</td>
