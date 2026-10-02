@@ -832,7 +832,7 @@ const RATE_SELECT = `
   SELECT RTRIM(p.co_art) AS coArt, RTRIM(p.co_precio) AS coPrecio, RTRIM(p.co_alma_calculado) AS coAlma,
          CONVERT(VARCHAR(10), p.desde, 23) AS desde, CONVERT(VARCHAR(10), p.hasta, 23) AS hasta,
          CAST(p.monto AS FLOAT) AS monto, RTRIM(p.co_mone) AS coMone,
-         CONVERT(VARCHAR(18), p.validador, 1) AS validador
+         CONVERT(VARCHAR(18), CONVERT(VARBINARY(8), p.validador), 1) AS validador
   FROM saArtPrecio p`;
 
 const LIST_SELECT = `
@@ -842,7 +842,7 @@ const LIST_SELECT = `
          (SELECT COUNT(*) FROM saArtPrecio r WHERE r.co_precio = t.co_precio AND r.Inactivo = 0) AS rateCount,
          (SELECT COUNT(*) FROM saTipoCliente k WHERE k.co_precio = t.co_precio) AS segmentCount,
          (SELECT COUNT(*) FROM saCliente c JOIN saTipoCliente k ON k.tip_cli = c.tip_cli WHERE k.co_precio = t.co_precio) AS customerCount,
-         CONVERT(VARCHAR(18), t.validador, 1) AS validador
+         CONVERT(VARCHAR(18), CONVERT(VARBINARY(8), t.validador), 1) AS validador
   FROM saTipoPrecio t`;
 
 export async function listPriceLists(pool: ConnectionPool): Promise<PriceListRow[]> {
@@ -921,7 +921,7 @@ async function updateRowTx(tx: Transaction, row: RateRow, set: { desde?: string;
     .input('sHasta', sql.Char(10), set.hasta ?? null)
     .input('bSetHasta', sql.Bit, 'hasta' in set ? 1 : 0)
     .input('deMonto', sql.Decimal(18, 5), set.monto ?? null)
-    .input('tsValidador', sql.Binary(8), hexToBuffer(row.validador))
+    .input('tsValidador', sql.Binary, hexToBuffer(row.validador))
     .input('sCoUsMo', sql.Char(6), user.slice(0, 6))
     .execute('pApiActualizarPrecioArticulo');
   return r.recordset?.[0]?.updated === 1 ? 'success' : 'conflict';
@@ -964,7 +964,7 @@ export async function createListErp(pool: ConnectionPool, p: { coPrecio: string;
 export async function updateListErp(pool: ConnectionPool, p: { coPrecio: string; desPrecio: string; validador: string; user: string }): Promise<'success' | 'conflict'> {
   const r = await pool.request()
     .input('sCoPrecio', sql.Char(6), p.coPrecio).input('sDesPrecio', sql.VarChar(60), p.desPrecio)
-    .input('tsValidador', sql.Binary(8), hexToBuffer(p.validador)).input('sCoUsMo', sql.Char(6), p.user.slice(0, 6))
+    .input('tsValidador', sql.Binary, hexToBuffer(p.validador)).input('sCoUsMo', sql.Char(6), p.user.slice(0, 6))
     .execute('pApiActualizarTipoPrecio');
   return r.recordset?.[0]?.updated === 1 ? 'success' : 'conflict';
 }
