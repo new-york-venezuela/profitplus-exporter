@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Resumen de vencimientos de precios</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f9f9f9;">
+
+<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333333; max-width: 650px; width: 100%; border-collapse: collapse; margin: 20px auto; background-color: #ffffff; padding: 30px; border: 1px solid #e5e5e5;">
+
+    <tr>
+        <td align="center" style="padding-bottom: 20px; border-bottom: 1px solid #e5e5e5; padding-top: 20px;">
+            <a href="https://www.alimentosnewyork.com" target="_blank" style="text-decoration: none;">
+                <img src="https://raw.githubusercontent.com/new-york-venezuela/web/6e0c301ac3ddbbf51b34bdf4649f15217b09c619/public/logos/logo-mail.png" alt="Alimentos New York" width="120" style="display: block; border: 0; max-width: 100%; height: auto;">
+            </a>
+        </td>
+    </tr>
+
+    <tr>
+        <td style="padding: 30px 20px;">
+            <h1 style="font-size: 22px; font-weight: bold; color: #111111; margin-top: 0; margin-bottom: 20px; text-align: center;">
+                Resumen de vencimientos de precios — {{today}}
+            </h1>
+
+            {{#each sections}}
+            <h2 style="font-size: 16px; color: #92400e; margin-bottom: 10px;">{{this.title}}</h2>
+            <ul style="margin-top: 0; margin-bottom: 25px; padding-left: 20px; line-height: 1.6;">
+                {{#each this.lines}}
+                <li style="font-size: 13px; color: #333333;">{{this}}</li>
+                {{/each}}
+            </ul>
+            {{/each}}
+
+            <p style="font-size: 12px; color: #666666; line-height: 1.6; margin-top: 0; margin-bottom: 0;">
+                Este correo se envía solo cuando hay algo que revisar.
+            </p>
+        </td>
+    </tr>
+
+</table>
+
+</body>
+</html>

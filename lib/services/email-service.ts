@@ -86,6 +86,7 @@ export class EmailService {
     const subjects: Record<string, string> = {
       'password-reset':   'Reset Your Password',
       'invoice-reminder': 'Estado de cuenta — facturas próximas a vencer',
+      'pricing-expiry-digest': 'Precios: resumen de vencimientos',
     };
     return subjects[templateName] || 'Email from ProfitPlus Exporter';
   }

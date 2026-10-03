@@ -144,4 +144,9 @@ describe('EmailService', () => {
       expect(true).toBe(true);
     }
   });
+
+  test('pricing-expiry-digest has its own subject', () => {
+    const subject = (service as unknown as { getSubjectForTemplate(t: string): string }).getSubjectForTemplate('pricing-expiry-digest');
+    expect(subject).toBe('Precios: resumen de vencimientos');
+  });
 });
