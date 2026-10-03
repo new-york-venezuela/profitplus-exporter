@@ -44,6 +44,40 @@ export async function readListRates(pool: ConnectionPool, coPrecio: string): Pro
     .query(`${RATE_SELECT} WHERE RTRIM(p.co_precio) = RTRIM(@p) AND p.Inactivo = 0 ORDER BY p.co_art, p.desde`);
   return r.recordset as RateRow[];
 }
+const IN_CHUNK = 100;
+const chunks = <T>(xs: T[]): T[][] => Array.from({ length: Math.ceil(xs.length / IN_CHUNK) }, (_, i) => xs.slice(i * IN_CHUNK, (i + 1) * IN_CHUNK));
+const inParams = (req: ReturnType<ConnectionPool['request']>, values: string[]): string =>
+  values.map((v, i) => { req.input(`v${i}`, sql.VarChar(30), v); return `@v${i}`; }).join(', ');
+
+/** Active rate rows of the given lists (health checks). */
+export async function readAllActiveRates(pool: ConnectionPool, listCodes: string[]): Promise<RateRow[]> {
+  const out: RateRow[] = [];
+  for (const part of chunks(listCodes)) {
+    const req = pool.request();
+    const ph = inParams(req, part);
+    const r = await req.query(`${RATE_SELECT} WHERE RTRIM(p.co_precio) IN (${ph}) AND p.Inactivo = 0 ORDER BY p.co_precio, p.co_art, p.desde`);
+    out.push(...(r.recordset as RateRow[]));
+  }
+  return out;
+}
+/** Price lists that at least one customer is assigned to (through its segment). */
+export async function listListsInUse(pool: ConnectionPool): Promise<string[]> {
+  const r = await pool.request().query(`
+    SELECT DISTINCT RTRIM(k.co_precio) AS c FROM saTipoCliente k
+    WHERE k.co_precio IS NOT NULL AND EXISTS (SELECT 1 FROM saCliente c WHERE c.tip_cli = k.tip_cli)`);
+  return r.recordset.map((x: { c: string }) => x.c);
+}
+/** Customers per segment code; segments with none are absent from the result. */
+export async function countCustomersByTipCli(pool: ConnectionPool, tipClis: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const part of chunks(tipClis)) {
+    const req = pool.request();
+    const ph = inParams(req, part);
+    const r = await req.query(`SELECT RTRIM(tip_cli) AS tipCli, COUNT(*) AS n FROM saCliente WHERE RTRIM(tip_cli) IN (${ph}) GROUP BY RTRIM(tip_cli)`);
+    for (const row of r.recordset as { tipCli: string; n: number }[]) out[row.tipCli] = row.n;
+  }
+  return out;
+}
 export async function readArticleRates(pool: ConnectionPool, coArt: string): Promise<RateRow[]> {
   const r = await pool.request().input('a', sql.Char(30), coArt)
     .query(`${RATE_SELECT} WHERE RTRIM(p.co_art) = RTRIM(@a) AND p.Inactivo = 0 ORDER BY p.co_precio, p.desde`);
