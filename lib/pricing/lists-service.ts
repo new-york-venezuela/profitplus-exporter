@@ -3,7 +3,7 @@ import type { AppDb } from '@/lib/geo/routes-repo';
 import type { ApplyOutcome, ArticleRow, PriceListRow } from './rates-erp';
 import type { RatePlan, RateRow } from './rate-planner';
 import type { ApplyRatesInput, CreateListInput, RenameListInput } from './list-validators';
-import { todayIso } from './dates';
+import { isValidIsoDate, todayIso } from './dates';
 import { priceFromPercent } from './rates-math';
 import { nextPriceListCode } from './list-code';
 import { getListMeta, getListMetaMap, setListMeta } from './lists-repo';
@@ -209,12 +209,18 @@ export async function createList(
   return { ...(await getListDto(deps, coPrecio)), ...(warning ? { warning } : {}) };
 }
 
+/**
+ * `asOf` (default today) picks which row of the source is copied: the one covering that date.
+ * Segment promotions clone with `asOf` = promo end + 1 so an active overlay price is not copied as the regular one.
+ * Not part of the HTTP validator: only server callers can set it.
+ */
 export async function cloneList(
-  deps: ListsDeps, input: Extract<CreateListInput, { mode: 'clone' }>, actor: Actor,
+  deps: ListsDeps, input: Extract<CreateListInput, { mode: 'clone' }> & { asOf?: string }, actor: Actor,
 ): Promise<PriceListDto> {
+  if (input.asOf !== undefined && !isValidIsoDate(input.asOf)) throw new ValidationError('Fecha de referencia no válida');
   const source = await getListDto(deps, input.sourceCoPrecio);
   const coMone = requireCurrency(source);
-  const t = today(deps);
+  const t = input.asOf ?? today(deps);
   const current = (await deps.erp.readListRates(input.sourceCoPrecio))
     .filter(r => r.desde <= t && (r.hasta === null || t <= r.hasta));
   const rows = current.map(r => ({

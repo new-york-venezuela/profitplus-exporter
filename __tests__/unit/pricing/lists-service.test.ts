@@ -91,6 +91,33 @@ describe('createList / cloneList / renameList', () => {
     expect(rows.find(r => r.coArt === 'A1')).toMatchObject({ monto: 11.16, coAlma: '000015', coMone: 'USD', desde: '2026-10-01', hasta: null });
     expect(listAudit(deps.db)[0].action).toBe('list_clone');
   });
+  describe('cloneList asOf', () => {
+    // list 08, A1: regular until 09-30, promo 9 [10-01..10-05] active today, regular again from 10-06
+    beforeEach(() => {
+      state.rates = state.rates.filter(r => !(r.coArt === 'A1' && r.coPrecio === '08'));
+      state.rates.push(
+        { coArt: 'A1', coPrecio: '08', coAlma: '000015', desde: '2026-03-15', hasta: '2026-09-30', monto: 12.4, coMone: 'USD', validador: '0x11' },
+        { coArt: 'A1', coPrecio: '08', coAlma: '000015', desde: '2026-10-01', hasta: '2026-10-05', monto: 9, coMone: 'USD', validador: '0x12' },
+        { coArt: 'A1', coPrecio: '08', coAlma: '000015', desde: '2026-10-06', hasta: null, monto: 12.4, coMone: 'USD', validador: '0x13' },
+      );
+    });
+    const clone = (extra: { asOf?: string }) =>
+      cloneList(deps, { mode: 'clone', sourceCoPrecio: '08', desPrecio: 'Copia', percent: null, effectiveFrom: '2026-10-01', ...extra }, actor);
+
+    test('default asOf = today copies the active promo price (unchanged behavior)', async () => {
+      const dto = await clone({});
+      expect(state.rates.find(r => r.coPrecio === dto.coPrecio && r.coArt === 'A1')).toMatchObject({ monto: 9, desde: '2026-10-01', hasta: null });
+    });
+    test('asOf = promo end + 1 day copies the regular continuation, rows still start effectiveFrom', async () => {
+      const dto = await clone({ asOf: '2026-10-06' });
+      expect(state.rates.find(r => r.coPrecio === dto.coPrecio && r.coArt === 'A1')).toMatchObject({ monto: 12.4, desde: '2026-10-01', hasta: null });
+    });
+    test('asOf must be an ISO date', async () => {
+      await expect(clone({ asOf: '06/10/2026' })).rejects.toBeInstanceOf(ValidationError);
+      await expect(clone({ asOf: '2026-02-30' })).rejects.toBeInstanceOf(ValidationError);
+      expect(state.lists.length).toBe(3);
+    });
+  });
   test('cloneList failure leaves no list and no audit', async () => {
     state.failCloneOnce = true;
     await expect(cloneList(deps, { mode: 'clone', sourceCoPrecio: '08', desPrecio: 'Copia', percent: null, effectiveFrom: '2026-10-01' }, actor)).rejects.toThrow();
