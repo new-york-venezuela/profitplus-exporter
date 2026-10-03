@@ -85,27 +85,29 @@ test.describe('pricing lists @mssql', () => {
       } finally { await pool.close(); }
     });
 
-    // A brand-new list is empty and the grid only lists articles that already have a rate, so the
-    // throwaway list is made through Clonar (which also exercises that dialog); its rows are then
-    // removed in afterAll. The price change uses a FUTURE date, so no current price is touched.
-    test('clones a list, stages a price and applies it as a scheduled change', async ({ adminPage }) => {
+    // The throwaway list is made through 'Nueva lista' (USD): an empty list shows the whole catalog.
+    // Its rows are removed in afterAll; the price change uses a FUTURE date, so no current price is touched.
+    test('creates a list, stages a price and applies it as a scheduled change', async ({ adminPage }) => {
       test.skip(env.DB_SERVER !== 'localhost', 'writes to the ERP: local mock only');
-      const lists = (await (await adminPage.request.get('/api/pricing/price-lists')).json()).priceLists as
-        { coPrecio: string; rateCount: number; coMone: string | null }[];
-      const source = lists.find(l => l.rateCount > 0 && l.coMone)!;
       const d = new Date(Date.now() + 2 * 86_400_000);
       const future = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-      await adminPage.goto(`/pricing?tab=listas&list=${source.coPrecio}`);
-      await expect(adminPage.locator('tbody tr:not([aria-hidden])').first()).toBeVisible({ timeout: 20_000 });
-      await adminPage.getByRole('button', { name: 'Clonar', exact: true }).click();
+      await adminPage.goto('/pricing?tab=listas');
+      await expect(adminPage.getByRole('button', { name: '+ Nueva lista' })).toBeVisible({ timeout: 20_000 });
+      await adminPage.getByRole('button', { name: '+ Nueva lista' }).click();
       await adminPage.getByRole('textbox', { name: 'Nombre', exact: true }).fill(listName);
-      await adminPage.getByRole('button', { name: 'Clonar lista' }).click();
+      await adminPage.getByLabel('Moneda').selectOption('USD');
+      // capture the created code from the response right away so afterAll can clean up even if a later step fails
+      const created = adminPage.waitForResponse(r => r.url().endsWith('/api/pricing/lists') && r.request().method() === 'POST');
+      await adminPage.getByRole('button', { name: 'Crear lista' }).click();
+      const body = await (await created).json();
+      createdCo = body.priceList?.coPrecio ?? null;
+      expect(createdCo).toBeTruthy();
 
-      await expect.poll(() => new URL(adminPage.url()).searchParams.get('list'), { timeout: 20_000 }).not.toBe(source.coPrecio);
-      createdCo = new URL(adminPage.url()).searchParams.get('list');
+      await expect.poll(() => new URL(adminPage.url()).searchParams.get('list'), { timeout: 20_000 }).toBe(createdCo);
       await expect(adminPage.getByRole('heading', { name: new RegExp(listName) })).toBeVisible({ timeout: 20_000 });
 
+      await adminPage.getByLabel('Mostrar artículos sin precio en esta lista').check();
       const row = adminPage.locator('tbody tr:not([aria-hidden])').first();
       const input = row.getByRole('textbox').first();
       await expect(input).toBeEnabled({ timeout: 20_000 });
