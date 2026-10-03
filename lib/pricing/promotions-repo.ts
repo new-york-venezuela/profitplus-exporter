@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import type { AppDb } from '@/lib/geo/routes-repo';
 import type { Promotion, PromotionItem, PromotionCustomer } from '@/lib/db/schema';
@@ -72,11 +72,15 @@ export function setPromotionTipCli(db: AppDb, id: number, tipCli: string): void 
   db.update(schema.pricingPromotions).set({ tipCli }).where(eq(schema.pricingPromotions.id, id)).run();
 }
 
+/**
+ * Segment codes are freshly allocated and never reused, so a segment belongs to exactly one promotion
+ * in practice. If that ever breaks, the newest promotion (then newest customer row) wins deterministically.
+ */
 export function findPromotionCustomerPrevious(db: AppDb, tipCli: string, coCli: string): string | undefined {
   const row = db.select({ previousTipCli: schema.pricingPromotionCustomers.previousTipCli })
     .from(schema.pricingPromotionCustomers)
     .innerJoin(schema.pricingPromotions, eq(schema.pricingPromotions.id, schema.pricingPromotionCustomers.promotionId))
     .where(and(eq(schema.pricingPromotions.tipCli, tipCli), eq(schema.pricingPromotionCustomers.coCli, coCli)))
-    .orderBy(asc(schema.pricingPromotionCustomers.id)).get();
+    .orderBy(desc(schema.pricingPromotions.id), desc(schema.pricingPromotionCustomers.id)).get();
   return row?.previousTipCli;
 }

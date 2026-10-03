@@ -41,6 +41,13 @@ describe('validateCreatePromotionBody', () => {
     expect(validateCreatePromotionBody(overlay({ kind: 'other' }), TODAY).ok).toBe(false);
     expect(validateCreatePromotionBody(null, TODAY).ok).toBe(false);
   });
+  test('item and customer limits, missing lists', () => {
+    expect(validateCreatePromotionBody(overlay({ items: Array.from({ length: 200 }, (_, i) => ({ coArt: `A${i}`, monto: 1 })) }), TODAY).ok).toBe(true);
+    expect(validateCreatePromotionBody(segment({ customerCodes: Array.from({ length: 501 }, (_, i) => `C${i}`) }), TODAY).ok).toBe(false);
+    expect(validateCreatePromotionBody(segment({ customerCodes: ['C1', 5] }), TODAY).ok).toBe(false);
+    expect(validateCreatePromotionBody(overlay({ coPrecio: undefined }), TODAY).ok).toBe(false);
+    expect(validateCreatePromotionBody(segment({ baseCoPrecio: undefined }), TODAY).ok).toBe(false);
+  });
   test('rejects bad segment customers / base list', () => {
     expect(validateCreatePromotionBody(segment({ customerCodes: [] }), TODAY).ok).toBe(false);
     expect(validateCreatePromotionBody(segment({ customerCodes: ['C1', 'C1'] }), TODAY).ok).toBe(false);

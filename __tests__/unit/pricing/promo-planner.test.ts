@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { planCancelPromo, planChangePromoEnd } from '@/lib/pricing/promo-planner';
-import type { RateRow } from '@/lib/pricing/rate-planner';
+import { addDaysIso, daysBetweenIso } from '@/lib/pricing/dates';
+import type { RateOp, RateRow } from '@/lib/pricing/rate-planner';
 
 const row = (desde: string, hasta: string | null, monto: number): RateRow =>
   ({ coArt: 'A', coPrecio: '08', coAlma: '000015', desde, hasta, monto, coMone: 'USD', validador: '0x01' });
@@ -11,61 +12,35 @@ const cont = row('2026-10-16', null, 4);
 const rows = [regularBefore, promo, cont];
 
 // Utility function to apply ops to rows (for invariant testing).
-function applyOps(inputRows: RateRow[], ops: any[]): RateRow[] {
-  let result = [...inputRows];
+function applyOps(inputRows: RateRow[], ops: RateOp[]): RateRow[] {
+  const current = new Map<RateRow, RateRow>(inputRows.map(r => [r, r]));
+  const inserted: RateRow[] = [];
   for (const op of ops) {
     if (op.type === 'update') {
-      const rowIdx = result.findIndex(r => r === op.row);
-      if (rowIdx !== -1) {
-        result[rowIdx] = { ...result[rowIdx], ...op.set };
-      }
-    } else if (op.type === 'insert') {
-      result.push({
-        coArt: promo.coArt,
-        coPrecio: promo.coPrecio,
-        coAlma: promo.coAlma,
-        desde: op.desde,
-        hasta: op.hasta,
-        monto: op.monto,
-        coMone: promo.coMone,
-        validador: promo.validador,
-      });
+      const base = current.get(op.row);
+      if (!base) throw new Error('update op targets a row that is not in the input');
+      current.set(op.row, { ...base, ...op.set });
+    } else {
+      inserted.push({ ...inputRows[0], desde: op.desde, hasta: op.hasta, monto: op.monto });
     }
   }
-  return result.sort((a, b) => a.desde.localeCompare(b.desde));
+  return [...current.values(), ...inserted].sort((a, b) => a.desde.localeCompare(b.desde));
 }
 
-// Verify invariant: no overlaps and continuous coverage.
+const FAR_FUTURE = '2100-01-01';
+const endOf = (r: RateRow) => r.hasta ?? FAR_FUTURE;
+
+/** Every day from the earliest `desde` to the end of the chain is covered by exactly one row, and the end is unchanged. */
 function assertCoverageInvariant(originalRows: RateRow[], resultRows: RateRow[]) {
-  // Find the earliest desde and last hasta of the input.
-  const earliestDesde = originalRows.reduce((min, r) => (r.desde < min ? r.desde : min), originalRows[0].desde);
-  const lastHasta = originalRows.reduce((max, r) => {
-    if (r.hasta === null) return max;
-    return r.hasta > max ? r.hasta : max;
-  }, '');
-
-  // Check no overlaps and continuous coverage.
-  for (let i = 0; i < resultRows.length - 1; i++) {
-    const curr = resultRows[i];
-    const next = resultRows[i + 1];
-
-    // No overlap: next row should start at or after curr row's hasta + 1 day.
-    if (curr.hasta !== null) {
-      const dayAfterCurr = new Date(Date.UTC(
-        parseInt(curr.hasta.split('-')[0]),
-        parseInt(curr.hasta.split('-')[1]) - 1,
-        parseInt(curr.hasta.split('-')[2]) + 1
-      ));
-      const nextStart = new Date(Date.UTC(
-        parseInt(next.desde.split('-')[0]),
-        parseInt(next.desde.split('-')[1]) - 1,
-        parseInt(next.desde.split('-')[2])
-      ));
-      expect(nextStart.getTime()).toBeGreaterThanOrEqual(dayAfterCurr.getTime());
-
-      // Check no gap: next should start exactly on dayAfterCurr.
-      expect(nextStart.getTime()).toBe(dayAfterCurr.getTime());
-    }
+  const start = originalRows.reduce((min, r) => (r.desde < min ? r.desde : min), originalRows[0].desde);
+  const originalEnd = originalRows.reduce((max, r) => (endOf(r) > max ? endOf(r) : max), start);
+  const resultEnd = resultRows.reduce((max, r) => (endOf(r) > max ? endOf(r) : max), start);
+  expect(resultEnd).toBe(originalEnd);
+  const days = daysBetweenIso(start, resultEnd);
+  for (let i = 0; i <= days; i++) {
+    const day = addDaysIso(start, i);
+    const covering = resultRows.filter(r => r.desde <= day && day <= endOf(r)).length;
+    if (covering !== 1) throw new Error(`day ${day} is covered by ${covering} rows`);
   }
 }
 
