@@ -1,7 +1,8 @@
 import sql from 'mssql';
 import type { ConnectionPool, Transaction } from 'mssql';
 import { hexToBuffer } from './tipo-cliente';
-import { matchesExpectedCurrent, planRatePeriod, type RateRow } from './rate-planner';
+import { matchesExpectedCurrent, planRatePeriod, type RatePlan, type RateRow } from './rate-planner';
+import { todayIso } from './dates';
 
 export interface PriceListRow { coPrecio: string; desPrecio: string; coMone: string | null; rateCount: number; segmentCount: number; customerCount: number; validador: string }
 export interface ArticleRow { coArt: string; artDes: string; coCat: string | null; catDes: string | null }
@@ -107,19 +108,23 @@ async function updateRowTx(tx: Transaction, row: RateRow, set: { desde?: string;
   return r.recordset?.[0]?.updated === 1 ? 'success' : 'conflict';
 }
 
-export async function applyRatePeriodErp(
+export interface PlannedApply { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; user: string; expectedCurrent?: number | null; today?: string }
+
+/** Generic locked read → plan → execute transaction shared by every rate writer (regular changes, promotions). */
+export async function applyPlannedErp(
   pool: ConnectionPool,
-  a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null },
+  a: PlannedApply,
+  plan: (rows: RateRow[]) => RatePlan,
 ): Promise<ApplyOutcome> {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
     const rows = await readRowsTx(tx, a);
-    if (!matchesExpectedCurrent(rows, a.today, a.expectedCurrent)) { await tx.rollback(); return { outcome: 'conflict' }; }
-    const plan = planRatePeriod(rows, { from: a.from, to: a.to, monto: a.monto, today: a.today });
-    if (!plan.ok) { await tx.rollback(); return { outcome: 'rejected', message: plan.error }; }
-    if (plan.skipped) { await tx.rollback(); return { outcome: 'skipped' }; }
-    for (const op of plan.ops) {
+    if (!matchesExpectedCurrent(rows, a.today ?? todayIso(), a.expectedCurrent)) { await tx.rollback(); return { outcome: 'conflict' }; }
+    const planned = plan(rows);
+    if (!planned.ok) { await tx.rollback(); return { outcome: 'rejected', message: planned.error }; }
+    if (planned.skipped) { await tx.rollback(); return { outcome: 'skipped' }; }
+    for (const op of planned.ops) {
       if (op.type === 'insert') {
         await insertRowTx(tx, { coArt: a.coArt, coPrecio: a.coPrecio, coAlma: a.coAlma, desde: op.desde, hasta: op.hasta, monto: op.monto, coMone: a.coMone, user: a.user });
       } else if ((await updateRowTx(tx, op.row, op.set, a.user)) === 'conflict') {
@@ -133,6 +138,13 @@ export async function applyRatePeriodErp(
     try { await tx.rollback(); } catch { /* already rolled back */ }
     throw error;
   }
+}
+
+export async function applyRatePeriodErp(
+  pool: ConnectionPool,
+  a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null },
+): Promise<ApplyOutcome> {
+  return applyPlannedErp(pool, a, rows => planRatePeriod(rows, { from: a.from, to: a.to, monto: a.monto, today: a.today }));
 }
 
 export async function createListErp(pool: ConnectionPool, p: { coPrecio: string; desPrecio: string; user: string }): Promise<void> {

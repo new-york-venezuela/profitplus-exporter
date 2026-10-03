@@ -1,7 +1,7 @@
 // lib/pricing/lists-service.ts
 import type { AppDb } from '@/lib/geo/routes-repo';
 import type { ApplyOutcome, ArticleRow, PriceListRow } from './rates-erp';
-import type { RateRow } from './rate-planner';
+import type { RatePlan, RateRow } from './rate-planner';
 import type { ApplyRatesInput, CreateListInput, RenameListInput } from './list-validators';
 import { todayIso } from './dates';
 import { priceFromPercent } from './rates-math';
@@ -21,6 +21,7 @@ export interface RatesErp {
   listArticles(p: { search?: string; limit?: number }): Promise<ArticleRow[]>;
   getCustomerPriceList(coCli: string): Promise<{ coCli: string; cliDes: string; tipCli: string; coPrecio: string | null } | null>;
   applyRatePeriod(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null }): Promise<ApplyOutcome>;
+  applyPlanned(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; user: string; expectedCurrent?: number | null; today?: string }, plan: (rows: RateRow[]) => RatePlan): Promise<ApplyOutcome>;
   createList(p: { coPrecio: string; desPrecio: string; user: string }): Promise<void>;
   updateList(p: { coPrecio: string; desPrecio: string; validador: string; user: string }): Promise<'success' | 'conflict'>;
   cloneList(p: { coPrecio: string; desPrecio: string; coMone: string | null; from: string; rows: { coArt: string; coAlma: string; monto: number }[]; user: string }): Promise<void>;
@@ -132,6 +133,16 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
   return { list, rows, referenceCoPrecio: compareTo };
 }
 
+/** Warehouse an article's rates live in: its own (single) warehouse, else the list's / install's dominant one, else 'TODOS'. */
+export function resolveArticleWarehouse(
+  rowsOfArticleInList: RateRow[], listDominant: string | null, installDominant: string | null,
+): { coAlma: string } | { ambiguous: true } {
+  const warehouses = [...new Set(rowsOfArticleInList.map(r => r.coAlma))];
+  if (warehouses.length > 1) return { ambiguous: true };
+  if (warehouses.length === 1 && warehouses[0]) return { coAlma: warehouses[0] };
+  return { coAlma: listDominant ?? installDominant ?? 'TODOS' };
+}
+
 export async function applyRates(deps: ListsDeps, coPrecio: string, input: ApplyRatesInput, actor: Actor): Promise<ApplyResult[]> {
   const list = await getListDto(deps, coPrecio);
   const coMone = requireCurrency(list);
@@ -144,15 +155,12 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
   for (const change of input.changes) {
     try {
       const rs = rates.get(change.coArt) ?? [];
-      const warehouses = [...new Set(rs.map(r => r.coAlma))];
-      if (warehouses.length > 1) { results.push({ coArt: change.coArt, outcome: 'rejected', message: AMBIGUOUS_MSG }); continue; }
+      if (rs.length === 0 && fallbackAlma === undefined) fallbackAlma = (await deps.erp.dominantWarehouse(coPrecio)) ?? (await deps.erp.dominantWarehouse()) ?? 'TODOS';
+      const warehouse = resolveArticleWarehouse(rs, fallbackAlma ?? null, null);
+      if ('ambiguous' in warehouse) { results.push({ coArt: change.coArt, outcome: 'rejected', message: AMBIGUOUS_MSG }); continue; }
+      const coAlma = warehouse.coAlma;
       const covering = currentOf(rs, input.effectiveFrom) ?? currentOf(rs, t);
       if (covering?.coMone && covering.coMone !== coMone) { results.push({ coArt: change.coArt, outcome: 'rejected', message: MIXED_CURRENCY_MSG }); continue; }
-      let coAlma = warehouses[0];
-      if (!coAlma) {
-        if (fallbackAlma === undefined) fallbackAlma = (await deps.erp.dominantWarehouse(coPrecio)) ?? (await deps.erp.dominantWarehouse()) ?? 'TODOS';
-        coAlma = fallbackAlma;
-      }
       const before = currentOf(rs, input.effectiveFrom)?.monto ?? null;
       const out = await deps.erp.applyRatePeriod({
         coPrecio, coArt: change.coArt, coAlma, coMone, from: input.effectiveFrom, to: null,

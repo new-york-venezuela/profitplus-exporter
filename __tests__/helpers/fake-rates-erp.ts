@@ -1,5 +1,6 @@
 import type { RatesErp } from '@/lib/pricing/lists-service';
 import type { ApplyOutcome, ArticleRow, PriceListRow } from '@/lib/pricing/rates-erp';
+import { todayIso } from '@/lib/pricing/dates';
 import { matchesExpectedCurrent, planRatePeriod, type RateRow } from '@/lib/pricing/rate-planner';
 
 export interface FakeList { coPrecio: string; desPrecio: string; validador?: string }
@@ -63,13 +64,14 @@ export function makeFakeRatesErp(seed: {
       const x = state.customers[c];
       return x ? { coCli: c, cliDes: x.cliDes, tipCli: x.tipCli, coPrecio: x.coPrecio } : null;
     },
-    applyRatePeriod: async a => {
+    applyPlanned: async (a, plan) => {
       const rows = state.rates.filter(r => r.coArt === a.coArt && r.coPrecio === a.coPrecio && r.coAlma === a.coAlma);
-      if (!matchesExpectedCurrent(rows, a.today, a.expectedCurrent)) return { outcome: 'conflict' };
-      const plan = planRatePeriod(rows.map(r => ({ ...r })), { from: a.from, to: a.to, monto: a.monto, today: a.today });
-      if (!plan.ok) return { outcome: 'rejected', message: plan.error } satisfies ApplyOutcome;
-      if (plan.skipped) return { outcome: 'skipped' };
-      for (const op of plan.ops) {
+      const today = a.today ?? todayIso();
+      if (!matchesExpectedCurrent(rows, today, a.expectedCurrent)) return { outcome: 'conflict' };
+      const planned = plan(rows.map(r => ({ ...r })));
+      if (!planned.ok) return { outcome: 'rejected', message: planned.error } satisfies ApplyOutcome;
+      if (planned.skipped) return { outcome: 'skipped' };
+      for (const op of planned.ops) {
         if (op.type === 'insert') {
           state.rates.push({ coArt: a.coArt, coPrecio: a.coPrecio, coAlma: a.coAlma, desde: op.desde, hasta: op.hasta, monto: op.monto, coMone: a.coMone, validador: nextValidador() });
         } else {
@@ -83,6 +85,7 @@ export function makeFakeRatesErp(seed: {
       }
       return { outcome: 'success' };
     },
+    applyRatePeriod: a => erp.applyPlanned(a, rows => planRatePeriod(rows, { from: a.from, to: a.to, monto: a.monto, today: a.today })),
     createList: async p => {
       if (state.lists.some(l => l.coPrecio === p.coPrecio)) throw Object.assign(new Error('Violation of PRIMARY KEY'), { number: 2627 });
       state.lists.push({ coPrecio: p.coPrecio, desPrecio: p.desPrecio });

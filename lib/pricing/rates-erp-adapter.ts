@@ -14,6 +14,7 @@ export function realRatesErp(pool: ConnectionPool): RatesErp {
     listArticles: p => erp.listArticles(pool, p),
     getCustomerPriceList: c => erp.getCustomerPriceList(pool, c),
     applyRatePeriod: a => erp.applyRatePeriodErp(pool, a),
+    applyPlanned: (a, plan) => erp.applyPlannedErp(pool, a, plan),
     createList: p => erp.createListErp(pool, p),
     updateList: p => erp.updateListErp(pool, p),
     cloneList: p => erp.cloneListErp(pool, p),

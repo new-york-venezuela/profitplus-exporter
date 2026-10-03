@@ -1,6 +1,7 @@
 // __tests__/unit/pricing/segments-service.test.ts
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { makeMemoryDb } from '../../helpers/memory-db';
+import { makeFakeSegmentErp } from '../../helpers/fake-segment-erp';
 import {
   createSegment, patchSegment, assignCustomers, listSegmentDtos,
   NotFoundError, ConflictError, ValidationError, type SegmentErp, type ServiceDeps,
@@ -11,41 +12,14 @@ import type { SegmentRow } from '@/lib/pricing/tipo-cliente';
 const actor = { id: '7', erpUser: 'PROFIT' };
 const now = () => new Date(2026, 9, 1);
 
-function fakeErp(seed: { segments: SegmentRow[]; customers: Record<string, { cliDes: string; tipCli: string }> }) {
-  const state = { segments: [...seed.segments], customers: { ...seed.customers }, conflictNext: false, moveConflict: false };
-  const erp: SegmentErp = {
-    listCodes: async () => state.segments.map(s => s.tipCli),
-    listSegments: async () => state.segments,
-    getSegment: async t => state.segments.find(s => s.tipCli === t) ?? null,
-    createSegment: async p => { state.segments.push({ tipCli: p.tipCli, desTipo: p.desTipo, coPrecio: p.coPrecio, desPrecio: null, customerCount: 0, validador: '0x0000000000000001' }); },
-    updateSegment: async p => {
-      if (state.conflictNext) return 'conflict';
-      const s = state.segments.find(x => x.tipCli === p.tipCli)!;
-      if (p.desTipo) s.desTipo = p.desTipo;
-      if (p.coPrecio) s.coPrecio = p.coPrecio;
-      return 'success';
-    },
-    getCustomer: async c => state.customers[c] ? { coCli: c, ...state.customers[c] } : null,
-    moveCustomer: async (c, target) => {
-      const cur = state.customers[c];
-      if (!cur) return { coCli: c, outcome: 'error', message: 'Cliente no encontrado' };
-      if (state.moveConflict) return { coCli: c, outcome: 'conflict' };
-      const previousTipCli = cur.tipCli;
-      cur.tipCli = target;
-      return { coCli: c, outcome: 'success', previousTipCli };
-    },
-  };
-  return { erp, state };
-}
-
 const seg = (tipCli: string, desTipo: string, coPrecio = '01'): SegmentRow =>
   ({ tipCli, desTipo, coPrecio, desPrecio: null, customerCount: 0, validador: '0x0000000000000001' });
 
 let deps: ServiceDeps;
-let state: ReturnType<typeof fakeErp>['state'];
+let state: ReturnType<typeof makeFakeSegmentErp>['state'];
 
 beforeEach(() => {
-  const f = fakeErp({
+  const f = makeFakeSegmentErp({
     segments: [seg('000001', 'INDEPENDIENTE'), seg('TP1151', 'Test Price List TP1151', 'TP1151')],
     customers: { C1: { cliDes: 'Bodega El Sol', tipCli: '000001' }, C2: { cliDes: 'Otra', tipCli: '000001' } },
   });
