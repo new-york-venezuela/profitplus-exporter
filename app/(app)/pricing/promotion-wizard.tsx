@@ -1,4 +1,6 @@
 'use client';
+// Documented limitations: (a) create does not send an expectedCurrent stale-check, because the create request
+// validator has no field for it; (b) customers carried over by Duplicar show their code, not their name.
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import SearchableSelect from '@/lib/components/searchable-select';
 import type { GridData, GridRow, PriceListDto } from '@/lib/pricing/client-types';
@@ -7,7 +9,7 @@ import { addDaysIso, daysBetweenIso, isValidIsoDate, todayIso } from '@/lib/pric
 import { bulkNewPrices } from '@/lib/pricing/rates-math';
 import { stageEdit, type BulkOp, type Staged } from '@/lib/pricing/rates-staging';
 import {
-  buildCreateBody, copyName, durationText, endsInText, NAME_MAX, REASON_MAX, validateStep, type StepErrors,
+  buildCreateBody, copyName, durationText, endsInText, ITEMS_MAX, NAME_MAX, REASON_MAX, validateStep, type StepErrors,
 } from '@/lib/pricing/promo-wizard';
 import { apiGet, apiSend, ApiError } from './api-client';
 import { FOCUS, ErrorBox } from './dialog-parts';
@@ -32,7 +34,7 @@ export interface PromotionWizardProps {
 }
 
 function FieldError({ id, children }: { id: string; children?: string }) {
-  return children ? <p id={id} role="alert" className="text-xs text-red-700">{children}</p> : null;
+  return children ? <p id={id} role="alert" tabIndex={-1} data-field-error className="text-xs text-red-700 outline-none">{children}</p> : null;
 }
 
 function Timeline({ startsOn, endsOn }: { startsOn: string; endsOn: string }) {
@@ -101,6 +103,12 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
     [rows, staged],
   );
 
+  const omittedPrefill = useMemo(() => {
+    if (!initial || !gridData || listCo !== (initial.kind === 'overlay' ? initial.coPrecio : initial.baseCoPrecio)) return 0;
+    const priced = new Set(rows.filter(r => r.current !== null && !r.ambiguous).map(r => r.coArt));
+    return initial.items.filter(i => !priced.has(i.coArt)).length;
+  }, [initial, gridData, listCo, rows]);
+
   const fields = { name, reason, kind, listCo, customerCodes: customers.map(c => c.coCli), itemCount: items.length, startsOn, endsOn };
   const errors: StepErrors = step === 4 ? {} : validateStep(step, fields, today);
 
@@ -137,6 +145,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
 
   // focus + announcement on step change
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const stepRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
@@ -175,13 +184,24 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
     const chosen = rows.filter(r => selected.has(r.coArt) && r.current !== null && !r.ambiguous);
     const prices = bulkNewPrices(chosen.map(r => ({ coArt: r.coArt, reference: r.referenceMonto })), op);
     setStaged(s => Object.entries(prices).reduce((acc, [coArt, monto]) => stageEdit(acc, coArt, monto), s));
-    const skipped = chosen.length - Object.keys(prices).length;
-    setBulkNote(skipped > 0 ? `${skipped} ${skipped === 1 ? 'fila sin precio de referencia omitida' : 'filas sin precio de referencia omitidas'}` : null);
+    const noRef = chosen.filter(r => r.referenceMonto === null && op.type === 'percent').length;
+    const nonPositive = chosen.length - Object.keys(prices).length - noRef;
+    const notes: string[] = [];
+    if (noRef > 0) notes.push(`${noRef} ${noRef === 1 ? 'fila sin precio de referencia omitida' : 'filas sin precio de referencia omitidas'}`);
+    if (nonPositive > 0) notes.push(`${nonPositive} ${nonPositive === 1 ? 'fila omitida porque el resultado sería ≤ 0' : 'filas omitidas porque el resultado sería ≤ 0'}`);
+    setBulkNote(notes.length > 0 ? notes.join('; ') : null);
   }
 
   function next() {
     if (step === 4) return;
-    if (Object.keys(errors).length > 0) { setShowErrors(true); return; }
+    if (Object.keys(errors).length > 0) {
+      setShowErrors(true);
+      setTimeout(() => {
+        const root = stepRef.current;
+        (root?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? root?.querySelector<HTMLElement>('[data-field-error]'))?.focus();
+      }, 0);
+      return;
+    }
     setShowErrors(false);
     setStep((step + 1) as Step);
   }
@@ -189,6 +209,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
   function back() {
     if (step === 1) return;
     setShowErrors(false);
+    if (step === 4) { setPreview(null); setPreviewFail(null); setSkip(null); } // never show a stale OK on re-entry
     setStep((step - 1) as Step);
   }
 
@@ -222,7 +243,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
   }
 
   return (
-    <section aria-label="Nueva promoción" className="flex min-w-0 flex-col gap-5">
+    <section ref={stepRef} aria-label="Nueva promoción" className="flex min-w-0 flex-col gap-5">
       <ol aria-label="Pasos del asistente" className="flex flex-wrap gap-2">
         {STEPS.map((label, i) => {
           const n = i + 1;
@@ -245,7 +266,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
         <div className="flex max-w-2xl flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor={id('name')} className="text-sm font-medium text-gray-700">Nombre de la promoción</label>
-            <input id={id('name')} type="text" value={name} maxLength={NAME_MAX + 20} onChange={e => setName(e.target.value)}
+            <input id={id('name')} type="text" value={name} maxLength={NAME_MAX} onChange={e => setName(e.target.value)}
               aria-invalid={shown('name') ? true : undefined} aria-describedby={shown('name') ? id('name-err') : undefined}
               className={`${FIELD} ${shown('name') ? 'border-red-500' : 'border-gray-300'}`} />
             <span className="text-xs text-gray-500">{name.trim().length}/{NAME_MAX}</span>
@@ -275,7 +296,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
           </fieldset>
 
           <div className="flex flex-col gap-1">
-            <span id={id('list-label')} className="text-sm font-medium text-gray-700">{kind === 'overlay' ? 'Lista de precios' : 'Lista base'}</span>
+            <span className="text-sm font-medium text-gray-700">{kind === 'overlay' ? 'Lista de precios' : 'Lista base'}</span>
             <SearchableSelect value={listCo} onChange={changeList} options={listOptions} placeholder="Buscar lista"
               ariaLabel={kind === 'overlay' ? 'Lista de precios' : 'Lista base'} />
             <FieldError id={id('list-err')}>{shown('list')}</FieldError>
@@ -297,6 +318,14 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
             Fija el precio promocional de cada artículo. El precio regular es el vigente hoy en la lista
             {gridData?.list ? ` ${gridData.list.coPrecio}` : ''}; escribe el precio o el Δ%, o marca varios artículos para usar las acciones masivas.
           </p>
+          {omittedPrefill > 0 && (
+            <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {omittedPrefill} {omittedPrefill === 1 ? 'artículo omitido' : 'artículos omitidos'} (sin precio vigente en la lista)
+            </div>
+          )}
+          <p aria-live="polite" className={`text-sm font-medium ${items.length > ITEMS_MAX ? 'text-red-700' : 'text-gray-900'}`}>
+            {items.length} {items.length === 1 ? 'artículo' : 'artículos'} (máx. {ITEMS_MAX})
+          </p>
           {bulkNote && <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{bulkNote}</div>}
           <PromoItemsGrid
             rows={rows} staged={staged} onStage={onStage} selected={selected} onToggle={onToggle} onToggleAll={onToggleAll} onBulk={onBulk}
@@ -304,7 +333,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
             discardNonce={discardNonce} currency={gridData?.list.coMone ?? null} loading={gridLoading} error={gridError}
             onRetry={() => setGridTick(t => t + 1)}
           />
-          <p id={id('items-err')} role={shown('items') ? 'alert' : undefined} className="text-sm text-red-700">{shown('items')}</p>
+          <FieldError id={id('items-err')}>{shown('items')}</FieldError>
         </div>
       )}
 
@@ -350,7 +379,7 @@ export default function PromotionWizard({ initial, priceLists, onDone, onCancel 
           {previewError && (
             <ErrorBox>
               <span>{previewError}</span>
-              <button type="button" onClick={() => setPreviewTick(t => t + 1)} className={BTN}>Reintentar</button>
+              <button type="button" onClick={() => { setPreviewFail(null); setPreviewTick(t => t + 1); }} className={BTN}>Reintentar</button>
             </ErrorBox>
           )}
 

@@ -115,9 +115,9 @@ test.describe('pricing promotions @mssql', () => {
     await adminPage.getByRole('button', { name: 'Siguiente' }).click();
 
     await expect(adminPage.getByRole('heading', { name: 'Paso 2: Artículos y precio' })).toBeVisible();
-    const row = adminPage.locator('tbody tr:not([aria-hidden])').first();
-    const price = row.getByRole('textbox').first();
-    await expect(price).toBeEnabled({ timeout: 20_000 });
+    // first row whose price input is enabled (skips ambiguous/read-only rows)
+    const price = adminPage.getByRole('textbox', { name: /^Nuevo precio de / }).and(adminPage.locator(':enabled')).first();
+    await expect(price).toBeVisible({ timeout: 20_000 });
     await price.fill('1,23');
     await price.press('Enter');
     await expect(adminPage.getByText('1 artículo con precio promocional')).toBeVisible();

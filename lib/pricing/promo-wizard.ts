@@ -4,6 +4,7 @@ import { daysBetweenIso, isValidIsoDate } from './dates';
 export const NAME_MAX = 40;
 export const REASON_MAX = 200;
 export const CUSTOMERS_MAX = 500;
+export const ITEMS_MAX = 200; // server limit (promo-validators.ts)
 
 export interface WizardFields {
   name: string;
@@ -39,6 +40,7 @@ export function validateStep(step: 1 | 2 | 3, f: WizardFields, today: string): S
     }
   } else if (step === 2) {
     if (f.itemCount === 0) e.items = 'Fija el precio promocional de al menos un artículo';
+    else if (f.itemCount > ITEMS_MAX) e.items = `Máximo ${ITEMS_MAX} artículos por promoción; selecciona menos`;
   } else {
     if (!isValidIsoDate(f.startsOn)) e.startsOn = 'Indica la fecha de inicio';
     else if (f.startsOn < today) e.startsOn = 'La fecha de inicio no puede ser anterior a hoy';

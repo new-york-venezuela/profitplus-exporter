@@ -30,6 +30,10 @@ describe('validateStep', () => {
     expect(validateStep(2, { ...base, itemCount: 0 }, TODAY).items).toBeTruthy();
     expect(validateStep(2, base, TODAY)).toEqual({});
   });
+  test('step 2 caps at 200 items', () => {
+    expect(validateStep(2, { ...base, itemCount: 200 }, TODAY)).toEqual({});
+    expect(validateStep(2, { ...base, itemCount: 201 }, TODAY).items).toBe('Máximo 200 artículos por promoción; selecciona menos');
+  });
   test('step 3 dates', () => {
     expect(validateStep(3, base, TODAY)).toEqual({});
     expect(validateStep(3, { ...base, startsOn: '2026-10-02' }, TODAY).startsOn).toBeTruthy();
