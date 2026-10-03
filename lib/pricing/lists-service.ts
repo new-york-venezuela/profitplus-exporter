@@ -50,12 +50,14 @@ export interface ArticlePrices {
 
 const AMBIGUOUS_MSG = 'El artículo tiene tarifas en varios almacenes en esta lista';
 const GENERIC_APPLY_ERROR = 'Error al aplicar el precio de este artículo';
-const MIXED_CURRENCY_MSG = 'El artículo tiene una moneda distinta a la de la lista';
+export const MIXED_CURRENCY_MSG = 'El artículo tiene una moneda distinta a la de la lista';
 const META_WARNING = 'Lista creada en Profit pero sin metadatos de moneda; avise a un administrador';
 const clock = (d: ListsDeps) => (d.now ?? (() => new Date()))();
 const today = (d: ListsDeps) => todayIso(clock(d));
 
-const currentOf = (rows: RateRow[], t: string) => rows.find(r => r.desde <= t && (r.hasta === null || t <= r.hasta)) ?? null;
+export const currentOf = (rows: RateRow[], t: string) => rows.find(r => r.desde <= t && (r.hasta === null || t <= r.hasta)) ?? null;
+/** A covering row priced in another currency than the target list can't be written to it. */
+export const isMixedCurrency = (covering: RateRow | null, coMone: string) => !!covering?.coMone && covering.coMone !== coMone;
 const nextOf = (rows: RateRow[], t: string) => rows.filter(r => r.desde > t).sort((a, b) => a.desde.localeCompare(b.desde))[0] ?? null;
 const cur = (r: RateRow | null) => (r ? { monto: r.monto, desde: r.desde, hasta: r.hasta } : null);
 const nxt = (r: RateRow | null) => (r ? { monto: r.monto, desde: r.desde } : null);
@@ -70,7 +72,7 @@ function toDto(row: PriceListRow, metaMone: string | undefined): PriceListDto {
   return { ...row, coMone: row.coMone ?? metaMone ?? null, isEmpty: row.rateCount === 0 && row.segmentCount === 0 };
 }
 
-async function getListDto(deps: ListsDeps, coPrecio: string): Promise<PriceListDto> {
+export async function getListDto(deps: ListsDeps, coPrecio: string): Promise<PriceListDto> {
   const row = await deps.erp.getList(coPrecio);
   if (!row) throw new NotFoundError('Lista de precios no encontrada');
   return toDto(row, getListMeta(deps.db, coPrecio)?.coMone);
@@ -160,7 +162,7 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
       if ('ambiguous' in warehouse) { results.push({ coArt: change.coArt, outcome: 'rejected', message: AMBIGUOUS_MSG }); continue; }
       const coAlma = warehouse.coAlma;
       const covering = currentOf(rs, input.effectiveFrom) ?? currentOf(rs, t);
-      if (covering?.coMone && covering.coMone !== coMone) { results.push({ coArt: change.coArt, outcome: 'rejected', message: MIXED_CURRENCY_MSG }); continue; }
+      if (isMixedCurrency(covering, coMone)) { results.push({ coArt: change.coArt, outcome: 'rejected', message: MIXED_CURRENCY_MSG }); continue; }
       const before = currentOf(rs, input.effectiveFrom)?.monto ?? null;
       const out = await deps.erp.applyRatePeriod({
         coPrecio, coArt: change.coArt, coAlma, coMone, from: input.effectiveFrom, to: null,

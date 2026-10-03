@@ -1,0 +1,457 @@
+// lib/pricing/promotions-service.ts
+import type { AppDb } from '@/lib/geo/routes-repo';
+import type { Promotion, PromotionCustomer, PromotionItem } from '@/lib/db/schema';
+import type { CreatePromotionInput, PatchPromotionInput } from './promo-validators';
+import type { RatePlan, RateRow } from './rate-planner';
+import { planRatePeriod } from './rate-planner';
+import { planCancelPromo, planChangePromoEnd } from './promo-planner';
+import { promotionStatus, type PromotionStatus } from './promo-status';
+import { addDaysIso, daysBetweenIso, todayIso } from './dates';
+import { buildSegmentName, nextTipCliCode } from './segment-name';
+import {
+  appendAudit, getSegmentMeta, setSegmentExpiry, upsertSegmentMeta,
+} from './segments-repo';
+import {
+  cancelPromotion, getPromotion, insertCustomers, insertItems, insertPromotion,
+  listCustomers, listItems, listPromotions, markCustomerMoved, setPromotionEnd, setPromotionTipCli, updateItem,
+} from './promotions-repo';
+import {
+  cloneList, currentOf, getListDto, isMixedCurrency, MIXED_CURRENCY_MSG, resolveArticleWarehouse,
+  type ListsDeps, type RatesErp,
+} from './lists-service';
+import { NotFoundError, ValidationError, type Actor, type SegmentErp } from './segments-service';
+
+export interface PromotionsDeps { rates: RatesErp; segments: SegmentErp; db: AppDb; now?: () => Date }
+export interface PromotionItemDto { coArt: string; artDes: string; promoMonto: number; regularMonto: number | null; applied: boolean; message: string | null }
+export interface PromotionDto {
+  id: number; name: string; reason: string | null; kind: 'overlay' | 'segment'; coPrecio: string; desPrecio: string | null;
+  baseCoPrecio: string | null; tipCli: string | null; startsOn: string; endsOn: string;
+  status: PromotionStatus; daysLeft: number | null;
+  itemCount: number; appliedCount: number; partial: boolean;
+  customerCount: number; movedCount: number;
+}
+export interface PromotionDetailDto extends PromotionDto {
+  items: PromotionItemDto[];
+  customers: { coCli: string; cliDes: string; previousTipCli: string; moved: boolean }[];
+  warning?: string;
+}
+export interface PreviewRow { coArt: string; artDes: string; regular: number | null; promo: number; status: 'ok' | 'rejected'; message: string | null }
+export interface PreviewCustomer { coCli: string; cliDes: string; previousTipCli: string }
+
+const AMBIGUOUS_MSG = 'El artículo tiene tarifas en varios almacenes en esta lista';
+const GENERIC_ITEM_ERROR = 'Error al aplicar el precio de este artículo';
+const CONFLICT_MSG = 'Conflicto: la tarifa fue modificada por otro usuario; reintente';
+const MISSING_REGULAR_MSG = 'Falta el precio regular registrado de este artículo';
+const NO_WAREHOUSE_MSG = 'No se conoce el almacén de este artículo';
+const INTERNAL_WARNING = 'Promoción procesada en Profit pero faltan registros internos; avise a un administrador';
+const SEGMENT_WARNING = 'No se pudo crear el segmento especial en Profit; reintente la promoción';
+
+const clock = (d: PromotionsDeps) => (d.now ?? (() => new Date()))();
+const today = (d: PromotionsDeps) => todayIso(clock(d));
+const listsDeps = (d: PromotionsDeps): ListsDeps => ({ erp: d.rates, db: d.db, now: d.now });
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+/** SQLite write that must not fail the request once the ERP has been touched. */
+function tryDb(label: string, fn: () => void): boolean {
+  try { fn(); return true; } catch (e) { console.error(`Pricing: ${label}:`, e); return false; }
+}
+
+// ---------- reading ----------
+
+function toDto(p: Promotion, items: PromotionItem[], customers: PromotionCustomer[], desPrecio: string | null, t: string): PromotionDto {
+  const status = promotionStatus(p, t);
+  const appliedCount = items.filter(i => i.applied === 1).length;
+  const movedCount = customers.filter(c => c.moved === 1).length;
+  return {
+    id: p.id, name: p.name, reason: p.reason, kind: p.kind, coPrecio: p.coPrecio, desPrecio,
+    baseCoPrecio: p.baseCoPrecio, tipCli: p.tipCli, startsOn: p.startsOn, endsOn: p.endsOn,
+    status, daysLeft: status === 'scheduled' || status === 'active' ? daysBetweenIso(t, p.endsOn) : null,
+    itemCount: items.length, appliedCount,
+    partial: status !== 'cancelled' && (appliedCount < items.length || (p.kind === 'segment' && movedCount < customers.length)),
+    customerCount: customers.length, movedCount,
+  };
+}
+
+export async function listPromotionDtos(deps: PromotionsDeps): Promise<PromotionDto[]> {
+  const t = today(deps);
+  const names = new Map((await deps.rates.listLists()).map(l => [l.coPrecio, l.desPrecio]));
+  return listPromotions(deps.db)
+    .sort((a, b) => b.startsOn.localeCompare(a.startsOn) || b.id - a.id)
+    .map(p => toDto(p, listItems(deps.db, p.id), listCustomers(deps.db, p.id), names.get(p.coPrecio) ?? null, t));
+}
+
+export async function getPromotionDetail(deps: PromotionsDeps, id: number, warning?: string): Promise<PromotionDetailDto> {
+  const p = getPromotion(deps.db, id);
+  if (!p) throw new NotFoundError('Promoción no encontrada');
+  const items = listItems(deps.db, id);
+  const customers = listCustomers(deps.db, id);
+  const [articles, list, custNames] = await Promise.all([
+    deps.rates.listArticles({ limit: 5000 }),
+    deps.rates.getList(p.coPrecio),
+    Promise.all(customers.map(c => deps.segments.getCustomer(c.coCli))),
+  ]);
+  const names = new Map(articles.map(a => [a.coArt, a.artDes]));
+  return {
+    ...toDto(p, items, customers, list?.desPrecio ?? null, today(deps)),
+    items: items.map(i => ({
+      coArt: i.coArt, artDes: names.get(i.coArt) ?? i.coArt, promoMonto: i.promoMonto,
+      regularMonto: i.regularMonto, applied: i.applied === 1, message: i.message,
+    })),
+    customers: customers.map((c, k) => ({ coCli: c.coCli, cliDes: custNames[k]?.cliDes ?? c.coCli, previousTipCli: c.previousTipCli, moved: c.moved === 1 })),
+    ...(warning ? { warning } : {}),
+  };
+}
+
+// ---------- per-article inspection (shared by preview and apply) ----------
+
+interface RateCtx {
+  deps: PromotionsDeps; coPrecio: string; coMone: string | null; t: string;
+  byArt: Map<string, RateRow[]>; fallbackAlma?: string | null;
+}
+
+async function makeCtx(deps: PromotionsDeps, coPrecio: string, coMone: string | null): Promise<RateCtx> {
+  const byArt = new Map<string, RateRow[]>();
+  for (const r of await deps.rates.readListRates(coPrecio)) {
+    const a = byArt.get(r.coArt);
+    if (a) a.push(r); else byArt.set(r.coArt, [r]);
+  }
+  return { deps, coPrecio, coMone, t: today(deps), byArt };
+}
+
+type Inspection = { ok: true; coAlma: string; rows: RateRow[]; covering: RateRow | null } | { ok: false; message: string };
+
+async function inspectArticle(ctx: RateCtx, coArt: string, startsOn: string): Promise<Inspection> {
+  const all = ctx.byArt.get(coArt) ?? [];
+  if (all.length === 0 && ctx.fallbackAlma === undefined) {
+    ctx.fallbackAlma = (await ctx.deps.rates.dominantWarehouse(ctx.coPrecio)) ?? (await ctx.deps.rates.dominantWarehouse()) ?? 'TODOS';
+  }
+  const w = resolveArticleWarehouse(all, ctx.fallbackAlma ?? null, null);
+  if ('ambiguous' in w) return { ok: false, message: AMBIGUOUS_MSG };
+  const rows = all.filter(r => r.coAlma === w.coAlma);
+  const covering = currentOf(rows, startsOn);
+  if (ctx.coMone && isMixedCurrency(covering, ctx.coMone)) return { ok: false, message: MIXED_CURRENCY_MSG };
+  return { ok: true, coAlma: w.coAlma, rows, covering };
+}
+
+type ItemPatch = { coAlma?: string | null; regularMonto?: number | null; applied: boolean; message: string | null };
+
+async function runPlan(
+  ctx: RateCtx, coArt: string, coAlma: string, user: string, plan: (rows: RateRow[]) => RatePlan,
+): Promise<{ ok: boolean; message: string | null }> {
+  try {
+    const out = await ctx.deps.rates.applyPlanned({ coPrecio: ctx.coPrecio, coArt, coAlma, coMone: ctx.coMone, user, today: ctx.t }, plan);
+    if (out.outcome === 'success' || out.outcome === 'skipped') return { ok: true, message: null };
+    if (out.outcome === 'rejected') return { ok: false, message: out.message };
+    return { ok: false, message: CONFLICT_MSG };
+  } catch (e) {
+    console.error(`Pricing: rate write failed on list ${ctx.coPrecio}, article ${coArt}:`, e);
+    return { ok: false, message: GENERIC_ITEM_ERROR };
+  }
+}
+
+async function computeApply(ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string): Promise<ItemPatch> {
+  const ins = await inspectArticle(ctx, item.coArt, promo.startsOn);
+  if (!ins.ok) return { applied: false, message: ins.message };
+  const c = ins.covering;
+  const isPromoRow = !!c && c.desde === promo.startsOn && c.hasta === promo.endsOn;
+  const regularMonto = c && !isPromoRow ? c.monto : item.regularMonto;
+  const r = await runPlan(ctx, item.coArt, ins.coAlma, user, rows =>
+    planRatePeriod(rows, { from: promo.startsOn, to: promo.endsOn, monto: item.promoMonto, today: ctx.t }));
+  return { coAlma: ins.coAlma, regularMonto, applied: r.ok, message: r.message };
+}
+
+async function applyItem(ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string): Promise<boolean> {
+  let patch: ItemPatch;
+  try {
+    patch = await computeApply(ctx, promo, item, user);
+  } catch (e) {
+    console.error(`Pricing: applying promotion ${promo.id} item ${item.coArt} failed:`, e);
+    patch = { applied: false, message: GENERIC_ITEM_ERROR };
+  }
+  tryDb(`promotion ${promo.id} item ${item.coArt} state`, () => updateItem(ctx.deps.db, promo.id, item.coArt, patch));
+  return patch.applied;
+}
+
+async function applyItems(deps: PromotionsDeps, promo: Promotion, items: PromotionItem[], user: string): Promise<void> {
+  if (items.length === 0) return;
+  const coMone = (await getListDto(listsDeps(deps), promo.coPrecio)).coMone;
+  const ctx = await makeCtx(deps, promo.coPrecio, coMone);
+  for (const item of items) await applyItem(ctx, promo, item, user);
+}
+
+// ---------- preview ----------
+
+async function resolveCustomers(deps: PromotionsDeps, codes: string[]): Promise<PreviewCustomer[]> {
+  const out: PreviewCustomer[] = [];
+  for (const code of codes) {
+    const c = await deps.segments.getCustomer(code);
+    if (!c) throw new NotFoundError(`Cliente no encontrado: ${code}`);
+    out.push({ coCli: c.coCli, cliDes: c.cliDes, previousTipCli: c.tipCli });
+  }
+  return out;
+}
+
+export async function previewPromotion(
+  deps: PromotionsDeps, input: CreatePromotionInput,
+): Promise<{ rows: PreviewRow[]; customers: PreviewCustomer[] }> {
+  const coPrecio = input.kind === 'overlay' ? input.coPrecio : input.baseCoPrecio;
+  const list = await getListDto(listsDeps(deps), coPrecio);
+  const customers = input.kind === 'segment' ? await resolveCustomers(deps, input.customerCodes) : [];
+  const ctx = await makeCtx(deps, coPrecio, list.coMone);
+  const names = new Map((await deps.rates.listArticles({ limit: 5000 })).map(a => [a.coArt, a.artDes]));
+  const rows: PreviewRow[] = [];
+  for (const it of input.items) {
+    const base = { coArt: it.coArt, artDes: names.get(it.coArt) ?? it.coArt, promo: it.monto };
+    const ins = await inspectArticle(ctx, it.coArt, input.startsOn);
+    if (!ins.ok) { rows.push({ ...base, regular: null, status: 'rejected', message: ins.message }); continue; }
+    const plan = planRatePeriod(ins.rows, { from: input.startsOn, to: input.endsOn, monto: it.monto, today: ctx.t });
+    const regular = ins.covering?.monto ?? null;
+    rows.push(plan.ok ? { ...base, regular, status: 'ok', message: null } : { ...base, regular, status: 'rejected', message: plan.error });
+  }
+  return { rows, customers };
+}
+
+// ---------- segment machinery ----------
+
+function mostCommon(values: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+}
+
+const isDuplicateKey = (e: unknown) => {
+  const n = (e as { number?: number } | null)?.number;
+  return n === 2627 || n === 2601;
+};
+
+async function createSegmentInErp(deps: PromotionsDeps, p: { desTipo: string; coPrecio: string; user: string }): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const tipCli = nextTipCliCode(await deps.segments.listCodes());
+    try {
+      await deps.segments.createSegment({ tipCli, ...p });
+      return tipCli;
+    } catch (e) {
+      if (attempt === 0 && isDuplicateKey(e)) continue;
+      throw e;
+    }
+  }
+}
+
+/** Creates the promotion's special segment (ERP + meta). Returns a warning when something could not be completed. */
+async function ensureSegment(deps: PromotionsDeps, promo: Promotion, actor: Actor): Promise<string | undefined> {
+  const t = today(deps);
+  const nowMs = clock(deps).getTime();
+  let tipCli: string;
+  try {
+    const desTipo = buildSegmentName({ customerName: promo.name, reason: '', endsOn: promo.endsOn, today: t });
+    tipCli = await createSegmentInErp(deps, { desTipo, coPrecio: promo.coPrecio, user: actor.erpUser });
+  } catch (e) {
+    console.error(`Pricing: creating the segment of promotion ${promo.id} failed:`, e);
+    return SEGMENT_WARNING;
+  }
+  if (!tryDb(`link segment ${tipCli} to promotion ${promo.id}`, () => setPromotionTipCli(deps.db, promo.id, tipCli))) return INTERNAL_WARNING;
+  const fallback = mostCommon(listCustomers(deps.db, promo.id).map(c => c.previousTipCli));
+  const ok = tryDb(`metadata of segment ${tipCli}`, () => {
+    upsertSegmentMeta(deps.db, {
+      tipCli, kind: 'special', customerCoCli: null, reason: promo.name, expiresAt: promo.endsOn,
+      fallbackTipCli: fallback, previousTipCli: null, createdBy: actor.id, createdAt: nowMs,
+    });
+    appendAudit(deps.db, { userId: actor.id, action: 'segment_create', target: tipCli, after: { promotionId: promo.id, kind: 'special', expiresOn: promo.endsOn }, now: nowMs });
+  });
+  return ok ? undefined : INTERNAL_WARNING;
+}
+
+/** Moves every not-yet-moved customer into the promotion segment. Returns false if an internal write failed. */
+async function moveCustomers(deps: PromotionsDeps, promo: Promotion, actor: Actor): Promise<boolean> {
+  let internalOk = true;
+  const nowMs = clock(deps).getTime();
+  for (const c of listCustomers(deps.db, promo.id).filter(x => x.moved === 0)) {
+    try {
+      const r = await deps.segments.moveCustomer(c.coCli, promo.tipCli!, actor.erpUser);
+      if (r.outcome !== 'success') { console.error(`Pricing: customer ${c.coCli} not moved (${r.outcome}) for promotion ${promo.id}`); continue; }
+    } catch (e) {
+      console.error(`Pricing: moving customer ${c.coCli} for promotion ${promo.id} failed:`, e);
+      continue;
+    }
+    internalOk = tryDb(`customer move ${c.coCli}`, () => {
+      markCustomerMoved(deps.db, promo.id, c.coCli, true);
+      appendAudit(deps.db, { userId: actor.id, action: 'customer_move', target: c.coCli, before: { tipCli: c.previousTipCli }, after: { tipCli: promo.tipCli }, now: nowMs });
+    }) && internalOk;
+  }
+  return internalOk;
+}
+
+/** Sends moved customers back. A customer no longer in the promotion segment is left where it is. Returns true when all are reverted. */
+async function revertCustomers(deps: PromotionsDeps, promo: Promotion, actor: Actor): Promise<boolean> {
+  const nowMs = clock(deps).getTime();
+  const fallback = promo.tipCli ? getSegmentMeta(deps.db, promo.tipCli)?.fallbackTipCli ?? null : null;
+  let allOk = true;
+  for (const c of listCustomers(deps.db, promo.id).filter(x => x.moved === 1)) {
+    try {
+      const current = await deps.segments.getCustomer(c.coCli);
+      if (current && current.tipCli === promo.tipCli) {
+        const target = (await deps.segments.getSegment(c.previousTipCli)) ? c.previousTipCli : fallback;
+        if (!target || !(await deps.segments.getSegment(target))) { console.error(`Pricing: no segment to return customer ${c.coCli} to`); allOk = false; continue; }
+        const r = await deps.segments.moveCustomer(c.coCli, target, actor.erpUser);
+        if (r.outcome !== 'success') { console.error(`Pricing: customer ${c.coCli} not reverted (${r.outcome})`); allOk = false; continue; }
+        tryDb(`customer revert audit ${c.coCli}`, () =>
+          appendAudit(deps.db, { userId: actor.id, action: 'customer_move', target: c.coCli, before: { tipCli: promo.tipCli }, after: { tipCli: target }, now: nowMs }));
+      }
+      markCustomerMoved(deps.db, promo.id, c.coCli, false);
+    } catch (e) {
+      console.error(`Pricing: reverting customer ${c.coCli} of promotion ${promo.id} failed:`, e);
+      allOk = false;
+    }
+  }
+  return allOk;
+}
+
+// ---------- create ----------
+
+const summary = (p: Promotion, items: PromotionItem[], customers: PromotionCustomer[]) => ({
+  name: p.name, kind: p.kind, coPrecio: p.coPrecio, startsOn: p.startsOn, endsOn: p.endsOn,
+  items: items.length, applied: items.filter(i => i.applied === 1).length, customers: customers.length,
+});
+
+async function prepareTarget(deps: PromotionsDeps, input: CreatePromotionInput, actor: Actor, t: string): Promise<{
+  coPrecio: string; coMone: string | null; baseCoPrecio: string | null; customers: PreviewCustomer[];
+}> {
+  if (input.kind === 'overlay') {
+    const list = await getListDto(listsDeps(deps), input.coPrecio);
+    if (!list.coMone) throw new ValidationError('La lista no tiene moneda definida');
+    return { coPrecio: input.coPrecio, coMone: list.coMone, baseCoPrecio: null, customers: [] };
+  }
+  await getListDto(listsDeps(deps), input.baseCoPrecio);
+  const customers = await resolveCustomers(deps, input.customerCodes);
+  const promoList = await cloneList(listsDeps(deps), {
+    mode: 'clone', sourceCoPrecio: input.baseCoPrecio, desPrecio: `PROMO ${input.name}`.slice(0, 60),
+    percent: null, effectiveFrom: t, asOf: addDaysIso(input.endsOn, 1),
+  }, actor);
+  return { coPrecio: promoList.coPrecio, coMone: promoList.coMone, baseCoPrecio: input.baseCoPrecio, customers };
+}
+
+export async function createPromotion(deps: PromotionsDeps, input: CreatePromotionInput, actor: Actor): Promise<PromotionDetailDto> {
+  const t = today(deps);
+  const nowMs = clock(deps).getTime();
+  const target = await prepareTarget(deps, input, actor, t);
+
+  const id = insertPromotion(deps.db, {
+    name: input.name, reason: input.reason, kind: input.kind, coPrecio: target.coPrecio, baseCoPrecio: target.baseCoPrecio,
+    tipCli: null, startsOn: input.startsOn, endsOn: input.endsOn, cancelledAt: null, createdBy: actor.id, createdAt: nowMs,
+  });
+  insertItems(deps.db, id, input.items.map(i => ({ coArt: i.coArt, promoMonto: i.monto })));
+  insertCustomers(deps.db, id, target.customers.map(c => ({ coCli: c.coCli, previousTipCli: c.previousTipCli })));
+
+  let promo = getPromotion(deps.db, id)!;
+  await applyItems(deps, promo, listItems(deps.db, id), actor.erpUser);
+
+  let warning: string | undefined;
+  if (promo.kind === 'segment') {
+    warning = await ensureSegment(deps, promo, actor);
+    promo = getPromotion(deps.db, id)!;
+    if (promo.tipCli && !(await moveCustomers(deps, promo, actor))) warning ??= INTERNAL_WARNING;
+  }
+  if (!tryDb(`audit of promotion ${id}`, () =>
+    appendAudit(deps.db, { userId: actor.id, action: 'promotion_create', target: String(id), after: summary(promo, listItems(deps.db, id), listCustomers(deps.db, id)), now: nowMs }))) {
+    warning ??= INTERNAL_WARNING;
+  }
+  return getPromotionDetail(deps, id, warning);
+}
+
+// ---------- patch ----------
+
+/** Cancel plan that is a no-op when the row was already reverted by an earlier (partially failed) attempt. */
+function planCancelIdempotent(rows: RateRow[], p: { from: string; to: string; regularMonto: number; today: string }): RatePlan {
+  const whole = rows.find(r => r.desde === p.from && r.hasta === p.to);
+  if (whole && p.today <= p.from && same(whole.monto, p.regularMonto)) return { ok: true, skipped: true, ops: [] };
+  const trimmed = rows.some(r => r.desde === p.from && r.hasta === addDaysIso(p.today, -1));
+  if (p.today > p.from && trimmed && rows.some(r => r.desde === p.today && r.hasta === p.to && same(r.monto, p.regularMonto))) {
+    return { ok: true, skipped: true, ops: [] };
+  }
+  return planCancelPromo(rows, p);
+}
+
+/** Same for the end change: if the promo row already ends at the new date, nothing to do. */
+function planChangeEndIdempotent(rows: RateRow[], p: { from: string; to: string; newTo: string; regularMonto: number; today: string }): RatePlan {
+  if (p.newTo !== p.to && rows.some(r => r.desde === p.from && r.hasta === p.newTo)) return { ok: true, skipped: true, ops: [] };
+  return planChangePromoEnd(rows, p);
+}
+
+/** Runs a planner against every applied item. Item messages carry the failure; returns true when all succeeded. */
+async function mutateApplied(
+  deps: PromotionsDeps, promo: Promotion, user: string,
+  planFor: (item: PromotionItem, t: string) => (rows: RateRow[]) => RatePlan,
+): Promise<boolean> {
+  const applied = listItems(deps.db, promo.id).filter(i => i.applied === 1);
+  if (applied.length === 0) return true;
+  const coMone = (await getListDto(listsDeps(deps), promo.coPrecio)).coMone;
+  const ctx = await makeCtx(deps, promo.coPrecio, coMone);
+  let allOk = true;
+  for (const item of applied) {
+    const r = item.coAlma
+      ? await runPlan(ctx, item.coArt, item.coAlma, user, planFor(item, ctx.t))
+      : { ok: false, message: NO_WAREHOUSE_MSG };
+    allOk = r.ok && allOk;
+    tryDb(`item ${item.coArt} message`, () => updateItem(deps.db, promo.id, item.coArt, { message: r.message }));
+  }
+  return allOk;
+}
+
+async function cancel(deps: PromotionsDeps, promo: Promotion, actor: Actor): Promise<string | undefined> {
+  const t = today(deps);
+  const itemsOk = await mutateApplied(deps, promo, actor.erpUser, (item, tt) => rows =>
+    item.regularMonto === null
+      ? { ok: false, error: MISSING_REGULAR_MSG }
+      : planCancelIdempotent(rows, { from: promo.startsOn, to: promo.endsOn, regularMonto: item.regularMonto, today: tt }));
+  const customersOk = promo.kind === 'segment' ? await revertCustomers(deps, promo, actor) : true;
+  if (!itemsOk || !customersOk) return undefined; // not cancelled: the detail shows what failed
+  const nowMs = clock(deps).getTime();
+  cancelPromotion(deps.db, promo.id, nowMs);
+  let warning: string | undefined;
+  if (promo.tipCli && !tryDb(`expiry of segment ${promo.tipCli}`, () => setSegmentExpiry(deps.db, promo.tipCli!, addDaysIso(t, -1)))) warning = INTERNAL_WARNING;
+  if (!tryDb(`cancel audit ${promo.id}`, () => appendAudit(deps.db, { userId: actor.id, action: 'promotion_cancel', target: String(promo.id), before: { status: promotionStatus(promo, t) }, after: { cancelled: true }, now: nowMs }))) warning = INTERNAL_WARNING;
+  return warning;
+}
+
+async function changeEnd(deps: PromotionsDeps, promo: Promotion, newTo: string, actor: Actor): Promise<string | undefined> {
+  if (newTo < promo.startsOn) throw new ValidationError('La fecha de fin no puede ser anterior al inicio');
+  const ok = await mutateApplied(deps, promo, actor.erpUser, (item, tt) => rows =>
+    item.regularMonto === null
+      ? { ok: false, error: MISSING_REGULAR_MSG }
+      : planChangeEndIdempotent(rows, { from: promo.startsOn, to: promo.endsOn, newTo, regularMonto: item.regularMonto, today: tt }));
+  if (!ok) return undefined;
+  setPromotionEnd(deps.db, promo.id, newTo);
+  let warning: string | undefined;
+  if (promo.tipCli && !tryDb(`expiry of segment ${promo.tipCli}`, () => setSegmentExpiry(deps.db, promo.tipCli!, newTo))) warning = INTERNAL_WARNING;
+  if (!tryDb(`extend audit ${promo.id}`, () => appendAudit(deps.db, { userId: actor.id, action: 'promotion_extend', target: String(promo.id), before: { endsOn: promo.endsOn }, after: { endsOn: newTo }, now: clock(deps).getTime() }))) warning = INTERNAL_WARNING;
+  return warning;
+}
+
+function requireOpen(deps: PromotionsDeps, id: number): Promotion {
+  const promo = getPromotion(deps.db, id);
+  if (!promo) throw new NotFoundError('Promoción no encontrada');
+  const status = promotionStatus(promo, today(deps));
+  if (status === 'ended' || status === 'cancelled') {
+    throw new ValidationError(status === 'ended' ? 'La promoción ya terminó' : 'La promoción ya fue cancelada');
+  }
+  return promo;
+}
+
+export async function patchPromotion(deps: PromotionsDeps, id: number, input: PatchPromotionInput, actor: Actor): Promise<PromotionDetailDto> {
+  const promo = requireOpen(deps, id);
+  const warning = input.action === 'cancel' ? await cancel(deps, promo, actor) : await changeEnd(deps, promo, input.endsOn, actor);
+  return getPromotionDetail(deps, id, warning);
+}
+
+// ---------- retry ----------
+
+export async function retryPromotion(deps: PromotionsDeps, id: number, actor: Actor): Promise<PromotionDetailDto> {
+  let promo = requireOpen(deps, id);
+  await applyItems(deps, promo, listItems(deps.db, id).filter(i => i.applied === 0), actor.erpUser);
+  let warning: string | undefined;
+  if (promo.kind === 'segment') {
+    if (!promo.tipCli) { warning = await ensureSegment(deps, promo, actor); promo = getPromotion(deps.db, id)!; }
+    if (promo.tipCli && !(await moveCustomers(deps, promo, actor))) warning ??= INTERNAL_WARNING;
+  }
+  return getPromotionDetail(deps, id, warning);
+}
