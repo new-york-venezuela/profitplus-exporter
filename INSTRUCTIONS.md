@@ -341,6 +341,15 @@ Invoke-WebRequest http://localhost:3000 -UseBasicParsing
 
 Open IIS Manager → Server node → Application Request Routing Cache → Server Proxy Settings → Check "Enable proxy" → Apply.
 
+In the same **Server Proxy Settings** page, raise **Time-out (seconds)** from the default 120 to **600**. Creating,
+cancelling or retrying a large pricing promotion (up to 200 articles, up to 500 customers) writes to Profit one article
+and one customer at a time and can take several minutes; with the default timeout ARR returns a 502 to the browser while
+the server keeps working, and the user sees an error for a request that actually completed. Equivalent command:
+
+```powershell
+& "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /timeout:"00:10:00" /commit:apphost
+```
+
 ### 7b. Create IIS Site
 
 ```powershell

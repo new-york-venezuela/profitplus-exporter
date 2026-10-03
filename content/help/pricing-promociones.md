@@ -13,7 +13,9 @@ promociones se agrupan por estado: **Programada**, **Activa**,
 - **Para un segmento o clientes**: eliges una **lista base** y uno o más
   clientes (hasta 500). Se crea una lista y un segmento temporales y los
   clientes pasan a ese segmento; el resto de clientes no cambia. Úsala
-  cuando la oferta es solo para algunos clientes.
+  cuando la oferta es solo para algunos clientes. Mientras dure la
+  promoción, esos clientes pagan los precios de la **lista base** en
+  **todos** los artículos, sin importar la lista que tenían antes.
 
 ## Crear una promoción
 
@@ -56,6 +58,15 @@ cambio), la promoción queda marcada como **parcial** y cada artículo
 muestra su mensaje. Pulsa **Reintentar** para completar lo pendiente. Si
 reintentas después de que la promoción ya empezó, lo pendiente se aplica
 **desde hoy**, no desde la fecha original.
+
+Si acortaste la fecha de fin y algún artículo no se pudo acortar, ese
+artículo sigue con el precio promocional hasta su fecha anterior.
+**Reintentar** sigue disponible aunque la promoción ya haya terminado:
+corta ese precio desde hoy y devuelve el precio regular.
+
+Mientras un artículo está en una promoción programada o activa, no se
+puede cambiar su precio regular en esa lista: cámbialo después del fin
+o cancela la promoción.
 
 ## Duplicar
 

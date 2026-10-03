@@ -15,6 +15,15 @@ type DialogState = null | 'cancel' | 'changeEnd';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Error');
 
+/** Follow-up after Cambiar fecha de fin: nothing moved → repeat it; some items behind the new end → Reintentar. */
+function changeEndNotice(p: PromotionDetailDto, requested: string): string | null {
+  if (p.endsOn !== requested) {
+    return 'No se pudo cambiar la fecha de fin; revisa los mensajes de los artículos y repite Cambiar fecha de fin';
+  }
+  const behind = p.items.some(i => i.appliedFrom !== null && i.cancelledOn === null && i.appliedTo !== p.endsOn);
+  return behind ? 'El cambio de fecha quedó incompleto en algunos artículos; usa Reintentar' : null;
+}
+
 export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -113,8 +122,11 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
     const id = promoId;
     const { promotion } = await apiSend<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${id}`, 'PATCH', { action: 'cancel' });
     setDialog(null);
-    setActionError(null);
-    setNotice(promotion.status !== 'cancelled' ? 'La cancelación quedó incompleta; vuelve a pulsar Cancelar para completarla' : null);
+    if (promoRef.current === id) {
+      setActionError(null);
+      setNotice(promotion.status !== 'cancelled'
+        ? 'La cancelación quedó incompleta; vuelve a pulsar Cancelar para completarla' : null);
+    }
     adopt(id, promotion);
     void loadList();
   }
@@ -124,8 +136,10 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
     const id = promoId;
     const { promotion } = await apiSend<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${id}`, 'PATCH', { action: 'change_end', endsOn });
     setDialog(null);
-    setActionError(null);
-    setNotice(promotion.endsOn !== endsOn || promotion.partial ? 'El cambio de fecha quedó incompleto; usa Reintentar' : null);
+    if (promoRef.current === id) {
+      setActionError(null);
+      setNotice(changeEndNotice(promotion, endsOn));
+    }
     adopt(id, promotion);
     void loadList();
   }

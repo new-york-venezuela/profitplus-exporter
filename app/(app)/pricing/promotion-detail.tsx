@@ -2,6 +2,7 @@
 
 import type { PromotionDetailDto, PromotionDto } from '@/lib/pricing/client-types';
 import { daysBetweenIso, todayIso } from '@/lib/pricing/dates';
+import { strandedItems } from '@/lib/pricing/promo-status';
 import { promoStatusBadge } from './promo-status-badge';
 import { fmtDate, fmtMoney, fmtShort, TONE_CLASS } from './promo-format';
 
@@ -71,7 +72,11 @@ export default function PromotionDetail({ detail, loading, error, canEdit, onCan
 
   const badge = promoStatusBadge(detail);
   const open = detail.status === 'scheduled' || detail.status === 'active';
-  const showRetry = detail.partial && detail.status !== 'ended' && detail.status !== 'cancelled';
+  // Hidden during an incomplete cancellation (Cancelar completes it);
+  // after the end only a stranded shortening is retryable.
+  const cancelling = detail.items.some(i => i.cancelledOn !== null);
+  const stranded = detail.status === 'ended' && strandedItems(detail, detail.items, todayIso()).length > 0;
+  const showRetry = !cancelling && ((detail.partial && open) || stranded);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
