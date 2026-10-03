@@ -5,10 +5,12 @@ import { HelpPanel } from '@/components/help-panel';
 import { nextTabId } from '@/lib/pricing/tab-nav';
 import SegmentsTab from './segments-tab';
 import ListsTab from './lists-tab';
+import PromotionsTab from './promotions-tab';
 
 export const TABS: { id: string; label: string; helpPage: string }[] = [
   { id: 'segmentos', label: 'Segmentos', helpPage: 'pricing-segmentos' },
   { id: 'listas', label: 'Listas', helpPage: 'pricing-listas' },
+  { id: 'promociones', label: 'Promociones', helpPage: 'pricing-promociones' },
 ];
 
 const tabDomId = (id: string) => `pricing-tab-${id}`;
@@ -25,6 +27,8 @@ export default function PricingShell({ canEdit }: { canEdit: boolean }) {
     next.set('tab', id);
     next.delete('segment');
     next.delete('list');
+    next.delete('promo');
+    next.delete('new');
     router.replace(`/pricing?${next.toString()}`);
   }
 
@@ -54,6 +58,7 @@ export default function PricingShell({ canEdit }: { canEdit: boolean }) {
       <div role="tabpanel" id={panelDomId(active.id)} aria-labelledby={tabDomId(active.id)}>
         {active.id === 'segmentos' && <SegmentsTab canEdit={canEdit} />}
         {active.id === 'listas' && <ListsTab canEdit={canEdit} />}
+        {active.id === 'promociones' && <PromotionsTab canEdit={canEdit} />}
       </div>
       {/* keyed: HelpPanel caches the first markdown it loads, so each tab needs its own instance */}
       <HelpPanel key={active.helpPage} page={active.helpPage} />
