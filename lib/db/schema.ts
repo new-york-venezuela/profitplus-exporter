@@ -255,3 +255,29 @@ export const pricingPromotionCustomers = sqliteTable('pricing_promotion_customer
   moved:          integer('moved').notNull().default(0),
 }, t => ({ uniq: unique('pricing_promotion_customers_uniq').on(t.promotionId, t.coCli) }));
 export type PromotionCustomer = typeof pricingPromotionCustomers.$inferSelect;
+
+// ── Pricing expiry tracking ─────────────────────────────────────────────
+export const pricingSweepRuns = sqliteTable('pricing_sweep_runs', {
+  id:     integer('id').primaryKey({ autoIncrement: true }),
+  runAt:  integer('run_at').notNull(),             // unix ms
+  ok:     integer('ok').notNull(),                 // 0/1
+  moved:  integer('moved').notNull().default(0),
+  failed: integer('failed').notNull().default(0),
+  error:  text('error'),
+});
+export type PricingSweepRun = typeof pricingSweepRuns.$inferSelect;
+
+export const pricingAlertLog = sqliteTable('pricing_alert_log', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  promotionId: integer('promotion_id').notNull(),
+  kind:        text('kind', { enum: ['ending_first', 'ending_last'] }).notNull(),
+  sentOn:      text('sent_on').notNull(),          // YYYY-MM-DD
+}, t => ({ uniq: unique('pricing_alert_log_uniq').on(t.promotionId, t.kind) }));
+export type PricingAlertKind = typeof pricingAlertLog.$inferInsert['kind'];
+
+export const pricingAlertSettings = sqliteTable('pricing_alert_settings', {
+  id:         integer('id').primaryKey(),          // always 1
+  enabled:    integer('enabled').notNull().default(1),
+  daysAhead:  integer('days_ahead').notNull().default(7),
+  recipients: text('recipients'),                  // JSON string[] or null
+});
