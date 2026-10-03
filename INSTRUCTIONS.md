@@ -430,6 +430,37 @@ Successes and failures are recorded per-customer in the
 `invoice_reminder_log` SQLite table — check it first when troubleshooting
 a run (e.g. via `bun run db:studio`).
 
+## Step 10: Scheduling the Pricing Promotion Sweep (Windows Task Scheduler)
+
+`pricing:sweep-promotions` moves customers out of expired special segments
+(promotion segments and one-customer special segments whose expiry date has
+passed) back to their previous segment, falling back to the segment's
+configured fallback. Customers already moved by hand are never touched.
+
+Command to schedule: `bun run pricing:sweep-promotions` (defined in
+`package.json` as `bun --bun run scripts/sweep-promotions.ts`). Like the
+invoice reminders, it must run from the app's working directory (`$APP`)
+so it picks up `.env.local`.
+
+**Creating the task (Task Scheduler GUI):**
+
+1. Open **Task Scheduler** → **Create Basic Task…**
+2. Name: `ProfitPlus - Pricing Promotion Sweep`, Trigger: **Daily** at
+   **00:30**.
+3. Action: **Start a program**
+   - Program/script: `C:\Users\<user>\.bun\bin\bun.exe`
+   - Add arguments: `run pricing:sweep-promotions`
+   - Start in (required): `C:\inetpub\apps\profitplus-exporter` (i.e. `$APP`)
+4. Finish, then open the task's **Properties**, confirm "Start in" was
+   saved, and select **Run whether user is logged on or not**.
+
+The sweep is idempotent: running it twice is safe (the second run finds no
+customers left in the expired segments and moves nothing). It prints one
+summary line and one line per error, and exits with a non-zero code if any
+customer could not be moved, so Task Scheduler shows a failed Last Run
+Result (anything other than 0x0). Each revert is recorded in the pricing
+audit log as `sweep_revert`.
+
 ## Redeploy Procedure
 
 ```powershell
