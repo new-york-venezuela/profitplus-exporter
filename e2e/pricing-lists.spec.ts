@@ -94,9 +94,14 @@ test.describe('pricing lists @mssql', () => {
 
       await adminPage.goto('/pricing?tab=listas');
       await expect(adminPage.getByRole('button', { name: '+ Nueva lista' })).toBeVisible({ timeout: 20_000 });
+      // lists (and currencies) load async and the default list is then selected via router.replace
+      await expect.poll(() => new URL(adminPage.url()).searchParams.get('list'), { timeout: 20_000 }).toBeTruthy();
+      await expect(adminPage.locator('tbody tr:not([aria-hidden])').first()).toBeVisible({ timeout: 20_000 });
       await adminPage.getByRole('button', { name: '+ Nueva lista' }).click();
       await adminPage.getByRole('textbox', { name: 'Nombre', exact: true }).fill(listName);
-      await adminPage.getByLabel('Moneda').selectOption('USD');
+      const moneda = adminPage.getByLabel('Moneda');
+      await expect(moneda.locator('option')).not.toHaveCount(0, { timeout: 20_000 });   // currencies load async
+      await moneda.selectOption('USD');
       // capture the created code from the response right away so afterAll can clean up even if a later step fails
       const created = adminPage.waitForResponse(r => r.url().endsWith('/api/pricing/lists') && r.request().method() === 'POST');
       await adminPage.getByRole('button', { name: 'Crear lista' }).click();
