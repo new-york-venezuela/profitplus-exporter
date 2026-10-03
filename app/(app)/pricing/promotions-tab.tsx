@@ -9,6 +9,7 @@ import PromotionDetail from './promotion-detail';
 import CancelPromotionDialog from './cancel-promotion-dialog';
 import ChangeEndDialog from './change-end-dialog';
 import PromotionWizardSlot from './promotion-wizard-slot';
+import type { WizardPrefill } from './wizard-prefill';
 
 type DialogState = null | 'cancel' | 'changeEnd';
 
@@ -30,7 +31,9 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const [duplicate, setDuplicate] = useState<{ initial: unknown } | null>(null);
+  const [duplicate, setDuplicate] = useState<{ initial: WizardPrefill } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null); // amber follow-up note after a mutation
+  const promoRef = useRef(promoId);
   const listRequest = useRef(0);
   const detailRequest = useRef(0);
 
@@ -43,6 +46,8 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
     setDetailError(null);
     setDialog(null);
     setActionError(null);
+    setNotice(null);
+    setDuplicate(null);
   }
   const visibleDetail = detailId === promoId ? detail : null;
   const detailLoading = promoId !== null && detailId !== promoId && !detailError;
@@ -63,8 +68,8 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
   }, []);
 
   const loadDetail = useCallback(async () => {
+    const id = ++detailRequest.current; // bump first so a late response for a deselected promotion is ignored
     if (promoId === null) return;
-    const id = ++detailRequest.current;
     try {
       const data = await apiGet<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${promoId}`);
       if (id !== detailRequest.current) return; // stale response
@@ -76,6 +81,7 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
     }
   }, [promoId]);
 
+  useEffect(() => { promoRef.current = promoId; }, [promoId]);
   useEffect(() => { void loadList(); }, [loadList]);
   useEffect(() => { void loadDetail(); }, [loadDetail]);
 
@@ -93,40 +99,62 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
     if (newParam) setUrl({ new: false });
   }
 
-  async function reload() { await Promise.all([loadList(), loadDetail()]); }
+  // Adopts the mutation response (the only place the server's `warning` is carried) as the current detail.
+  function adopt(id: number, promotion: PromotionDetailDto) {
+    if (promoRef.current !== id) return;
+    detailRequest.current++; // invalidate any in-flight GET that would overwrite the warning
+    setDetail(promotion);
+    setDetailId(id);
+    setDetailError(null);
+  }
 
   async function cancelPromotion() {
     if (promoId === null) return;
-    await apiSend(`/api/pricing/promotions/${promoId}`, 'PATCH', { action: 'cancel' });
+    const id = promoId;
+    const { promotion } = await apiSend<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${id}`, 'PATCH', { action: 'cancel' });
     setDialog(null);
-    await reload();
+    setActionError(null);
+    setNotice(promotion.status !== 'cancelled' ? 'La cancelación quedó incompleta; vuelve a pulsar Cancelar para completarla' : null);
+    adopt(id, promotion);
+    void loadList();
   }
 
   async function changeEnd(endsOn: string) {
     if (promoId === null) return;
-    await apiSend(`/api/pricing/promotions/${promoId}`, 'PATCH', { action: 'change_end', endsOn });
+    const id = promoId;
+    const { promotion } = await apiSend<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${id}`, 'PATCH', { action: 'change_end', endsOn });
     setDialog(null);
-    await reload();
+    setActionError(null);
+    setNotice(promotion.endsOn !== endsOn || promotion.partial ? 'El cambio de fecha quedó incompleto; usa Reintentar' : null);
+    adopt(id, promotion);
+    void loadList();
   }
 
   async function retry() {
     if (promoId === null || retrying) return;
+    const id = promoId;
     setRetrying(true);
     setActionError(null);
+    setNotice(null);
     try {
-      await apiSend(`/api/pricing/promotions/${promoId}/retry`, 'POST', {});
-    } catch (e) { setActionError(errMsg(e)); }
-    try { await reload(); } finally { setRetrying(false); }
+      const { promotion } = await apiSend<{ promotion: PromotionDetailDto }>(`/api/pricing/promotions/${id}/retry`, 'POST', {});
+      adopt(id, promotion);
+    } catch (e) {
+      if (promoRef.current === id) { setActionError(errMsg(e)); void loadDetail(); }
+    } finally { setRetrying(false); }
+    void loadList();
   }
 
   function startDuplicate() {
     if (!visibleDetail) return;
+    setActionError(null);
+    setNotice(null);
     setDuplicate({
       initial: {
         name: visibleDetail.name, reason: visibleDetail.reason, kind: visibleDetail.kind,
         coPrecio: visibleDetail.coPrecio, baseCoPrecio: visibleDetail.baseCoPrecio,
-        items: visibleDetail.items.map(i => ({ coArt: i.coArt, artDes: i.artDes, promoMonto: i.promoMonto })),
-        customers: visibleDetail.customers.map(c => ({ coCli: c.coCli, cliDes: c.cliDes })),
+        items: visibleDetail.items.map(i => ({ coArt: i.coArt, monto: i.promoMonto })),
+        customers: visibleDetail.customers.map(c => ({ coCli: c.coCli })),
       },
     });
   }
@@ -139,12 +167,15 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
         onSelect={id => { setDuplicate(null); setUrl({ promo: id, new: false }); }}
         loading={listLoading}
         error={listError}
-        onNew={() => { setDuplicate(null); setUrl({ new: true }); }}
+        onNew={() => { setDuplicate(null); setActionError(null); setNotice(null); setUrl({ new: true }); }}
         canEdit={canEdit}
       />
       <div className="flex min-w-0 flex-col gap-4">
         {actionError && (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+        )}
+        {notice && !wizardOpen && (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{notice}</div>
         )}
         {wizardOpen ? (
           <PromotionWizardSlot
@@ -160,10 +191,11 @@ export default function PromotionsTab({ canEdit }: { canEdit: boolean }) {
             loading={detailLoading}
             error={detailError}
             canEdit={canEdit}
-            onCancel={() => setDialog('cancel')}
-            onChangeEnd={() => setDialog('changeEnd')}
+            onCancel={() => { setActionError(null); setDialog('cancel'); }}
+            onChangeEnd={() => { setActionError(null); setDialog('changeEnd'); }}
             onRetry={() => void retry()}
             onDuplicate={startDuplicate}
+            onReload={() => void loadDetail()}
             retrying={retrying}
           />
         )}

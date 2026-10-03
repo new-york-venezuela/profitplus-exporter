@@ -11,9 +11,10 @@ interface Props {
 
 export default function CancelPromotionDialog({ detail, onConfirm, onClose }: Props) {
   const { submitting, error, run } = useSubmit(onConfirm);
+  const close = () => { if (!submitting) onClose(); }; // no dismiss while a request is in flight
   const scheduled = detail.status === 'scheduled';
   return (
-    <Modal title="Cancelar promoción" onClose={onClose}>
+    <Modal title="Cancelar promoción" onClose={close}>
       <form onSubmit={e => { e.preventDefault(); if (!submitting) void run(); }} className="flex flex-col gap-4">
         <p className="text-sm text-gray-700">Promoción: <strong>{detail.name}</strong></p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -25,7 +26,7 @@ export default function CancelPromotionDialog({ detail, onConfirm, onClose }: Pr
         </ul>
         {error && <ErrorBox><span>{error.message}</span></ErrorBox>}
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose}
+          <button type="button" onClick={close}
             className={`min-h-[44px] rounded-md border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 ${FOCUS}`}>
             Volver
           </button>

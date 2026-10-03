@@ -14,6 +14,7 @@ interface Props {
   onChangeEnd: () => void;
   onRetry: () => void;
   onDuplicate: () => void;
+  onReload?: () => void;
   retrying?: boolean;
 }
 
@@ -43,7 +44,7 @@ function Timeline({ p }: { p: Pick<PromotionDto, 'startsOn' | 'endsOn' | 'status
   );
 }
 
-export default function PromotionDetail({ detail, loading, error, canEdit, onCancel, onChangeEnd, onRetry, onDuplicate, retrying = false }: Props) {
+export default function PromotionDetail({ detail, loading, error, canEdit, onCancel, onChangeEnd, onRetry, onDuplicate, onReload, retrying = false }: Props) {
   if (loading) {
     return (
       <div aria-busy="true" aria-label="Cargando promoción" className="flex flex-col gap-3">
@@ -53,7 +54,19 @@ export default function PromotionDetail({ detail, loading, error, canEdit, onCan
       </div>
     );
   }
-  if (error) return <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>;
+  if (error) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <span>{error}</span>
+        {onReload && (
+          <button type="button" onClick={onReload}
+            className="min-h-[44px] rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+            Reintentar
+          </button>
+        )}
+      </div>
+    );
+  }
   if (!detail) return <p className="text-sm text-gray-500">Selecciona una promoción para ver su detalle</p>;
 
   const badge = promoStatusBadge(detail);

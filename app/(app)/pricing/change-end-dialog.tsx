@@ -18,9 +18,10 @@ export default function ChangeEndDialog({ detail, onConfirm, onClose }: Props) {
   const min = today > detail.startsOn ? today : detail.startsOn;
   const valid = isValidIsoDate(endsOn) && endsOn >= min && endsOn !== detail.endsOn;
   const { submitting, error, run } = useSubmit(() => onConfirm(endsOn));
+  const close = () => { if (!submitting) onClose(); }; // no dismiss while a request is in flight
   const shortening = isValidIsoDate(endsOn) && endsOn < detail.endsOn;
   return (
-    <Modal title="Cambiar fecha de fin" onClose={onClose}>
+    <Modal title="Cambiar fecha de fin" onClose={close}>
       <form onSubmit={e => { e.preventDefault(); if (valid && !submitting) void run(); }} className="flex flex-col gap-4">
         <p className="text-sm text-gray-700">Promoción: <strong>{detail.name}</strong> · termina el {fmtDate(detail.endsOn)}</p>
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
@@ -34,7 +35,7 @@ export default function ChangeEndDialog({ detail, onConfirm, onClose }: Props) {
           {detail.kind === 'segment' && ' Los clientes volverán a su segmento anterior cuando venza.'}
         </p>
         {error && <ErrorBox><span>{error.message}</span></ErrorBox>}
-        <DialogFooter onClose={onClose} confirmLabel="Cambiar fecha" disabled={!valid} submitting={submitting} />
+        <DialogFooter onClose={close} confirmLabel="Cambiar fecha" disabled={!valid} submitting={submitting} />
       </form>
     </Modal>
   );
