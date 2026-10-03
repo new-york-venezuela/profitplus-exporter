@@ -10,7 +10,7 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 export function buildListCsv(rows: GridRow[]): string {
-  return buildCsv(COLUMNS, rows.map(r => ({
+  return buildCsv(COLUMNS, rows.filter(r => r.current !== null || r.next !== null).map(r => ({
     coArt: r.coArt, artDes: r.artDes,
     monto: r.current?.monto ?? '', desde: r.current?.desde ?? '',
     nextMonto: r.next?.monto ?? '', nextDesde: r.next?.desde ?? '',

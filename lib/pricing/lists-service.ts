@@ -117,6 +117,17 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
       current: cur(current), next: nxt(next), referenceMonto,
     });
   }
+  // Unpriced rows: every catalog article with no row in this list (a new/empty list must be priceable).
+  const priced = new Set(rows.map(r => r.coArt));
+  for (const a of articles) {
+    if (priced.has(a.coArt)) continue;
+    let referenceMonto: number | null = null;
+    if (refRates !== null) {
+      const rr = refRates.get(a.coArt) ?? [];
+      referenceMonto = new Set(rr.map(r => r.coAlma)).size > 1 ? null : currentOf(rr, t)?.monto ?? null;
+    }
+    rows.push({ coArt: a.coArt, artDes: a.artDes, catDes: a.catDes, coAlma: null, ambiguous: false, current: null, next: null, referenceMonto });
+  }
   rows.sort((x, y) => x.artDes.localeCompare(y.artDes));
   return { list, rows, referenceCoPrecio: compareTo };
 }

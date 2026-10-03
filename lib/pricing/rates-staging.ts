@@ -43,7 +43,7 @@ export function visibleRows(
   return rows.filter(r => {
     if (opts.category && r.catDes !== opts.category) return false;
     if (q && !r.coArt.toLowerCase().includes(q) && !r.artDes.toLowerCase().includes(q)) return false;
-    if (r.current === null && !r.ambiguous && opts.staged[r.coArt] === undefined && !opts.showUnpriced) return false;
+    if (r.current === null && r.next === null && !r.ambiguous && opts.staged[r.coArt] === undefined && !opts.showUnpriced) return false;
     return true;
   });
 }

@@ -265,3 +265,27 @@ describe('final fixes D/E', () => {
     expect(res.map(r => [r.outcome, r.message])).toEqual([['rejected', 'El artículo tiene una moneda distinta a la de la lista'], ['success', undefined]]);
   });
 });
+
+describe('final fixes F: grid is the priced rows UNION the catalog', () => {
+  test('catalog articles without a row appear unpriced; compareTo supplies their reference', async () => {
+    state.articles.push({ coArt: 'A9', artDes: 'Zucaritas', catDes: 'Cereal' });
+    state.rates.push({ coArt: 'A9', coPrecio: '01', coAlma: '000015', desde: '2026-03-15', hasta: null, monto: 8, coMone: 'USD', validador: '0x0b' });
+    const g = await getRatesGrid(deps, '08', '01');
+    expect(g.rows.find(r => r.coArt === 'A9')).toEqual({
+      coArt: 'A9', artDes: 'Zucaritas', catDes: 'Cereal', coAlma: null, ambiguous: false, current: null, next: null, referenceMonto: 8,
+    });
+    expect((await getRatesGrid(deps, '08', null)).rows.find(r => r.coArt === 'A9')!.referenceMonto).toBeNull();
+  });
+  test('an empty list shows the whole catalog and can be priced', async () => {
+    const dto = await createList(deps, { mode: 'create', desPrecio: 'Nueva', coMone: 'USD' }, actor);
+    const g = await getRatesGrid(deps, dto.coPrecio, null);
+    expect(g.rows.map(r => r.coArt).sort()).toEqual(['A1', 'A2', 'A3']);
+    expect(g.rows.every(r => r.current === null && r.next === null && r.coAlma === null)).toBe(true);
+  });
+  test('a priced article that is no longer in the catalog stays, named by its code', async () => {
+    state.rates.push({ coArt: 'OLD', coPrecio: '08', coAlma: '000015', desde: '2026-03-15', hasta: null, monto: 2, coMone: 'USD', validador: '0x0c' });
+    const g = await getRatesGrid(deps, '08', null);
+    expect(g.rows.find(r => r.coArt === 'OLD')).toMatchObject({ artDes: 'OLD', current: { monto: 2 } });
+    expect(g.rows.filter(r => r.coArt === 'A1').length).toBe(1);
+  });
+});

@@ -16,8 +16,13 @@ describe('buildListCsv', () => {
     expect(lines[1]).toBe('A1,Harina,12.4,2026-01-01,13.5,2026-12-01');
   });
 
+  test('rows with neither a current nor a next price are skipped', () => {
+    const csv = buildListCsv([row({ current: null, next: null }), row({ coArt: 'B', current: null, next: { monto: 3, desde: '2026-12-01' } })]);
+    expect(csv.slice(1).split('\r\n').length).toBe(2);
+  });
+
   test('escapes commas and quotes; blanks for missing prices', () => {
-    const csv = buildListCsv([row({ artDes: 'Arroz "Premium", 1kg', current: null })]);
-    expect(csv.slice(1).split('\r\n')[1]).toBe('A1,"Arroz ""Premium"", 1kg",,,,');
+    const csv = buildListCsv([row({ artDes: 'Arroz "Premium", 1kg', current: null, next: { monto: 1, desde: '2026-12-01' } })]);
+    expect(csv.slice(1).split('\r\n')[1]).toBe('A1,"Arroz ""Premium"", 1kg",,,1,2026-12-01');
   });
 });

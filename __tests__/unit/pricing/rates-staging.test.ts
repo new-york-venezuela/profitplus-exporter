@@ -65,6 +65,10 @@ describe('visibleRows', () => {
   test('hides unpriced non-ambiguous rows by default', () => {
     expect(visibleRows(rows, base).map(r => r.coArt)).toEqual(['HAR1', 'ARR1', 'AMB']);
   });
+  test('a row with only a scheduled rate stays visible', () => {
+    const r = row({ coArt: 'SCH', current: null, next: { monto: 5, desde: '2026-12-01' } });
+    expect(visibleRows([r], base).map(x => x.coArt)).toEqual(['SCH']);
+  });
   test('showUnpriced reveals them', () => {
     expect(visibleRows(rows, { ...base, showUnpriced: true })).toHaveLength(4);
   });
