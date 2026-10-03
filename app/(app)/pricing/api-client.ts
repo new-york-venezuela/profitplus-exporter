@@ -13,7 +13,7 @@ export async function apiGet<T>(url: string): Promise<T> {
   catch (e) { throw e instanceof ApiError ? e : new ApiError('Error de red', 0); }
 }
 
-export async function apiSend<T>(url: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> {
+export async function apiSend<T>(url: string, method: 'POST' | 'PATCH' | 'PUT', body: unknown): Promise<T> {
   try {
     return await parse<T>(await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
   } catch (e) { throw e instanceof ApiError ? e : new ApiError('Error de red', 0); }

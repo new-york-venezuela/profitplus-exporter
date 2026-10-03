@@ -15,5 +15,5 @@ export default async function PricingPage() {
   const accessLevel = await getPricingAccessLevel(db, session.sub, session.role);
   if (accessLevel === 'none') redirect('/inicio');
 
-  return <Suspense fallback={null}><PricingShell canEdit={accessLevel === 'edit'} /></Suspense>;
+  return <Suspense fallback={null}><PricingShell canEdit={accessLevel === 'edit'} isAdmin={session.role === 'admin'} /></Suspense>;
 }

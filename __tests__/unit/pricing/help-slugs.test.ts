@@ -11,7 +11,7 @@ const slugs = [...list.matchAll(/'([^']+)'/g)].map(m => m[1]);
 describe('help pages', () => {
   test('the allowlist was parsed', () => {
     expect(slugs.length).toBeGreaterThan(0);
-    for (const s of ['pricing-segmentos', 'pricing-listas', 'pricing-promociones']) expect(slugs).toContain(s);
+    for (const s of ["pricing-segmentos", "pricing-listas", "pricing-promociones", "pricing-vencimientos"]) expect(slugs).toContain(s);
   });
   test('every pricing-* slug has a content file', () => {
     for (const s of slugs.filter(x => x.startsWith('pricing-'))) {

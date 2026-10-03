@@ -6,17 +6,19 @@ import { nextTabId } from '@/lib/pricing/tab-nav';
 import SegmentsTab from './segments-tab';
 import ListsTab from './lists-tab';
 import PromotionsTab from './promotions-tab';
+import ExpiryTab from './expiry-tab';
 
 export const TABS: { id: string; label: string; helpPage: string }[] = [
   { id: 'segmentos', label: 'Segmentos', helpPage: 'pricing-segmentos' },
   { id: 'listas', label: 'Listas', helpPage: 'pricing-listas' },
   { id: 'promociones', label: 'Promociones', helpPage: 'pricing-promociones' },
+  { id: 'vencimientos', label: 'Vencimientos', helpPage: 'pricing-vencimientos' },
 ];
 
 const tabDomId = (id: string) => `pricing-tab-${id}`;
 const panelDomId = (id: string) => `pricing-panel-${id}`;
 
-export default function PricingShell({ canEdit }: { canEdit: boolean }) {
+export default function PricingShell({ canEdit, isAdmin }: { canEdit: boolean; isAdmin: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
   const active = TABS.find(t => t.id === params.get('tab')) ?? TABS[0];
@@ -59,6 +61,7 @@ export default function PricingShell({ canEdit }: { canEdit: boolean }) {
         {active.id === 'segmentos' && <SegmentsTab canEdit={canEdit} />}
         {active.id === 'listas' && <ListsTab canEdit={canEdit} />}
         {active.id === 'promociones' && <PromotionsTab canEdit={canEdit} />}
+        {active.id === 'vencimientos' && <ExpiryTab isAdmin={isAdmin} />}
       </div>
       {/* keyed: HelpPanel caches the first markdown it loads, so each tab needs its own instance */}
       <HelpPanel key={active.helpPage} page={active.helpPage} />
