@@ -1,5 +1,6 @@
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+// Assumes the server host runs in the business timezone (America/Caracas): "today" is the host's local date.
 export function todayIso(now: Date = new Date()): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');

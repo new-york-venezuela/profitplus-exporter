@@ -165,7 +165,7 @@ export default function ArticleLookup({ lists }: { lists: PriceListDto[] }) {
                               <summary className={`cursor-pointer text-blue-700 ${FOCUS}`}>{l.history.length} anteriores</summary>
                               <ul className="mt-1 text-xs text-gray-700">
                                 {l.history.map(h => (
-                                  <li key={`${h.desde}`} className="tabular-nums">{dmy(h.desde)} – {h.hasta ? dmy(h.hasta) : ''}: {fmt(h.monto)}</li>
+                                  <li key={`${h.desde}`} className="tabular-nums">{h.hasta ? `${dmy(h.desde)} – ${dmy(h.hasta)}` : `desde ${dmy(h.desde)}`}: {fmt(h.monto)}</li>
                                 ))}
                               </ul>
                             </details>
