@@ -14,6 +14,7 @@ const HELP_PAGES = [
   'dashboard',
   'pricing-segmentos',
   'pricing-listas',
+  'pricing-promociones',
 ] as const;
 
 export async function GET(

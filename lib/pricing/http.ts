@@ -7,6 +7,7 @@ import { ConflictError, NotFoundError, ValidationError, type Actor, type Service
 import { realSegmentErp } from './segment-erp';
 import { realRatesErp } from './rates-erp-adapter';
 import type { ListsDeps } from './lists-service';
+import type { PromotionsDeps } from './promotions-service';
 
 export function serviceErrorResponse(error: unknown): NextResponse | null {
   if (error instanceof NotFoundError || error instanceof ConflictError || error instanceof ValidationError) {
@@ -25,4 +26,9 @@ export function actorFrom(session: SessionPayload): Actor {
 
 export async function buildListsDeps(): Promise<ListsDeps> {
   return { erp: realRatesErp(await getPool()), db: getDb() };
+}
+
+export async function buildPromotionsDeps(): Promise<PromotionsDeps> {
+  const pool = await getPool();
+  return { rates: realRatesErp(pool), segments: realSegmentErp(pool), db: getDb() };
 }
