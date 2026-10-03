@@ -31,13 +31,16 @@ export function updateItem(
   db: AppDb,
   promotionId: number,
   coArt: string,
-  patch: { coAlma?: string | null; regularMonto?: number | null; applied?: boolean; message?: string | null },
+  patch: { coAlma?: string | null; regularMonto?: number | null; applied?: boolean; message?: string | null; appliedFrom?: string | null; appliedTo?: string | null; cancelledOn?: string | null },
 ): void {
   const set: Partial<typeof schema.pricingPromotionItems.$inferInsert> = {};
   if (patch.coAlma !== undefined) set.coAlma = patch.coAlma;
   if (patch.regularMonto !== undefined) set.regularMonto = patch.regularMonto;
   if (patch.applied !== undefined) set.applied = patch.applied ? 1 : 0;
   if (patch.message !== undefined) set.message = patch.message;
+  if (patch.appliedFrom !== undefined) set.appliedFrom = patch.appliedFrom;
+  if (patch.appliedTo !== undefined) set.appliedTo = patch.appliedTo;
+  if (patch.cancelledOn !== undefined) set.cancelledOn = patch.cancelledOn;
   if (Object.keys(set).length === 0) return;
   db.update(schema.pricingPromotionItems).set(set)
     .where(and(eq(schema.pricingPromotionItems.promotionId, promotionId), eq(schema.pricingPromotionItems.coArt, coArt))).run();

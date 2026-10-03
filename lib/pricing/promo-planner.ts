@@ -1,5 +1,5 @@
 import { addDaysIso } from './dates';
-import type { RatePlan, RateRow } from './rate-planner';
+import { same, type RatePlan, type RateRow } from './rate-planner';
 
 const fail = (error: string): RatePlan => ({ ok: false, error });
 
@@ -48,4 +48,14 @@ export function planChangePromoEnd(existing: RateRow[], p: { from: string; to: s
     { type: 'update', row: promo, set: { hasta: p.newTo } },
     { type: 'insert', desde: newContFrom, hasta: p.to, monto: p.regularMonto },
   ] };
+}
+
+/** A promo row already written in the ERP: ends at `to`, starts at one of `froms`, priced at `monto`. */
+export function findMaterialisedPromo(rows: RateRow[], p: { froms: string[]; to: string; monto: number }): RateRow | undefined {
+  return rows.find(r => r.hasta === p.to && p.froms.includes(r.desde) && same(r.monto, p.monto));
+}
+
+/** Monto of the regular continuation row that starts the day after `to`, if any. */
+export function continuationMonto(rows: RateRow[], to: string): number | null {
+  return rows.find(r => r.desde === addDaysIso(to, 1))?.monto ?? null;
 }

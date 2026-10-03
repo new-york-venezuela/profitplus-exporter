@@ -62,13 +62,13 @@ export async function getSegmentDto(deps: ServiceDeps, tipCli: string): Promise<
 
 const META_WARNING = 'Segmento creado en Profit pero sin metadatos; avise a un administrador';
 
-const isDuplicateKey = (e: unknown) => {
+export const isDuplicateKey = (e: unknown) => {
   const n = (e as { number?: number } | null)?.number;
   return n === 2627 || n === 2601;
 };
 
 /** Allocates the next code and creates the ERP row; retries once when a concurrent creator took the same code. */
-async function createInErp(
+export async function createSegmentInErp(
   deps: ServiceDeps, p: { desTipo: string; coPrecio: string; user: string },
 ): Promise<string> {
   for (let attempt = 0; ; attempt++) {
@@ -90,7 +90,7 @@ export async function createSegment(
   const nowMs = (deps.now ?? (() => new Date()))().getTime();
 
   if (input.kind === 'group') {
-    const tipCli = await createInErp(deps, { desTipo: input.desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
+    const tipCli = await createSegmentInErp(deps, { desTipo: input.desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
     let warning: string | undefined;
     try {
       upsertSegmentMeta(deps.db, { tipCli, kind: 'group', createdBy: actor.id, createdAt: nowMs });
@@ -108,7 +108,7 @@ export async function createSegment(
     throw new NotFoundError('Segmento de respaldo no encontrado');
   }
   const desTipo = buildSegmentName({ customerName: customer.cliDes, reason: input.reason, endsOn: input.expiresOn, today: t });
-  const tipCli = await createInErp(deps, { desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
+  const tipCli = await createSegmentInErp(deps, { desTipo, coPrecio: input.coPrecio, user: actor.erpUser });
 
   let warning: string | undefined;
   try {

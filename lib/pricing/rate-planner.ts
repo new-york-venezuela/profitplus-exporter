@@ -10,7 +10,7 @@ export type RateOp =
 export type RatePlan = { ok: true; skipped: boolean; ops: RateOp[] } | { ok: false; error: string };
 
 const fail = (error: string): RatePlan => ({ ok: false, error });
-const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+export const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 /**
  * Optimistic stale-grid check: does the monto of the row covering `today` equal what the user saw?

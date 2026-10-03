@@ -333,3 +333,173 @@ describe('segment promotions', () => {
     expect(d.customers.every(c => c.moved)).toBe(true);
   });
 });
+
+describe('fix round 1: per-item tracked state', () => {
+  const failFor = (coArt: string) => {
+    const original = deps.rates.applyPlanned;
+    deps.rates.applyPlanned = async (a, plan) => { if (a.coArt === coArt) throw new Error('boom'); return original(a, plan); };
+    return () => { deps.rates.applyPlanned = original; };
+  };
+  const both = () => overlay([{ coArt: 'A1', monto: 8 }, { coArt: 'A2', monto: 15 }]);
+
+  test('apply records appliedFrom/appliedTo', async () => {
+    const d = await createPromotion(deps, both(), actor);
+    expect(d.items.map(i => [i.appliedFrom, i.appliedTo, i.cancelledOn])).toEqual([['2026-10-05', '2026-10-15', null], ['2026-10-05', '2026-10-15', null]]);
+  });
+
+  test('I1: a partly failed cancel completes on a later day, resuming per item', async () => {
+    const d = await createPromotion(deps, both(), actor);
+    deps.now = at(2026, 10, 9);
+    const restore = failFor('A2');
+    const first = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(first.status).toBe('active');
+    expect(first.partial).toBe(true);
+    expect(first.items.find(i => i.coArt === 'A1')!.cancelledOn).toBe('2026-10-09');
+    expect(first.items.find(i => i.coArt === 'A2')!.message).toBeTruthy();
+    restore();
+    deps.now = at(2026, 10, 12);
+    const done = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(done.status).toBe('cancelled');
+    assertNoGaps(rowsOf('A1'));
+    assertNoGaps(rowsOf('A2'));
+    expect(rowsOf('A1').length).toBe(4); // A1 was not touched again on the second day
+    expect(rowsOf('A2').map(r => [r.desde, r.hasta, r.monto])).toEqual([
+      ['2026-03-15', '2026-10-04', 20], ['2026-10-05', '2026-10-11', 15], ['2026-10-12', '2026-10-15', 20], ['2026-10-16', null, 20],
+    ]);
+  });
+
+  test('I2: a partly failed change_end is repaired by retry; endsOn and appliedTo agree; message is kept', async () => {
+    const d = await createPromotion(deps, both(), actor);
+    const restore = failFor('A2');
+    const first = await patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-20' }, actor);
+    expect(first.endsOn).toBe('2026-10-20');
+    expect(first.partial).toBe(true);
+    expect(first.items.find(i => i.coArt === 'A1')!.appliedTo).toBe('2026-10-20');
+    const a2 = first.items.find(i => i.coArt === 'A2')!;
+    expect(a2.appliedTo).toBe('2026-10-15');
+    expect(a2.message).toBeTruthy();
+    restore();
+    const fixed = await retryPromotion(deps, d.id, actor);
+    expect(fixed.partial).toBe(false);
+    expect(fixed.items.every(i => i.appliedTo === '2026-10-20' && i.message === null)).toBe(true);
+    for (const art of ['A1', 'A2']) {
+      assertNoGaps(rowsOf(art));
+      expect(rowsOf(art).map(r => r.hasta)).toEqual(['2026-10-04', '2026-10-20', null]);
+    }
+  });
+
+  test('change_end where every item fails leaves endsOn unchanged', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    failFor('A1');
+    const r = await patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-20' }, actor);
+    expect(r.endsOn).toBe('2026-10-15');
+    expect(r.items[0].message).toBeTruthy();
+  });
+
+  test('I3: retry after the start date applies from today, notes it, and a second retry is a no-op', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }, { coArt: 'A3', monto: 3 }]), actor);
+    rates.rates.push(row('A3', '2026-03-15', null, 5));
+    deps.now = at(2026, 10, 8);
+    const r = await retryPromotion(deps, d.id, actor);
+    const a3 = r.items.find(i => i.coArt === 'A3')!;
+    expect(a3).toMatchObject({ applied: true, appliedFrom: '2026-10-08', appliedTo: '2026-10-15', regularMonto: 5 });
+    expect(a3.message).toBe('Aplicada desde hoy (inicio original: 05/10)');
+    expect(rowsOf('A3').map(x => [x.desde, x.hasta, x.monto])).toEqual([
+      ['2026-03-15', '2026-10-07', 5], ['2026-10-08', '2026-10-15', 3], ['2026-10-16', null, 5],
+    ]);
+    const snap = JSON.stringify(rates.rates);
+    const again = await retryPromotion(deps, d.id, actor);
+    expect(JSON.stringify(rates.rates)).toBe(snap);
+    expect(again.partial).toBe(false);
+  });
+
+  test('ERP write succeeded but SQLite update failed: retry records the existing promo row without rewriting', async () => {
+    const real = deps.db;
+    deps.db = new Proxy(real, { get: (t, k, r) => (k === 'update' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    expect(d.items[0].applied).toBe(false);
+    expect(rowsOf('A1').length).toBe(3); // ERP was written
+    deps.db = real;
+    const snap = JSON.stringify(rates.rates);
+    deps.now = at(2026, 10, 2);
+    const r = await retryPromotion(deps, d.id, actor);
+    expect(r.items[0]).toMatchObject({ applied: true, appliedFrom: '2026-10-05', appliedTo: '2026-10-15', regularMonto: 10 });
+    expect(JSON.stringify(rates.rates)).toBe(snap);
+  });
+
+  test('the same recovery works after the start date has passed (existing row starts at startsOn)', async () => {
+    const real = deps.db;
+    deps.db = new Proxy(real, { get: (t, k, r) => (k === 'update' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    deps.db = real;
+    deps.now = at(2026, 10, 8);
+    const snap = JSON.stringify(rates.rates);
+    const r = await retryPromotion(deps, d.id, actor);
+    expect(r.items[0]).toMatchObject({ applied: true, appliedFrom: '2026-10-05', message: null });
+    expect(JSON.stringify(rates.rates)).toBe(snap);
+  });
+
+  test('segment cancel resumes after a partial failure and only then returns customers', async () => {
+    const d = await createPromotion(deps, segmentInput(), actor);
+    const restore = failFor('A2');
+    const first = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(first.status).not.toBe('cancelled');
+    expect(first.partial).toBe(true);
+    expect(seg.customers.C1.tipCli).toBe(d.tipCli!);
+    expect(seg.customers.C2.tipCli).toBe(d.tipCli!);
+    restore();
+    const done = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(done.status).toBe('cancelled');
+    expect(seg.customers.C1.tipCli).toBe('000001');
+    assertNoGaps(rowsOf('A2', d.coPrecio));
+  });
+
+  test('retry during a cancellation is rejected', async () => {
+    const d = await createPromotion(deps, both(), actor);
+    failFor('A2');
+    await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    await expect(retryPromotion(deps, d.id, actor)).rejects.toThrow('La promoción se está cancelando; vuelve a cancelar para completar');
+    await expect(retryPromotion(deps, d.id, actor)).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test('change_end on ended or cancelled -> ValidationError', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    await expect(patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-20' }, actor)).rejects.toBeInstanceOf(ValidationError);
+    const e = await createPromotion(deps, overlay([{ coArt: 'A2', monto: 15 }]), actor);
+    deps.now = at(2026, 10, 20);
+    await expect(patchPromotion(deps, e.id, { action: 'change_end', endsOn: '2026-10-30' }, actor)).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test('change_end into the past is rejected even with no applied items; same date is a no-op without audit', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A3', monto: 3 }]), actor);
+    expect(d.appliedCount).toBe(0);
+    deps.now = at(2026, 10, 7);
+    await expect(patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-06' }, actor)).rejects.toBeInstanceOf(ValidationError);
+    const n = listAudit(deps.db).length;
+    const same = await patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-15' }, actor);
+    expect(same.endsOn).toBe('2026-10-15');
+    expect(listAudit(deps.db).length).toBe(n);
+    const moved = await patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-18' }, actor);
+    expect(moved.endsOn).toBe('2026-10-18');
+    expect(listAudit(deps.db).some(x => x.action === 'promotion_extend')).toBe(true);
+  });
+
+  test('regularMonto missing on an applied item is recovered from the continuation row', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    const { updateItem } = await import('@/lib/pricing/promotions-repo');
+    updateItem(deps.db, d.id, 'A1', { regularMonto: null });
+    deps.now = at(2026, 10, 9);
+    const c = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(c.status).toBe('cancelled');
+    assertNoGaps(rowsOf('A1'));
+  });
+
+  test('segment: the cloneList metadata warning is carried into the detail', async () => {
+    let calls = 0;
+    deps.db = new Proxy(deps.db, { get: (t, k, r) => (k === 'insert' ? (...a: unknown[]) => { if (calls++ === 0) throw new Error('sqlite down'); return (Reflect.get(t, k, r) as (...x: unknown[]) => unknown).apply(t, a); } : Reflect.get(t, k, r)) });
+    const d = await createPromotion(deps, segmentInput(), actor);
+    expect(d.warning).toContain('metadatos de moneda');
+    expect(d.items.every(i => i.applied)).toBe(true);
+  });
+});

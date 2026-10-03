@@ -241,6 +241,9 @@ export const pricingPromotionItems = sqliteTable('pricing_promotion_items', {
   regularMonto: real('regular_monto'),            // regular price at creation (null if unknown/rejected)
   applied:      integer('applied').notNull().default(0), // 0/1
   message:      text('message'),                  // failure/skip reason
+  appliedFrom:  text('applied_from'),             // ISO: start of the promo row actually written in the ERP (null until applied)
+  appliedTo:    text('applied_to'),               // ISO: end of that row
+  cancelledOn:  text('cancelled_on'),             // ISO: day the item's cancellation was completed
 }, t => ({ uniq: unique('pricing_promotion_items_uniq').on(t.promotionId, t.coArt) }));
 export type PromotionItem = typeof pricingPromotionItems.$inferSelect;
 

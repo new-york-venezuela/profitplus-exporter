@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { planCancelPromo, planChangePromoEnd } from '@/lib/pricing/promo-planner';
+import { continuationMonto, findMaterialisedPromo, planCancelPromo, planChangePromoEnd } from '@/lib/pricing/promo-planner';
 import { addDaysIso, daysBetweenIso } from '@/lib/pricing/dates';
 import type { RateOp, RateRow } from '@/lib/pricing/rate-planner';
 
@@ -137,5 +137,19 @@ describe('planChangePromoEnd', () => {
     expect(planChangePromoEnd(rows, { ...p, newTo: '2026-10-04', today: '2026-10-01' }).ok).toBe(false);
     expect(planChangePromoEnd(rows, { ...p, newTo: '2026-10-15', today: '2026-10-09' })).toEqual({ ok: true, skipped: true, ops: [] });
     expect(planChangePromoEnd(rows, { ...p, newTo: '2026-10-20', today: '2026-10-16' }).ok).toBe(false);
+  });
+});
+
+describe('findMaterialisedPromo / continuationMonto', () => {
+  const rows = [regularBefore, promo, cont];
+  test('finds the promo row by end, start candidates and monto', () => {
+    expect(findMaterialisedPromo(rows, { froms: ['2026-10-05'], to: '2026-10-15', monto: 3 })).toBe(promo);
+    expect(findMaterialisedPromo(rows, { froms: ['2026-10-01', '2026-10-05'], to: '2026-10-15', monto: 3 })).toBe(promo);
+    expect(findMaterialisedPromo(rows, { froms: ['2026-10-06'], to: '2026-10-15', monto: 3 })).toBeUndefined();
+    expect(findMaterialisedPromo(rows, { froms: ['2026-10-05'], to: '2026-10-15', monto: 9 })).toBeUndefined();
+  });
+  test('continuation monto is the row starting the day after', () => {
+    expect(continuationMonto(rows, '2026-10-15')).toBe(cont.monto);
+    expect(continuationMonto(rows, '2026-10-14')).toBeNull();
   });
 });
