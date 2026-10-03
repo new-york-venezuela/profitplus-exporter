@@ -132,4 +132,25 @@ describe('runSweep', () => {
     expect(s.failed).toBe(1);
     expect(s.errors.join(' ')).not.toContain('SELECT');
   });
+  test('audit write failure after a successful move counts only as moved', async () => {
+    const db = makeMemoryDb(); seedMeta(db);
+    const { erp, custs } = makeErp(['SP01', 'G1'], { c1: 'SP01' });
+    const broken = new Proxy(db, { get: (t, k, r) => (k === 'insert' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+    const s = await runSweep({ erp, db: broken, now: NOW }, actor);
+    expect(custs.c1).toBe('G1');
+    expect(s).toMatchObject({ moved: 1, failed: 0, errors: [] });
+  });
+  test('an expired special segment is never a revert target; a still-valid one is', async () => {
+    const db = makeMemoryDb();
+    seedMeta(db);
+    seedMeta(db, { tipCli: 'SP02', expiresAt: '2026-10-01', previousTipCli: null, fallbackTipCli: null });
+    seedMeta(db, { tipCli: 'SP03', expiresAt: '2026-12-31', previousTipCli: null, fallbackTipCli: null });
+    seedPromo(db, 'SP01', { c1: 'SP02', c2: 'SP03' });
+    const { erp, custs } = makeErp(['SP01', 'SP02', 'SP03', 'G1'], { c1: 'SP01', c2: 'SP01' });
+    await runSweep({ erp, db, now: NOW }, actor);
+    expect(custs).toEqual({ c1: 'G1', c2: 'SP03' });
+  });
+  test('pickRevertTarget skips candidates flagged as expired specials', () => {
+    expect(pickRevertTarget({ promotionPrevious: 'S', metaPrevious: null, metaFallback: 'C' }, () => true, 'X', t => t === 'S')).toBe('C');
+  });
 });

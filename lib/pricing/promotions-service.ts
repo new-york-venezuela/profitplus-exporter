@@ -4,17 +4,17 @@ import type { Promotion, PromotionCustomer, PromotionItem } from '@/lib/db/schem
 import type { CreatePromotionInput, PatchPromotionInput } from './promo-validators';
 import { planRatePeriod, same, type RatePlan, type RateRow } from './rate-planner';
 import { continuationMonto, findMaterialisedPromo, planCancelPromo, planChangePromoEnd } from './promo-planner';
-import { promotionStatus, type PromotionStatus } from './promo-status';
+import { promotionStatus, strandedItems, type PromotionStatus } from './promo-status';
 import { addDaysIso, daysBetweenIso, todayIso } from './dates';
 import { buildSegmentName, formatShortDate } from './segment-name';
-import { appendAudit, getSegmentMeta, setSegmentExpiry, upsertSegmentMeta } from './segments-repo';
+import { appendAudit, getSegmentMeta, getSegmentMetaMap, setSegmentExpiry, upsertSegmentMeta } from './segments-repo';
 import {
   cancelPromotion, getPromotion, insertCustomers, insertItems, insertPromotion, listCustomers, listItems,
-  listPromotions, markCustomerMoved, setPromotionEnd, setPromotionTipCli, updateItem,
+  listPromotions, listTrackedPromoRows, markCustomerMoved, setPromotionEnd, setPromotionTipCli, updateItem,
 } from './promotions-repo';
 import {
   cloneList, currentOf, getListDto, isMixedCurrency, MIXED_CURRENCY_MSG, resolveArticleWarehouse,
-  type ListsDeps, type RatesErp,
+  type CloneRow, type ListsDeps, type RatesErp,
 } from './lists-service';
 import { createSegmentInErp, NotFoundError, ValidationError, type Actor, type SegmentErp } from './segments-service';
 
@@ -46,6 +46,7 @@ const NO_WAREHOUSE_MSG = 'No se conoce el almacén de este artículo';
 const NO_CURRENCY_MSG = 'La lista no tiene moneda definida';
 const CANCELLING_MSG = 'La promoción se está cancelando; vuelve a cancelar para completar';
 const INTERNAL_WARNING = 'Promoción procesada en Profit pero faltan registros internos; avise a un administrador';
+const DETAIL_WARNING = 'Promoción creada; no se pudieron leer los nombres desde Profit. Recargue para verlos';
 const SEGMENT_WARNING = 'No se pudo crear el segmento especial en Profit; reintente la promoción';
 
 const clock = (d: PromotionsDeps) => (d.now ?? (() => new Date()))();
@@ -59,13 +60,19 @@ function tryDb(label: string, fn: () => void): boolean {
 
 // ---------- reading ----------
 
-const isPending = (p: Promotion, i: PromotionItem) => i.appliedFrom !== null && i.cancelledOn === null && i.appliedTo !== p.endsOn;
+/**
+ * An applied item whose tracked end differs from the promotion's still needs converging. Once the promotion has ended,
+ * only items whose promo row still reaches today or later (stranded by a partly failed shortening) are pending.
+ */
+const isPending = (p: Promotion, i: PromotionItem, t: string) =>
+  i.appliedFrom !== null && i.cancelledOn === null && i.appliedTo !== p.endsOn
+  && (t <= p.endsOn || (i.appliedTo ?? '') >= t);
 
 function toDto(p: Promotion, items: PromotionItem[], customers: PromotionCustomer[], desPrecio: string | null, t: string): PromotionDto {
   const status = promotionStatus(p, t);
   const appliedCount = items.filter(i => i.applied === 1).length;
   const movedCount = customers.filter(c => c.moved === 1).length;
-  const unfinished = appliedCount < items.length || items.some(i => isPending(p, i) || i.cancelledOn !== null)
+  const unfinished = appliedCount < items.length || items.some(i => isPending(p, i, t) || i.cancelledOn !== null)
     || (p.kind === 'segment' && movedCount < customers.length);
   return {
     id: p.id, name: p.name, reason: p.reason, kind: p.kind, coPrecio: p.coPrecio, desPrecio,
@@ -104,6 +111,24 @@ export async function getPromotionDetail(deps: PromotionsDeps, id: number, warni
     })),
     customers: customers.map((c, k) => ({ coCli: c.coCli, cliDes: custNames[k]?.cliDes ?? c.coCli, previousTipCli: c.previousTipCli, moved: c.moved === 1 })),
     ...(warning ? { warning } : {}),
+  };
+}
+
+/** Detail built from SQLite only (no ERP names): used when the ERP reads fail after the writes already succeeded. */
+function localDetail(deps: PromotionsDeps, id: number, warning: string): PromotionDetailDto {
+  const p = getPromotion(deps.db, id)!;
+  const items = listItems(deps.db, id);
+  const customers = listCustomers(deps.db, id);
+  return {
+    ...toDto(p, items, customers, null, today(deps)),
+    items: items.map(i => ({
+      coArt: i.coArt, artDes: i.coArt, promoMonto: i.promoMonto, regularMonto: i.regularMonto, applied: i.applied === 1,
+      message: i.message, appliedFrom: i.appliedFrom, appliedTo: i.appliedTo, cancelledOn: i.cancelledOn,
+    })),
+    customers: customers.map(c => ({
+      coCli: c.coCli, cliDes: c.coCli, previousTipCli: c.previousTipCli, moved: c.moved === 1,
+    })),
+    warning,
   };
 }
 
@@ -181,6 +206,9 @@ async function computeApply(ctx: RateCtx, promo: Promotion, item: PromotionItem,
 }
 
 async function applyItem(ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string): Promise<void> {
+  // A cancellation may have started since the items were listed: never write a promo row for a cancelled item.
+  const fresh = listItems(ctx.deps.db, promo.id).find(i => i.coArt === item.coArt);
+  if (!fresh || fresh.cancelledOn !== null || getPromotion(ctx.deps.db, promo.id)?.cancelledAt != null) return;
   let patch: ItemPatch;
   try {
     patch = await computeApply(ctx, promo, item, user);
@@ -224,9 +252,31 @@ function planChangeEndIdempotent(rows: RateRow[], p: { from: string; to: string;
 const recordItem = (ctx: RateCtx, promo: Promotion, item: PromotionItem, patch: ItemPatch) =>
   tryDb(`item ${item.coArt} progress`, () => updateItem(ctx.deps.db, promo.id, item.coArt, patch));
 
+/**
+ * Cancels an item with no recorded promo row: a row may still be in the ERP (lost SQLite record, or a concurrent
+ * retry), so the locked rows are searched for it and it is cancelled if found.
+ */
+async function cancelUnrecordedItem(
+  ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string,
+): Promise<boolean> {
+  const ins = await inspectArticle(ctx, item.coArt, promo.startsOn);
+  if (ins.ok) {
+    const r = await runPlan(ctx, item.coArt, ins.coAlma, user, rows => {
+      const live = rows.find(x =>
+        x.hasta === promo.endsOn && x.desde >= promo.startsOn && same(x.monto, item.promoMonto));
+      if (!live) return { ok: true, skipped: true, ops: [] };
+      const regularMonto = item.regularMonto ?? continuationMonto(rows, promo.endsOn);
+      if (regularMonto === null) return { ok: false, error: MISSING_REGULAR_MSG };
+      return planCancelIdempotent(rows, { from: live.desde, to: promo.endsOn, regularMonto, today: ctx.t });
+    });
+    if (!r.ok) { recordItem(ctx, promo, item, { message: r.message }); return false; }
+  }
+  return recordItem(ctx, promo, item, { cancelledOn: ctx.t, message: null });
+}
+
 async function cancelItem(ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string): Promise<boolean> {
   if (item.cancelledOn !== null) return true;
-  if (item.appliedFrom === null || item.appliedTo === null) return recordItem(ctx, promo, item, { cancelledOn: ctx.t });
+  if (item.appliedFrom === null || item.appliedTo === null) return cancelUnrecordedItem(ctx, promo, item, user);
   const { appliedFrom: from, appliedTo: to } = item;
   const r = item.coAlma
     ? await runPlan(ctx, item.coArt, item.coAlma, user, rows => {
@@ -252,6 +302,22 @@ async function convergeItem(ctx: RateCtx, promo: Promotion, item: PromotionItem,
   return recordItem(ctx, promo, item, { appliedTo: newTo, message: null });
 }
 
+/** After the promotion ended: a promo row still running (a shortening that failed for it) stops yesterday. */
+async function trimStrandedItem(ctx: RateCtx, promo: Promotion, item: PromotionItem, user: string): Promise<boolean> {
+  const { appliedFrom: from, appliedTo: to } = item as PromotionItem & { appliedFrom: string; appliedTo: string };
+  const r = item.coAlma
+    ? await runPlan(ctx, item.coArt, item.coAlma, user, rows => {
+      const regularMonto = item.regularMonto ?? continuationMonto(rows, to);
+      if (regularMonto === null) return { ok: false, error: MISSING_REGULAR_MSG };
+      return planCancelIdempotent(rows, { from, to, regularMonto, today: ctx.t });
+    })
+    : { ok: false, message: NO_WAREHOUSE_MSG };
+  if (!r.ok) { recordItem(ctx, promo, item, { message: r.message }); return false; }
+  const until = addDaysIso(ctx.t, -1);
+  const message = `Precio promocional aplicado hasta ${formatShortDate(until, ctx.t)}`;
+  return recordItem(ctx, promo, item, { appliedTo: until, message });
+}
+
 async function itemCtx(deps: PromotionsDeps, promo: Promotion): Promise<RateCtx> {
   return makeCtx(deps, promo.coPrecio, (await getListDto(listsDeps(deps), promo.coPrecio)).coMone);
 }
@@ -275,20 +341,54 @@ export async function previewPromotion(
   const list = await getListDto(listsDeps(deps), coPrecio);
   const customers = input.kind === 'segment' ? await resolveCustomers(deps, input.customerCodes) : [];
   const ctx = await makeCtx(deps, coPrecio, list.coMone);
+  // A segment promotion is planned against the price its cloned list will start with (one open row from today).
+  const clone = input.kind === 'segment'
+    ? new Map((await segmentCloneRows(deps, coPrecio, ctx.t)).map(r => [r.coArt, r]))
+    : null;
   const names = new Map((await deps.rates.listArticles({ limit: 5000 })).map(a => [a.coArt, a.artDes]));
   const rows: PreviewRow[] = [];
   for (const it of input.items) {
     const base = { coArt: it.coArt, artDes: names.get(it.coArt) ?? it.coArt, promo: it.monto };
     const ins = await inspectArticle(ctx, it.coArt, input.startsOn);
     if (!ins.ok) { rows.push({ ...base, regular: null, status: 'rejected', message: ins.message }); continue; }
-    const plan = planRatePeriod(ins.rows, { from: input.startsOn, to: input.endsOn, monto: it.monto, today: ctx.t });
-    const regular = ins.covering?.monto ?? null;
+    const c = clone?.get(it.coArt);
+    const synth = (r: CloneRow): RateRow =>
+      ({ ...r, coPrecio, desde: ctx.t, hasta: null, coMone: list.coMone, validador: '' });
+    const planRows: RateRow[] = !clone ? ins.rows : c ? [synth(c)] : [];
+    const plan = planRatePeriod(planRows, { from: input.startsOn, to: input.endsOn, monto: it.monto, today: ctx.t });
+    const regular = clone ? c?.monto ?? null : ins.covering?.monto ?? null;
     rows.push(plan.ok ? { ...base, regular, status: 'ok', message: null } : { ...base, regular, status: 'rejected', message: plan.error });
   }
   return { rows, customers };
 }
 
 // ---------- segment machinery ----------
+
+/**
+ * Rows the segment promotion's list is cloned with, all starting today: each article/warehouse covered today in the
+ * base list keeps today's price, except when today's row is an app-tracked overlay promo row, which is replaced by
+ * the regular price that follows it. Base-list changes scheduled after today are not copied (the clone is a snapshot).
+ */
+async function segmentCloneRows(deps: PromotionsDeps, baseCoPrecio: string, t: string): Promise<CloneRow[]> {
+  const groups = new Map<string, RateRow[]>();
+  for (const r of await deps.rates.readListRates(baseCoPrecio)) {
+    const k = `${r.coArt}\u0000${r.coAlma}`;
+    const g = groups.get(k);
+    if (g) g.push(r); else groups.set(k, [r]);
+  }
+  const tracked = listTrackedPromoRows(deps.db, baseCoPrecio);
+  const out: CloneRow[] = [];
+  for (const rs of groups.values()) {
+    const cov = currentOf(rs, t);
+    if (!cov) continue;
+    const promo = cov.hasta === null ? undefined : tracked.find(x =>
+      x.coArt === cov.coArt && x.appliedFrom === cov.desde && x.appliedTo === cov.hasta
+      && (x.coAlma === null || x.coAlma === cov.coAlma));
+    const monto = promo ? continuationMonto(rs, cov.hasta!) ?? promo.regularMonto ?? cov.monto : cov.monto;
+    out.push({ coArt: cov.coArt, coAlma: cov.coAlma, monto });
+  }
+  return out;
+}
 
 function mostCommon(values: string[]): string | null {
   const counts = new Map<string, number>();
@@ -309,7 +409,13 @@ async function ensureSegment(deps: PromotionsDeps, promo: Promotion, actor: Acto
     return SEGMENT_WARNING;
   }
   if (!tryDb(`link segment ${tipCli} to promotion ${promo.id}`, () => setPromotionTipCli(deps.db, promo.id, tipCli))) return INTERNAL_WARNING;
-  const fallback = mostCommon(listCustomers(deps.db, promo.id).map(c => c.previousTipCli));
+  // Special segments belong to one customer (or another promotion): never a fallback for the rest.
+  let special: (tipCli: string) => boolean = () => false;
+  tryDb('segment metadata read', () => {
+    const metas = getSegmentMetaMap(deps.db);
+    special = x => metas.get(x)?.kind === 'special';
+  });
+  const fallback = mostCommon(listCustomers(deps.db, promo.id).map(c => c.previousTipCli).filter(x => !special(x)));
   const ok = tryDb(`metadata of segment ${tipCli}`, () => {
     upsertSegmentMeta(deps.db, {
       tipCli, kind: 'special', customerCoCli: null, reason: promo.name, expiresAt: promo.endsOn,
@@ -384,7 +490,7 @@ async function prepareTarget(deps: PromotionsDeps, input: CreatePromotionInput, 
   const customers = await resolveCustomers(deps, input.customerCodes);
   const promoList = await cloneList(listsDeps(deps), {
     mode: 'clone', sourceCoPrecio: input.baseCoPrecio, desPrecio: `PROMO ${input.name}`.slice(0, 60),
-    percent: null, effectiveFrom: t, asOf: addDaysIso(input.endsOn, 1),
+    percent: null, effectiveFrom: t, rows: await segmentCloneRows(deps, input.baseCoPrecio, t),
   }, actor);
   return { coPrecio: promoList.coPrecio, baseCoPrecio: input.baseCoPrecio, customers, warning: promoList.warning };
 }
@@ -424,7 +530,12 @@ export async function createPromotion(deps: PromotionsDeps, input: CreatePromoti
     appendAudit(deps.db, { userId: actor.id, action: 'promotion_create', target: String(id), after: summary(promo, listItems(deps.db, id), listCustomers(deps.db, id)), now: nowMs }))) {
     warning ??= INTERNAL_WARNING;
   }
-  return getPromotionDetail(deps, id, warning);
+  try {
+    return await getPromotionDetail(deps, id, warning);
+  } catch (e) {
+    console.error(`Pricing: promotion ${id} created but reading its detail from Profit failed:`, e);
+    return localDetail(deps, id, warning ?? DETAIL_WARNING);
+  }
 }
 
 // ---------- patch ----------
@@ -485,12 +596,23 @@ export async function patchPromotion(deps: PromotionsDeps, id: number, input: Pa
 
 /** Applies unapplied items, converges items whose end differs from the promotion's, creates/moves the segment customers. */
 export async function retryPromotion(deps: PromotionsDeps, id: number, actor: Actor): Promise<PromotionDetailDto> {
+  const found = getPromotion(deps.db, id);
+  if (!found) throw new NotFoundError('Promoción no encontrada');
+  const t = today(deps);
+  if (promotionStatus(found, t) === 'ended') {
+    // Only items whose promo row outlived a shortened end can still be fixed: stop them yesterday.
+    const stranded = strandedItems(found, listItems(deps.db, id), t);
+    if (stranded.length === 0) throw new ValidationError('La promoción ya terminó');
+    const ctx = await itemCtx(deps, found);
+    for (const item of stranded) await trimStrandedItem(ctx, found, item, actor.erpUser);
+    return getPromotionDetail(deps, id);
+  }
   let promo = requireOpen(deps, id);
   const items = listItems(deps.db, id);
   if (items.some(i => i.cancelledOn !== null)) throw new ValidationError(CANCELLING_MSG);
 
   await applyItems(deps, promo, items.filter(i => i.appliedFrom === null), actor.erpUser);
-  const pending = items.filter(i => isPending(promo, i));
+  const pending = items.filter(i => isPending(promo, i, t));
   if (pending.length > 0) {
     const ctx = await itemCtx(deps, promo);
     for (const item of pending) await convergeItem(ctx, promo, item, promo.endsOn, actor.erpUser);

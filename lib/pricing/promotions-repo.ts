@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import type { AppDb } from '@/lib/geo/routes-repo';
 import type { Promotion, PromotionItem, PromotionCustomer } from '@/lib/db/schema';
@@ -73,6 +73,37 @@ export function cancelPromotion(db: AppDb, id: number, at: number): void {
 
 export function setPromotionTipCli(db: AppDb, id: number, tipCli: string): void {
   db.update(schema.pricingPromotions).set({ tipCli }).where(eq(schema.pricingPromotions.id, id)).run();
+}
+
+const P = schema.pricingPromotions;
+const I = schema.pricingPromotionItems;
+
+/** The open promotion item on list `coPrecio` for `coArt` whose tracked promo row reaches `from` or later. */
+export function findOpenPromotionItem(
+  db: AppDb, coPrecio: string, coArt: string, from: string,
+): { name: string; appliedTo: string } | undefined {
+  const row = db.select({ name: P.name, appliedTo: I.appliedTo }).from(I).innerJoin(P, eq(P.id, I.promotionId))
+    .where(and(
+      eq(P.coPrecio, coPrecio), isNull(P.cancelledAt), eq(I.coArt, coArt), isNull(I.cancelledOn), gte(I.appliedTo, from),
+    ))
+    .orderBy(desc(I.appliedTo)).get();
+  return row && row.appliedTo ? { name: row.name, appliedTo: row.appliedTo } : undefined;
+}
+
+/** Promo rows the app wrote (and has not cancelled) on list `coPrecio`. */
+export function listTrackedPromoRows(db: AppDb, coPrecio: string): {
+  coArt: string; coAlma: string | null; appliedFrom: string; appliedTo: string; regularMonto: number | null;
+}[] {
+  return db.select({
+    coArt: I.coArt, coAlma: I.coAlma, appliedFrom: I.appliedFrom, appliedTo: I.appliedTo, regularMonto: I.regularMonto,
+  })
+    .from(I).innerJoin(P, eq(P.id, I.promotionId))
+    .where(and(eq(P.coPrecio, coPrecio), isNull(I.cancelledOn), isNotNull(I.appliedFrom), isNotNull(I.appliedTo))).all()
+    .map(r => ({ ...r, appliedFrom: r.appliedFrom!, appliedTo: r.appliedTo! }));
+}
+
+export function findPromotionByTipCli(db: AppDb, tipCli: string): Promotion | undefined {
+  return db.select().from(P).where(eq(P.tipCli, tipCli)).orderBy(desc(P.id)).get();
 }
 
 /**

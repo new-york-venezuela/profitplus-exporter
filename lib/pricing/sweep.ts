@@ -11,17 +11,23 @@ export interface SweepErp {
   moveCustomer(coCli: string, targetTipCli: string, user: string): Promise<SegmentMoveResult>;
 }
 
+/** `skipped` is kept for the summary shape but is always 0: every customer found is either moved or failed. */
 export interface SweepSummary { segmentsChecked: number; moved: number; skipped: number; failed: number; errors: string[] }
 
-/** First candidate (promotion previous, meta previous, meta fallback) that exists and is not the expired segment. */
+/**
+ * First candidate (promotion previous, meta previous, meta fallback) that exists, is not the expired segment and is not
+ * another expired special segment (a customer sent there would only be swept again; a still-valid special segment, e.g.
+ * the customer's own, is a correct destination).
+ */
 export function pickRevertTarget(
   p: { promotionPrevious: string | undefined; metaPrevious: string | null; metaFallback: string | null },
   exists: (tipCli: string) => boolean,
   expiredTipCli?: string,
+  isExpiredSpecial: (tipCli: string) => boolean = () => false,
 ): string | null {
   for (const c of [p.promotionPrevious, p.metaPrevious, p.metaFallback]) {
     const t = c?.trim();
-    if (t && t !== expiredTipCli?.trim() && exists(t)) return t;
+    if (t && t !== expiredTipCli?.trim() && !isExpiredSpecial(t) && exists(t)) return t;
   }
   return null;
 }
@@ -32,8 +38,11 @@ export async function runSweep(
 ): Promise<SweepSummary> {
   const today = todayIso((deps.now ?? (() => new Date()))());
   const summary: SweepSummary = { segmentsChecked: 0, moved: 0, skipped: 0, failed: 0, errors: [] };
-  const expired = [...getSegmentMetaMap(deps.db).values()]
-    .filter(m => m.kind === 'special' && m.expiresAt !== null && m.expiresAt < today);
+  const isExpired = (m: { kind: string; expiresAt: string | null }) =>
+    m.kind === 'special' && m.expiresAt !== null && m.expiresAt < today;
+  const metas = getSegmentMetaMap(deps.db);
+  const expired = [...metas.values()].filter(isExpired);
+  const expiredCodes = new Set(expired.map(m => m.tipCli.trim()));
 
   const existsCache = new Map<string, boolean>();
   const exists = async (t: string): Promise<boolean> => {
@@ -59,7 +68,7 @@ export async function runSweep(
       try {
         for (const cand of candidates) {
           const t = cand?.trim();
-          if (t && t !== meta.tipCli.trim() && (await exists(t))) known.add(t);
+          if (t && t !== meta.tipCli.trim() && !expiredCodes.has(t) && (await exists(t))) known.add(t);
         }
       } catch (err) {
         console.error(`[sweep] segment lookup failed for ${c.coCli}:`, err);
@@ -69,7 +78,7 @@ export async function runSweep(
       }
       const target = pickRevertTarget(
         { promotionPrevious, metaPrevious: meta.previousTipCli, metaFallback: meta.fallbackTipCli },
-        t => known.has(t), meta.tipCli,
+        t => known.has(t), meta.tipCli, t => expiredCodes.has(t),
       );
       if (!target) {
         summary.failed++;
@@ -80,10 +89,14 @@ export async function runSweep(
         const res = await deps.erp.moveCustomer(c.coCli, target, actor.erpUser);
         if (res.outcome === 'success') {
           summary.moved++;
-          appendAudit(deps.db, {
-            userId: actor.id, action: 'sweep_revert', target: c.coCli,
-            before: { tipCli: meta.tipCli }, after: { tipCli: target },
-          });
+          try {
+            appendAudit(deps.db, {
+              userId: actor.id, action: 'sweep_revert', target: c.coCli,
+              before: { tipCli: meta.tipCli }, after: { tipCli: target },
+            });
+          } catch (err) {
+            console.error(`[sweep] ${c.coCli} moved to ${target} but the audit write failed:`, err);
+          }
         } else {
           summary.failed++;
           if (res.message) console.error(`[sweep] move ${c.coCli} -> ${target}: ${res.message}`);

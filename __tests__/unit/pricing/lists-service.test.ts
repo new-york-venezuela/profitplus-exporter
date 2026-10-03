@@ -5,6 +5,7 @@ import { makeFakeRatesErp, type FakeRatesState } from '../../helpers/fake-rates-
 import { applyRates, cloneList, createList, getRatesGrid, renameList, getArticlePrices, listPriceListDtos } from '@/lib/pricing/lists-service';
 import { listAudit } from '@/lib/pricing/segments-repo';
 import { getListMeta } from '@/lib/pricing/lists-repo';
+import { insertItems, insertPromotion, updateItem } from '@/lib/pricing/promotions-repo';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/pricing/segments-service';
 
 const actor = { id: '7', erpUser: 'PROFIT' };
@@ -48,6 +49,28 @@ describe('getRatesGrid', () => {
 });
 
 describe('applyRates', () => {
+  test('an article in an open promotion on the same list is rejected; after its end or on another list it is not', async () => {
+    const id = insertPromotion(deps.db, {
+      name: 'Oferta Octubre', reason: null, kind: 'overlay', coPrecio: '08', baseCoPrecio: null, tipCli: null,
+      startsOn: '2026-10-05', endsOn: '2026-10-15', cancelledAt: null, createdBy: '7', createdAt: 1,
+    });
+    insertItems(deps.db, id, [{ coArt: 'A1', promoMonto: 10 }, { coArt: 'A2', promoMonto: 18 }]);
+    updateItem(deps.db, id, 'A1', { applied: true, appliedFrom: '2026-10-05', appliedTo: '2026-10-15', coAlma: '000015' });
+    const before = JSON.stringify(state.rates);
+    const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [{ coArt: 'A1', monto: 13 }] }, actor);
+    expect(res).toEqual([{
+      coArt: 'A1', outcome: 'rejected',
+      message: 'Artículo en la promoción «Oferta Octubre» hasta 15/10; cambie el precio después del fin o cancele la promoción',
+    }]);
+    expect(JSON.stringify(state.rates)).toBe(before);
+    // unapplied item (A2) does not block; from the day after the end A1 is free again
+    const ok = await applyRates(deps, '08', { effectiveFrom: '2026-10-16', changes: [{ coArt: 'A1', monto: 13 }, { coArt: 'A2', monto: 22 }] }, actor);
+    expect(ok.map(r => r.outcome)).toEqual(['success', 'success']);
+    // a cancelled item no longer blocks
+    updateItem(deps.db, id, 'A1', { cancelledOn: '2026-10-01' });
+    const after = await applyRates(deps, '08', { effectiveFrom: '2026-10-02', changes: [{ coArt: 'A1', monto: 14 }] }, actor);
+    expect(after[0].outcome).toBe('success');
+  });
   test('writes, skips unchanged, rejects ambiguous, audits the batch once', async () => {
     const res = await applyRates(deps, '08', { effectiveFrom: '2026-10-01', changes: [
       { coArt: 'A1', monto: 13 }, { coArt: 'A2', monto: 21.1 }, { coArt: 'A3', monto: 2 },

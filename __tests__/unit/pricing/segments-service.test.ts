@@ -8,6 +8,7 @@ import {
 } from '@/lib/pricing/segments-service';
 import { listAudit, getSegmentMeta } from '@/lib/pricing/segments-repo';
 import type { SegmentRow } from '@/lib/pricing/tipo-cliente';
+import { insertPromotion } from '@/lib/pricing/promotions-repo';
 
 const actor = { id: '7', erpUser: 'PROFIT' };
 const now = () => new Date(2026, 9, 1);
@@ -152,6 +153,19 @@ describe('patchSegment', () => {
     const { segment } = await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-31', coPrecio: '07' }, actor);
     const dto = await patchSegment(deps, segment.tipCli, { expiresOn: '2026-12-01' }, actor);
     expect(dto.expiresAt).toBe('2026-12-01');
+  });
+  test('a promotion segment rejects list and expiry changes but still accepts a rename', async () => {
+    const { segment } = await createSegment(deps, { kind: 'special', customerCoCli: 'C1', reason: 'r', expiresOn: '2026-10-31', coPrecio: '07' }, actor);
+    insertPromotion(deps.db, {
+      name: 'Oferta', reason: null, kind: 'segment', coPrecio: '07', baseCoPrecio: '01', tipCli: segment.tipCli,
+      startsOn: '2026-10-01', endsOn: '2026-10-31', cancelledAt: null, createdBy: '7', createdAt: 1,
+    });
+    const v = state.segments.find(x => x.tipCli === segment.tipCli)!.validador;
+    await expect(patchSegment(deps, segment.tipCli, { expiresOn: '2026-12-01' }, actor)).rejects.toThrow('promoción «Oferta»');
+    await expect(patchSegment(deps, segment.tipCli, { coPrecio: '08', validador: v }, actor)).rejects.toBeInstanceOf(ValidationError);
+    expect(getSegmentMeta(deps.db, segment.tipCli)!.expiresAt).toBe('2026-10-31');
+    const dto = await patchSegment(deps, segment.tipCli, { desTipo: 'Nuevo nombre', coPrecio: '07', validador: v }, actor);
+    expect(dto.desTipo).toBe('Nuevo nombre');
   });
   test('unknown segment → NotFoundError', async () => {
     await expect(patchSegment(deps, 'NOPE', { desTipo: 'x', validador: '0x0000000000000001' }, actor)).rejects.toBeInstanceOf(NotFoundError);

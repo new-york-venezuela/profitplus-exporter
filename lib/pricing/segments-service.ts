@@ -6,6 +6,7 @@ import type { CreateSegmentInput, PatchSegmentInput, AssignmentInput } from './v
 import { buildSegmentName, nextTipCliCode } from './segment-name';
 import { daysBetweenIso, todayIso } from './dates';
 import { appendAudit, getSegmentMeta, getSegmentMetaMap, setSegmentExpiry, upsertSegmentMeta } from './segments-repo';
+import { findPromotionByTipCli } from './promotions-repo';
 
 export class NotFoundError extends Error { status = 404 as const; constructor(m: string) { super(m); this.name = 'NotFoundError'; } }
 export class ConflictError extends Error { status = 409 as const; constructor(m: string) { super(m); this.name = 'ConflictError'; } }
@@ -140,6 +141,15 @@ export async function patchSegment(deps: ServiceDeps, tipCli: string, input: Pat
   if (!current) throw new NotFoundError('Segmento no encontrado');
   const before = { desTipo: current.desTipo, coPrecio: current.coPrecio }; // snapshot: adapters may return live objects
   const nowMs = (deps.now ?? (() => new Date()))().getTime();
+
+  // A promotion's segment follows the promotion: its list and end date change only through the promotion.
+  const promo = findPromotionByTipCli(deps.db, tipCli);
+  if (promo && ((input.coPrecio !== undefined && input.coPrecio !== before.coPrecio)
+    || (input.expiresOn !== undefined && input.expiresOn !== getSegmentMeta(deps.db, tipCli)?.expiresAt))) {
+    throw new ValidationError(
+      `Este segmento pertenece a la promoción «${promo.name}»; cambie su lista o su fecha desde Promociones`,
+    );
+  }
 
   if (input.expiresOn !== undefined) {
     const meta = getSegmentMeta(deps.db, tipCli);

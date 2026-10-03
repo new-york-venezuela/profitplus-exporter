@@ -72,6 +72,10 @@ describe('/api/pricing/promotions access', () => {
     expect((await previewRoute.POST(req(nobody, 'POST', {}))).status).toBe(403);
   });
 
+  test('a pricing_edit-only user passes the view gate on GETs (bad id reaches validation, not 403)', async () => {
+    expect((await idRoute.GET(req(editor, 'GET'), id('abc'))).status).toBe(400);
+  });
+
   test('a bad id is 400 for an authorised user', async () => {
     for (const bad of ['0', '-1', '1.5', 'abc', '12abc']) {
       expect((await idRoute.GET(req(viewer, 'GET'), id(bad))).status).toBe(400);

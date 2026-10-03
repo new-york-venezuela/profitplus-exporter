@@ -8,6 +8,8 @@ import { priceFromPercent } from './rates-math';
 import { nextPriceListCode } from './list-code';
 import { getListMeta, getListMetaMap, setListMeta } from './lists-repo';
 import { appendAudit } from './segments-repo';
+import { findOpenPromotionItem } from './promotions-repo';
+import { formatShortDate } from './segment-name';
 import { ConflictError, NotFoundError, ValidationError, type Actor } from './segments-service';
 
 export interface RatesErp {
@@ -145,6 +147,14 @@ export function resolveArticleWarehouse(
   return { coAlma: listDominant ?? installDominant ?? 'TODOS' };
 }
 
+/**
+ * An open-ended regular write would split a tracked promo row and lose the promo's continuation, so a regular change on
+ * an article in a scheduled/active promotion of the same list is refused until the promotion ends or is cancelled.
+ */
+const promotionBlockMessage = (name: string, until: string, t: string) =>
+  `Artículo en la promoción «${name}» hasta ${formatShortDate(until, t)}; `
+  + 'cambie el precio después del fin o cancele la promoción';
+
 export async function applyRates(deps: ListsDeps, coPrecio: string, input: ApplyRatesInput, actor: Actor): Promise<ApplyResult[]> {
   const list = await getListDto(deps, coPrecio);
   const coMone = requireCurrency(list);
@@ -163,6 +173,12 @@ export async function applyRates(deps: ListsDeps, coPrecio: string, input: Apply
       const coAlma = warehouse.coAlma;
       const covering = currentOf(rs, input.effectiveFrom) ?? currentOf(rs, t);
       if (isMixedCurrency(covering, coMone)) { results.push({ coArt: change.coArt, outcome: 'rejected', message: MIXED_CURRENCY_MSG }); continue; }
+      const promo = findOpenPromotionItem(deps.db, coPrecio, change.coArt, input.effectiveFrom);
+      if (promo) {
+        const message = promotionBlockMessage(promo.name, promo.appliedTo, t);
+        results.push({ coArt: change.coArt, outcome: 'rejected', message });
+        continue;
+      }
       const before = currentOf(rs, input.effectiveFrom)?.monto ?? null;
       const out = await deps.erp.applyRatePeriod({
         coPrecio, coArt: change.coArt, coAlma, coMone, from: input.effectiveFrom, to: null,
@@ -211,21 +227,25 @@ export async function createList(
   return { ...(await getListDto(deps, coPrecio)), ...(warning ? { warning } : {}) };
 }
 
+export interface CloneRow { coArt: string; coAlma: string; monto: number }
+
 /**
  * `asOf` (default today) picks which row of the source is copied: the one covering that date.
- * Segment promotions clone with `asOf` = promo end + 1 so an active overlay price is not copied as the regular one.
- * Not part of the HTTP validator: only server callers can set it.
+ * `rows` replaces that selection entirely (segment promotions compute their own, see promotions-service).
+ * Neither is part of the HTTP validator: only server callers can set them.
  */
 export async function cloneList(
-  deps: ListsDeps, input: Extract<CreateListInput, { mode: 'clone' }> & { asOf?: string }, actor: Actor,
+  deps: ListsDeps,
+  input: Extract<CreateListInput, { mode: 'clone' }> & { asOf?: string; rows?: CloneRow[] },
+  actor: Actor,
 ): Promise<PriceListDto> {
   if (input.asOf !== undefined && !isValidIsoDate(input.asOf)) throw new ValidationError('Fecha de referencia no válida');
   const source = await getListDto(deps, input.sourceCoPrecio);
   const coMone = requireCurrency(source);
   const t = input.asOf ?? today(deps);
-  const current = (await deps.erp.readListRates(input.sourceCoPrecio))
+  const picked = input.rows ?? (await deps.erp.readListRates(input.sourceCoPrecio))
     .filter(r => r.desde <= t && (r.hasta === null || t <= r.hasta));
-  const rows = current.map(r => ({
+  const rows = picked.map(r => ({
     coArt: r.coArt, coAlma: r.coAlma,
     monto: input.percent === null ? r.monto : priceFromPercent(r.monto, input.percent),
   }));

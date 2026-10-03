@@ -263,11 +263,45 @@ describe('segment promotions', () => {
     expect(seg.segments.length).toBe(1);
   });
 
-  test('clone carries the post-promo regular price even when an overlay promo is active today', async () => {
-    rates.rates = rates.rates.filter(r => r.coArt !== 'A1');
-    rates.rates.push(row('A1', '2026-03-15', '2026-09-30', 10), row('A1', '2026-10-01', '2026-10-03', 6), row('A1', '2026-10-04', null, 10));
+  test('clone carries the post-promo regular price when a tracked overlay promo is active today', async () => {
+    await createPromotion(deps, overlay([{ coArt: 'A1', monto: 6 }], { startsOn: '2026-10-01', endsOn: '2026-10-03' } as never), actor);
+    expect(rowsOf('A1').map(r => r.monto)).toEqual([10, 6, 10]);
     const d = await createPromotion(deps, { ...segmentInput(), items: [{ coArt: 'A1', monto: 8 }] } as CreatePromotionInput, actor);
     expect(rowsOf('A1', d.coPrecio).map(r => r.monto)).toEqual([10, 8, 10]);
+  });
+
+  test('clone starts from today: a base change scheduled later is not applied early (a)', async () => {
+    rates.rates = rates.rates.filter(r => r.coArt !== 'A1');
+    rates.rates.push(row('A1', '2026-03-15', '2026-10-09', 10), row('A1', '2026-10-10', null, 12));
+    const d = await createPromotion(deps, { ...segmentInput(), items: [{ coArt: 'A2', monto: 15 }] } as CreatePromotionInput, actor);
+    expect(rowsOf('A1', d.coPrecio).map(r => [r.desde, r.hasta, r.monto])).toEqual([['2026-10-01', null, 10]]);
+  });
+
+  test('clone keeps articles covered today but not after the promotion (b); an untracked bounded row is copied as is', async () => {
+    rates.rates.push(row('A3', '2026-03-15', '2026-10-10', 5));
+    rates.rates = rates.rates.filter(r => r.coArt !== 'A2');
+    rates.rates.push(row('A2', '2026-09-01', '2026-10-03', 18), row('A2', '2026-10-04', null, 20));
+    const d = await createPromotion(deps, { ...segmentInput(), items: [{ coArt: 'A1', monto: 8 }] } as CreatePromotionInput, actor);
+    expect(rowsOf('A3', d.coPrecio).map(r => [r.desde, r.hasta, r.monto])).toEqual([['2026-10-01', null, 5]]);
+    expect(rowsOf('A2', d.coPrecio).map(r => r.monto)).toEqual([18]);
+  });
+
+  test('segment preview plans against the price the clone will use, not the base list timeline (#4)', async () => {
+    await createPromotion(deps, overlay([{ coArt: 'A1', monto: 6 }], { startsOn: '2026-10-01', endsOn: '2026-10-03' } as never), actor);
+    rates.rates = rates.rates.filter(r => r.coArt !== 'A2');
+    rates.rates.push(row('A2', '2026-03-15', '2026-10-09', 20), row('A2', '2026-10-10', null, 22));
+    const p = await previewPromotion(deps, { ...segmentInput(), items: [{ coArt: 'A1', monto: 8 }, { coArt: 'A2', monto: 15 }, { coArt: 'A3', monto: 3 }] } as CreatePromotionInput);
+    expect(p.rows.map(r => [r.coArt, r.regular, r.status])).toEqual([['A1', 10, 'ok'], ['A2', 20, 'ok'], ['A3', null, 'rejected']]);
+  });
+
+  test('the fallback segment ignores special segments among the previous ones', async () => {
+    seg.segments.push({ tipCli: 'S00009', desTipo: 'ESPECIAL', coPrecio: '08', desPrecio: null, customerCount: 0, validador: '0x1' });
+    upsertSegmentMeta(deps.db, { tipCli: 'S00009', kind: 'special', customerCoCli: 'C1', reason: 'x', expiresAt: '2026-12-31', fallbackTipCli: null, previousTipCli: null, createdBy: '7', createdAt: 1 });
+    seg.customers.C1.tipCli = 'S00009';
+    seg.customers.C2.tipCli = 'S00009';
+    seg.customers.C3 = { cliDes: 'Cliente Tres', tipCli: '000001' };
+    const d = await createPromotion(deps, { ...segmentInput(), customerCodes: ['C1', 'C2', 'C3'] } as CreatePromotionInput, actor);
+    expect(getSegmentMeta(deps.db, d.tipCli!)!.fallbackTipCli).toBe('000001');
   });
 
   test('move conflict leaves the customer unmoved (partial); retry moves only that customer', async () => {
@@ -501,5 +535,67 @@ describe('fix round 1: per-item tracked state', () => {
     const d = await createPromotion(deps, segmentInput(), actor);
     expect(d.warning).toContain('metadatos de moneda');
     expect(d.items.every(i => i.applied)).toBe(true);
+  });
+});
+
+describe('final wave', () => {
+  const failFor = (coArt: string) => {
+    const original = deps.rates.applyPlanned;
+    deps.rates.applyPlanned = async (a, plan) => { if (a.coArt === coArt) throw new Error('boom'); return original(a, plan); };
+    return () => { deps.rates.applyPlanned = original; };
+  };
+
+  test('#3 a shortening that failed for one item is fixed by retry after the promotion ended', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }, { coArt: 'A2', monto: 15 }]), actor);
+    deps.now = at(2026, 10, 9);
+    const restore = failFor('A2');
+    const sh = await patchPromotion(deps, d.id, { action: 'change_end', endsOn: '2026-10-10' }, actor);
+    expect(sh.endsOn).toBe('2026-10-10');
+    expect(sh.items.find(i => i.coArt === 'A2')!.appliedTo).toBe('2026-10-15');
+    restore();
+    deps.now = at(2026, 10, 12);
+    const ended = await getPromotionDetail(deps, d.id);
+    expect(ended).toMatchObject({ status: 'ended', partial: true });
+    const r = await retryPromotion(deps, d.id, actor);
+    expect(rowsOf('A2').map(x => [x.desde, x.hasta, x.monto])).toEqual([
+      ['2026-03-15', '2026-10-04', 20], ['2026-10-05', '2026-10-11', 15], ['2026-10-12', '2026-10-15', 20], ['2026-10-16', null, 20],
+    ]);
+    assertNoGaps(rowsOf('A2'));
+    expect(r.items.find(i => i.coArt === 'A2')).toMatchObject({ appliedTo: '2026-10-11', message: 'Precio promocional aplicado hasta 11/10' });
+    expect(r.partial).toBe(false);
+    await expect(retryPromotion(deps, d.id, actor)).rejects.toThrow('La promoción ya terminó');
+  });
+
+  test('#6 cancel finds and cancels a promo row whose apply was never recorded', async () => {
+    const real = deps.db;
+    deps.db = new Proxy(real, { get: (t, k, r) => (k === 'update' ? () => { throw new Error('sqlite down'); } : Reflect.get(t, k, r)) });
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    deps.db = real;
+    expect(listItems(deps.db, d.id)[0].appliedFrom).toBeNull();
+    expect(rowsOf('A1').map(r => r.monto)).toEqual([10, 8, 10]);
+    const c = await patchPromotion(deps, d.id, { action: 'cancel' }, actor);
+    expect(c.status).toBe('cancelled');
+    assertNoGaps(rowsOf('A1'));
+    expect(new Set(rowsOf('A1').map(r => r.monto))).toEqual(new Set([10]));
+  });
+
+  test('#6 apply never writes an item whose cancellation already completed', async () => {
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }, { coArt: 'A3', monto: 3 }]), actor);
+    const { updateItem } = await import('@/lib/pricing/promotions-repo');
+    rates.rates.push(row('A3', '2026-03-15', null, 5));
+    // simulate a cancellation that finished A3 between the retry's read and its write
+    const orig = deps.rates.readListRates;
+    deps.rates.readListRates = async c => { updateItem(deps.db, d.id, 'A3', { cancelledOn: '2026-10-01' }); return orig(c); };
+    await retryPromotion(deps, d.id, actor);
+    deps.rates.readListRates = orig;
+    expect(rowsOf('A3').length).toBe(1);
+  });
+
+  test('#7 an ERP read failure after the writes returns the local detail with a warning', async () => {
+    deps.rates.listArticles = async () => { throw new Error('ERP down'); };
+    const d = await createPromotion(deps, overlay([{ coArt: 'A1', monto: 8 }]), actor);
+    expect(d.warning).toContain('no se pudieron leer los nombres');
+    expect(d.items[0]).toMatchObject({ coArt: 'A1', artDes: 'A1', applied: true });
+    expect(rowsOf('A1').length).toBe(3);
   });
 });
