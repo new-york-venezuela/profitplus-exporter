@@ -65,24 +65,44 @@ lib/
   geo/coordinates.ts      — parseCoordinates()/validateCoordinates()/formatCoordinates() for saCliente.campo1 ("Coordenadas: (lat, lng)")
   geo/erp-location.ts     — updateCustomerLocation() → pApiActualizarUbicacionCliente (only way the app writes campo1/dir_ent2)
   geo/geocoding.ts        — Nominatim/Google geocoding used by scripts/geocode-customers.ts
+  pricing/access.ts       — getPricingAccessLevel(), requirePricingAccess(request, 'view' | 'edit') for API routes
+  pricing/http.ts         — requirePricingAdmin() (admin-only routes) and shared route helpers
+  pricing/*-service.ts, *-repo.ts, *-validators.ts — segments, lists and promotions: orchestration (ERP + SQLite), SQLite CRUD, request validators
+  pricing/rate-planner.ts, promo-planner.ts, rates-math.ts — pure planners turning edits into saArtPrecio insert/update ops
+  pricing/*-erp.ts, segment-erp.ts, sa-cliente-fields.ts, tipo-cliente.ts — ERP access; writes go through pApi* procs only
+  pricing/promo-status.ts, timeline.ts, dates.ts — promotion status, timeline data, date-only helpers (YYYY-MM-DD)
+  pricing/health.ts, health-loader.ts, health-repo.ts — pure expiry checks, live report loader, sweep heartbeat + alert settings/log
+  pricing/digest.ts       — composeDigest()/sendDigest(): daily expiry email (template pricing-expiry-digest)
+  pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
   app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
+
+app/api/pricing/           — pricing API (segments, customers, assignments, price-lists, lists/[coPrecio]/rates|export,
+                              articles, promotions, health, alert-settings), gated per route (see Pricing below)
 
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
                               (e.g. pApiCrearAjusteInventario for inventory adjustments,
-                              pApiActualizarUbicacionCliente for customer location)
+                              pApiActualizarUbicacionCliente for customer location; 0010-0014 are the pricing
+                              procs: pApiActualizarTipoCliente, pApiInsertar/ActualizarPrecioArticulo, pApiTipoPrecio,
+                              plus the RAISERROR-return and end-of-day `hasta` fixes)
+migrations/sqlite/          — drizzle-kit migrations; 0008-0012 add the pricing_* tables (segment/list meta, audit log,
+                              promotions + items + customers, sweep runs, alert log/settings)
 scripts/migrate-dwh.ts     — runs migrations/dwh/ in order, tracked in dwh.__dwh_migrations
 scripts/migrate-mssql.ts    — runs migrations/mssql/ in order, against the ERP database
 scripts/migrate.ts          — runs migrations/sqlite/ (SQLite)
 scripts/geocode-customers.ts — bun run geocode:customers (dry-run by default)
+scripts/sweep-promotions.ts  — bun run pricing:sweep-promotions, nightly Task Scheduler job (INSTRUCTIONS.md Step 10)
+content/help/pricing-*.md    — in-app help pages for the pricing tabs (segmentos, listas, promociones, vencimientos);
+                              slugs are allowlisted in app/api/help/[page]/route.ts
 
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
+  pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
   admin/users/                — user + per-user module-grant management (admin only)
   admin/config-inventario/    — inventory module settings (admin only)
   reports/ventas, reports/compras — ERP report exports (no module gate, all authenticated users)
@@ -101,7 +121,10 @@ Beyond `role` (`'user' | 'admin'`), individual features are gated by a
 (`lib/db/schema.ts`): one row per `(userId, module)` pair. Modules today: `'inventory'`, `'dwh'`
 (gates `/analitica`), `'geo'` (gates `/mapa`; `lib/geo/access.ts` exports
 `hasGeoAccess`, `requireGeoAccess`), plus `'pricing_view'`/`'pricing_edit'`
-(see `lib/pricing/access.ts`).
+(see `lib/pricing/access.ts`). Pricing semantics: `pricing_view` is enough for GETs, `pricing_edit` is
+required for every write (edit implies view, admins have both); the email alert settings are admin-only.
+Each pricing route calls `requirePricingAccess(request, 'view' | 'edit')` or, for
+`/api/pricing/alert-settings`, `requirePricingAdmin(request)` itself.
 
 Each module has its own `has<X>Access()` helper (`lib/inventory/access.ts`,
 `lib/dwh/access.ts`) with an identical shape:
@@ -274,6 +297,26 @@ action (popup / table row), `PATCH /api/mapa/clientes/[co_cli]/vendedor` →
 sellers, stamps `co_us_mo`/`fe_us_mo`). Area matching never changes a seller
 automatically. The seller picker lists `payload.sellers` (sellers with at least
 one active customer; inactive ones, flagged `inactive`, are excluded).
+
+## Pricing (`/pricing`)
+
+Segments (`saTipoCliente`), price lists (`saTipoPrecio`/`saArtPrecio`), promotions and expiry tracking.
+ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
+
+- **ERP pricing writes only through `pApi*` wrapper procs** (`migrations/mssql/0010-0014`) — never raw
+  INSERT/UPDATE on `saArtPrecio`, `saTipoPrecio` or `saTipoCliente`.
+- **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only).
+- **Planners never create overlapping periods** for an article/list/warehouse (`rate-planner.ts`,
+  `promo-planner.ts`; pure, unit-tested). `hasta` is **end of day** (23:59:59.997, set by the procs;
+  `desde` stays midnight) — Profit treats `hasta >= GETDATE()` as current. Dates in the app are `YYYY-MM-DD`.
+- **Promotions are tracked per item** (`pricing_promotion_items`, unique per promotion + article);
+  overlay promotions reprice a list's articles for a period, segment promotions move customers into a
+  special segment with its own list.
+- **Nightly sweep + digest** (`scripts/sweep-promotions.ts` → `runSweepJob`): reverts customers out of
+  expired special segments, ALWAYS writes a heartbeat (`pricing_sweep_runs`, even if the ERP is unreachable),
+  then emails the expiry digest (needs `SMTP_*`; sent notices dedupe via `pricing_alert_log`). It exits
+  non-zero on any failed move, sweep error, health-read error or failed send. The Vencimientos tab
+  (`/api/pricing/health`) surfaces the same checks live.
 
 ## Product Analytics (PostHog)
 
