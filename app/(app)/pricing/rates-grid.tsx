@@ -63,7 +63,7 @@ export interface RatesGridProps {
 
 type BulkKind = 'plus' | 'minus' | 'set';
 
-function BulkBar({ count, onBulk }: { count: number; onBulk: (op: BulkOp) => void }) {
+export function BulkBar({ count, onBulk }: { count: number; onBulk: (op: BulkOp) => void }) {
   const [open, setOpen] = useState<BulkKind | null>(null);
   const [text, setText] = useState('');
   const [error, setError] = useState(false);
