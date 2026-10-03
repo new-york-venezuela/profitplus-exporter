@@ -214,3 +214,41 @@ export const pricingListMeta = sqliteTable('pricing_list_meta', {
   createdAt: integer('created_at').notNull(),    // unix ms
 });
 export type ListMeta = typeof pricingListMeta.$inferSelect;
+
+// ── Pricing promotions ──────────────────────────────────────────────────
+export const pricingPromotions = sqliteTable('pricing_promotions', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  name:        text('name').notNull(),
+  reason:      text('reason'),
+  kind:        text('kind', { enum: ['overlay', 'segment'] }).notNull(),
+  coPrecio:    text('co_precio').notNull(),       // overlay: target list; segment: the promo list
+  baseCoPrecio: text('base_co_precio'),           // segment only
+  tipCli:      text('tip_cli'),                   // segment only: the special segment
+  startsOn:    text('starts_on').notNull(),
+  endsOn:      text('ends_on').notNull(),
+  cancelledAt: integer('cancelled_at'),           // unix ms; null = not cancelled
+  createdBy:   text('created_by').notNull(),
+  createdAt:   integer('created_at').notNull(),
+});
+export type Promotion = typeof pricingPromotions.$inferSelect;
+
+export const pricingPromotionItems = sqliteTable('pricing_promotion_items', {
+  id:           integer('id').primaryKey({ autoIncrement: true }),
+  promotionId:  integer('promotion_id').notNull().references(() => pricingPromotions.id, { onDelete: 'cascade' }),
+  coArt:        text('co_art').notNull(),
+  coAlma:       text('co_alma'),                  // warehouse used (null until applied)
+  promoMonto:   real('promo_monto').notNull(),
+  regularMonto: real('regular_monto'),            // regular price at creation (null if unknown/rejected)
+  applied:      integer('applied').notNull().default(0), // 0/1
+  message:      text('message'),                  // failure/skip reason
+}, t => ({ uniq: unique('pricing_promotion_items_uniq').on(t.promotionId, t.coArt) }));
+export type PromotionItem = typeof pricingPromotionItems.$inferSelect;
+
+export const pricingPromotionCustomers = sqliteTable('pricing_promotion_customers', {
+  id:             integer('id').primaryKey({ autoIncrement: true }),
+  promotionId:    integer('promotion_id').notNull().references(() => pricingPromotions.id, { onDelete: 'cascade' }),
+  coCli:          text('co_cli').notNull(),
+  previousTipCli: text('previous_tip_cli').notNull(),
+  moved:          integer('moved').notNull().default(0),
+}, t => ({ uniq: unique('pricing_promotion_customers_uniq').on(t.promotionId, t.coCli) }));
+export type PromotionCustomer = typeof pricingPromotionCustomers.$inferSelect;
