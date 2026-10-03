@@ -464,11 +464,39 @@ so it picks up `.env.local`.
    saved, and select **Run whether user is logged on or not**.
 
 The sweep is idempotent: running it twice is safe (the second run finds no
-customers left in the expired segments and moves nothing). It prints one
-summary line and one line per error, and exits with a non-zero code if any
-customer could not be moved, so Task Scheduler shows a failed Last Run
-Result (anything other than 0x0). Each revert is recorded in the pricing
-audit log as `sweep_revert`.
+customers left in the expired segments and moves nothing). Each revert is
+recorded in the pricing audit log as `sweep_revert`. After the sweep, the same
+run also:
+
+- **Records a heartbeat** in the SQLite `pricing_sweep_runs` table, even when
+  the sweep itself fails (including when the ERP is unreachable). The
+  **Vencimientos** tab shows it as "Estado del barrido" (never run / stale
+  after 36 hours / failed).
+- **Sends the daily expiry digest** by email, only when there is something to
+  report (promotions ending soon, expired segments not reverted, lapsed
+  prices, or a failed/missing sweep). Recipients are the explicit list saved
+  in the tab's "Alertas por correo" settings, or all admins and
+  `pricing_edit` users when none is set. Sending needs the SMTP variables in
+  `.env.local` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+  `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`; see `.env.example`). If the ERP cannot
+  be read for the digest, a reduced digest with just the sweep-failure section
+  is still sent.
+- **Logs sent notices** in the `pricing_alert_log` table (one "ending first"
+  and one "ending last" notice per promotion) so nothing is sent twice.
+
+It prints one summary line, one line per error and one digest line, and exits
+with a non-zero code if any customer could not be moved, the sweep threw, the
+health read failed, or any digest email failed to send. Task Scheduler then
+shows a failed Last Run Result (anything other than 0x0). Note that missing or
+wrong SMTP settings make the task fail every night whenever there is
+something to report.
+
+**Troubleshooting:** run `bun run pricing:sweep-promotions` by hand from
+`$APP` and read the output (`sweep failed:`, `digest error:`, `digest
+sent=… failed=…`). Check the latest rows of `pricing_sweep_runs` (`ok`,
+`failed`, `error`) and `pricing_alert_log` via `bun run db:studio`. A digest
+`skipped=disabled` means alerts are turned off in the tab's settings;
+`skipped=no-recipients` means no explicit list and no admin/editor emails.
 
 ## Redeploy Procedure
 

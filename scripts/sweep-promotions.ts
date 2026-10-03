@@ -8,11 +8,16 @@ import { realSweepErp } from '@/lib/pricing/sweep-erp';
 const TAG = '[pricing:sweep-promotions]';
 
 async function main() {
-  const pool = await getPool();
+  let pool: Awaited<ReturnType<typeof getPool>> | null = null;
   try {
     const db = getDb();
+    // Pool acquired inside the job so an unreachable ERP still records a failed heartbeat.
+    const connectErp = async () => {
+      pool = await getPool();
+      return { sweepErp: realSweepErp(pool), healthErp: realHealthErp(pool) };
+    };
     const r = await runSweepJob(
-      { sweep: { erp: realSweepErp(pool), db }, healthErp: realHealthErp(pool), db, email: new EmailService() },
+      { sweep: { db }, connectErp, db, email: new EmailService() },
       { id: 'sweep', erpUser: process.env.PRICING_ERP_SERVICE_USER ?? 'PROFIT' },
     );
     if (r.summary) {
@@ -25,7 +30,7 @@ async function main() {
     if (r.digestError) console.error(`${TAG} digest error:`, r.digestError);
     if (r.exitCode !== 0) process.exitCode = 1;
   } finally {
-    await pool.close();
+    await (pool as Awaited<ReturnType<typeof getPool>> | null)?.close();
   }
 }
 main().catch(err => { console.error(`${TAG} fatal error:`, err instanceof Error ? err.message : err); process.exit(1); });

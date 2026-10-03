@@ -52,11 +52,15 @@ export function composeDigest(
   if (sw.state === 'never') sweepLines.push('El barrido nocturno nunca se ha ejecutado.');
   else if (sw.state === 'stale') sweepLines.push(`El barrido nocturno no corre desde hace ${sw.hoursSince} horas.`);
   else if (sw.state === 'failed') {
-    sweepLines.push(`El último barrido nocturno falló${sw.error ? `: ${sw.error}` : sw.failed > 0 ? ` (${sw.failed} con error)` : ''}.`);
-  }
-  const failedNow = opts.sweepSummary?.failed ?? 0;
-  if (failedNow > 0) {
-    sweepLines.push(`Este barrido tuvo ${failedNow} ${plural(failedNow, 'segmento con error', 'segmentos con error')}.`);
+    // One line per failure: a thrown sweep carries its error; otherwise report the customers that failed (sweep.failed counts customers).
+    const n = opts.sweepSummary?.failed ?? sw.failed;
+    const when = opts.sweepSummary ? 'Este barrido' : 'El último barrido';
+    if (sw.error) sweepLines.push(`El último barrido nocturno falló: ${sw.error}.`);
+    else if (n > 0) sweepLines.push(`${when} tuvo ${n} ${plural(n, 'cliente con error', 'clientes con error')}.`);
+    else sweepLines.push('El último barrido nocturno falló.');
+  } else if ((opts.sweepSummary?.failed ?? 0) > 0) {
+    const n = opts.sweepSummary!.failed;
+    sweepLines.push(`Este barrido tuvo ${n} ${plural(n, 'cliente con error', 'clientes con error')}.`);
   }
   if (sweepLines.length > 0) sections.push({ title: 'Fallos del barrido', lines: sweepLines });
 

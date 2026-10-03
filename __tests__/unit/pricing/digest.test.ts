@@ -65,8 +65,15 @@ describe('composeDigest', () => {
 
   test('sweepSummary.failed adds a line', () => {
     const d = composeDigest(report(), { daysAhead: 7, hasBeenSent: never, sweepSummary: summary(2) });
-    expect(d.sections[0].lines.join()).toContain('2 segmentos con error');
+    expect(d.sections[0].lines.join()).toContain('2 clientes con error');
+    expect(d.sections[0].lines.join()).not.toContain('segmentos');
     expect(composeDigest(report(), { daysAhead: 7, hasBeenSent: never, sweepSummary: summary(0) }).isEmpty).toBe(true);
+  });
+
+  test('a failed heartbeat with failed customers is reported once, in clientes', () => {
+    const r = report({ sweep: { ...okSweep, state: 'failed', failed: 2 } });
+    const d = composeDigest(r, { daysAhead: 7, hasBeenSent: never, sweepSummary: summary(2) });
+    expect(d.sections[0].lines).toEqual(['Este barrido tuvo 2 clientes con error.']);
   });
 
   test('unreverted and stranded sections', () => {

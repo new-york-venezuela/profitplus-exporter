@@ -78,4 +78,52 @@ describe('runSweepJob', () => {
     expect(getLastSweepRun(db)!.failed).toBe(r.summary!.failed);
     expect(r.exitCode).toBe(1);
   });
+
+  test('connectErp rejects (ERP unreachable): failed heartbeat with the error, exit 1, reduced digest sent', async () => {
+    const db = makeMemoryDb();
+    saveAlertSettings(db, { enabled: true, daysAhead: 7, recipients: ['a@x.com'] });
+    const sent: { to: string; data: Record<string, unknown> }[] = [];
+    const r = await runSweepJob({
+      sweep: { db }, db, now: NOW, connectErp: async () => { throw new Error('ECONNREFUSED'); },
+      email: { send: async (to, _t, data) => { sent.push({ to, data }); } },
+    }, actor);
+    expect(r.sweepError).toBe('ECONNREFUSED');
+    expect(r.exitCode).toBe(1);
+    const last = getLastSweepRun(db)!;
+    expect(last.ok).toBe(0);
+    expect(last.error).toBe('ECONNREFUSED');
+    expect(sent.map(s => s.to)).toEqual(['a@x.com']);
+    expect(JSON.stringify(sent[0].data.sections)).toContain('ECONNREFUSED');
+  });
+
+  test('health read throws and sweep failed: reduced digest with the sweep-failure section is still sent, exit 1', async () => {
+    const db = makeMemoryDb();
+    saveAlertSettings(db, { enabled: true, daysAhead: 7, recipients: ['a@x.com'] });
+    upsertSegmentMeta(db, {
+      tipCli: 'SP01', kind: 'special', expiresAt: '2026-09-30', previousTipCli: 'G1', fallbackTipCli: 'G2', createdBy: 'u', createdAt: 1,
+    });
+    const erp: SweepErp = {
+      getSegment: async t => ({ tipCli: t }),
+      listCustomersInSegment: async () => [{ coCli: 'C1', cliDes: 'C1' }],
+      moveCustomer: async c => ({ coCli: c, outcome: 'conflict' }) as never,
+    };
+    const badHealth: HealthErp = { ...healthErp, listListsInUse: async () => { throw new Error('health down'); }, countCustomersByTipCli: async () => { throw new Error('health down'); } };
+    const sent: Record<string, unknown>[] = [];
+    const r = await runSweepJob({
+      sweep: { erp, db }, healthErp: badHealth, db, now: NOW, email: { send: async (_to, _t, data) => { sent.push(data); } },
+    }, actor);
+    expect(r.digestError).toBe('health down');
+    expect(r.exitCode).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0].sections)).toContain('cliente con error');
+  });
+
+  test('health read throws and sweep fine: nothing sent, exit 1', async () => {
+    const db = makeMemoryDb();
+    saveAlertSettings(db, { enabled: true, daysAhead: 7, recipients: ['a@x.com'] });
+    const badHealth: HealthErp = { ...healthErp, listListsInUse: async () => { throw new Error('health down'); } };
+    const r = await runSweepJob({ sweep: { erp: okErp, db }, healthErp: badHealth, db, now: NOW, email: noMail }, actor);
+    expect(r.digest).toBeNull();
+    expect(r.exitCode).toBe(1);
+  });
 });

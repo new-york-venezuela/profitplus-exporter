@@ -37,7 +37,7 @@ function sweepView(s: HealthReport['sweep']): { text: string; badge: string; ton
     case 'never': return { text: 'El barrido no se ha ejecutado nunca — revisa el programador de tareas', badge: 'Sin ejecutar', tone: 'bad' };
     case 'stale': return { text: `Barrido atrasado: último hace ${s.hoursSince} h`, badge: 'Atrasado', tone: 'warn' };
     case 'failed': return {
-      text: `El último barrido falló: ${s.error ?? (s.failed > 0 ? `${s.failed} ${plural(s.failed, 'segmento', 'segmentos')} con error` : 'error desconocido')}`,
+      text: `El último barrido falló: ${s.error ?? (s.failed > 0 ? `${s.failed} ${plural(s.failed, 'cliente', 'clientes')} con error` : 'error desconocido')}`,
       badge: 'Falló', tone: 'bad',
     };
     default: return { text: `Último barrido hace ${s.hoursSince} h`, badge: 'Al día', tone: 'ok' };
@@ -82,7 +82,7 @@ export default function ExpiryTab({ isAdmin }: { isAdmin: boolean }) {
     viewRefs.current[next]?.focus();
   }
 
-  const loading = report === null && error === null;
+  const loading = (report === null || report.withinDays !== days) && error === null;
   const segBtn = (v: View, label: string) => (
     <button key={v} type="button" role="tab" ref={el => { viewRefs.current[v] = el; }}
       aria-selected={view === v} tabIndex={view === v ? 0 : -1} onClick={() => setView(v)} onKeyDown={e => onViewKey(e, v)}
