@@ -27,6 +27,14 @@ import { test, expect } from './fixtures';
 // userPage, to reach the page at all.
 
 test.describe('analitica @mssql', () => {
+  test('help panel explains ventas brutas, devoluciones and ventas netas', async ({ adminPage }) => {
+    await adminPage.goto('/analitica');
+    await adminPage.getByRole('button', { name: 'Ayuda de esta página' }).click();
+    const dialog = adminPage.getByRole('dialog', { name: 'Panel de ayuda' });
+    await expect(dialog.getByRole('heading', { name: 'Ventas netas', exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByRole('heading', { name: 'Ventas brutas', exact: true })).toBeVisible();
+  });
+
   test('Ventas tab renders all three sections at once and Entidad/Tienda toggles the cliente section', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=ventas');
 

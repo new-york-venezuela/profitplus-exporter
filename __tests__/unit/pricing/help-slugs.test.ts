@@ -13,6 +13,14 @@ describe('help pages', () => {
     expect(slugs.length).toBeGreaterThan(0);
     for (const s of ["pricing-segmentos", "pricing-listas", "pricing-promociones", "pricing-vencimientos"]) expect(slugs).toContain(s);
   });
+  test('the Analítica definitions page is allowlisted', () => {
+    expect(slugs).toContain('analitica-definiciones');
+  });
+  test('every allowlisted slug has a content file', () => {
+    for (const s of slugs) {
+      expect(existsSync(path.join(root, 'content/help', `${s}.md`))).toBe(true);
+    }
+  });
   test('every pricing-* slug has a content file', () => {
     for (const s of slugs.filter(x => x.startsWith('pricing-'))) {
       expect(existsSync(path.join(root, 'content/help', `${s}.md`))).toBe(true);
