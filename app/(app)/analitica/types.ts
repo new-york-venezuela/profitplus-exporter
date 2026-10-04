@@ -128,7 +128,12 @@ export interface ResumenResponse {
 //                is actually computed; never a gross-of-returns figure.
 export type ReturnsBasis = 'factura' | 'devolucion';
 
-// Ventas tab
+// Ventas tab. Child levels of the Entidad tree (tiendas of an Entidad, productos of a tienda).
+export interface VentasChildrenResponse {
+  level: 'tienda' | 'producto';
+  rows: VentasRow[];
+}
+
 export interface VentasRow {
   label: string; // formatted trend bucket (groupBy=mes) or customer or line name
   title?: string; // groupBy=mes only: full tooltip label, e.g. "Semana 2 · 5–11 ene 2026"
@@ -138,6 +143,7 @@ export interface VentasRow {
   salesNet: DualAmount; // salesGross − returns
   returnRate: number | null; // returns / salesGross
   avgDiscount: number | null;
+  units: number; // SUM(QuantitySold)
 }
 
 export interface VentasResponse {

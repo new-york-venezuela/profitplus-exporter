@@ -9,8 +9,10 @@ import {
   parseReturnsBasis, returnsDateColumn, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, returnRate, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
+import { mapVentasRecord } from '@/app/api/dwh/lib/ventas-rows';
+import { parseChildLevel, tiendasQuery, productosQuery } from '@/app/api/dwh/lib/ventas-children';
 import type {
-  VentasResponse, VentasRow, GroupBy,
+  VentasResponse, VentasRow, GroupBy, VentasChildrenResponse,
   VentasKpis, VentasKpisResponse,
   ComparisonOption, ComparisonOptionsResponse, ComparisonSeriesMonthRow, VentasComparisonResponse,
   DualAmount,
@@ -38,7 +40,8 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string, bucket: Trend
         ${bucket.keyExpr('d')} AS Bucket,
         ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
         SUM(fs.GrossAmount) AS GrossAmount,
-        SUM(fs.DiscountAmount) AS DiscountAmount
+        SUM(fs.DiscountAmount) AS DiscountAmount,
+        SUM(fs.QuantitySold) AS UnitsSold
       FROM fact.Fact_Sales fs
       ${usdConversionJoin('fs')}
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
@@ -62,6 +65,7 @@ function monthlyQuery(dateWhere: string, returnsDateWhere: string, bucket: Trend
       CASE WHEN s.Bucket IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd,
       ISNULL(s.GrossAmount, 0) AS GrossAmount,
       ISNULL(s.DiscountAmount, 0) AS DiscountAmount,
+      ISNULL(s.UnitsSold, 0) AS UnitsSold,
       ISNULL(r.ReturnsBs, 0) AS ReturnsBs,
       CASE WHEN r.Bucket IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd
     FROM sales s
@@ -94,6 +98,7 @@ function clienteQuery(
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
+      SUM(fs.QuantitySold) AS UnitsSold,
       ${returnsAmountSubqueries({
         alias: 'fr2',
         fxAlias: 'r2fx',
@@ -120,6 +125,7 @@ function lineaQuery(dateWhere: string, returnsDateWhere: string): string {
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
+      SUM(fs.QuantitySold) AS UnitsSold,
       ${returnsAmountSubqueries({
         alias: 'fr',
         fxAlias: 'frfx',
@@ -144,7 +150,8 @@ function lineaProductBreakdownQuery(salesDateWhere: string): string {
     SELECT TOP 15
       CAST(p.ProductKey AS varchar(20)) AS GroupValue,
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
+      SUM(fs.QuantitySold) AS UnitsSold
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -473,6 +480,48 @@ export async function GET(request: NextRequest) {
     // its own date-where clause built against that alias.
     const clienteReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2', returnsBasis);
 
+    // Lazy child levels of the Entidad tree (Ventas por cliente): tiendas of one
+    // Entidad, then productos of one tienda. Same filters/columns as the
+    // top-level rows so children sum to their parent.
+    const level = parseChildLevel(searchParams.get('level'));
+    if (level) {
+      const entityKeyParam = searchParams.get('entityKey');
+      const storeCode = searchParams.get('storeCode');
+      if (!entityKeyParam || !/^\d+$/.test(entityKeyParam) || (level === 'producto' && (!storeCode || storeCode.length > 16))) {
+        return NextResponse.json({ error: 'Parámetros de desglose inválidos' }, { status: 400 });
+      }
+      const req = pool.request();
+      req.input('entityKey', Number(entityKeyParam));
+      if (level === 'producto') req.input('storeCode', (storeCode as string).trim());
+      let salesBucketWhere = '';
+      let returnsBucketWhere = '';
+      if (bucketParam) {
+        const sClause = bucketFilterClause(trendBucket.mode, bucketParam, 'fs');
+        const rClause = bucketFilterClause(trendBucket.mode, bucketParam, 'fr', returnsColumn);
+        if (sClause === null || rClause === null) {
+          return NextResponse.json({ error: 'Parámetro bucket inválido' }, { status: 400 });
+        }
+        salesBucketWhere = sClause;
+        returnsBucketWhere = rClause;
+      }
+      if (salesRepKey !== null) req.input('salesRepKey', salesRepKey);
+      const result = await req.query((level === 'tienda' ? tiendasQuery : productosQuery)({
+        salesDateWhere,
+        returnsDateWhere,
+        salesBucketWhere,
+        returnsBucketWhere,
+        salesRepWhere: salesRepKey !== null ? 'AND fs.SalesRepKey = @salesRepKey' : '',
+        returnsSalesRepWhere: salesRepKey !== null ? 'AND fr.SalesRepKey = @salesRepKey' : '',
+      }));
+      const childRows: VentasRow[] = result.recordset.map(r => ({
+        label: String(r.GroupLabel).trim(),
+        value: String(r.GroupValue).trim(),
+        ...mapVentasRecord(r),
+      }));
+      const childResponse: VentasChildrenResponse = { level, rows: childRows };
+      return jsonWithCache(childResponse);
+    }
+
     if (breakdownBy && parentValue && groupByParam === 'linea') {
       const req = pool.request();
       req.input('parentValue', parentValue);
@@ -483,6 +532,7 @@ export async function GET(request: NextRequest) {
           value: String(r.GroupValue),
           salesGrossBs: Number(r.SalesGrossBs),
           salesGrossUsd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd),
+          units: Number(r.UnitsSold ?? 0),
         })),
       });
     }
@@ -496,7 +546,7 @@ export async function GET(request: NextRequest) {
       const req = pool.request();
       req.input('parentValue', parentValue);
       const result = await req.query(`
-        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
+        SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}, SUM(fs.QuantitySold) AS UnitsSold
         FROM fact.Fact_Sales fs
         ${usdConversionJoin('fs')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fs')}
@@ -511,6 +561,7 @@ export async function GET(request: NextRequest) {
           value: String(r.GroupValue),
           salesGrossBs: Number(r.SalesGrossBs),
           salesGrossUsd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd),
+          units: Number(r.UnitsSold ?? 0),
         })),
       });
     }
@@ -562,23 +613,12 @@ export async function GET(request: NextRequest) {
 
     const trendKeys = groupBy === 'mes' ? recordset.map(r => String(r.GroupValue)) : [];
     const trendXLabels = bucketLabels(trendBucket.mode, trendKeys);
-    const rows: VentasRow[] = recordset.map((r, i) => {
-      const salesGross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
-      const returns = dualFromRow(r.ReturnsBs, r.ReturnsUsd);
-      const grossAmount = Number(r.GrossAmount);
-      const discountAmount = Number(r.DiscountAmount);
-      const label = groupBy === 'mes' ? trendXLabels[i] : String(r.GroupLabel);
-      return {
-        label,
-        ...(groupBy === 'mes' ? { title: bucketTitle(trendBucket.mode, String(r.GroupValue)) } : {}),
-        value: r.GroupValue as string,
-        salesGross,
-        returns,
-        salesNet: subtractDual(salesGross, returns),
-        returnRate: returnRate(returns, salesGross),
-        avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
-      };
-    });
+    const rows: VentasRow[] = recordset.map((r, i) => ({
+      label: groupBy === 'mes' ? trendXLabels[i] : String(r.GroupLabel),
+      ...(groupBy === 'mes' ? { title: bucketTitle(trendBucket.mode, String(r.GroupValue)) } : {}),
+      value: r.GroupValue as string,
+      ...mapVentasRecord(r),
+    }));
 
     const response: VentasResponse = { rows, groupBy, breadcrumb, returnsBasis, ...(groupBy === 'mes' ? { trendMode: trendBucket.mode } : {}) };
 
