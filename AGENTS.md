@@ -393,6 +393,13 @@ See `.env.example` for the full list; `INSTRUCTIONS.md` covers setup end to end.
   drop it). The `--timeout 30000` flag is required; the bare `bun test` default (5s) is too tight
   once a test's `beforeAll` applies several migrations. `bunfig.toml`'s `[test] timeout` does not
   work for this in Bun 1.3.14 — always pass `--timeout` on the CLI, not in config.
+- **Component tests** use React Testing Library on happy-dom: `bun run test:components` (also part of
+  `bun run test`). Name files `*.test.tsx` under a `__tests__/` folder and import `screen` from
+  `test/dom-setup` **first** — it registers the DOM for that file only (the scripts use `--isolate`) and exports a
+  `screen` bound to the registered `document`; the `screen` exported by `@testing-library/react` binds before the
+  DOM exists under Bun and throws. Call `cleanup` in `afterEach`. Mock `posthog-js` with `mock.module` and set
+  `globalThis.fetch` per test; load the component with a dynamic `await import(...)` after `mock.module`. See
+  `app/(app)/analitica/components/__tests__/` for examples.
 - `bun run test:pricing-erp` runs `scripts/dwh/__tests__/pricing-assignment.test.ts` — this test
   performs real writes against the live ERP (customer `tip_cli` reassignment, plus creating a
   `saTipoPrecio`/`saTipoCliente` row pair) and is excluded from `test`/`test:unit` via

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   LAPSED_AFTER_DAYS, NO_SELLER, daysBetweenKeys, classifyCoverage, trailingWindowStartKey,
-  averageOverInvoicedMonths, compareDaysSince, filterCobertura, summarizeCobertura, groupBySeller,
+  averageOverInvoicedMonths, compareDaysSince, filterCobertura, summarizeCobertura, groupBySeller, coberturaExportQuery,
 } from '../cobertura';
 
 describe('daysBetweenKeys', () => {
@@ -79,5 +79,18 @@ describe('filter / summarize / group', () => {
     const groups = groupBySeller(rows);
     expect(groups.map(g => g.sellerName)).toEqual(['Ana', 'Bruno', 'Sin vendedor']);
     expect(groups[0].rows).toHaveLength(2);
+  });
+});
+
+describe('coberturaExportQuery', () => {
+  test('omits empty filters', () => {
+    expect(coberturaExportQuery({ includeInactive: false, sellerCode: null, status: null }))
+      .toBe('format=xlsx&includeInactive=0');
+  });
+  test('carries the active filters', () => {
+    const q = new URLSearchParams(coberturaExportQuery({ includeInactive: true, sellerCode: '__none__', status: 'never' }));
+    expect(q.get('includeInactive')).toBe('1');
+    expect(q.get('seller')).toBe('__none__');
+    expect(q.get('status')).toBe('never');
   });
 });

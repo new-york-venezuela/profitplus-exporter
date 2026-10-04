@@ -124,3 +124,16 @@ export function groupBySeller<T extends { sellerCode: string | null; sellerName:
     return a.sellerName.localeCompare(b.sellerName);
   });
 }
+
+// Query string for GET /api/dwh/clientes/cobertura?format=xlsx: the same
+// filters the user sees on screen (empty ones are omitted).
+export function coberturaExportQuery(f: {
+  includeInactive: boolean;
+  sellerCode: string | null;
+  status: CoberturaStatus | null;
+}): string {
+  const p = new URLSearchParams({ format: 'xlsx', includeInactive: f.includeInactive ? '1' : '0' });
+  if (f.sellerCode) p.set('seller', f.sellerCode);
+  if (f.status) p.set('status', f.status);
+  return p.toString();
+}

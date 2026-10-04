@@ -7,7 +7,7 @@ import { KpiCard } from './kpi-card';
 import { KpiGroup } from './kpi-group';
 import type { CoberturaResponse, CoberturaRowView, CoberturaStatus } from '../types';
 import {
-  NO_SELLER, compareDaysSince, filterCobertura, groupBySeller, summarizeCobertura,
+  NO_SELLER, compareDaysSince, coberturaExportQuery, filterCobertura, groupBySeller, summarizeCobertura,
 } from '../lib/cobertura';
 
 type SortKey = 'days' | 'customer' | 'seller' | 'usd' | 'units';
@@ -159,16 +159,9 @@ export default function CoberturaClientes() {
     }
   }
 
-  function exportParams(): string {
-    const p = new URLSearchParams({ format: 'xlsx', includeInactive: includeInactive ? '1' : '0' });
-    if (sellerFilter) p.set('seller', sellerFilter);
-    if (statusFilter) p.set('status', statusFilter);
-    return p.toString();
-  }
-
   function handleExport() {
     posthog.capture('cobertura_export', { seller: sellerFilter, status: statusFilter, rows: sorted.length });
-    window.location.href = `/api/dwh/clientes/cobertura?${exportParams()}`;
+    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter })}`;
   }
 
   function handlePrint() {
