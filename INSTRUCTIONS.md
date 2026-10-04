@@ -247,6 +247,11 @@ cd $APP
 bun install --production
 ```
 
+`--production` skips `devDependencies` (tests, e2e, eslint, drizzle-kit, tsx). Everything
+`bun run build` needs (typescript, tailwind, `@types/*`) lives in `dependencies`, and `next build`
+type-checks via `tsconfig.build.json` (app code only, no tests). Package managers don't support
+custom groups, so keep build-time packages in `dependencies` and test/lint-only ones in `devDependencies`.
+
 This compiles native modules (`better-sqlite3`, `argon2`, `mssql`) for Windows.
 
 ## Step 3: Configure Environment

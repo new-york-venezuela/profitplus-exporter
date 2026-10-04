@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
+  // Type-check only app code at build time, so the prod server (bun install --production)
+  // doesn't need test/e2e libraries. Editor/tests keep using tsconfig.json.
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
   // Prevent Next.js from bundling native modules — they must be required at runtime
   serverExternalPackages: ['mssql', 'bcrypt'],
   experimental: {
