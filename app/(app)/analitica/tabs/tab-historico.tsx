@@ -46,6 +46,11 @@ function DisclaimerBanner() {
         independientes de los datos actuales — no se pueden cruzar ni sumar con
         las cifras de 2026 en adelante.
       </p>
+      <p className="mt-2">
+        Ventas brutas sin IVA y antes de devoluciones. Las devoluciones de este período no están enlazadas a su
+        factura original, así que aquí se restan por <strong>fecha de devolución</strong> (en el resto de
+        Analítica se restan por fecha de la factura).
+      </p>
     </div>
   );
 }
@@ -240,9 +245,22 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
   const lineaColumns: DrilldownColumn<HistoricoTableRow>[] = [
     {
       key: 'salesGross',
-      label: 'Ventas netas',
+      label: 'Ventas brutas',
       align: 'right',
       format: row => moneyLabel(row.salesGross, currency),
+    },
+    {
+      key: 'returns',
+      label: 'Devoluciones',
+      align: 'right',
+      title: 'Por fecha de devolución (sin enlace a la factura en los datos del sistema anterior).',
+      format: row => moneyLabel(row.returns, currency),
+    },
+    {
+      key: 'salesNet',
+      label: 'Ventas netas',
+      align: 'right',
+      format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnRate',
@@ -266,7 +284,10 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
         )}
         {!kpisLoading && !kpisError && kpis && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <KpiCard label="Ventas netas" value={moneyLabel(kpis.salesGross, currency)} />
+            <KpiCard label="Ventas brutas" value={moneyLabel(kpis.salesGross, currency)} />
+            <KpiCard label="Devoluciones" value={moneyLabel(kpis.returns, currency)} />
+            <KpiCard label="Ventas netas" value={moneyLabel(kpis.salesNet, currency)} />
+            <KpiCard label="Tasa de devolución" value={kpis.returnRate !== null ? `${(kpis.returnRate * 100).toFixed(1)}%` : '—'} />
             <KpiCard label="Clientes activos" value={kpis.activeClients.toLocaleString('es-VE')} />
             <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency) : '—'} />
             <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} />
@@ -282,7 +303,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
         {!mesLoading && !mesError && (
-          <ChartCard title="Tendencia de ventas" subtitle="Ventas netas por mes — clic en una barra para ver clientes de ese mes">
+          <ChartCard title="Tendencia de ventas" subtitle="Ventas brutas por mes — clic en una barra para ver clientes de ese mes">
             {chartData.length === 0 ? (
               <EmptyState />
             ) : (
@@ -324,6 +345,8 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
                 </tr>
@@ -333,6 +356,8 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
                   <tr key={row.value} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
                     <td className="px-3 py-2 text-gray-800">{row.label}</td>
                     <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.salesGross, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.returns, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900">{moneyLabel(row.salesNet, currency)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{row.returnRate !== null ? `${(row.returnRate * 100).toFixed(1)}%` : '—'}</td>
                   </tr>
                 ))}

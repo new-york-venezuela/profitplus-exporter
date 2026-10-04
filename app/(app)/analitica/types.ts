@@ -192,10 +192,14 @@ export interface VentasComparisonResponse {
 // "before" this dataset), no entidad/tienda toggle (legacy customers have
 // no Dim_LegalEntity rollup) — see docs/superpowers/specs/
 // 2026-09-23-legacy-2025-import-design.md.
+// Fact_Returns_Legacy has no original-factura link, so Histórico's
+// devoluciones are always attributed by the devolución's own date.
 export interface HistoricoRow {
   label: string;
   value: string | number;
   salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
   returnRate: number | null;
 }
 
@@ -212,6 +216,9 @@ export interface HistoricoResponse {
 
 export interface HistoricoKpis {
   salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
+  returnRate: number | null;
   activeClients: number;
   avgTicket: DualAmount | null;
   unitsSold: number;

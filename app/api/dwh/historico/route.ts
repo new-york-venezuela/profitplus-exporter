@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { dualFromRow, returnRate, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
   HistoricoResponse, HistoricoRow,
   HistoricoKpis, HistoricoKpisResponse,
@@ -29,6 +30,10 @@ export const dynamic = 'force-dynamic';
 // always via fact.Fact_ExchangeRate.RateSell for the row's own DateKey.
 const DATE_WINDOW = 'AND fsl.DateKey BETWEEN 20250101 AND 20260228';
 const RETURNS_DATE_WINDOW = 'AND frl.DateKey BETWEEN 20250101 AND 20260228';
+// Fact_Returns_Legacy has no link to the original factura (no
+// OriginalInvoiceDateKey, unlike fact.Fact_Returns after 0036), so every
+// devolución here is attributed by its OWN date (DateKey). Ventas netas in
+// this tab = ventas brutas − devoluciones por fecha de devolución; the UI says so.
 
 function monthlyQuery(): string {
   return `
@@ -39,7 +44,12 @@ function monthlyQuery(): string {
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
-         WHERE dr.YearMonth = d.YearMonth AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}) AS ReturnsNetBs
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsBs,
+      (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
+         FROM fact.Fact_Returns_Legacy frl
+         JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
+         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
     JOIN dim.Dim_Date d ON d.DateKey = fsl.DateKey
@@ -54,10 +64,10 @@ function monthlyQuery(): string {
 // supplied (drill-down from the "mes" chart), otherwise unscoped. Also
 // optionally scoped to a single sales rep when @salesRepKey is supplied.
 //
-// ReturnsNetBs only — no USD side. returnRate (computed in the row-mapping
-// code below) is BS-only, matching ventas/route.ts's own convention, so
-// there's no need for a returns-side usdConversionJoin here.
-function clienteQuery(monthFilter: string, salesRepFilter: string): string {
+// The returns subqueries get the same month and seller scope as the sales
+// side (returnsMonthFilter/returnsSalesRepFilter), so a drilled-in row's
+// return rate compares the same period/seller on both sides.
+function clienteQuery(monthFilter: string, salesRepFilter: string, returnsMonthFilter: string, returnsSalesRepFilter: string): string {
   return `
     SELECT TOP 15
       CAST(c.CustomerLegacyKey AS varchar(20)) AS GroupValue,
@@ -65,8 +75,13 @@ function clienteQuery(monthFilter: string, salesRepFilter: string): string {
       ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
-         WHERE frl.CustomerLegacyKey = c.CustomerLegacyKey AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
-      ) AS ReturnsNetBs
+         
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND frl.CustomerLegacyKey = c.CustomerLegacyKey ${returnsMonthFilter} ${returnsSalesRepFilter}) AS ReturnsBs,
+      (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
+         FROM fact.Fact_Returns_Legacy frl
+         
+         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND frl.CustomerLegacyKey = c.CustomerLegacyKey ${returnsMonthFilter} ${returnsSalesRepFilter}) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
     JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey
@@ -86,7 +101,12 @@ function lineaQuery(): string {
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          JOIN dim.Dim_Product_Legacy pr ON pr.ProductLegacyKey = frl.ProductLegacyKey
-         WHERE ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA') AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}) AS ReturnsNetBs
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA')) AS ReturnsBs,
+      (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
+         FROM fact.Fact_Returns_Legacy frl
+         JOIN dim.Dim_Product_Legacy pr ON pr.ProductLegacyKey = frl.ProductLegacyKey
+         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA')) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
     JOIN dim.Dim_Product_Legacy p ON p.ProductLegacyKey = fsl.ProductLegacyKey
@@ -124,6 +144,13 @@ const KPIS_QUERY = `
   WHERE fsl.IsVoided = 0 ${DATE_WINDOW}
 `;
 
+const RETURNS_KPI_QUERY = `
+  SELECT ${dualAmountExpr('frl', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
+  FROM fact.Fact_Returns_Legacy frl
+  ${usdConversionJoin('frl')}
+  WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
+`;
+
 function formatYearMonth(ym: string): string {
   const [y, m] = ym.split('-');
   const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -133,7 +160,12 @@ function formatYearMonth(ym: string): string {
 
 async function handleKpis(): Promise<NextResponse> {
   const pool = await getDwhPool();
-  const kpiResult = await pool.request().query(KPIS_QUERY);
+  const [kpiResult, returnsResult] = await Promise.all([
+    pool.request().query(KPIS_QUERY),
+    pool.request().query(RETURNS_KPI_QUERY),
+  ]);
+  const returnsRow = returnsResult.recordset[0] as { ReturnsBs: number | null; ReturnsUsd: number | null } | undefined;
+  const returns: DualAmount = !returnsRow || returnsRow.ReturnsBs === null ? { bs: 0, usd: 0 } : dualFromRow(returnsRow.ReturnsBs, returnsRow.ReturnsUsd);
 
   const row = kpiResult.recordset[0] as { SalesGrossBs: number | null; SalesGrossUsd: number | null; UnitsSold: number | null; ActiveClients: number; InvoiceCount: number };
   const salesGrossBs = Number(row.SalesGrossBs ?? 0);
@@ -144,6 +176,9 @@ async function handleKpis(): Promise<NextResponse> {
 
   const kpis: HistoricoKpis = {
     salesGross,
+    returns,
+    salesNet: subtractDual(salesGross, returns),
+    returnRate: returnRate(returns, salesGross),
     activeClients: Number(row.ActiveClients ?? 0),
     avgTicket: invoiceCount > 0 ? { bs: salesGrossBs / invoiceCount, usd: salesGrossUsd === null ? null : salesGrossUsd / invoiceCount } : null,
     unitsSold: Number(row.UnitsSold ?? 0),
@@ -198,16 +233,23 @@ export async function GET(request: NextRequest) {
     if (groupBy === 'cliente') {
       const req = pool.request();
       let monthFilter = '';
+      let returnsMonthFilter = '';
       if (month) {
+        if (!/^\d{4}-\d{2}$/.test(month)) {
+          return NextResponse.json({ error: 'Parámetro month inválido' }, { status: 400 });
+        }
         req.input('month', month);
         monthFilter = 'AND d.YearMonth = @month';
+        returnsMonthFilter = buildDateWhereClause(`month:${month}`, 'frl');
       }
       let salesRepFilter = '';
+      let returnsSalesRepFilter = '';
       if (salesRepKey !== null) {
         req.input('salesRepKey', salesRepKey);
         salesRepFilter = 'AND fsl.SalesRepLegacyKey = @salesRepKey';
+        returnsSalesRepFilter = 'AND frl.SalesRepLegacyKey = @salesRepKey';
       }
-      const result = await req.query(clienteQuery(monthFilter, salesRepFilter));
+      const result = await req.query(clienteQuery(monthFilter, salesRepFilter, returnsMonthFilter, returnsSalesRepFilter));
       recordset = result.recordset;
       breadcrumb.push({ label: month ? formatYearMonth(month) : 'Clientes', groupBy: 'cliente' });
     } else if (groupBy === 'linea') {
@@ -220,15 +262,16 @@ export async function GET(request: NextRequest) {
     }
 
     const rows: HistoricoRow[] = recordset.map(r => {
-      const salesGrossBs = Number(r.SalesGrossBs);
-      const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
-      const returnsNetBs = Number(r.ReturnsNetBs ?? 0);
+      const salesGross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
+      const returns = dualFromRow(r.ReturnsBs, r.ReturnsUsd);
       const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
       return {
         label,
         value: r.GroupValue as string,
-        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
-        returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
+        salesGross,
+        returns,
+        salesNet: subtractDual(salesGross, returns),
+        returnRate: returnRate(returns, salesGross),
       };
     });
 
