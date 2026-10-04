@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
-import type { BreakdownRow, Currency, DateRange, DevolucionesMatrixCell, DevolucionesResponse, DualAmount, PivotDimension } from '../types';
+import { KpiCard } from '../components/kpi-card';
+import { KpiGroup } from '../components/kpi-group';
+import type { BreakdownRow, Currency, DateRange, DevolucionesKpisResponse, DevolucionesMatrixCell, DevolucionesResponse, DualAmount, PivotDimension } from '../types';
 
 // Cliente view groups by cliente_entidad/cliente_tienda (existing toggle) and
 // breaks down by producto/vendedor — mirrors tab-ventas.tsx's wiring exactly;
@@ -168,6 +170,10 @@ export default function TabDevoluciones({
   dateRange: DateRange;
   currency: Currency;
 }) {
+  const [kpisData, setKpisData] = useState<DevolucionesKpisResponse | null>(null);
+  const [kpisLoading, setKpisLoading] = useState<boolean>(true);
+  const [kpisError, setKpisError] = useState<string | null>(null);
+
   const [salesrepData, setSalesrepData] = useState<DevolucionesResponse | null>(null);
   const [salesrepLoading, setSalesrepLoading] = useState<boolean>(true);
   const [salesrepError, setSalesrepError] = useState<string | null>(null);
@@ -190,6 +196,33 @@ export default function TabDevoluciones({
   // out of scope, so sorting-by-return-rate is done here instead, before
   // rows are handed to it.
   const [clienteSortByRate, setClienteSortByRate] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setKpisError(null);
+      setKpisLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, section: 'kpis' });
+        const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setKpisError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setKpisData(await res.json());
+      } catch {
+        if (!cancelled) setKpisError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setKpisLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,6 +361,63 @@ export default function TabDevoluciones({
           columnas de ventas netas, las devoluciones se restan por fecha de la factura original.
         </p>
       </div>
+
+      {/* Headline KPIs */}
+      <section>
+        {kpisLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
+        {!kpisLoading && kpisError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{kpisError}</p>
+        )}
+        {!kpisLoading && !kpisError && kpisData && (() => {
+          const k = kpisData.kpis;
+          const nameValue = 'text-base font-bold break-words';
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <KpiGroup title="Magnitud" tone="returns">
+                <KpiCard label="Devoluciones netas" value={moneyLabel(k.returnsNet, currency)} title="Notas de crédito del período (por fecha de devolución), sin IVA." />
+                <KpiCard
+                  label="Tasa de devolución"
+                  value={pct(k.returnRate)}
+                  tone={k.returnRate !== null && k.returnRate > 0.05 ? 'warn' : 'default'}
+                  title="Devoluciones ÷ ventas brutas del mismo período."
+                />
+                <KpiCard
+                  label="Unidades devueltas"
+                  value={k.unitsReturned.toLocaleString('es-VE')}
+                  subtitle={k.unitsReturnRate !== null ? `${pct(k.unitsReturnRate)} de las unidades vendidas` : undefined}
+                />
+                <KpiCard
+                  label="Notas de crédito"
+                  value={k.creditNotes.toLocaleString('es-VE')}
+                  subtitle={k.avgCreditNote ? `prom. ${moneyLabel(k.avgCreditNote, currency)}` : undefined}
+                />
+              </KpiGroup>
+              <KpiGroup title="Dónde ocurre" tone="collections">
+                <KpiCard
+                  label="Producto más devuelto"
+                  value={k.topProduct?.name ?? 'Sin datos'}
+                  valueClassName={nameValue}
+                  subtitle={k.topProduct ? moneyLabel(k.topProduct.amount, currency) : undefined}
+                />
+                <KpiCard
+                  label="Cliente con más devoluciones"
+                  value={k.topCustomer?.name ?? 'Sin datos'}
+                  valueClassName={nameValue}
+                  subtitle={k.topCustomer ? moneyLabel(k.topCustomer.amount, currency) : undefined}
+                  title="Por Entidad (cadena / razón social)."
+                />
+                <KpiCard
+                  label="Mayor tasa por vendedor"
+                  value={k.topSellerByRate?.name ?? 'Sin datos'}
+                  valueClassName={nameValue}
+                  subtitle={k.topSellerByRate ? `${pct(k.topSellerByRate.rate)} · ${moneyLabel(k.topSellerByRate.amount, currency)}` : undefined}
+                  title="Solo vendedores con al menos 1% de las ventas brutas del período."
+                />
+              </KpiGroup>
+            </div>
+          );
+        })()}
+      </section>
 
       {/* Por vendedor */}
       <section>

@@ -47,6 +47,8 @@ Suma de las líneas de devolución de clientes (módulo de devoluciones de Profi
 
 En la pestaña Ventas puede escoger cualquiera de las dos con el selector **Devoluciones**.
 
+**Indicadores de la pestaña Devoluciones.** Todos usan la fecha de la nota de crédito y comparan contra las ventas brutas del mismo período: *Devoluciones netas*, *Tasa de devolución* (devoluciones ÷ ventas brutas), *Unidades devueltas* (y su proporción sobre las unidades vendidas), *Notas de crédito* (cantidad y promedio), *Producto más devuelto*, *Cliente con más devoluciones* (por Entidad) y *Mayor tasa por vendedor* (solo vendedores con al menos 1% de las ventas brutas del período, para que un vendedor con una sola factura no encabece la lista).
+
 ## Ventas netas
 
 **Ventas netas = Ventas brutas − Devoluciones**, con las devoluciones por fecha de factura (o según el selector de la pestaña Ventas).
