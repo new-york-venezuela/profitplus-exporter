@@ -8,6 +8,7 @@ import {
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import type { Currency, DateRange, ResumenResponse, AgingBucketRow } from '../types';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import { periodLabel } from '../lib/period-label';
 import type { Granularity } from '../lib/granularity';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
@@ -141,8 +142,9 @@ export default function TabResumen({
   const trendData = data.monthlyTrend.map((r, i) => ({
     label: trendXLabels[i],
     title: bucketTitle(data.trendMode, r.bucket),
-    Ventas: currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
+    'Ventas brutas': currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
     Devoluciones: currency === 'usd' ? r.returnsNet.usd : r.returnsNet.bs,
+    'Ventas netas': currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
   }));
 
   const orderedBuckets = BUCKET_ORDER
@@ -157,13 +159,14 @@ export default function TabResumen({
 
   const topCustomersData = data.topCustomers.map(c => ({
     name: c.name,
-    netRevenue: currency === 'usd' ? c.netRevenue.usd : c.netRevenue.bs,
+    salesGross: currency === 'usd' ? c.salesGross.usd : c.salesGross.bs,
   }));
   const topProductsData = data.topProducts.map(p => ({
     name: p.name,
-    netRevenue: currency === 'usd' ? p.netRevenue.usd : p.netRevenue.bs,
+    salesGross: currency === 'usd' ? p.salesGross.usd : p.salesGross.bs,
   }));
 
+  const periodo = periodLabel(dateRange);
   const activeCustomersDelta =
     data.kpis.activeCustomersPrevPeriod !== null && data.kpis.activeCustomersPrevPeriod > 0
       ? (data.kpis.activeCustomers - data.kpis.activeCustomersPrevPeriod) / data.kpis.activeCustomersPrevPeriod
@@ -171,16 +174,20 @@ export default function TabResumen({
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesGross12mo, currency)} />
-        <KpiCard label="Devoluciones (12m)" value={moneyLabel(data.kpis.returnsNet12mo, currency)} />
+      {/* KPI row — every figure is for the selected range (periodo). */}
+      <p className="text-xs text-gray-500 -mb-3">
+        Período: {periodo}. Devoluciones atribuidas a la fecha de su factura original, sin IVA.
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard label={`Ventas brutas (${periodo})`} value={moneyLabel(data.kpis.salesGross, currency)} />
+        <KpiCard label={`Devoluciones (${periodo})`} value={moneyLabel(data.kpis.returns, currency)} />
+        <KpiCard label={`Ventas netas (${periodo})`} value={moneyLabel(data.kpis.salesNet, currency)} />
         <KpiCard
           label="Tasa de devolución"
           value={pct(data.kpis.returnRate)}
           tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
         />
-        <KpiCard label="Cobrado (12m)" value={moneyLabel(data.kpis.collected12mo, currency)} />
+        <KpiCard label={`Cobrado (${periodo})`} value={moneyLabel(data.kpis.collected, currency)} />
         <KpiCard
           label="Clientes activos"
           value={data.kpis.activeCustomers.toLocaleString('es-VE')}
@@ -194,7 +201,7 @@ export default function TabResumen({
       </div>
 
       {/* Sales & returns trend */}
-      <ChartCard title="Tendencia de ventas y devoluciones" subtitle={`Monto neto por ${TREND_UNIT_LABEL[data.trendMode]}`}>
+      <ChartCard title="Tendencia de ventas y devoluciones" subtitle={`Ventas brutas, devoluciones (por fecha de factura) y ventas netas por ${TREND_UNIT_LABEL[data.trendMode]}, sin IVA`}>
         {trendData.length === 0 ? (
           <EmptyState />
         ) : (
@@ -205,7 +212,8 @@ export default function TabResumen({
               <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
               <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
               <Legend />
-              <Bar dataKey="Ventas" fill="#2563eb" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="Ventas brutas" fill="#2563eb" radius={[3, 3, 0, 0]} />
+              <Line type="monotone" dataKey="Ventas netas" stroke="#16a34a" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="Devoluciones" stroke="#dc2626" strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -214,7 +222,7 @@ export default function TabResumen({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top customers */}
-        <ChartCard title="Top 10 clientes" subtitle="Por ingreso neto">
+        <ChartCard title="Top 10 clientes" subtitle="Por ventas brutas (sin IVA, antes de devoluciones)">
           {data.topCustomers.length === 0 ? (
             <EmptyState />
           ) : (
@@ -224,14 +232,14 @@ export default function TabResumen({
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={val => moneyTooltip(val, currency)} />
-                <Bar dataKey="netRevenue" fill="#2563eb" radius={[0, 3, 3, 0]} />
+                <Bar dataKey="salesGross" name="Ventas brutas" fill="#2563eb" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>
 
         {/* Top products */}
-        <ChartCard title="Top 10 productos" subtitle="Por ingreso neto">
+        <ChartCard title="Top 10 productos" subtitle="Por ventas brutas (sin IVA, antes de devoluciones)">
           {data.topProducts.length === 0 ? (
             <EmptyState />
           ) : (
@@ -241,7 +249,7 @@ export default function TabResumen({
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={val => moneyTooltip(val, currency)} />
-                <Bar dataKey="netRevenue" fill="#0891b2" radius={[0, 3, 3, 0]} />
+                <Bar dataKey="salesGross" name="Ventas brutas" fill="#0891b2" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -303,7 +311,7 @@ export default function TabResumen({
       </div>
 
       {/* Sales rep performance */}
-      <ChartCard title="Desempeño por vendedor" subtitle="Ventas netas y devoluciones">
+      <ChartCard title="Desempeño por vendedor" subtitle="Todas las facturas, incluida la facturación de consignación (la pestaña Vendedores la excluye). Devoluciones por fecha de factura.">
         {data.salesReps.length === 0 ? (
           <EmptyState />
         ) : (
@@ -312,8 +320,9 @@ export default function TabResumen({
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Vendedor</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
                 </tr>
               </thead>
@@ -326,6 +335,9 @@ export default function TabResumen({
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {moneyLabel(r.returnsNet, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-900">
+                      {moneyLabel(r.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {r.salesGross.bs > 0 ? pct(r.returnsNet.bs / r.salesGross.bs) : '—'}

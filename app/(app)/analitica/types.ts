@@ -44,12 +44,15 @@ export interface DualAmount {
   usd: number | null;
 }
 
-// Resumen tab
+// Resumen tab. Every devoluciones figure here is attributed by the ORIGINAL
+// factura's date (ReturnsBasis 'factura'), so salesGross − returns = salesNet
+// for the selected period.
 export interface ResumenKPIs {
-  salesGross12mo: DualAmount;
-  returnsNet12mo: DualAmount;
-  returnRate: number | null;
-  collected12mo: DualAmount;
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
+  returnRate: number | null; // returns / salesGross
+  collected: DualAmount; // Fact_Collections.AmountCollected by receipt date (IVA incluido)
   // Distinct Dim_LegalEntity with >=1 sale in range, and the same-length
   // immediately-preceding period's count, for the Δ card — same
   // activeClients/prevPeriod convention as Ventas' VentasKpis.
@@ -67,18 +70,20 @@ export interface MonthlyTrendRow {
   // bucketLabels()/bucketTitle() from ./lib/granularity.
   bucket: string;
   salesGross: DualAmount;
-  returnsNet: DualAmount;
+  returnsNet: DualAmount; // by original factura date
+  salesNet: DualAmount; // salesGross − returnsNet
 }
 
 export interface NamedAmount {
   name: string;
-  netRevenue: DualAmount;
+  salesGross: DualAmount;
 }
 
 export interface SalesRepRow {
   name: string;
-  salesGross: DualAmount;
+  salesGross: DualAmount; // includes consignment-root invoices (see Vendedores)
   returnsNet: DualAmount;
+  salesNet: DualAmount;
 }
 
 export interface AgingBucketRow {
