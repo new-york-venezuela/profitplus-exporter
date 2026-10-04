@@ -304,10 +304,11 @@ export interface CxcResponse {
 export interface VendedoresRow {
   value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
   name: string;
-  salesGross: DualAmount;
-  returnsNet: DualAmount;
+  salesGross: DualAmount; // excludes consignment-root invoices (see below)
+  returnsNet: DualAmount; // by original factura date, same exclusion
+  salesNet: DualAmount; // salesGross − returnsNet
   returnRate: number | null;
-  collectionRate: number | null;
+  collectionRate: number | null; // collected / sales WITH IVA (both IVA-inclusive)
   avgDiscount: number | null;
   // Amounts excluded from salesGross/collected above because they came from a
   // root-billed invoice of a chain flagged as a consignment-billing pattern

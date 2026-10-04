@@ -5,7 +5,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { sellerTargets } from '@/lib/db/schema';
 import { and, eq, inArray } from 'drizzle-orm';
 import {
-  buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr, getUsdRate,
+  buildDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, dualAmountExpr, getUsdRate,
 } from '@/app/api/dwh/lib/query-builder';
 import { resolveQuotaSum } from './quota-resolution';
 import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
@@ -208,7 +208,7 @@ function entityHistoryQuery(currentDateWhere: string): string {
        WHERE fs3.IsVoided = 0 AND c3.LegalEntityKey = fse.LegalEntityKey AND d3.FullDate = fse.FirstSaleDateEver
       ) AS FirstSaleAmountBs,
       (SELECT CASE WHEN COUNT(fs3.NetAmount) = 0 THEN 0
-              ELSE SUM(fs3.NetAmount / NULLIF(COALESCE(fs3.DocumentExchangeRate, fx3.RateSell), 0)) END
+              ELSE SUM(fs3.NetAmount / NULLIF(fx3.RateSell, 0)) END
        FROM fact.Fact_Sales fs3
        ${usdConversionJoin('fs3', 'DateKey', 'fx3')}
        JOIN dim.Dim_Customer c3 ON c3.CustomerKey = fs3.CustomerKey
@@ -279,13 +279,15 @@ function recoveryGapQuery(legalEntityKeys: number[], currentDateWhere: string): 
 
 // Devoluciones: this seller's returns, grouped by product and by tienda,
 // top 10 each by amount — same TOP-10 convention as cxc's topDebtorsQuery.
+// Windowed by the devolución's own date (an event list, not a netting), USD
+// at the original factura's rate (returnsUsdConversionJoin).
 function returnsByProductQuery(dateWhere: string): string {
   return `
     SELECT TOP 10 ISNULL(p.ProductName, p.ProductCode) AS Label,
       SUM(fr.QuantityReturned) AS Quantity,
       ${dualAmountExpr('fr', 'NetAmount', 'AmountBs', 'AmountUsd')}
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
     WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere.replace(/\bfs\b/g, 'fr')}
     GROUP BY ISNULL(p.ProductName, p.ProductCode)
@@ -299,7 +301,7 @@ function returnsByTiendaQuery(dateWhere: string): string {
       SUM(fr.QuantityReturned) AS Quantity,
       ${dualAmountExpr('fr', 'NetAmount', 'AmountBs', 'AmountUsd')}
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
     WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere.replace(/\bfs\b/g, 'fr')}
     GROUP BY ISNULL(c.CustomerName, c.CustomerCode)

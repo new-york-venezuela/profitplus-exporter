@@ -130,15 +130,24 @@ export default function TabVendedores({
   const columns: DrilldownColumn<VendedoresTableRow>[] = [
     {
       key: 'salesGross',
-      label: 'Ventas netas',
+      label: 'Ventas brutas (sin consig.)',
       align: 'right',
+      title: 'Facturas sin IVA, sin anuladas, antes de devoluciones. Excluye la facturación agregada de consignación (ver columna "Consig. excluida").',
       format: row => moneyLabel(row.salesGross, currency),
     },
     {
       key: 'returnsNet',
       label: 'Devoluciones',
       align: 'right',
+      title: 'Devoluciones sin IVA, por fecha de la factura original, misma exclusión de consignación.',
       format: row => moneyLabel(row.returnsNet, currency),
+    },
+    {
+      key: 'salesNet',
+      label: 'Ventas netas (sin consig.)',
+      align: 'right',
+      title: 'Ventas brutas − devoluciones (por fecha de factura), sin consignación.',
+      format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnRate',
@@ -150,7 +159,7 @@ export default function TabVendedores({
       key: 'collectionRate',
       label: 'Tasa cobr.',
       align: 'right',
-      title: 'Cobrado ÷ ventas netas del período. Puede superar 100% si se cobran facturas de períodos anteriores.',
+      title: 'Cobrado ÷ ventas del período con IVA (la cobranza incluye IVA). Puede superar 100% si se cobran facturas de períodos anteriores.',
       format: row => pct(row.collectionRate),
     },
     {
@@ -158,6 +167,13 @@ export default function TabVendedores({
       label: 'Descto prom.',
       align: 'right',
       format: row => pct(row.avgDiscount),
+    },
+    {
+      key: 'excludedSalesGross',
+      label: 'Consig. excluida',
+      align: 'right',
+      title: 'Ventas brutas de facturas a la raíz de cadenas con patrón de consignación, excluidas de las columnas anteriores. Resumen y Matriz sí las incluyen.',
+      format: row => (row.excludedSalesGross.bs > 0 ? moneyLabel(row.excludedSalesGross, currency) : '—'),
     },
     {
       key: 'perfil',
@@ -212,7 +228,9 @@ export default function TabVendedores({
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-bold text-gray-900">Desempeño por vendedor</h2>
         <p className="text-xs text-gray-500 mb-3">
-          Ventas netas, devoluciones y cobranza por representante de ventas
+          Ventas brutas, devoluciones y ventas netas (sin IVA; devoluciones por fecha de factura) y cobranza por
+          vendedor. Excluye la facturación de consignación a nivel de cadena, que se muestra aparte; por eso los
+          totales son menores que en Resumen y Matriz.
         </p>
         {rows.length === 0 ? (
           <EmptyState />

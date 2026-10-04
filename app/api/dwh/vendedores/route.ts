@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import {
+  buildDateWhereClause, buildReturnsDateWhereClause, getDimensionSpec, isDimensionForFact, jsonWithCache, usdConversionJoin,
+  returnsAmountSubqueries, dualAmountExpr, type Dimension,
+} from '@/app/api/dwh/lib/query-builder';
+import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from './consignment';
 import type { VendedoresResponse, VendedoresRow, VendedoresExcludedInvoice, VendedoresExcludedResponse } from '@/app/(app)/analitica/types';
 
@@ -64,21 +68,20 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
       CASE WHEN COUNT(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount END) = 0 THEN 0
            ELSE SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount / ${salesRate} END) END AS ExcludedSalesGrossUsd,
       COUNT(DISTINCT CASE WHEN ${flaggedCase} = 1 THEN fs.InvoiceNumber END) AS ExcludedInvoiceCount,
-      SUM(fs.GrossAmount) AS GrossAmount,
-      SUM(fs.DiscountAmount) AS DiscountAmount,
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
-           AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
-      ) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(rfx.RateSell, 0)) END
-         FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr', undefined, 'rfx')}
-         JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}
-           AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}
-      ) AS ReturnsNetUsd,
+      -- Gross/discount (Descto prom.) and the IVA-inclusive sales used as the
+      -- Tasa cobr. denominator follow the same consignment exclusion as SalesGross.
+      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.GrossAmount ELSE 0 END) AS GrossAmount,
+      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.DiscountAmount ELSE 0 END) AS DiscountAmount,
+      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount + ISNULL(fs.TaxAmount, 0) ELSE 0 END) AS SalesWithTaxBs,
+      ${returnsAmountSubqueries({
+        alias: 'fr',
+        fxAlias: 'rfx',
+        extraJoins: 'JOIN dim.Dim_Customer rc ON rc.CustomerKey = fr.CustomerKey',
+        where: `AND fr.SalesRepKey = fs.SalesRepKey ${returnsDateWhere}
+           AND ${flaggedRootCodes.length > 0 ? `rc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})` : '1 = 1'}`,
+        bsAlias: 'ReturnsNetBs',
+        usdAlias: 'ReturnsNetUsd',
+      })},
       (SELECT ISNULL(SUM(fc.AmountCollected), 0)
          FROM fact.Fact_Collections fc
          JOIN dim.Dim_Customer cc ON cc.CustomerKey = fc.CustomerKey
@@ -164,7 +167,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    // Devoluciones by ORIGINAL factura date, so brutas − devoluciones = netas.
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
 
     if (searchParams.get('section') === 'excluded' && parentValue && /^\d+$/.test(parentValue)) {
@@ -198,14 +202,20 @@ export async function GET(request: NextRequest) {
       const grossAmount = Number(r.GrossAmount);
       const discountAmount = Number(r.DiscountAmount);
       const collectedBs = Number(r.CollectedBs);
+      const salesWithTaxBs = Number(r.SalesWithTaxBs);
+      const salesGross = { bs: salesGrossBs, usd: salesGrossUsd };
+      const returnsNet = { bs: returnsNetBs, usd: returnsNetUsd };
 
       return {
         value: String(r.SalesRepKeyValue),
         name: r.Name,
-        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
-        returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
+        salesGross,
+        returnsNet,
+        salesNet: subtractDual(salesGross, returnsNet),
         returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
-        collectionRate: salesGrossBs > 0 ? collectedBs / salesGrossBs : null,
+        // Cobranza (mont_cob) includes IVA, so it is compared against sales
+        // WITH IVA (NetAmount + TaxAmount), not the ex-IVA ventas brutas.
+        collectionRate: salesWithTaxBs > 0 ? collectedBs / salesWithTaxBs : null,
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
         excludedSalesGross: { bs: Number(r.ExcludedSalesGrossBs), usd: r.ExcludedSalesGrossUsd === null ? null : Number(r.ExcludedSalesGrossUsd) },
         excludedCollected: { bs: Number(r.ExcludedCollectedBs), usd: r.ExcludedCollectedUsd === null ? null : Number(r.ExcludedCollectedUsd) },

@@ -345,6 +345,9 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
           onSave={saveQuotaField}
         />
       </div>
+      <p className="text-xs text-gray-500 -mt-2">
+        Ventas brutas sin IVA (antes de devoluciones), excluida la facturación de consignación — igual que la pestaña Vendedores.
+      </p>
       {data.cuota.isPartial && (
         <p className="text-xs text-amber-700">Meta parcial: falta la meta de algún mes del rango seleccionado.</p>
       )}
@@ -452,7 +455,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-avoid">
-          <h2 className="text-sm font-bold text-gray-900 mb-2">6a. Devoluciones por producto</h2>
+          <h2 className="text-sm font-bold text-gray-900 mb-2">6a. Devoluciones por producto <span className="font-normal text-gray-500">(por fecha de devolución)</span></h2>
           {data.devoluciones.byProduct.length === 0 ? (
             <div className="text-sm text-gray-400 py-4 text-center">Sin devoluciones.</div>
           ) : (
@@ -470,7 +473,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
           )}
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-avoid">
-          <h2 className="text-sm font-bold text-gray-900 mb-2">6b. Devoluciones por tienda</h2>
+          <h2 className="text-sm font-bold text-gray-900 mb-2">6b. Devoluciones por tienda <span className="font-normal text-gray-500">(por fecha de devolución)</span></h2>
           {data.devoluciones.byTienda.length === 0 ? (
             <div className="text-sm text-gray-400 py-4 text-center">Sin devoluciones.</div>
           ) : (
