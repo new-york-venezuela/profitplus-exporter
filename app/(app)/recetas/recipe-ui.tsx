@@ -1,3 +1,7 @@
+'use client';
+
+import { useState } from 'react';
+
 // Shared presentational pieces for the recipes module. Kept together so the list
 // and the editor render cost states identically.
 //
@@ -51,5 +55,44 @@ export function CostBadge({ costUsd, estimated }: { costUsd: number | null; esti
       {estimated && <EstimatedBadge />}
       <span className="tabular-nums text-gray-900">{formatUsd(costUsd)}</span>
     </span>
+  );
+}
+
+// Decimal input that accepts "0,400" and "0.400". A native type="number" input
+// reports "" for a half-typed value like "0," (locale-dependent), which a
+// controlled field then wipes — so keep the typed text and only expose the number.
+function parseDecimal(text: string): number | null {
+  const normalized = text.trim().replace(',', '.');
+  if (normalized === '') return 0;
+  if (!/^\d*\.?\d*$/.test(normalized) || normalized === '.') return null;
+  return Number(normalized);
+}
+
+export function DecimalInput({
+  value,
+  onChange,
+  blankZero = false,
+  ...rest
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  blankZero?: boolean;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'>) {
+  const [text, setText] = useState(() => (blankZero && value === 0 ? '' : String(value)));
+  // If the number changed from outside (e.g. a reset), show it; otherwise keep what was typed.
+  const shown = parseDecimal(text) === value ? text : (blankZero && value === 0 ? '' : String(value));
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      value={shown}
+      onChange={e => {
+        const parsed = parseDecimal(e.target.value);
+        if (parsed === null) return; // ignore characters that aren't part of a number
+        setText(e.target.value);
+        onChange(parsed);
+      }}
+    />
   );
 }
