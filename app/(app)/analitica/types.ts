@@ -651,8 +651,9 @@ export interface CadenceResponse {
 export interface SellerSummaryRow {
   salesRepKey: string;
   salesRepName: string;
-  netSales: DualAmount;
-  netReturns: DualAmount;
+  salesGross: DualAmount; // all invoices, incl. consignment billing
+  returns: DualAmount; // by original factura date
+  salesNet: DualAmount; // salesGross − returns
   entitiesServed: number;
 }
 
@@ -677,7 +678,7 @@ export interface SellerMatrixStore {
 export interface SellerMatrixCell {
   productKey: number;
   customerKey: number;
-  netSales: DualAmount;
+  netSales: DualAmount; // ventas brutas of the cell (sin IVA, antes de devoluciones)
   units: number;
   returnRateUsd: number | null; // a RATIO (returns/sales), not a currency amount -- plain number despite the name
   returnRateUnits: number | null;

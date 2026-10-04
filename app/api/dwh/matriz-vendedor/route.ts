@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import {
+  buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin,
+  returnsAmountSubqueries, dualAmountExpr,
+} from '@/app/api/dwh/lib/query-builder';
+import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { buildXlsx } from '@/lib/xlsx';
 import { buildMatrizExportRows, MATRIZ_EXPORT_COLUMNS, type MatrizExportSalesRow, type MatrizExportReturnsRow } from './export-rows';
 import type { SellerSummaryRow, SellerSummaryResponse, SellerMatrixProduct, SellerMatrixStore, SellerMatrixCell, SellerMatrixResponse } from '@/app/(app)/analitica/types';
@@ -36,15 +40,15 @@ function summaryQuery(salesDateWhere: string, returnsDateWhere: string): string 
     SELECT
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKey,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS SalesRepName,
-      ${dualAmountExpr('fs', 'NetAmount', 'NetSalesBs', 'NetSalesUsd')},
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       COUNT(DISTINCT le.LegalEntityKey) AS EntitiesServed,
-      (SELECT ISNULL(SUM(fr.NetAmount), 0)
-         FROM fact.Fact_Returns fr
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsBs,
-      (SELECT SUM(fr.NetAmount / NULLIF(fxr.RateSell, 0))
-         FROM fact.Fact_Returns fr
-         ${usdConversionJoin('fr', 'DateKey', 'fxr')}
-         WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS NetReturnsUsd
+      ${returnsAmountSubqueries({
+        alias: 'fr',
+        fxAlias: 'fxr',
+        where: `AND fr.SalesRepKey = fs.SalesRepKey ${returnsDateWhere}`,
+        bsAlias: 'ReturnsBs',
+        usdAlias: 'ReturnsUsd',
+      })}
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
@@ -52,7 +56,7 @@ function summaryQuery(salesDateWhere: string, returnsDateWhere: string): string 
     ${usdConversionJoin('fs')}
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY NetSalesBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -60,13 +64,18 @@ async function handleSummary(salesDateWhere: string, returnsDateWhere: string): 
   const pool = await getDwhPool();
   const result = await pool.request().query(summaryQuery(salesDateWhere, returnsDateWhere));
 
-  const rows: SellerSummaryRow[] = result.recordset.map(r => ({
-    salesRepKey: String(r.SalesRepKey),
-    salesRepName: String(r.SalesRepName),
-    netSales: { bs: Number(r.NetSalesBs), usd: r.NetSalesUsd === null ? null : Number(r.NetSalesUsd) },
-    netReturns: { bs: Number(r.NetReturnsBs), usd: r.NetReturnsUsd === null ? null : Number(r.NetReturnsUsd) },
-    entitiesServed: Number(r.EntitiesServed),
-  }));
+  const rows: SellerSummaryRow[] = result.recordset.map(r => {
+    const salesGross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
+    const returns = dualFromRow(r.ReturnsBs, r.ReturnsUsd);
+    return {
+      salesRepKey: String(r.SalesRepKey),
+      salesRepName: String(r.SalesRepName),
+      salesGross,
+      returns,
+      salesNet: subtractDual(salesGross, returns),
+      entitiesServed: Number(r.EntitiesServed),
+    };
+  });
 
   const response: SellerSummaryResponse = { rows };
   return jsonWithCache(response);
@@ -104,7 +113,7 @@ function matrixReturnsQuery(dateWhere: string): string {
       ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       SUM(fr.QuantityReturned) AS ReturnsUnits
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     WHERE fr.IsVoided = 0 AND fr.SalesRepKey = @salesRepKey ${dateWhere}
     GROUP BY fr.ProductKey, fr.CustomerKey
   `;
@@ -232,8 +241,10 @@ function exportReturnsQuery(dateWhere: string, salesRepFilter: string): string {
     JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
     JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
     JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
-    JOIN dim.Dim_Date d ON d.DateKey = fr.DateKey
-    ${usdConversionJoin('fr')}
+    -- Bucketed by the ORIGINAL factura's week/month, so a return lands in the
+    -- same export row as the sale it reverses.
+    JOIN dim.Dim_Date d ON d.DateKey = fr.OriginalInvoiceDateKey
+    ${returnsUsdConversionJoin('fr')}
     WHERE fr.IsVoided = 0 ${dateWhere} ${salesRepFilter}
     GROUP BY
       ISNULL(rep.SalesRepName, rep.SalesRepCode), le.LegalEntityName, ISNULL(c.CustomerName, c.CustomerCode),
@@ -285,7 +296,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    // Devoluciones attributed to the ORIGINAL factura date (summary, matrix
+    // cells and export), so each return offsets the sales it belongs to.
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
 
     const salesRepKeyParam = searchParams.get('salesRepKey');
     const salesRepKey = salesRepKeyParam && /^\d+$/.test(salesRepKeyParam) ? Number(salesRepKeyParam) : null;

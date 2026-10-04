@@ -157,7 +157,7 @@ export default function TabMatrizVendedor({ dateRange, currency }: { dateRange: 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Cobertura por vendedor</h2>
-            <p className="text-xs text-gray-500">Ventas y entidades atendidas por cada vendedor en el rango seleccionado</p>
+            <p className="text-xs text-gray-500">Ventas brutas, devoluciones (por fecha de factura) y ventas netas sin IVA, y entidades atendidas por cada vendedor. Incluye la facturación de consignación (la pestaña Vendedores la excluye)</p>
           </div>
           <a
             href={`/api/dwh/matriz-vendedor?${exportAllParams.toString()}`}
@@ -179,8 +179,9 @@ export default function TabMatrizVendedor({ dateRange, currency }: { dateRange: 
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Vendedor</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Entidades</th>
                 </tr>
               </thead>
@@ -192,8 +193,9 @@ export default function TabMatrizVendedor({ dateRange, currency }: { dateRange: 
                     onClick={() => handleSalesRepChange(row.salesRepKey)}
                   >
                     <td className="px-3 py-2 text-gray-800">{row.salesRepName}</td>
-                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.netSales, currency)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.netReturns, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.salesGross, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.returns, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900">{moneyLabel(row.salesNet, currency)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{row.entitiesServed}</td>
                   </tr>
                 ))}
