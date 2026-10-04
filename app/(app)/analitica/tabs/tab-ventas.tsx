@@ -48,6 +48,8 @@ function KpiCard({ label, value, delta, title }: { label: string; value: string;
   );
 }
 
+const TREND_METRIC_STORAGE_KEY = 'ventas-trend-metric';
+
 const COMPARISON_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626'];
 
 // Multi-select comparison chart (línea or cliente/cadena): up to 4 checkbox
@@ -212,6 +214,27 @@ export default function TabVentas({
   // per-factura reconciliation; 'devolucion' shows returns in the period the
   // nota de crédito was issued.
   const [returnsBasis, setReturnsBasis] = useState<ReturnsBasis>('factura');
+  // Trend chart metric. Defaults to units: money is already shown on Resumen.
+  // The choice is a per-viewer convenience kept in localStorage (guarded —
+  // storage can be blocked or throw).
+  // The initial markup never depends on it (the chart renders only after the
+  // data loads), so reading storage in the lazy initializer is hydration-safe.
+  const [trendMetric, setTrendMetric] = useState<'units' | 'money'>(() => {
+    try {
+      const saved = typeof window === 'undefined' ? null : window.localStorage.getItem(TREND_METRIC_STORAGE_KEY);
+      return saved === 'money' ? 'money' : 'units';
+    } catch {
+      return 'units';
+    }
+  });
+  function changeTrendMetric(next: 'units' | 'money') {
+    setTrendMetric(next);
+    try {
+      window.localStorage.setItem(TREND_METRIC_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }
   const [mesData, setMesData] = useState<VentasResponse | null>(null);
   const [mesLoading, setMesLoading] = useState<boolean>(true);
   const [mesError, setMesError] = useState<string | null>(null);
@@ -476,6 +499,7 @@ export default function TabVentas({
     value: String(r.value),
     salesGross: currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
     salesNet: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
+    units: r.units,
   }));
 
   const clienteTableRows: VentasTableRow[] = useMemo(
@@ -637,9 +661,53 @@ export default function TabVentas({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
         {!mesLoading && !mesError && (
-          <ChartCard title="Tendencia de ventas" subtitle={`Ventas brutas (barras) y ventas netas de devoluciones ${basisLabel} (línea) por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`}>
+          <ChartCard
+            title="Tendencia de ventas"
+            subtitle={
+              trendMetric === 'units'
+                ? `Unidades facturadas por ${TREND_UNIT_LABEL[trendMode]}, antes de devoluciones${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`
+                : `Ventas brutas (barras) y ventas netas de devoluciones ${basisLabel} (línea) por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`
+            }
+          >
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1 w-fit mb-3" role="group" aria-label="Métrica de la tendencia">
+              {([['units', 'Unidades'], ['money', 'Dinero']] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => changeTrendMetric(key)}
+                  aria-pressed={trendMetric === key}
+                  className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                    trendMetric === key ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {chartData.length === 0 ? (
               <EmptyState />
+            ) : trendMetric === 'units' ? (
+              <ResponsiveContainer width="100%" height={380}>
+                <ComposedChart data={chartData} margin={{ top: 8, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => new Intl.NumberFormat('es-VE', { notation: 'compact' }).format(Number(v))} />
+                  <Tooltip
+                    formatter={val => new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 }).format(Number(val))}
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar
+                    dataKey="units"
+                    name="Unidades vendidas"
+                    fill="#2563eb"
+                    radius={[3, 3, 0, 0]}
+                    cursor="pointer"
+                    onClick={(entry: { payload?: { value: string } }) => {
+                      if (entry.payload) handleBarClick(entry.payload.value);
+                    }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
             ) : (
               <ResponsiveContainer width="100%" height={380}>
                 <ComposedChart data={chartData} margin={{ top: 8, left: 0 }}>
