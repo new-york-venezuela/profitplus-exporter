@@ -132,7 +132,7 @@ function SegmentBadge({ segment }: { segment: Segment }) {
   );
 }
 
-type SortKey = 'name' | 'salesGross' | 'returnsNet' | 'returnRate' | 'pareto';
+type SortKey = 'name' | 'salesGross' | 'returnsNet' | 'salesNet' | 'returnRate' | 'pareto';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
@@ -143,8 +143,9 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: 'name', label: 'Cliente', align: 'left' },
-  { key: 'salesGross', label: 'Ventas netas', align: 'right' },
+  { key: 'salesGross', label: 'Ventas brutas', align: 'right' },
   { key: 'returnsNet', label: 'Devoluciones', align: 'right' },
+  { key: 'salesNet', label: 'Ventas netas', align: 'right' },
   { key: 'returnRate', label: 'Tasa dev.', align: 'right' },
   { key: 'pareto', label: 'Segmento', align: 'right' },
 ];
@@ -157,6 +158,8 @@ function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string |
       return (currency === 'usd' ? row.salesGross.usd : row.salesGross.bs) ?? -Infinity;
     case 'returnsNet':
       return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
+    case 'salesNet':
+      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
     case 'returnRate':
       return row.returnRate ?? -Infinity;
     case 'pareto':
@@ -391,7 +394,8 @@ export default function TabClientes({
           <div>
             <h2 className="text-sm font-bold text-gray-900">Segmentación de clientes (Pareto)</h2>
             <p className="text-xs text-gray-500">
-              Clientes ordenados por ventas netas, segmentados por participación acumulada — A: top{' '}
+              Clientes ordenados por ventas brutas (sin IVA, antes de devoluciones), segmentados por participación
+              acumulada; devoluciones y ventas netas por fecha de la factura original — A: top{' '}
               {(data.paretoThresholds.a * 100).toFixed(0)}%, B: hasta {(data.paretoThresholds.b * 100).toFixed(0)}%,
               C: resto
             </p>
@@ -447,6 +451,9 @@ export default function TabClientes({
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {moneyLabel(r.returnsNet, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-900">
+                      {moneyLabel(r.salesNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(r.returnRate)}</td>
                     <td className="px-3 py-2 text-right">

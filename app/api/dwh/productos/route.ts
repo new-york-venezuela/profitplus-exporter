@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
-import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
   ProductosResponse, ProductosRow, GroupBy,
   ProfundidadLineaResponse, ProfundidadLineaRow,
@@ -35,12 +36,23 @@ function isProductosGroupBy(value: string | null): value is ProductosGroupBy {
   return value === 'linea' || value === 'sublinea' || value === 'sku';
 }
 
-function lineaQuery(dateWhere: string, tiendaWhere: string): string {
+// Each drill level also carries that group's devoluciones attributed by the
+// ORIGINAL factura date (returnsDateWhere is built on OriginalInvoiceDateKey),
+// so the row's brutas − devoluciones = netas for the period.
+function lineaQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
   return `
     SELECT TOP 30
       ISNULL(p.LineName, '${NO_LINEA}') AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
+      ${returnsAmountSubqueries({
+        alias: 'fr',
+        fxAlias: 'frfx',
+        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
+        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = ISNULL(p.LineName, '${NO_LINEA}') ${returnsDateWhere} ${returnsTiendaWhere}`,
+        bsAlias: 'ReturnsBs',
+        usdAlias: 'ReturnsUsd',
+      })},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -51,12 +63,20 @@ function lineaQuery(dateWhere: string, tiendaWhere: string): string {
   `;
 }
 
-function sublineaQuery(dateWhere: string, tiendaWhere: string): string {
+function sublineaQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
   return `
     SELECT TOP 30
       ISNULL(p.SubLineName, '${NO_SUBLINEA}') AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
+      ${returnsAmountSubqueries({
+        alias: 'fr',
+        fxAlias: 'frfx',
+        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
+        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = @linea AND ISNULL(pr.SubLineName, '${NO_SUBLINEA}') = ISNULL(p.SubLineName, '${NO_SUBLINEA}') ${returnsDateWhere} ${returnsTiendaWhere}`,
+        bsAlias: 'ReturnsBs',
+        usdAlias: 'ReturnsUsd',
+      })},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -67,12 +87,20 @@ function sublineaQuery(dateWhere: string, tiendaWhere: string): string {
   `;
 }
 
-function skuQuery(dateWhere: string, tiendaWhere: string): string {
+function skuQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
   return `
     SELECT TOP 50
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
       SUM(fs.QuantitySold) AS QuantitySold,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
+      ${returnsAmountSubqueries({
+        alias: 'fr',
+        fxAlias: 'frfx',
+        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
+        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = @linea AND ISNULL(pr.SubLineName, '${NO_SUBLINEA}') = @sublinea AND ISNULL(pr.ProductName, pr.ProductCode) = ISNULL(p.ProductName, p.ProductCode) ${returnsDateWhere} ${returnsTiendaWhere}`,
+        bsAlias: 'ReturnsBs',
+        usdAlias: 'ReturnsUsd',
+      })},
       SUM(fs.GrossProfitAmount) AS GrossProfitAmount
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
@@ -318,6 +346,8 @@ export async function GET(request: NextRequest) {
   if (section === 'profundidad' || section === 'porLineaMes') {
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
+      // Profundidad's standalone Tasa dev. keeps the devolución-date basis
+      // (labelled in the UI); the drill-down table above uses factura date.
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
       return section === 'profundidad'
@@ -339,6 +369,8 @@ export async function GET(request: NextRequest) {
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
     const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
+    const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
+    const returnsTiendaWhere = tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : '';
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
@@ -346,20 +378,20 @@ export async function GET(request: NextRequest) {
     if (groupBy === 'sku') {
       const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
       if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(skuQuery(dateWhere, tiendaWhere));
+      const result = await req.query(skuQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
       breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
     } else if (groupBy === 'sublinea') {
       const req = pool.request().input('linea', lineaParam);
       if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(sublineaQuery(dateWhere, tiendaWhere));
+      const result = await req.query(sublineaQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
     } else {
       const req = pool.request();
       if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(lineaQuery(dateWhere, tiendaWhere));
+      const result = await req.query(lineaQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
     }
 
@@ -383,6 +415,8 @@ export async function GET(request: NextRequest) {
         rotacion,
         salesShare,
         salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
+        returns: dualFromRow(r.ReturnsBs, r.ReturnsUsd),
+        salesNet: subtractDual({ bs: salesGrossBs, usd: salesGrossUsd }, dualFromRow(r.ReturnsBs, r.ReturnsUsd)),
         margin,
       };
     });

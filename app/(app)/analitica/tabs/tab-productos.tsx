@@ -237,6 +237,9 @@ export default function TabProductos({
   }
 
   const drillable = groupBy !== 'sku';
+  // Margen needs product cost, which Fact_Sales doesn't carry yet (GrossProfitAmount is NULL);
+  // the column only shows when at least one row has it.
+  const hasMargin = (data?.rows ?? []).some(r => r.margin !== null);
   const trendMode = porLineaMesData?.trendMode ?? 'month';
   const porLineaMesLabels = bucketLabels(trendMode, (porLineaMesData?.rows ?? []).map(r => r.bucket));
   const porLineaMesChartData = (porLineaMesData?.rows ?? []).map((r, i) => ({
@@ -271,7 +274,7 @@ export default function TabProductos({
 
       <div id="productos-drilldown-section" className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
-          <h2 className="text-sm font-bold text-gray-900">Rotación y margen por producto</h2>
+          <h2 className="text-sm font-bold text-gray-900">Ventas y rotación por producto</h2>
           <label className="flex items-center gap-2 text-sm text-gray-600">
             Tienda:
             <SearchableSelect
@@ -285,7 +288,7 @@ export default function TabProductos({
           </label>
         </div>
         <p className="text-xs text-gray-500 mb-3">
-          {groupBy === 'linea' && 'Ventas netas, rotación y margen por línea de producto — clic en una fila para ver sus sublíneas'}
+          {groupBy === 'linea' && 'Ventas brutas, devoluciones (por fecha de factura), ventas netas y unidades por línea de producto, sin IVA — clic en una fila para ver sus sublíneas'}
           {groupBy === 'sublinea' && 'Sublíneas de la línea seleccionada — clic en una fila para ver sus productos'}
           {groupBy === 'sku' && 'Productos individuales de la sublínea seleccionada'}
         </p>
@@ -304,10 +307,14 @@ export default function TabProductos({
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
                     {COLUMN_LABEL[groupBy]}
                   </th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">% del total</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase" title="Participación en las ventas brutas del nivel">% del total</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Cantidad</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Margen %</th>
+                  {hasMargin && (
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase" title="Requiere costo de producto; n/d donde no hay costo cargado">Margen %</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -321,9 +328,11 @@ export default function TabProductos({
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
                       {moneyLabel(row.salesGross, currency)}
                     </td>
+                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.returns, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900">{moneyLabel(row.salesNet, currency)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(row.salesShare)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{qty(row.rotacion)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.margin)}</td>
+                    {hasMargin && <td className="px-3 py-2 text-right text-gray-600">{row.margin === null ? 'n/d' : pct(row.margin)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -380,7 +389,7 @@ export default function TabProductos({
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-bold text-gray-900 mb-1">Profundidad de Línea</h2>
         <p className="text-xs text-gray-500 mb-3">
-          Top 15 productos por ventas netas — presencia en clientes y tiendas, precio y unidades promedio mensuales, tasa de devolución
+          Top 15 productos por ventas brutas — presencia en clientes y tiendas, precio y unidades promedio mensuales, tasa de devolución (devoluciones por fecha de devolución ÷ ventas brutas)
         </p>
 
         {profundidadLoading ? (

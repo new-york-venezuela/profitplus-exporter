@@ -340,7 +340,8 @@ export interface VendedoresExcludedResponse {
 export interface ClientesRow {
   name: string;
   salesGross: DualAmount;
-  returnsNet: DualAmount;
+  returnsNet: DualAmount; // by original factura date
+  salesNet: DualAmount; // salesGross − returnsNet
   returnRate: number | null;
   pareto: 'A' | 'B' | 'C'; // Pareto segment
 }
@@ -389,9 +390,11 @@ export interface ProductosRow {
   sku: string;
   linea: string;
   sublinea: string;
-  rotacion: number; // QuantitySold * GrossProfitAmount or similar metric
+  rotacion: number; // units sold (QuantitySold) in range
   salesGross: DualAmount;
-  margin: number | null; // GrossProfitAmount / NetAmount
+  returns: DualAmount; // by original factura date
+  salesNet: DualAmount; // salesGross − returns
+  margin: number | null; // GrossProfitAmount / NetAmount — null while Fact_Sales has no cost data
   salesShare: number | null; // salesGross / sum(salesGross) across all rows at this drill level
 }
 

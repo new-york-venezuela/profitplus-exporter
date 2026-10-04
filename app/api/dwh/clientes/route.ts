@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, buildPrevThirtyDayWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import {
+  buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, isClienteDimension,
+  jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr, type Dimension,
+} from '@/app/api/dwh/lib/query-builder';
+import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
   ClientesResponse,
   ClientesRow,
@@ -244,17 +248,14 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
     SELECT
       ${spec.labelExpr} AS Name,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
-      (SELECT ISNULL(SUM(fr2.NetAmount), 0)
-         FROM fact.Fact_Returns fr2
-         ${innerJoin}
-         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNetBs,
-      (SELECT CASE WHEN COUNT(fr2.NetAmount) = 0 THEN 0 ELSE SUM(fr2.NetAmount / NULLIF(r2fx.RateSell, 0)) END
-         FROM fact.Fact_Returns fr2
-         ${innerJoin}
-         ${usdConversionJoin('fr2', undefined, 'r2fx')}
-         WHERE fr2.IsVoided = 0 ${returnsDateWhere} AND ${condition}
-      ) AS ReturnsNetUsd
+      ${returnsAmountSubqueries({
+        alias: 'fr2',
+        fxAlias: 'r2fx',
+        extraJoins: innerJoin,
+        where: `${returnsDateWhere} AND ${condition}`,
+        bsAlias: 'ReturnsNetBs',
+        usdAlias: 'ReturnsNetUsd',
+      })}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
@@ -321,7 +322,8 @@ export async function GET(request: NextRequest) {
     // customerQuery's correlated returns subquery aliases Fact_Returns as
     // `fr2` (via spec.correlate), not `fr`, so it needs its own date-where
     // clause built against that alias.
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr2');
+    // Devoluciones by ORIGINAL factura date (brutas − devoluciones = netas).
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2', 'factura');
 
     const customers = await pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere));
 
@@ -346,6 +348,7 @@ export async function GET(request: NextRequest) {
         name: r.Name,
         salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
         returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
+        salesNet: subtractDual({ bs: salesGrossBs, usd: salesGrossUsd }, { bs: returnsNetBs, usd: returnsNetUsd }),
         returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
         pareto,
       };
