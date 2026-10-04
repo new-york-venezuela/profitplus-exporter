@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { SearchableSelect } from '@/components/searchable-select';
 import { Modal } from '@/components/modal';
-import { CostBadge, EstimatedBadge, NoDataBadge, StatusBadge, formatUsd } from '../recipe-ui';
+import { CostBadge, DecimalInput, EstimatedBadge, NoDataBadge, StatusBadge, formatUsd } from '../recipe-ui';
 
 interface Line {
   id?: number;
@@ -470,14 +470,12 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
 
                       <div className="sm:col-span-2">
                         <label htmlFor={`line-${index}-qty`} className="block text-xs font-medium text-gray-700 mb-1">Cantidad</label>
-                        <input
+                        <DecimalInput
                           id={`line-${index}-qty`}
-                          type="number"
-                          inputMode="decimal"
-                          step="any"
-                          min="0"
-                          value={line.quantity === 0 ? '' : line.quantity}
-                          onChange={e => updateLine(index, { quantity: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          value={line.quantity}
+                          blankZero
+                          onChange={quantity => updateLine(index, { quantity })}
+                          placeholder="0,000"
                           aria-invalid={!!errs.quantity}
                           aria-describedby={errs.quantity ? `line-${index}-qty-error` : undefined}
                           className={`${inputClass} tabular-nums ${errs.quantity ? invalidClass : ''}`}
@@ -515,14 +513,10 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
                       {!isErp && (
                         <div className="col-span-2">
                           <label htmlFor={`line-${index}-cost`} className="block text-xs font-medium text-gray-700 mb-1">Costo USD / unidad</label>
-                          <input
+                          <DecimalInput
                             id={`line-${index}-cost`}
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            min="0"
                             value={line.manualUnitCostUsd ?? 0}
-                            onChange={e => updateLine(index, { manualUnitCostUsd: e.target.value === '' ? 0 : Number(e.target.value) })}
+                            onChange={manualUnitCostUsd => updateLine(index, { manualUnitCostUsd })}
                             aria-invalid={!!errs.cost}
                             aria-describedby={errs.cost ? `line-${index}-cost-error` : undefined}
                             className={`${inputClass} tabular-nums ${errs.cost ? invalidClass : ''}`}
