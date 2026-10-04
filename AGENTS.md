@@ -320,7 +320,7 @@ pages already use) rather than building a second article picker.
 from here and feeds `computeProductCost()`'s `rawMaterialCostUsd` into
 `DWH_AlimentosNY`'s `fact.Fact_Sales.UnitCost`/`COGSAmount`/
 `GrossProfitAmount` (via `stg.RecipeCostSnapshot`, see
-`dwh-migrations/0031`/`0032` and `docs/DATA_WAREHOUSE_GUIDE.md`'s Cost Data
+`migrations/dwh/0037`/`0038` and `docs/DATA_WAREHOUSE_GUIDE.md`'s Cost Data
 Gap section). Any future change to `computeProductCost`'s return shape or
 the "Sin datos means null, not $0" invariant must be reflected there too —
 the DWH pipeline reuses this exact function and depends on `null` staying

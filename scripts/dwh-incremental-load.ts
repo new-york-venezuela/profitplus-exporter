@@ -38,7 +38,7 @@ async function main() {
         // Runs before Load_Fact_Sales below: it's not one of the EXEC'd
         // stored procedures because it needs the app's own SQLite database
         // and a live FIFO cost walk (TypeScript), not just Ncake_a — see
-        // dwh-migrations/0031_stg_recipe_cost_snapshot.sql. It also runs
+        // migrations/dwh/0037_stg_recipe_cost_snapshot.sql. It also runs
         // dwh.Backfill_Fact_Sales_RecipeCost itself, so cost columns on
         // already-loaded historical sales stay in sync too, not just new ones.
         const erpPool = await getPool();

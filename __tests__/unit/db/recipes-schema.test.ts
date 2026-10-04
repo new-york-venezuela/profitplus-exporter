@@ -12,7 +12,7 @@ beforeAll(() => {
   sqlite = new Database(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON;'); // matches lib/db/sqlite.ts — bun:sqlite doesn't enforce FKs (or cascades) by default
   db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: './drizzle/migrations' });
+  migrate(db, { migrationsFolder: './migrations/sqlite' });
 });
 
 afterAll(() => {

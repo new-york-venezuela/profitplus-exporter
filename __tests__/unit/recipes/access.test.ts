@@ -11,7 +11,7 @@ const sqlite = new Database(':memory:');
 const db = drizzle(sqlite, { schema });
 
 beforeAll(() => {
-  migrate(db, { migrationsFolder: './drizzle/migrations' });
+  migrate(db, { migrationsFolder: './migrations/sqlite' });
 });
 
 afterEach(() => {

@@ -26,7 +26,7 @@
 -- "what it costs right now". Keeping a timestamped history here at least
 -- lets a future analysis see how a recipe's cost has moved over time.
 --
--- dwh.Load_Fact_Sales/dwh.Backfill_Fact_Sales_RecipeCost (0032) do NOT read
+-- dwh.Load_Fact_Sales/dwh.Backfill_Fact_Sales_RecipeCost (0038) do NOT read
 -- from this table for Fact_Sales's cost columns — that computation uses
 -- stg.RecipeLine (below) + dwh.fn_IngredientCostAsOf to get a true
 -- point-in-time cost per (product, sale date) pair, not a current-cost
@@ -59,7 +59,7 @@ END
 GO
 
 -- Mirrors each active recipe's ingredient list so the point-in-time cost
--- query (dwh.fn_IngredientCostAsOf, dwh-migrations/0032) can run entirely in
+-- query (dwh.fn_IngredientCostAsOf, migrations/dwh/0038) can run entirely in
 -- T-SQL without querying the app's SQLite database per sale. Full
 -- truncate + reload every loader run — recipe data is small, no incremental
 -- merge needed. Manual lines are mirrored too (for traceability) but never

@@ -9,7 +9,7 @@ import { computeProductCost, type RecipeLineInput } from '@/lib/costing/product-
 import { buildConfig, dwhDatabaseName } from './migrate-dwh';
 
 // The only DWH data source that isn't pure T-SQL against Ncake_a — see
-// dwh-migrations/0031_stg_recipe_cost_snapshot.sql for why. This computes one
+// migrations/dwh/0037_stg_recipe_cost_snapshot.sql for why. This computes one
 // cost snapshot per active recipe (via the app's own SQLite DB + a live FIFO
 // walk over the ERP pool) and inserts them into stg.RecipeCostSnapshot on
 // the DWH pool. Pools/db are injectable so tests can point this at throwaway
@@ -76,7 +76,7 @@ export async function loadRecipeCostSnapshots(params: {
   // because a fresher/new snapshot showed up here. Running this afterward
   // keeps existing Fact_Sales rows' cost columns in sync unconditionally,
   // including a product's historical sales the very first time it gets a
-  // recipe. See dwh-migrations/0032_fact_sales_recipe_cost.sql.
+  // recipe. See migrations/dwh/0038_fact_sales_recipe_cost.sql.
   await dwhPool.request().execute('dwh.Backfill_Fact_Sales_RecipeCost');
 
   return { recipesProcessed: activeRecipes.length };

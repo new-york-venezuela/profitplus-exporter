@@ -97,7 +97,7 @@ GO
 -- Cost source: each sale's cost is computed AS OF THE SALE'S OWN DATE, not
 -- from "the latest snapshot" applied retroactively. For every (product, sale
 -- date) pair with a mirrored recipe (stg.RecipeLine, 0032/Task 2), this walks
--- each ingredient line through dwh.fn_IngredientCostAsOf (0032/Task 1), which
+-- each ingredient line through dwh.fn_IngredientCostAsOf (0038/Task 1), which
 -- reconstructs FIFO layers as they stood on that date, sums per product/date,
 -- NULL-propagates if any line lacks cost data, and converts BSD to USD once
 -- per date via the nearest saTasa rate on/before that date. CostSourceFlag
@@ -109,6 +109,8 @@ GO
 -- costo_pro read from saCostoHistoricoSalida, a source confirmed dead/always
 -- zero in this installation. Recipe/FIFO cost is a different, app-level
 -- source, so it gets its own flag rather than overloading that name.)
+-- NetAmount = reng_neto - monto_desc_glob, matching 0036 (this proc replaces
+-- 0036's Load_Fact_Sales, so it must carry the same net-of-global-discount rule).
 CREATE OR ALTER PROCEDURE dwh.Load_Fact_Sales
 AS
 BEGIN
@@ -131,7 +133,7 @@ BEGIN
             r.reng_num, r.doc_num, r.co_art, r.co_alma, r.total_art, r.prec_vta,
             ISNULL(r.monto_desc, 0) + ISNULL(r.monto_desc_glob, 0) AS DiscountAmount,
             ISNULL(r.monto_imp, 0) + ISNULL(r.monto_imp2, 0) + ISNULL(r.monto_imp3, 0) AS TaxAmount,
-            r.reng_neto,
+            r.reng_neto - ISNULL(r.monto_desc_glob, 0) AS NetAmount,
             f.co_cli, f.co_ven, f.co_mone, f.tasa, f.fec_emis, ISNULL(f.anulado, 0) AS anulado
         FROM Ncake_a.dbo.saFacturaVentaReng r
         INNER JOIN Ncake_a.dbo.saFacturaVenta f ON f.doc_num = r.doc_num
@@ -170,11 +172,11 @@ BEGIN
             cust.CustomerKey, prod.ProductKey, rep.SalesRepKey, wh.WarehouseKey, cur.CurrencyKey,
             c.total_art AS QuantitySold,
             (c.total_art * c.prec_vta) AS GrossAmount,
-            c.DiscountAmount, c.TaxAmount, c.reng_neto AS NetAmount,
+            c.DiscountAmount, c.TaxAmount, c.NetAmount,
             c.tasa AS DocumentExchangeRate, c.anulado AS IsVoided,
             pdcu.RawMaterialCostUsd AS UnitCost,
             CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN pdcu.RawMaterialCostUsd * c.total_art END AS COGSAmount,
-            CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN c.reng_neto - (pdcu.RawMaterialCostUsd * c.total_art) END AS GrossProfitAmount,
+            CASE WHEN pdcu.RawMaterialCostUsd IS NOT NULL THEN c.NetAmount - (pdcu.RawMaterialCostUsd * c.total_art) END AS GrossProfitAmount,
             CASE
                 WHEN pdcu.RawMaterialCostUsd IS NULL THEN 'NO_COST_DATA'
                 WHEN pdcu.RawMaterialEstimatedInt = 1 THEN 'RECIPE_ESTIMATED'

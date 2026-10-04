@@ -5,6 +5,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { hasInventoryAccess } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { hasGeoAccess } from '@/lib/geo/access';
+import { hasRecipesAccess } from '@/lib/recipes/access';
 import { getPricingAccessLevel } from '@/lib/pricing/access';
 import { visibleNavSections } from '@/lib/nav';
 
@@ -18,6 +19,7 @@ export default async function InicioPage() {
     inventory: await hasInventoryAccess(db, session.sub, session.role),
     dwh: await hasDwhAccess(db, session.sub, session.role),
     geo: await hasGeoAccess(db, session.sub, session.role),
+    recipes: await hasRecipesAccess(db, session.sub, session.role),
     pricing: await getPricingAccessLevel(db, session.sub, session.role),
   });
 

@@ -81,7 +81,9 @@ beforeAll(async () => {
   // avgDailyConsumption/daysOfStock math meaningful (60 real days' worth of
   // the fixture's actual exits, scaled over however many days that now
   // spans) while staying correct as more real time passes.
-  const maxDateResult = await pool.request().query(`SELECT MAX(fecha_emision) AS maxFecha FROM saCostoHistoricoSalida`);
+  const maxDateResult = await pool.request()
+    .input('coAlma', sql.Char(6), WAREHOUSE)
+    .query(`SELECT MAX(fecha_emision) AS maxFecha FROM saCostoHistoricoSalida WHERE cod_almacen = @coAlma`);
   const maxFecha = maxDateResult.recordset[0]?.maxFecha as Date | null;
   if (!maxFecha) {
     throw new Error('No stock exits found in the test database at all — cannot anchor the rolling window');
