@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import CoberturaClientes from '../components/cobertura-clientes';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
@@ -287,6 +288,8 @@ export default function TabClientes({
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
+      <CoberturaClientes />
+      <div className="space-y-6 print:hidden">
       <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-200 rounded-lg p-4">
         <div>
           <h2 className="text-sm font-bold text-gray-900">Nivel de análisis</h2>
@@ -465,6 +468,7 @@ export default function TabClientes({
             </table>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

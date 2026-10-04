@@ -520,11 +520,11 @@ export async function GET(request: NextRequest) {
 
 **Files:**
 - Create: `app/(app)/analitica/components/cobertura-clientes.tsx`
-- Modify: `app/(app)/analitica/tabs/tab-clientes.tsx` (render `<CoberturaClientes currency={currency} />` as the first child of the root `<div className="p-6 max-w-7xl space-y-6">`; add the import)
+- Modify: `app/(app)/analitica/tabs/tab-clientes.tsx` (render `<CoberturaClientes />` as the first child of the root `<div className="p-6 max-w-7xl space-y-6">`; add the import)
 
 **Interfaces:**
 - Consumes: `CoberturaResponse`/`CoberturaRowView` (Task 2), pure helpers (Task 1), `KpiCard`/`KpiGroup` (plan 1), `SearchableSelect` (`@/lib/components/searchable-select`, `onChange(value: string | null)`, `allLabel`).
-- Produces: `export default function CoberturaClientes({ currency }: { currency: Currency })`.
+- Produces: `export default function CoberturaClientes()` (no props: volume is always USD, independent of the page currency).
 
 - [ ] **Step 1: Implement the component.** Behaviour (exact):
   - State: `data`, `loading`, `error`, `includeInactive` (bool), `sellerFilter: string | null`, `statusFilter: CoberturaStatus | null`, `sortKey: 'days'|'customer'|'seller'|'usd'|'units'` (default `'days'`), `sortDir` (default `'asc'`).

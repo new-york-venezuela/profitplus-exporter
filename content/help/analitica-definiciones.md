@@ -20,6 +20,18 @@ Suma de las cantidades facturadas en el período, sin facturas anuladas y antes 
 
 Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de crédito) según el snapshot de CxC más reciente **al último día del período seleccionado**. La tarjeta indica la fecha real del snapshot ("al 28/09/2026"). Si no existe un snapshot a esa fecha o antes, muestra "Sin datos". En USD se valora a la tasa de la fecha del snapshot.
 
+## Cobertura de clientes
+
+La sección "Cobertura de clientes" de la pestaña Clientes **no depende del período seleccionado**, para no perder datos por un filtro de fechas.
+
+- **Última venta:** la fecha de la última factura (sin anuladas) en todo el histórico. "Sin datos" significa que no existe ninguna factura para ese cliente.
+- **USD/mes y Unidades/mes:** promedio de los últimos 12 meses calendario (el mes en curso incluido), calculado **solo sobre los meses en que el cliente tuvo facturas**. Un cliente que compró en enero, marzo y abril se promedia entre 3. Ventas brutas, sin IVA, en USD a la tasa de cada factura.
+- **Estados:** *Nunca vendido* (ni el cliente ni su entidad tienen facturas), *Vende vía matriz* (el cliente no tiene facturas propias pero otra tienda de su misma entidad sí), *Sin ventas 30+ días* (última venta hace más de 30 días) y *Activo*.
+- **Vendedor:** el vendedor por defecto actual del cliente.
+- **Versiones del cliente:** se muestra solo la versión vigente (nombre y vendedor actuales); las ventas se suman sobre todas las versiones del mismo código.
+- Los clientes inactivos se excluyen salvo que se marque "Incluir inactivos".
+- **Orden por Días sin vender (ascendente):** primero los "Sin datos", luego los de más días sin vender, hasta los más recientes.
+
 ## Devoluciones
 
 Suma de las líneas de devolución de clientes (módulo de devoluciones de Profit), sin IVA y sin las anuladas. Cada línea está enlazada a la factura que devuelve, así que una devolución se puede ubicar de dos formas:
