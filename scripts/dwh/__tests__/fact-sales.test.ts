@@ -69,7 +69,12 @@ describe('Fact_Sales', () => {
     expect(dwhCount.recordset[0].total).toBe(erpCount.recordset[0].total);
   });
 
-  test('cost columns are NULL and CostSourceFlag is NO_COST_DATA for every row (margin deferred)', async () => {
+  // Cost columns now do get wired up when stg.RecipeCostSnapshot has data for
+  // a product (see fact-sales-recipe-cost.test.ts) — this test's isolated
+  // throwaway DWH database never gets any snapshot rows, so every product
+  // here correctly falls back to NO_COST_DATA, same as a real product with
+  // no recipe defined.
+  test('cost columns are NULL and CostSourceFlag is NO_COST_DATA when no recipe cost snapshot exists for a product', async () => {
     await pool.request().execute('dwh.Load_Fact_Sales');
 
     const badRows = await pool.request().query(`

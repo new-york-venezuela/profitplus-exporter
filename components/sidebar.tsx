@@ -13,10 +13,11 @@ interface Props {
   canSeeInventory: boolean;
   canSeeAnalitica: boolean;
   canSeeMapa: boolean;
+  canSeeRecipes: boolean;
   pricingAccessLevel: PricingAccessLevel;
 }
 
-export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, pricingAccessLevel }: Props) {
+export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, canSeeRecipes, pricingAccessLevel }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
   const sections = visibleNavSections({
@@ -24,6 +25,7 @@ export function Sidebar({ user, canSeeInventory, canSeeAnalitica, canSeeMapa, pr
     inventory: canSeeInventory,
     dwh: canSeeAnalitica,
     geo: canSeeMapa,
+    recipes: canSeeRecipes,
     pricing: pricingAccessLevel,
   });
 

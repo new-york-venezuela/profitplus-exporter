@@ -120,16 +120,17 @@ table without a `validador` rowversion column (`saFacturaVentaReng` and
 friends — see that file's "Incremental watermark strategy" section before
 assuming `validador` exists on a new source table).
 
-## Granting Module Access (Inventory / Analítica)
+## Granting Module Access (Inventory / Analítica / Recetas)
 
-Both the inventory module (`/inventario/*`) and the analytics dashboard
-(`/analitica`) are gated behind a per-user module grant, not just role.
-Admins (`role = 'admin'`) always have access to both; regular users need an
-explicit grant from `/admin/users` (checkbox per user, per module) or via:
+The inventory module (`/inventario/*`), the analytics dashboard
+(`/analitica`), and recipe/product-costing (`/recetas`) are each gated
+behind a per-user module grant, not just role. Admins (`role = 'admin'`)
+always have access to all three; regular users need an explicit grant from
+`/admin/users` (checkbox per user, per module) or via:
 
 ```
 PUT /api/admin/users/:id/modules
-Body: { "modules": ["inventory", "dwh"] }
+Body: { "modules": ["inventory", "dwh", "recipes"] }
 ```
 
 See `AGENTS.md` → "Module-Based Permissions" for how this is enforced at
@@ -245,6 +246,11 @@ New-Item -ItemType Directory -Path $APP
 cd $APP
 bun install --production
 ```
+
+`--production` skips `devDependencies` (tests, e2e, eslint, drizzle-kit, tsx). Everything
+`bun run build` needs (typescript, tailwind, `@types/*`) lives in `dependencies`, and `next build`
+type-checks via `tsconfig.build.json` (app code only, no tests). Package managers don't support
+custom groups, so keep build-time packages in `dependencies` and test/lint-only ones in `devDependencies`.
 
 This compiles native modules (`better-sqlite3`, `argon2`, `mssql`) for Windows.
 

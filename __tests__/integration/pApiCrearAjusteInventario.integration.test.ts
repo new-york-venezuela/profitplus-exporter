@@ -253,6 +253,40 @@ describe('pApiCrearAjusteInventario', () => {
     await restoreStock(pricedArticle.co_art, WAREHOUSE, beforeStock);
   });
 
+  // Regression test for the 0008 migration: pCostoActualizarEntrada computes
+  // the stored layer cost as cost_unit + costo_adi1 + costo_adi2 + costo_adi3.
+  // The original 0002 migration passed costo_adi1 = cost_unit, so every
+  // entrada-type adjustment silently doubled the article's cost — and since
+  // cost_unit auto-fills from "the most recent cost" whenever the caller
+  // omits it (the only mode this app's UI uses), the doubling compounded on
+  // every subsequent adjustment of the same article. Assert the written
+  // saCostoHistoricoEntrada.costo equals cost_unit exactly, not 2x it.
+  test('does not double the cost written to saCostoHistoricoEntrada', async () => {
+    if (!pricedArticle) {
+      throw new Error('No article with saCostoHistoricoEntrada rows found for this test scenario');
+    }
+
+    const beforeStock = await getStock(pricedArticle.co_art, WAREHOUSE);
+    const result = await callProcedure([{
+      co_tipo: 'E00003', co_art: pricedArticle.co_art, co_alma: WAREHOUSE,
+      co_uni: pricedArticle.co_uni, total_art: 1, cost_unit: null, permitir_negativo: true,
+    }]);
+    const ajueNum = (result.output.sAjueNumOut as string).trim();
+
+    const entradaCheck = await pool.request().input('n', sql.Char(20), ajueNum)
+      .query(`
+        SELECT CHE.costo
+        FROM saCostoHistoricoEntrada CHE
+        JOIN saAjusteReng AR ON AR.rowguid = CHE.doc_orig
+        WHERE CHE.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+      `);
+    expect(entradaCheck.recordset).toHaveLength(1);
+    expect(Number(entradaCheck.recordset[0].costo)).toBe(pricedArticle.expectedCost);
+
+    await cleanupAjuste(ajueNum);
+    await restoreStock(pricedArticle.co_art, WAREHOUSE, beforeStock);
+  });
+
   test('rejects negative stock and leaves no trace (header, line, stock all unchanged)', async () => {
     const beforeCount = (await pool.request()
       .query(`SELECT COUNT(*) AS c FROM saAjuste`)).recordset[0].c;

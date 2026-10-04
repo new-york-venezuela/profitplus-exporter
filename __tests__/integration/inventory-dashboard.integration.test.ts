@@ -25,7 +25,7 @@ function buildTestConfig(): sql.config {
 
 const WAREHOUSE = '000015';
 let pool: sql.ConnectionPool;
-let testArticle: { co_art: string; sold60: number };
+let testArticle: { co_art: string; consumed60: number };
 let stockSnapshot: number;
 // The rolling window used both to find fixture data below AND to configure
 // inventorySettings for every test in this file — computed from the test
@@ -76,49 +76,53 @@ beforeAll(async () => {
   // to anchor on this fixture's fixed date range instead, nor should it be
   // (that's correct behavior for a real deployment). So rollingWindowDays
   // here is set wide enough to reach from real "now" all the way back past
-  // this fixture's most recent invoice date, rather than the realistic-
+  // this fixture's most recent stock exit, rather than the realistic-
   // looking but fixture-incompatible default of 60. This keeps the
-  // avgDailySales/daysOfStock math meaningful (60 real days' worth of the
-  // fixture's actual sales, scaled over however many days that now spans)
-  // while staying correct as more real time passes.
-  const maxDateResult = await pool.request().query(`SELECT MAX(fec_emis) AS maxFecha FROM saFacturaVenta WHERE anulado = 0`);
+  // avgDailyConsumption/daysOfStock math meaningful (60 real days' worth of
+  // the fixture's actual exits, scaled over however many days that now
+  // spans) while staying correct as more real time passes.
+  const maxDateResult = await pool.request()
+    .input('coAlma', sql.Char(6), WAREHOUSE)
+    .query(`SELECT MAX(fecha_emision) AS maxFecha FROM saCostoHistoricoSalida WHERE cod_almacen = @coAlma`);
   const maxFecha = maxDateResult.recordset[0]?.maxFecha as Date | null;
   if (!maxFecha) {
-    throw new Error('No invoices found in the test database at all — cannot anchor the rolling window');
+    throw new Error('No stock exits found in the test database at all — cannot anchor the rolling window');
   }
   const daysSinceFixtureMax = Math.ceil((Date.now() - maxFecha.getTime()) / 86_400_000);
   rollingWindowDays = daysSinceFixtureMax + 60;
 
-  // Pick a real article with genuine sales history in the last 60 days of
-  // this fixture's own data (ending at its latest invoice date), so
-  // avgDailySales reflects an actual, non-fabricated consumption rate. Only
-  // its stock value is temporarily overridden below. The 60-day lookback
-  // here (fixture-relative) is intentionally independent of
-  // rollingWindowDays (real-time-relative, used by the route under test).
+  // Pick a real article with genuine exit history (saCostoHistoricoSalida —
+  // the FIFO exit ledger the route reads from, covering sales and inventory
+  // adjustments alike) in warehouse 000015 over the last 60 days of this
+  // fixture's own data (ending at its latest exit), so avgDailyConsumption
+  // reflects an actual, non-fabricated rate. Only its stock value is
+  // temporarily overridden below. The 60-day lookback here (fixture-
+  // relative) is intentionally independent of rollingWindowDays
+  // (real-time-relative, used by the route under test).
   const result = await pool.request()
     .input('coAlma', sql.Char(6), WAREHOUSE)
     .input('sinceDate', sql.DateTime, new Date(maxFecha.getTime() - 60 * 86_400_000))
     .query(`
       SELECT TOP 1 s.co_art,
-        (SELECT SUM(fvr.total_art) FROM saFacturaVentaReng fvr
-         JOIN saFacturaVenta fv ON fv.doc_num = fvr.doc_num
-         WHERE fv.anulado = 0 AND fvr.co_art = s.co_art AND fvr.co_alma = @coAlma
-           AND fv.fec_emis > @sinceDate) AS sold60
+        (SELECT SUM(chs.cantidad) FROM saCostoHistoricoSalida chs
+         WHERE chs.cod_articulo_rowguid = a.rowguid AND chs.cod_almacen = @coAlma
+           AND chs.fecha_emision > @sinceDate) AS consumed60
       FROM saStockAlmacen s
+      JOIN saArticulo a ON a.co_art = s.co_art
       WHERE s.co_alma = @coAlma AND s.tipo = 'ACT'
         AND EXISTS (
-          SELECT 1 FROM saFacturaVentaReng fvr JOIN saFacturaVenta fv ON fv.doc_num = fvr.doc_num
-          WHERE fv.anulado = 0 AND fvr.co_art = s.co_art AND fvr.co_alma = @coAlma
-            AND fv.fec_emis > @sinceDate
+          SELECT 1 FROM saCostoHistoricoSalida chs
+          WHERE chs.cod_articulo_rowguid = a.rowguid AND chs.cod_almacen = @coAlma
+            AND chs.fecha_emision > @sinceDate
         )
-      ORDER BY sold60 DESC
+      ORDER BY consumed60 DESC
     `);
   if (result.recordset.length === 0) {
-    throw new Error(`No article with recent sales found in warehouse ${WAREHOUSE} for test setup`);
+    throw new Error(`No article with recent stock exits found in warehouse ${WAREHOUSE} for test setup`);
   }
   testArticle = {
     co_art: (result.recordset[0].co_art as string).trim(),
-    sold60: Number(result.recordset[0].sold60),
+    consumed60: Number(result.recordset[0].consumed60),
   };
   stockSnapshot = await getStock(testArticle.co_art, WAREHOUSE);
 
@@ -179,11 +183,11 @@ describe('GET /api/inventory/dashboard', () => {
     expect(response.status).toBe(200);
   });
 
-  test('flags an item whose stock/avgDailySales is under the threshold', async () => {
-    const avgDailySales = testArticle.sold60 / rollingWindowDays;
+  test('flags an item whose stock/avgDailyConsumption is under the threshold', async () => {
+    const avgDailyConsumption = testArticle.consumed60 / rollingWindowDays;
     // Set stock to exactly 3 days of coverage — comfortably under the
     // default 7-day threshold, so this item must appear in the result.
-    const lowStock = Math.max(1, Math.round(avgDailySales * 3));
+    const lowStock = Math.max(1, Math.round(avgDailyConsumption * 3));
     await setStock(testArticle.co_art, WAREHOUSE, lowStock);
 
     const db = getDb();
@@ -203,19 +207,18 @@ describe('GET /api/inventory/dashboard', () => {
     expect(flagged!.daysOfStock).toBeLessThan(7);
     // Loose precision (1 decimal place, not 5): the route recomputes its
     // own sinceDate from a fresh Date.now() at request time, while
-    // avgDailySales here was computed once in beforeAll — any wall-clock
-    // drift between the two (even sub-second, and definitely across
-    // re-runs on different days) shifts which invoices the route's own
-    // "recent sales" query sums, which this assertion isn't meant to
-    // verify to sub-day precision. ~3 days of stock coverage landing
-    // within a tenth of a day of the expected value is precise enough to
-    // confirm the daysOfStock formula (stock / avgDailySales) is correct.
-    expect(flagged!.daysOfStock).toBeCloseTo(lowStock / avgDailySales, 1);
+    // avgDailyConsumption here was computed once in beforeAll — any
+    // wall-clock drift between the two shifts which exits the route's own
+    // "recent consumption" query sums, which this assertion isn't meant to
+    // verify to sub-day precision. ~3 days of stock coverage landing within
+    // a tenth of a day of the expected value is precise enough to confirm
+    // the daysOfStock formula (stock / avgDailyConsumption) is correct.
+    expect(flagged!.daysOfStock).toBeCloseTo(lowStock / avgDailyConsumption, 1);
   });
 
   test('does not flag an item whose stock is comfortably above the threshold', async () => {
-    const avgDailySales = testArticle.sold60 / rollingWindowDays;
-    const highStock = Math.round(avgDailySales * 365);
+    const avgDailyConsumption = testArticle.consumed60 / rollingWindowDays;
+    const highStock = Math.round(avgDailyConsumption * 365);
     await setStock(testArticle.co_art, WAREHOUSE, highStock);
 
     const db = getDb();
@@ -249,8 +252,8 @@ describe('GET /api/inventory/dashboard', () => {
     db.insert(userModules).values({ userId: user.id, module: 'inventory' }).run();
     const token = await signToken({ sub: String(user.id), role: 'user', name: 'Editor' });
 
-    const avgDailySales = testArticle.sold60 / rollingWindowDays;
-    await setStock(testArticle.co_art, WAREHOUSE, Math.max(1, Math.round(avgDailySales)));
+    const avgDailyConsumption = testArticle.consumed60 / rollingWindowDays;
+    await setStock(testArticle.co_art, WAREHOUSE, Math.max(1, Math.round(avgDailyConsumption)));
 
     const response = await getDashboard(buildRequest(token));
     expect(response.status).toBe(200);

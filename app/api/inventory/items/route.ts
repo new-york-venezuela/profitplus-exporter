@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 // by construction, so it can't produce duplicate rows either way.
 const ITEMS_QUERY_BASE = `
   SELECT
-    a.co_art, a.art_des, a.ref, a.modelo, a.comentario,
+    a.co_art, a.art_des, a.tipo, a.ref, a.modelo, a.comentario,
     a.campo1, a.campo2, a.campo3, a.campo4, a.campo5, a.campo6, a.campo7, a.campo8,
     a.stock_min, a.stock_max, a.stock_pedido,
     a.co_lin, l.lin_des,
@@ -34,7 +34,7 @@ const ITEMS_QUERY_BASE = `
 `;
 
 interface ItemRow {
-  co_art: string; art_des: string; ref: string | null; modelo: string | null;
+  co_art: string; art_des: string; tipo: string; ref: string | null; modelo: string | null;
   comentario: string | null;
   campo1: string | null; campo2: string | null; campo3: string | null; campo4: string | null;
   campo5: string | null; campo6: string | null; campo7: string | null; campo8: string | null;
@@ -88,6 +88,17 @@ export async function GET(request: NextRequest) {
     const request_ = pool.request();
 
     let query = ITEMS_QUERY_BASE;
+    const tipoParam = url.searchParams.get('tipo');
+    if (tipoParam) {
+      const tipos = tipoParam.split(',').map(t => t.trim()).filter(Boolean);
+      const tipoPlaceholders = tipos.map((tipo, i) => {
+        request_.input(`tipo${i}`, sql.Char(1), tipo);
+        return `@tipo${i}`;
+      });
+      if (tipoPlaceholders.length > 0) {
+        query += ` AND a.tipo IN (${tipoPlaceholders.join(', ')})`;
+      }
+    }
     if (activeWarehouses.length > 0) {
       const placeholders = activeWarehouses.map((coAlma, i) => {
         request_.input(`coAlma${i}`, sql.Char(6), coAlma);
@@ -103,6 +114,7 @@ export async function GET(request: NextRequest) {
     const items = rows.map(r => ({
       coArt:        r.co_art,
       artDes:       r.art_des,
+      tipo:         r.tipo,
       ref:          r.ref,
       modelo:       r.modelo,
       comentario:   r.comentario,

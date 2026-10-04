@@ -1,21 +1,31 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+
+type Tipo = 'V' | 'S' | 'M' | 'C' | 'F' | 'N' | 'E';
+
+const TIPO_FILTER_OPTIONS: { value: 'ALL' | Tipo; label: string }[] = [
+  { value: 'ALL', label: 'Todos' },
+  { value: 'V', label: 'Terminados (Venta)' },
+  { value: 'M', label: 'Materia Prima' },
+];
 
 interface LowStockItem {
-  coArt:         string;
-  artDes:        string;
-  coAlma:        string;
-  stock:         number;
-  unidad:        string | null;
-  sold:          number;
-  avgDailySales: number;
-  daysOfStock:   number;
+  coArt:               string;
+  artDes:              string;
+  tipo:                Tipo;
+  coAlma:              string;
+  stock:               number;
+  unidad:              string | null;
+  consumed:            number;
+  avgDailyConsumption: number;
+  daysOfStock:         number;
 }
 
 interface StockRow {
   coArt:  string;
   artDes: string;
+  tipo:   Tipo;
   coAlma: string;
   stock:  number;
   unidad: string | null;
@@ -33,6 +43,7 @@ export function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState('');
+  const [tipoFilter, setTipoFilter] = useState<'ALL' | Tipo>('ALL');
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +70,21 @@ export function DashboardClient() {
     return () => { cancelled = true; };
   }, []);
 
+  const filteredAllStock = useMemo(() => {
+    if (!data) return [];
+    return data.allStock
+      .filter(row => tipoFilter === 'ALL' || row.tipo === tipoFilter)
+      .filter(row => {
+        const q = stockSearch.trim().toLowerCase();
+        return q === '' || row.coArt.toLowerCase().includes(q) || row.artDes.toLowerCase().includes(q);
+      });
+  }, [data, tipoFilter, stockSearch]);
+
+  const filteredItems = useMemo(() => {
+    if (!data) return [];
+    return data.items.filter(item => tipoFilter === 'ALL' || item.tipo === tipoFilter);
+  }, [data, tipoFilter]);
+
   if (loading) {
     return <div className="p-6 text-sm text-gray-500">Cargando panel de inventario…</div>;
   }
@@ -71,6 +97,23 @@ export function DashboardClient() {
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
           {error}
         </p>
+      )}
+
+      {data && (
+        <div className="flex items-center gap-2">
+          <label htmlFor="tipo-filter" className="text-sm text-gray-600">Ver:</label>
+          <select
+            id="tipo-filter"
+            value={tipoFilter}
+            onChange={e => setTipoFilter(e.target.value as 'ALL' | Tipo)}
+            className="border border-gray-300 rounded-md px-2 py-1 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {TIPO_FILTER_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       )}
 
       {data && (
@@ -90,7 +133,7 @@ export function DashboardClient() {
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 bg-gray-50">
                 <tr className="border-b border-gray-200">
-                  {['Código', 'Nombre', 'Almacén', 'Stock', 'Unidad'].map(h => (
+                  {['Código', 'Nombre', 'Tipo', 'Almacén', 'Stock', 'Unidad'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                       {h}
                     </th>
@@ -98,15 +141,11 @@ export function DashboardClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {data.allStock
-                  .filter(row => {
-                    const q = stockSearch.trim().toLowerCase();
-                    return q === '' || row.coArt.toLowerCase().includes(q) || row.artDes.toLowerCase().includes(q);
-                  })
-                  .map(row => (
+                {filteredAllStock.map(row => (
                     <tr key={`${row.coArt}::${row.coAlma}`} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{row.coArt}</td>
                       <td className="px-3 py-2 text-gray-900">{row.artDes}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.tipo}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.coAlma}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.stock}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.unidad?.trim() || '—'}</td>
@@ -114,7 +153,7 @@ export function DashboardClient() {
                   ))}
               </tbody>
             </table>
-            {data.allStock.length === 0 && (
+            {filteredAllStock.length === 0 && (
               <div className="text-center py-10 text-gray-400 text-sm">
                 No hay artículos configurados para mostrar.
               </div>
@@ -127,15 +166,15 @@ export function DashboardClient() {
         <>
           <p className="text-sm text-gray-500">
             Artículos con menos de {data.daysOfStockThreshold} días de stock estimado, según
-            el promedio de ventas diarias de los últimos {data.rollingWindowDays} días.
-            Artículos sin ventas recientes no aparecen aquí.
+            el promedio de consumo diario (ventas y ajustes de inventario) de los últimos {data.rollingWindowDays} días.
+            Artículos sin movimientos recientes no aparecen aquí.
           </p>
 
           <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
-                  {['Código', 'Nombre', 'Almacén', 'Stock', 'Unidad', 'Venta diaria prom.', 'Días de stock'].map(h => (
+                  {['Código', 'Nombre', 'Tipo', 'Almacén', 'Stock', 'Unidad', 'Consumo diario prom.', 'Días de stock'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">
                       {h}
                     </th>
@@ -143,14 +182,15 @@ export function DashboardClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {data.items.map(item => (
+                {filteredItems.map(item => (
                   <tr key={`${item.coArt}::${item.coAlma}`} className="hover:bg-gray-50">
                     <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{item.coArt}</td>
                     <td className="px-3 py-2 text-gray-900">{item.artDes}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.tipo}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.coAlma}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.stock}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.unidad?.trim() || '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.avgDailySales.toFixed(1)}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.avgDailyConsumption.toFixed(1)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {item.stock < 0 ? (
                         <span className="font-semibold text-gray-400" title="Stock negativo en Profit Plus — este valor no refleja stock físico real">
@@ -166,7 +206,7 @@ export function DashboardClient() {
                 ))}
               </tbody>
             </table>
-            {data.items.length === 0 && (
+            {filteredItems.length === 0 && (
               <div className="text-center py-10 text-gray-400 text-sm">
                 No hay artículos con stock bajo en este momento.
               </div>

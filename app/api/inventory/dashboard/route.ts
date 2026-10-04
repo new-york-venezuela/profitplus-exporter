@@ -8,44 +8,48 @@ import { trimStrings } from '@/lib/trim-strings';
 
 export const dynamic = 'force-dynamic';
 
-// Items with stock in a configured warehouse, and their total quantity sold
-// (via saFacturaVenta/saFacturaVentaReng, excluding anulado invoices) from
-// that same warehouse over the rolling window. Items with no sales in the
-// window are excluded here — with no consumption data there's no meaningful
+// Items with stock in a configured warehouse, and their total quantity
+// consumed (any exit, via saCostoHistoricoSalida — this is the FIFO exit
+// ledger and covers every document type that depletes stock, not just sales:
+// confirmed live it carries both FACT (sales) and AJUS (manual inventory
+// adjustments) rows) from that same warehouse over the rolling window. Using
+// the exit ledger instead of saFacturaVenta directly means this metric works
+// for raw materials too, whose stock — when tracked at all — moves via
+// adjustments rather than sales. Items with no exits in the window are
+// excluded here — with no consumption data there's no meaningful
 // days-of-stock estimate, so they can't be flagged as at-risk either way.
 // des_uni is fetched via a correlated scalar subquery rather than a JOIN:
 // nothing in the schema enforces that at most one saArtUnidad row per
 // article has uni_principal = 1, and a JOIN-based fan-out here would
-// silently double-count SUM(fvr.total_art) if that assumption were ever
+// silently double-count SUM(chs.cantidad) if that assumption were ever
 // violated. A scalar subquery is at-most-one-row by construction, so it
 // can't corrupt the aggregate even if the data ever breaks that assumption.
 const DASHBOARD_QUERY_BASE = `
   SELECT
-    a.co_art, a.art_des, s.co_alma, s.stock,
+    a.co_art, a.art_des, a.tipo, s.co_alma, s.stock,
     (SELECT TOP 1 u.des_uni FROM saArtUnidad au
        JOIN saUnidad u ON u.co_uni = au.co_uni
        WHERE au.co_art = a.co_art AND au.uni_principal = 1) AS des_uni,
-    SUM(fvr.total_art) AS sold
+    SUM(chs.cantidad) AS consumed
   FROM saArticulo a
   JOIN saStockAlmacen s ON s.co_art = a.co_art AND s.tipo = 'ACT'
-  JOIN saFacturaVentaReng fvr ON fvr.co_art = a.co_art AND fvr.co_alma = s.co_alma
-  JOIN saFacturaVenta fv ON fv.doc_num = fvr.doc_num
-  WHERE a.anulado = 0 AND fv.anulado = 0 AND fv.fec_emis > @sinceDate
+  JOIN saCostoHistoricoSalida chs ON chs.cod_articulo_rowguid = a.rowguid AND chs.cod_almacen = s.co_alma
+  WHERE a.anulado = 0 AND chs.fecha_emision > @sinceDate
 `;
 
 interface DashboardRow {
-  co_art: string; art_des: string; co_alma: string; stock: number; sold: number; des_uni: string | null;
+  co_art: string; art_des: string; tipo: string; co_alma: string; stock: number; consumed: number; des_uni: string | null;
 }
 
-// Current stock per configured warehouse, with no sales-velocity join —
+// Current stock per configured warehouse, with no consumption-velocity join —
 // used to power the "browse all stock" table, which must show every
-// article/warehouse pair regardless of whether it has recent sales.
+// article/warehouse pair regardless of whether it has recent exits.
 // des_uni uses the same at-most-one-row scalar subquery as
 // DASHBOARD_QUERY_BASE above, for the same reason: a JOIN would fan out
 // (duplicating rows in this table) if an article ever had more than one
 // saArtUnidad row with uni_principal = 1.
 const ALL_STOCK_QUERY_BASE = `
-  SELECT a.co_art, a.art_des, s.co_alma, s.stock,
+  SELECT a.co_art, a.art_des, a.tipo, s.co_alma, s.stock,
     (SELECT TOP 1 u.des_uni FROM saArtUnidad au
        JOIN saUnidad u ON u.co_uni = au.co_uni
        WHERE au.co_art = a.co_art AND au.uni_principal = 1) AS des_uni
@@ -55,7 +59,7 @@ const ALL_STOCK_QUERY_BASE = `
 `;
 
 interface AllStockRow {
-  co_art: string; art_des: string; co_alma: string; stock: number; des_uni: string | null;
+  co_art: string; art_des: string; tipo: string; co_alma: string; stock: number; des_uni: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -83,7 +87,7 @@ export async function GET(request: NextRequest) {
       });
       query += ` AND s.co_alma IN (${placeholders.join(', ')})`;
     }
-    query += ' GROUP BY a.co_art, a.art_des, s.co_alma, s.stock ORDER BY a.art_des';
+    query += ' GROUP BY a.co_art, a.art_des, a.tipo, s.co_alma, s.stock ORDER BY a.art_des';
 
     const result = await request_.query(query);
     const rows = trimStrings(result.recordset) as unknown as DashboardRow[];
@@ -91,17 +95,18 @@ export async function GET(request: NextRequest) {
     const items = rows
       .map(r => {
         const stock = Number(r.stock);
-        const sold = Number(r.sold);
-        const avgDailySales = sold / settings.rollingWindowDays;
-        const daysOfStock = avgDailySales > 0 ? stock / avgDailySales : null;
+        const consumed = Number(r.consumed);
+        const avgDailyConsumption = consumed / settings.rollingWindowDays;
+        const daysOfStock = avgDailyConsumption > 0 ? stock / avgDailyConsumption : null;
         return {
           coArt:  r.co_art,
           artDes: r.art_des,
+          tipo:   r.tipo,
           coAlma: r.co_alma,
           stock,
           unidad: r.des_uni,
-          sold,
-          avgDailySales,
+          consumed,
+          avgDailyConsumption,
           daysOfStock,
         };
       })
@@ -123,6 +128,7 @@ export async function GET(request: NextRequest) {
     const allStock = allStockRows.map(r => ({
       coArt:  r.co_art,
       artDes: r.art_des,
+      tipo:   r.tipo,
       coAlma: r.co_alma,
       stock:  Number(r.stock),
       unidad: r.des_uni,

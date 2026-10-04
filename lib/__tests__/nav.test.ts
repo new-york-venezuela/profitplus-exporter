@@ -6,6 +6,7 @@ const none: NavAccess = {
   inventory: false,
   dwh: false,
   geo: false,
+  recipes: false,
   pricing: 'none',
 };
 
