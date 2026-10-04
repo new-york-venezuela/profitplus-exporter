@@ -69,6 +69,31 @@ export function usdConversionJoin(factAlias: string, dateColumn: string = 'DateK
 }
 
 /**
+ * Same contract as usdConversionJoin (same alias, same RateSell column, so
+ * dualAmountExpr works unchanged), but for rows dated before the March 2026
+ * ERP cutover — i.e. fact.Fact_Sales_Legacy / fact.Fact_Returns_Legacy.
+ * Dim_Currency is loaded from the ERP's own co_mone codes, and the legacy ERP
+ * (Ncake_a) calls the dollar 'US$' where the current one calls it 'USD', so
+ * Dim_Currency holds both rows and the legacy window's rates can sit under
+ * either key (often both, on the same day). usdConversionJoin's exact 'USD'
+ * match then misses them and every USD figure comes back NULL.
+ *
+ * OUTER APPLY ... TOP 1 picks exactly one rate per row, preferring 'USD' over
+ * 'US$', so a day carrying both can never fan the join out and double-count
+ * the row. NULL when neither code has a rate that day, as with
+ * usdConversionJoin.
+ */
+export function legacyUsdConversionJoin(factAlias: string, dateColumn: string = 'DateKey', joinAlias: string = 'fx'): string {
+  return `OUTER APPLY (
+      SELECT TOP 1 ${joinAlias}r.RateSell
+      FROM fact.Fact_ExchangeRate ${joinAlias}r
+      JOIN dim.Dim_Currency ${joinAlias}c ON ${joinAlias}c.CurrencyKey = ${joinAlias}r.CurrencyKey
+      WHERE ${joinAlias}r.DateKey = ${factAlias}.${dateColumn} AND RTRIM(${joinAlias}c.CurrencyCode) IN ('USD', 'US$')
+      ORDER BY CASE WHEN RTRIM(${joinAlias}c.CurrencyCode) = 'USD' THEN 0 ELSE 1 END
+    ) ${joinAlias}`;
+}
+
+/**
  * Paired BS/USD SUM expression for a money column on a fact table (Fact_Sales,
  * Fact_Returns, Fact_Collections, Fact_AR_Snapshot, Fact_Purchases — see
  * docs/superpowers/specs/2026-09-23-historical-usd-conversion-design.md).
@@ -152,6 +177,11 @@ export function buildReturnsDateWhereClause(dateRange: string, tableName: string
  */
 export function returnsUsdConversionJoin(factAlias: string = 'fr', joinAlias: string = 'fx'): string {
   return usdConversionJoin(factAlias, 'OriginalInvoiceDateKey', joinAlias);
+}
+
+/** returnsUsdConversionJoin for fact.Fact_Returns_Legacy — see legacyUsdConversionJoin. */
+export function legacyReturnsUsdConversionJoin(factAlias: string = 'frl', joinAlias: string = 'fx'): string {
+  return legacyUsdConversionJoin(factAlias, 'OriginalInvoiceDateKey', joinAlias);
 }
 
 /**

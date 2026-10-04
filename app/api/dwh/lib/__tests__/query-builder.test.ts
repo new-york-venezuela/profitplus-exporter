@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr,
   bucketKeyExpr, buildPrevThirtyDayWhereClause, parseReturnsBasis, returnsDateColumn, buildReturnsDateWhereClause, returnsUsdConversionJoin,
-  returnsAmountSubqueries,
+  returnsAmountSubqueries, legacyUsdConversionJoin, legacyReturnsUsdConversionJoin,
 } from '../query-builder';
 
 describe('getDimensionSpec', () => {
@@ -345,5 +345,31 @@ describe('returns basis helpers', () => {
     expect(sql.match(/AND fr\.SalesRepKey = 7/g)?.length).toBe(2);
     expect(sql).toContain('frfx.DateKey = fr.OriginalInvoiceDateKey');
     expect(sql).toContain('COUNT(fr.NetAmount) = 0 THEN 0');
+  });
+});
+
+describe('legacyUsdConversionJoin', () => {
+  test("accepts both 'USD' and legacy 'US$' codes", () => {
+    const sql = legacyUsdConversionJoin('fsl');
+    expect(sql).toContain("IN ('USD', 'US$')");
+    expect(sql).toContain('fxr.DateKey = fsl.DateKey');
+  });
+
+  test("picks one rate per row (no fan-out when both codes carry a rate), preferring 'USD'", () => {
+    const sql = legacyUsdConversionJoin('fsl');
+    expect(sql).toContain('OUTER APPLY');
+    expect(sql).toContain('TOP 1');
+    expect(sql).toMatch(/ORDER BY CASE WHEN RTRIM\(fxc\.CurrencyCode\) = 'USD' THEN 0 ELSE 1 END/);
+  });
+
+  test('exposes RateSell under the requested alias so dualAmountExpr works unchanged', () => {
+    const sql = legacyUsdConversionJoin('frl', 'OriginalInvoiceDateKey', 'frfx');
+    expect(sql.trimEnd()).toMatch(/\) frfx$/);
+    expect(sql).toContain('frfxr.DateKey = frl.OriginalInvoiceDateKey');
+    expect(sql).not.toContain(' fx.');
+  });
+
+  test('legacyReturnsUsdConversionJoin keys on the original factura date', () => {
+    expect(legacyReturnsUsdConversionJoin('frl', 'frfx')).toContain('frfxr.DateKey = frl.OriginalInvoiceDateKey');
   });
 });
