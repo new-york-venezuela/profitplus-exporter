@@ -164,7 +164,7 @@ DWH_AlimentosNY (new database, same SQL Server instance as ERP)
 #### Fact_Sales
 **Grain**: 1 row per invoice line (`saFacturaVentaReng`)  
 **Source**: `Ncake_a.dbo.saFacturaVenta` (header) + `Ncake_a.dbo.saFacturaVentaReng` (lines)  
-**Refresh**: Incremental (watermark: `saFacturaVentaReng.validador`)
+**Refresh**: Incremental (watermarks: `saFacturaVentaReng.fe_us_mo` + header `saFacturaVenta.validador` — the detail table has no `validador`; see Incremental Load Watermark Strategy)
 
 | Column | Type | Source | Notes |
 |---|---|---|---|
@@ -182,7 +182,7 @@ DWH_AlimentosNY (new database, same SQL Server instance as ERP)
 | `GrossAmount` | decimal(18,2) | `total_art × prec_vta` (before discount) | — |
 | `DiscountAmount` | decimal(18,2) | `saFacturaVentaReng.monto_desc` + prorated `monto_desc_glob` | — |
 | `TaxAmount` | decimal(18,2) | `monto_imp` + `monto_imp2` + `monto_imp3` | — |
-| `NetAmount` | decimal(18,2) | `saFacturaVentaReng.reng_neto` | Net revenue (this row's contribution) |
+| `NetAmount` | decimal(18,2) | `saFacturaVentaReng.reng_neto − monto_desc_glob` | Net of line **and** prorated global discount, **before IVA, before returns**. `NetAmount = GrossAmount − DiscountAmount` (to the cent). Before migration 0036 it was plain `reng_neto`, which does not subtract the global discount (~0.3% overstatement on the mock). |
 | `UnitCost` | decimal(18,5) | `saCostoHistoricoSalida.costo_pro` | **Currently always `NULL`** — see "Cost Data Gap" below |
 | `COGSAmount` | decimal(18,2) | `UnitCost × QuantitySold` | **Currently always `NULL`** |
 | `GrossProfitAmount` | decimal(18,2) | `NetAmount - COGSAmount` | **Currently always `NULL`** |
@@ -205,13 +205,26 @@ This installation has **never recorded production/manufacturing cost** for any f
 #### Fact_Returns
 **Grain**: 1 row per return line (`saDevolucionClienteReng`)  
 **Source**: `Ncake_a.dbo.saDevolucionCliente` (header) + `Ncake_a.dbo.saDevolucionClienteReng` (lines)  
-**Refresh**: Incremental (watermark: `saDevolucionClienteReng.validador`)  
-**Column shape**: Identical dimensional FKs to `Fact_Sales`; measures are `QuantityReturned`, `GrossAmount`, `DiscountAmount`, `TaxAmount`, `NetAmount` (all from return lines). No cost/margin columns.
+**Refresh**: Incremental. Watermarks: `saDevolucionClienteReng.fe_us_mo` (the detail table has **no** `validador`) + header `saDevolucionCliente.validador`. Since 0036 a line is also re-loaded when its **original factura header** (`saFacturaVenta.validador`) changed after the last run, so the link columns below do not go stale.  
+**Column shape**: Identical dimensional FKs to `Fact_Sales`; measures are `QuantityReturned`, `GrossAmount`, `DiscountAmount`, `TaxAmount`, `NetAmount` (all from return lines; `NetAmount = reng_neto − monto_desc_glob`, same basis as `Fact_Sales` since 0036). No cost/margin columns.
+
+`DateKey` is the **devolución's** own `fec_emis` (the date the credit note was issued). Added by migration 0036, the original factura of each return line:
+
+| Column | Type | Source | Notes |
+|---|---|---|---|
+| `OriginalInvoiceNumber` | char(20) | `saFacturaVenta.doc_num` | Resolved per line: `saDevolucionClienteReng.rowguid_doc → saFacturaVentaReng.rowguid`; fallback `tipo_doc = 'FACT'` + `num_doc → saFacturaVenta.doc_num`. `NULL` if neither resolves. One devolución can return several facturas, so this is per line, not per header. |
+| `OriginalInvoiceLineNumber` | int | `saFacturaVentaReng.reng_num` | Only when resolved by `rowguid_doc`; `NULL` on the `num_doc` fallback. Joins to `Fact_Sales (InvoiceNumber, LineNumber)`. |
+| `OriginalInvoiceDateKey` | int | `saFacturaVenta.fec_emis` (YYYYMMDD) | FK → `Dim_Date`. **Never NULL**: when no factura resolves it falls back to `DateKey`. Use it to attribute a return to the month of the sale. |
+| `HasInvoiceLink` | bit | derived | 1 = `OriginalInvoiceDateKey` came from the factura; 0 = fallback to `DateKey`. Mock: 308/308 lines linked by `rowguid_doc`. |
+
+Which date to use: `DateKey` (return date) for anything about the credit note itself (Devoluciones tab, AR, collections, "what was returned this month"); `OriginalInvoiceDateKey` when netting returns against the sales of the same period ("ventas netas de devoluciones" by sale month). Attributing by factura date restates closed months: a July devolución lowers June. Mock June 2026: 1,217,838.70 BS by return date vs 820,999.07 BS by factura date.
+
+Not covered: credit notes booked as plain `N/CR` in `saDocumentoVenta` without a devolución (common before late May 2026 on the mock) are **not** in `Fact_Returns` at all, and `monto_reca` (FX revaluation on the devolución header) is not loaded.
 
 #### Fact_Collections
 **Grain**: 1 row per payment line (`saCobroDocReng`) — one receipt applying to one invoice  
 **Source**: `Ncake_a.dbo.saCobro` (header) + `Ncake_a.dbo.saCobroDocReng` (lines)  
-**Refresh**: Incremental (watermark: `saCobroDocReng.validador`)
+**Refresh**: Incremental (watermarks: `saCobroDocReng.fe_us_mo` + header `saCobro.validador`; the detail table has no `validador`)
 
 | Column | Type | Source | Notes |
 |---|---|---|---|
@@ -256,16 +269,18 @@ This installation has **never recorded production/manufacturing cost** for any f
 #### Fact_ExchangeRate
 **Grain**: 1 row per currency per day  
 **Source**: `Ncake_a.dbo.saTasa` (historical daily rates)  
-**Refresh**: Incremental (watermark: `saTasa.validador`)
+**Refresh**: Full re-MERGE of `saTasa` (from 2020-01-01) on every run, then a carry-forward fill. Primary key `(DateKey, CurrencyKey)`.
 
 | Column | Type | Source | Notes |
 |---|---|---|---|
-| `FactExchangeRateKey` | bigint | IDENTITY | Surrogate key |
 | `DateKey` | int | `saTasa.fecha` (YYYYMMDD) | FK → `Dim_Date` |
 | `CurrencyKey` | int | `saTasa.co_mone` | FK → `Dim_Currency` |
-| `BuyRate` | decimal(21,8) | `saTasa.tasa_c` | Rate paid when buying currency (cost rate) |
-| `SellRate` | decimal(21,8) | `saTasa.tasa_v` | Rate paid when selling currency (vendor rate) |
+| `RateBuy` | decimal(21,8) | `saTasa.tasa_c` | Rate paid when buying currency (cost rate) |
+| `RateSell` | decimal(21,8) | `saTasa.tasa_v` | Rate paid when selling currency; the divisor every USD conversion uses |
+| `IsCarriedForward` | bit | derived (0036) | 0 = real `saTasa` row; 1 = day with no `saTasa` row, filled with the last real rate on or before that day |
 | `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | DWH load timestamp |
+
+**Every calendar day is covered** (since migration 0036), per currency, from that currency's first real rate up to today: `Load_Fact_ExchangeRate` fills each day with no `saTasa` row (weekends, holidays, days nobody entered a rate) with the last known rate and flags it `IsCarriedForward = 1`. Before this, a sale dated on such a day joined to no rate and its USD amount was NULL, so it silently dropped out of every USD `SUM` (mock June 2026: ≈2.88M BS / ≈4,500 USD missing). A real `saTasa` row always wins: if one appears later for a carried day, it overwrites the carried values and clears the flag. Carried days after a corrected rate are re-priced on the next run. Real rows are never changed by the fill. Days before a currency's first real rate still have no row. If you need only quoted days (e.g. an average rate per month weighted by business days), filter `IsCarriedForward = 0`.
 
 ### Dimension Tables
 
@@ -470,9 +485,9 @@ WHERE SourceTableName IN ('saFacturaVenta', 'saFacturaVentaReng');
 
 Each `Load_*` stored procedure:
 1. Reads current watermark from `dwh.EtlWatermark`
-2. Fetches changed rows from ERP since watermark (`WHERE validador > @Watermark`)
+2. Fetches changed rows from ERP since watermark (`WHERE validador > @Watermark` for header/master tables; the three fact loads use `WHERE r.fe_us_mo > @DetailWatermark OR h.validador > @HeaderWatermark`, and `Load_Fact_Returns` also re-loads lines whose original factura changed)
 3. Runs `MERGE` to insert/update/delete in DWH
-4. Advances watermark to new maximum `validador`
+4. Advances watermark(s) to the new maximum `validador` / `fe_us_mo` (read after the MERGE)
 5. Updates load metadata (rows processed, timestamp)
 
 ---
@@ -664,19 +679,34 @@ SELECT COUNT(*) AS Active_Products FROM dim.Dim_Product WHERE IsCurrent = 1 AND 
 ```
 
 ### Net Revenue (Sales − Returns)
+Aggregate sales and returns **separately** and join the monthly totals. Joining the two fact tables row-to-row (e.g. on `DateKey` + `CustomerKey`) fans out: every sales line repeats once per matching return line, so both sums are multiplied. All amounts are BS, before IVA.
+
+Returns are attributed to the month of the **original factura** (`OriginalInvoiceDateKey`), so each month's net revenue is that month's sales minus the returns of those same sales. Swap in `fr.DateKey` to attribute by return date instead (the credit note's month).
 ```sql
+WITH Sales AS (
+    SELECT dt.YearMonth, SUM(fs.NetAmount) AS SalesNet
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Date dt ON dt.DateKey = fs.DateKey
+    WHERE fs.IsVoided = 0
+    GROUP BY dt.YearMonth
+),
+Returns AS (
+    SELECT dt.YearMonth, SUM(fr.NetAmount) AS ReturnsNet
+    FROM fact.Fact_Returns fr
+    JOIN dim.Dim_Date dt ON dt.DateKey = fr.OriginalInvoiceDateKey
+    WHERE fr.IsVoided = 0
+    GROUP BY dt.YearMonth
+)
 SELECT
-    dt.Year, dt.Month, dt.MonthName,
-    SUM(fs.NetAmount) AS Gross_Sales,
-    SUM(fr.NetAmount) AS Returns_Deduction,
-    SUM(fs.NetAmount) - SUM(fr.NetAmount) AS Net_Revenue
-FROM fact.Fact_Sales fs
-LEFT JOIN fact.Fact_Returns fr ON fs.DateKey = fr.DateKey AND fs.CustomerKey = fr.CustomerKey
-LEFT JOIN dim.Dim_Date dt ON fs.DateKey = dt.DateKey
-WHERE fs.IsVoided = 0 AND fr.IsVoided = 0
-GROUP BY dt.Year, dt.Month, dt.MonthName
-ORDER BY dt.Year DESC, dt.Month DESC;
+    COALESCE(s.YearMonth, r.YearMonth) AS YearMonth,
+    ISNULL(s.SalesNet, 0) AS Sales_Net,
+    ISNULL(r.ReturnsNet, 0) AS Returns_Deduction,
+    ISNULL(s.SalesNet, 0) - ISNULL(r.ReturnsNet, 0) AS Net_Revenue
+FROM Sales s
+FULL OUTER JOIN Returns r ON r.YearMonth = s.YearMonth
+ORDER BY YearMonth DESC;
 ```
+For USD, convert each row at its own date's rate before summing (`fs.NetAmount / NULLIF(fx.RateSell, 0)` with `fact.Fact_ExchangeRate fx` joined on `fx.DateKey = fs.DateKey` and the USD `CurrencyKey`). For returns netted against sales, join the rate on `fr.OriginalInvoiceDateKey`: a return line's `reng_neto` is valued at the factura's BS price, so the factura date's rate is the right divisor.
 
 ### AR Aging (Current)
 ```sql

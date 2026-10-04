@@ -51,6 +51,33 @@ table has a real `validador` column before assuming it does — if it doesn't, f
 two-column, two-row pattern rather than trying to force a rowversion watermark onto a table that
 doesn't have one.
 
+`Load_Fact_Returns` has one extra trigger since 0036: a return line is also re-loaded when its
+original factura header changed (`saFacturaVenta.validador > ` the `saDevolucionCliente`
+watermark). That comparison across two tables is valid because `validador` is a SQL Server
+rowversion, drawn from one database-wide counter. It keeps `OriginalInvoiceDateKey` current if a
+factura's `fec_emis` is corrected after its return was loaded.
+
+When a migration adds a column that a `Load_*` MERGE populates, rows already loaded keep the old
+value until their source row changes again. Backfill them in the same migration with an
+`UPDATE … FROM` against the ERP that recomputes absolute values (so it is idempotent), as 0029 and
+0036 do.
+
+## Returns, exchange rates and NetAmount (0036)
+
+- `fact.Fact_Returns` carries the original factura per line: `OriginalInvoiceNumber`,
+  `OriginalInvoiceLineNumber`, `OriginalInvoiceDateKey` (FK `Dim_Date`, never NULL) and
+  `HasInvoiceLink`. Resolution: `saDevolucionClienteReng.rowguid_doc → saFacturaVentaReng.rowguid`,
+  fallback `tipo_doc = 'FACT'` + `num_doc → saFacturaVenta.doc_num`; when neither resolves,
+  `OriginalInvoiceDateKey = DateKey` and `HasInvoiceLink = 0`. `DateKey` is still the devolución
+  date.
+- `fact.Fact_ExchangeRate` has a row for every calendar day per currency, from its first real
+  `saTasa` rate up to today. Days with no `saTasa` row hold the last real rate and
+  `IsCarriedForward = 1`. A later real row replaces a carried one. Real rows are untouched.
+- `NetAmount` on `Fact_Sales` and `Fact_Returns` is `reng_neto − monto_desc_glob`. `reng_neto`
+  does not include the line's share of the header global discount, while `DiscountAmount` always
+  did, so now `NetAmount = GrossAmount − DiscountAmount`. `Fact_Sales_Legacy`/`Fact_Returns_Legacy`
+  (0034) were not changed and still store plain `reng_neto`.
+
 ## SCD2 vs. structural/relational columns on Dim_Customer
 
 `Load_Dim_Customer` is SCD2 (Type 2): any tracked attribute change closes out
