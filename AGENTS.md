@@ -353,6 +353,12 @@ briefly inherit the previous user's identified state.
 - **ERP `mssql` queries use `.input()` for ALL user-controlled values** — never concatenate
 - **DWH `mssql` queries** (`app/api/dwh/*`) currently take no user-controlled input beyond the
   session — if you add a filter (date range, warehouse, etc.), use `.input()` there too
+- **Ventas brutas / netas** — `salesGross` = `SUM(Fact_Sales.NetAmount)` (sin IVA, before returns);
+  `salesNet` always means brutas − devoluciones, with returns windowed by `OriginalInvoiceDateKey`
+  (`buildReturnsDateWhereClause(..., 'factura')`) and converted to USD at the factura's rate
+  (`returnsUsdConversionJoin`). Use the devolución date (`'devolucion'`) only for views that report
+  returns as events, and label it. See `content/help/analitica-definiciones.md` and
+  `docs/ventas-netas-analysis.md`
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
 - **Dropdown selectors** — any `<select>` whose option list is data-driven and can grow past a handful of
   items (e.g. a picker over `Dim_Customer`, `Dim_SalesRep`, or similar) must use
