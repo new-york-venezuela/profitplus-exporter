@@ -31,7 +31,7 @@ export interface GroupedDrilldownTableProps<TRow extends { label: string; value:
    * own currency-aware formatting.
    *
    * Receives the full row (not just this key's value) so a money metric
-   * shipped as two flat keys — e.g. `salesNetBs`/`salesNetUsd`, the
+   * shipped as two flat keys — e.g. `salesGrossBs`/`salesGrossUsd`, the
    * DualAmount-over-BreakdownRow's-index-signature convention used by
    * ventas/compras/devoluciones/vendedores' breakdown queries — can pick
    * whichever side the caller's currency toggle currently wants. A caller
@@ -40,7 +40,7 @@ export interface GroupedDrilldownTableProps<TRow extends { label: string; value:
   formatBreakdownMetric?: (metricKey: string, value: string | number | null, row: BreakdownRow) => string;
   /**
    * Metric keys to hide from rendering as their own column — used for a
-   * DualAmount pair's Usd-suffixed companion key (e.g. `salesNetUsd`),
+   * DualAmount pair's Usd-suffixed companion key (e.g. `salesGrossUsd`),
    * which formatBreakdownMetric reads directly off the row via its 3rd
    * arg rather than being iterated/rendered as a separate column. Keys not
    * in this list render one column each, same as before.

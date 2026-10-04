@@ -30,7 +30,7 @@ function monthlyTrendQuery(dateWhere: string, returnsDateWhere: string, bucket: 
     WITH sales AS (
       SELECT
         ${bucket.keyExpr('d')} AS Bucket,
-        ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+        ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
       FROM fact.Fact_Sales fs
       ${usdConversionJoin('fs')}
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
@@ -49,8 +49,8 @@ function monthlyTrendQuery(dateWhere: string, returnsDateWhere: string, bucket: 
     )
     SELECT
       s.Bucket,
-      s.SalesNetBs,
-      s.SalesNetUsd,
+      s.SalesGrossBs,
+      s.SalesGrossUsd,
       ISNULL(r.ReturnsNetBs, 0) AS ReturnsNetBs,
       ISNULL(r.ReturnsNetUsd, 0) AS ReturnsNetUsd
     FROM sales s
@@ -97,7 +97,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
   return `
     SELECT
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(fr.NetAmount), 0)
          FROM fact.Fact_Returns fr
          WHERE fr.SalesRepKey = fs.SalesRepKey AND fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetBs,
@@ -110,7 +110,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
     JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fs.SalesRepKey
     WHERE fs.IsVoided = 0 ${dateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -164,10 +164,10 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
   return `
     SELECT
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Sales fs
-         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moBs,
+         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesGross12moBs,
       (SELECT CASE WHEN COUNT(fs.NetAmount) = 0 THEN 0 ELSE SUM(fs.NetAmount / NULLIF(sfx.RateSell, 0)) END
          FROM fact.Fact_Sales fs ${usdConversionJoin('fs', undefined, 'sfx')}
-         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesNet12moUsd,
+         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS SalesGross12moUsd,
       (SELECT ISNULL(SUM(NetAmount), 0) FROM fact.Fact_Returns fr
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNet12moBs,
       (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(rfx.RateSell, 0)) END
@@ -336,9 +336,9 @@ export async function GET(request: NextRequest) {
       topDebtors = debtors.recordset;
     }
 
-    const totalsRow = totals.recordset[0] ?? { SalesNet12moBs: 0, SalesNet12moUsd: 0, ReturnsNet12moBs: 0, ReturnsNet12moUsd: 0, Collected12moBs: 0, Collected12moUsd: 0 };
-    const salesNetBs = Number(totalsRow.SalesNet12moBs);
-    const salesNetUsd = totalsRow.SalesNet12moUsd === null ? null : Number(totalsRow.SalesNet12moUsd);
+    const totalsRow = totals.recordset[0] ?? { SalesGross12moBs: 0, SalesGross12moUsd: 0, ReturnsNet12moBs: 0, ReturnsNet12moUsd: 0, Collected12moBs: 0, Collected12moUsd: 0 };
+    const salesGrossBs = Number(totalsRow.SalesGross12moBs);
+    const salesGrossUsd = totalsRow.SalesGross12moUsd === null ? null : Number(totalsRow.SalesGross12moUsd);
     const returnsNetBs = Number(totalsRow.ReturnsNet12moBs);
     const returnsNetUsd = totalsRow.ReturnsNet12moUsd === null ? null : Number(totalsRow.ReturnsNet12moUsd);
 
@@ -358,7 +358,7 @@ export async function GET(request: NextRequest) {
 
     const monthlyTrend: MonthlyTrendRow[] = trend.recordset.map(r => ({
       bucket: String(r.Bucket),
-      salesNet: { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) },
+      salesGross: { bs: Number(r.SalesGrossBs), usd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd) },
       returnsNet: { bs: Number(r.ReturnsNetBs), usd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd) },
     }));
 
@@ -374,7 +374,7 @@ export async function GET(request: NextRequest) {
 
     const salesRepsMapped: SalesRepRow[] = salesReps.recordset.map(r => ({
       name: r.Name,
-      salesNet: { bs: Number(r.SalesNetBs), usd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd) },
+      salesGross: { bs: Number(r.SalesGrossBs), usd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd) },
       returnsNet: { bs: Number(r.ReturnsNetBs), usd: r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd) },
     }));
 
@@ -402,9 +402,9 @@ export async function GET(request: NextRequest) {
       topDebtors: topDebtorsMapped,
       snapshotDateKey,
       kpis: {
-        salesNet12mo: { bs: salesNetBs, usd: salesNetUsd },
+        salesGross12mo: { bs: salesGrossBs, usd: salesGrossUsd },
         returnsNet12mo: { bs: returnsNetBs, usd: returnsNetUsd },
-        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
+        returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
         collected12mo: {
           bs: Number(totalsRow.Collected12moBs),
           usd: totalsRow.Collected12moUsd === null ? null : Number(totalsRow.Collected12moUsd),

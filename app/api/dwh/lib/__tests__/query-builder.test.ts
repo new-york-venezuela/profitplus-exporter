@@ -227,9 +227,9 @@ describe('usdConversionJoin', () => {
 
 describe('dualAmountExpr', () => {
   test('produces a BS sum and a per-row-converted USD sum, aliased as requested', () => {
-    const sql = dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd');
-    expect(sql).toContain('SUM(fs.NetAmount) AS SalesNetBs');
-    expect(sql).toContain('AS SalesNetUsd');
+    const sql = dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd');
+    expect(sql).toContain('SUM(fs.NetAmount) AS SalesGrossBs');
+    expect(sql).toContain('AS SalesGrossUsd');
     expect(sql).toContain('fs.NetAmount /');
     // The divisor is always fact.Fact_ExchangeRate.RateSell for the row's own
     // date — never the fact table's own DocumentExchangeRate column. Root-caused

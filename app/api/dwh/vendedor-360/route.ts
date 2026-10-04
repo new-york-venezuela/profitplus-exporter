@@ -42,7 +42,7 @@ function activacionQuery(entityGrain: EntityGrain, dateWhere: string): string {
 }
 
 // Excludes the same flagged-root-billed invoices vendedores/route.ts's own
-// salesRepQuery excludes from SalesNetBs/Usd (see app/api/dwh/vendedores/
+// salesRepQuery excludes from SalesGrossBs/Usd (see app/api/dwh/vendedores/
 // consignment.ts's getFlaggedRootCodes) — otherwise this profile's sales
 // figure double-counts consignment-pattern root invoices that the
 // Vendedores tab list deliberately excludes as unreliable per-seller
@@ -55,7 +55,7 @@ function cuotaSalesQuery(flaggedRootCodes: string[]): string {
     ? `AND c.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`
     : '';
   return `
-    SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+    SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
@@ -373,9 +373,9 @@ export async function GET(request: NextRequest) {
     const cuotaReq = pool.request().input('salesRepKey', salesRepKey);
     flaggedRootCodes.forEach((code, i) => cuotaReq.input(`flaggedRoot${i}`, code));
     const cuotaResult = await cuotaReq.query(cuotaSalesQuery(flaggedRootCodes).replace('{{dateWhere}}', dateWhere));
-    const salesNetBs = Number(cuotaResult.recordset[0]?.SalesNetBs ?? 0);
-    const salesNetUsdRaw = cuotaResult.recordset[0]?.SalesNetUsd;
-    const salesNetUsd = salesNetUsdRaw === null || salesNetUsdRaw === undefined ? null : Number(salesNetUsdRaw);
+    const salesGrossBs = Number(cuotaResult.recordset[0]?.SalesGrossBs ?? 0);
+    const salesGrossUsdRaw = cuotaResult.recordset[0]?.SalesGrossUsd;
+    const salesGrossUsd = salesGrossUsdRaw === null || salesGrossUsdRaw === undefined ? null : Number(salesGrossUsdRaw);
     const quotaResult = resolveQuotaSum(
       targetRows.map(t => ({ periodMonth: t.periodMonth, quotaValue: t.salesQuotaUsd })),
       months,
@@ -549,7 +549,7 @@ export async function GET(request: NextRequest) {
       salesRepKey: salesRepKeyParam,
       salesRepName,
       activacion: { weeks, entityGrain, weeklyVisitQuota: latestMonthRow?.weeklyVisitQuota ?? null },
-      cuota: { salesNet: { bs: salesNetBs, usd: salesNetUsd }, quotaUsd: quotaResult.total, isPartial: quotaResult.isPartial },
+      cuota: { salesGross: { bs: salesGrossBs, usd: salesGrossUsd }, quotaUsd: quotaResult.total, isPartial: quotaResult.isPartial },
       cobranza: { buckets: sellerBuckets, baselineBuckets },
       nuevosClientes: {
         rows: nuevos,

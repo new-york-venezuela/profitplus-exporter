@@ -68,13 +68,13 @@ interface HistoricoTableRow extends HistoricoRow {
 
 // Mirrors tab-ventas.tsx's formatBreakdownMoney: the línea→producto
 // breakdown query (lineaProductBreakdownQuery in historico/route.ts) ships
-// its money metric as two flat keys — salesNetBs/salesNetUsd — since
+// its money metric as two flat keys — salesGrossBs/salesGrossUsd — since
 // BreakdownRow's index signature can't hold a nested DualAmount object.
 // hiddenMetricKeys (passed to GroupedDrilldownTable below) keeps
-// salesNetUsd from also rendering as its own column.
+// salesGrossUsd from also rendering as its own column.
 function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
-  const bs = row.salesNetBs;
-  const usd = row.salesNetUsd;
+  const bs = row.salesGrossBs;
+  const usd = row.salesGrossUsd;
   if (typeof bs !== 'number') return String(bs ?? '—');
   return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
@@ -222,7 +222,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
   const chartData = (mesData?.rows ?? []).map(r => ({
     label: r.label,
     value: String(r.value),
-    salesNet: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
+    salesGross: currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
   }));
 
   const clienteTableRows: HistoricoTableRow[] = (clienteData?.rows ?? []).map(r => ({ ...r, label: r.label, value: String(r.value) }));
@@ -239,10 +239,10 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
 
   const lineaColumns: DrilldownColumn<HistoricoTableRow>[] = [
     {
-      key: 'salesNet',
+      key: 'salesGross',
       label: 'Ventas netas',
       align: 'right',
-      format: row => moneyLabel(row.salesNet, currency),
+      format: row => moneyLabel(row.salesGross, currency),
     },
     {
       key: 'returnRate',
@@ -266,7 +266,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
         )}
         {!kpisLoading && !kpisError && kpis && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <KpiCard label="Ventas netas" value={moneyLabel(kpis.salesNet, currency)} />
+            <KpiCard label="Ventas netas" value={moneyLabel(kpis.salesGross, currency)} />
             <KpiCard label="Clientes activos" value={kpis.activeClients.toLocaleString('es-VE')} />
             <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency) : '—'} />
             <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} />
@@ -293,7 +293,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                   <Tooltip formatter={val => moneyTooltip(val, currency)} />
                   <Bar
-                    dataKey="salesNet"
+                    dataKey="salesGross"
                     fill="#2563eb"
                     radius={[3, 3, 0, 0]}
                     cursor="pointer"
@@ -332,7 +332,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
                 {clienteTableRows.map((row, i) => (
                   <tr key={row.value} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
                     <td className="px-3 py-2 text-gray-800">{row.label}</td>
-                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.salesNet, currency)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 font-medium">{moneyLabel(row.salesGross, currency)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{row.returnRate !== null ? `${(row.returnRate * 100).toFixed(1)}%` : '—'}</td>
                   </tr>
                 ))}
@@ -366,7 +366,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
             formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
-            hiddenMetricKeys={['salesNetUsd']}
+            hiddenMetricKeys={['salesGrossUsd']}
           />
         )}
       </section>

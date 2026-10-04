@@ -14,9 +14,9 @@ export const dynamic = 'force-dynamic';
 // Ingresos Netos for Margen Operativo: Fact_Sales.NetAmount minus
 // Fact_Returns.NetAmount. Mirrors app/api/dwh/devoluciones/route.ts's
 // existing Fact_Returns query shape (SUM(fr.NetAmount), fr.IsVoided = 0).
-function salesNetQuery(dateWhere: string): string {
+function salesGrossQuery(dateWhere: string): string {
   return `
-    SELECT ISNULL(SUM(fs.NetAmount), 0) AS SalesNet
+    SELECT ISNULL(SUM(fs.NetAmount), 0) AS SalesGross
     FROM fact.Fact_Sales fs
     WHERE fs.IsVoided = 0 ${dateWhere}
   `;
@@ -143,8 +143,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [salesNetResult, returnsNetResult, categoryResult, excludedResult, usdRate] = await Promise.all([
-      pool.request().query(salesNetQuery(salesDateWhere)),
+    const [salesGrossResult, returnsNetResult, categoryResult, excludedResult, usdRate] = await Promise.all([
+      pool.request().query(salesGrossQuery(salesDateWhere)),
       pool.request().query(returnsNetQuery(returnsDateWhere)),
       pool.request().query(expenseCategoryQuery(gastosViewDateWhere)),
       pool.request().query(excludedExpenseQuery(expenseDateWhere)),
@@ -160,9 +160,9 @@ export async function GET(request: NextRequest) {
     const intereses = Number(excludedResult.recordset.find(r => r.Category === 'Intereses')?.TotalAmount ?? 0);
     const impuestos = Number(excludedResult.recordset.find(r => r.Category === 'Impuestos')?.TotalAmount ?? 0);
 
-    const salesNet = Number(salesNetResult.recordset[0]?.SalesNet ?? 0);
+    const salesGross = Number(salesGrossResult.recordset[0]?.SalesGross ?? 0);
     const returnsNet = Number(returnsNetResult.recordset[0]?.ReturnsNet ?? 0);
-    const ingresosOperativos = salesNet - returnsNet;
+    const ingresosOperativos = salesGross - returnsNet;
 
     // Margen Operativo (accrual-basis, replaces the prior cash-basis calc —
     // see docs/superpowers/specs/2026-09-15-margen-operativo-accrual-design.md

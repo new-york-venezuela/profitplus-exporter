@@ -243,7 +243,7 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
   return `
     SELECT
       ${spec.labelExpr} AS Name,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(fr2.NetAmount), 0)
          FROM fact.Fact_Returns fr2
          ${innerJoin}
@@ -260,7 +260,7 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -325,28 +325,28 @@ export async function GET(request: NextRequest) {
 
     const customers = await pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere));
 
-    // Query already orders by SalesNetBs DESC, which is the ranking Pareto
+    // Query already orders by SalesGrossBs DESC, which is the ranking Pareto
     // segmentation needs — walk it once, accumulating cumulative share of
     // total net sales to assign each customer's A/B/C segment.
-    const totalSalesNet = customers.recordset.reduce((sum, r) => sum + Number(r.SalesNetBs), 0);
+    const totalSalesGross = customers.recordset.reduce((sum, r) => sum + Number(r.SalesGrossBs), 0);
 
-    let cumulativeSalesNet = 0;
+    let cumulativeSalesGross = 0;
     const rows: ClientesRow[] = customers.recordset.map(r => {
-      const salesNetBs = Number(r.SalesNetBs);
-      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+      const salesGrossBs = Number(r.SalesGrossBs);
+      const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
       const returnsNetBs = Number(r.ReturnsNetBs);
       const returnsNetUsd = r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd);
 
-      cumulativeSalesNet += salesNetBs;
-      const cumulativeShare = totalSalesNet > 0 ? cumulativeSalesNet / totalSalesNet : 0;
+      cumulativeSalesGross += salesGrossBs;
+      const cumulativeShare = totalSalesGross > 0 ? cumulativeSalesGross / totalSalesGross : 0;
       const pareto: ClientesRow['pareto'] =
         cumulativeShare <= PARETO_THRESHOLDS.a ? 'A' : cumulativeShare <= PARETO_THRESHOLDS.b ? 'B' : 'C';
 
       return {
         name: r.Name,
-        salesNet: { bs: salesNetBs, usd: salesNetUsd },
+        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
         returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
-        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
+        returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
         pareto,
       };
     });

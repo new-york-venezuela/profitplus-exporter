@@ -2,16 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   LineChart, Line, Legend,
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import { RETURNS_BASIS_LABEL } from '../lib/net-sales';
 import type { Granularity } from '../lib/granularity';
 import type {
   BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow,
-  VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse,
+  VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse, ReturnsBasis,
 } from '../types';
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -33,9 +34,9 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
-function KpiCard({ label, value, delta }: { label: string; value: string; delta?: { pct: number | null; label: string } }) {
+function KpiCard({ label, value, delta, title }: { label: string; value: string; delta?: { pct: number | null; label: string }; title?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4" title={title}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       {delta && (
@@ -179,15 +180,15 @@ interface VentasTableRow extends VentasRow {
 }
 
 // BreakdownRow's index signature can't hold a nested DualAmount object, so
-// the salesNet money metric ships as two flat keys — salesNetBs/salesNetUsd
+// the salesGross money metric ships as two flat keys — salesGrossBs/salesGrossUsd
 // (see the ventas route's breakdown queries) — and this picks the right one
 // for the caller's currency toggle, formatting via moneyLabel like every
 // other money cell in this tab. hiddenMetricKeys (passed to
-// GroupedDrilldownTable below) keeps salesNetUsd from also rendering as its
+// GroupedDrilldownTable below) keeps salesGrossUsd from also rendering as its
 // own column.
 function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
-  const bs = row.salesNetBs;
-  const usd = row.salesNetUsd;
+  const bs = row.salesGrossBs;
+  const usd = row.salesGrossUsd;
   if (typeof bs !== 'number') return String(bs ?? '—');
   return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
@@ -206,6 +207,11 @@ export default function TabVentas({
   // — no more groupBy toggle hiding two of the three). Each section keeps
   // its own loading/error/data state so one slow query doesn't block the
   // others from rendering.
+  // Which date devoluciones are attributed to (see ReturnsBasis in
+  // query-builder.ts). 'factura' (default) makes "Ventas netas" match a
+  // per-factura reconciliation; 'devolucion' shows returns in the period the
+  // nota de crédito was issued.
+  const [returnsBasis, setReturnsBasis] = useState<ReturnsBasis>('factura');
   const [mesData, setMesData] = useState<VentasResponse | null>(null);
   const [mesLoading, setMesLoading] = useState<boolean>(true);
   const [mesError, setMesError] = useState<string | null>(null);
@@ -248,7 +254,7 @@ export default function TabVentas({
       setMesError(null);
       setMesLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'mes', granularity });
+        const params = new URLSearchParams({ dateRange, groupBy: 'mes', granularity, returnsBasis });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -267,7 +273,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, granularity]);
+  }, [dateRange, granularity, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,7 +281,7 @@ export default function TabVentas({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension, granularity });
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension, granularity, returnsBasis });
         if (bucket) params.set('bucket', bucket);
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
@@ -295,7 +301,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension, granularity, bucket]);
+  }, [dateRange, clienteDimension, granularity, bucket, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,7 +309,7 @@ export default function TabVentas({
       setLineaError(null);
       setLineaLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'linea' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'linea', returnsBasis });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -322,7 +328,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,7 +336,7 @@ export default function TabVentas({
       setKpisError(null);
       setKpisLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, section: 'kpis' });
+        const params = new URLSearchParams({ dateRange, section: 'kpis', returnsBasis });
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -349,7 +355,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, returnsBasis]);
 
   // Comparison option catalogs (top líneas / top cadenas by sales in range)
   // — refetched whenever dateRange changes so the multi-select always offers
@@ -468,6 +474,7 @@ export default function TabVentas({
     label: r.label,
     title: r.title ?? r.label,
     value: String(r.value),
+    salesGross: currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
     salesNet: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
   }));
 
@@ -510,17 +517,34 @@ export default function TabVentas({
     return body.breakdown ?? [];
   }
 
-  const clienteColumns: DrilldownColumn<VentasTableRow>[] = [
+  const basisLabel = RETURNS_BASIS_LABEL[returnsBasis];
+  const moneyColumns: DrilldownColumn<VentasTableRow>[] = [
+    {
+      key: 'salesGross',
+      label: 'Ventas brutas',
+      align: 'right',
+      title: 'Facturas sin IVA, sin anuladas, netas de descuentos, antes de devoluciones.',
+      format: row => moneyLabel(row.salesGross, currency),
+    },
+    {
+      key: 'returns',
+      label: 'Devoluciones',
+      align: 'right',
+      title: `Devoluciones sin IVA, ${basisLabel}.`,
+      format: row => moneyLabel(row.returns, currency),
+    },
     {
       key: 'salesNet',
       label: 'Ventas netas',
       align: 'right',
+      title: `Ventas brutas − devoluciones (${basisLabel}).`,
       format: row => moneyLabel(row.salesNet, currency),
     },
     {
       key: 'returnRate',
       label: 'Tasa dev.',
       align: 'right',
+      title: 'Devoluciones ÷ ventas brutas.',
       format: row => (row.returnRate !== null ? `${(row.returnRate * 100).toFixed(1)}%` : '—'),
     },
     {
@@ -530,27 +554,8 @@ export default function TabVentas({
       format: row => (row.avgDiscount !== null ? `${(row.avgDiscount * 100).toFixed(1)}%` : '—'),
     },
   ];
-
-  const lineaColumns: DrilldownColumn<VentasTableRow>[] = [
-    {
-      key: 'salesNet',
-      label: 'Ventas netas',
-      align: 'right',
-      format: row => moneyLabel(row.salesNet, currency),
-    },
-    {
-      key: 'returnRate',
-      label: 'Tasa dev.',
-      align: 'right',
-      format: row => (row.returnRate !== null ? `${(row.returnRate * 100).toFixed(1)}%` : '—'),
-    },
-    {
-      key: 'avgDiscount',
-      label: 'Desc. prom.',
-      align: 'right',
-      format: row => (row.avgDiscount !== null ? `${(row.avgDiscount * 100).toFixed(1)}%` : '—'),
-    },
-  ];
+  const clienteColumns = moneyColumns;
+  const lineaColumns = moneyColumns;
 
   const kpis = kpisData?.kpis;
   const salesDelta = kpis && kpis.salesNetPrevPeriod !== null && kpis.salesNetPrevPeriod.bs !== 0
@@ -559,6 +564,31 @@ export default function TabVentas({
 
   return (
     <div className="p-6 max-w-7xl space-y-8">
+      {/* Returns attribution toggle — applies to every section of this tab
+          except the comparison charts (which plot ventas brutas only). */}
+      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+        <span>Devoluciones:</span>
+        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Fecha de atribución de devoluciones">
+          {(['factura', 'devolucion'] as const).map(b => (
+            <button
+              key={b}
+              onClick={() => setReturnsBasis(b)}
+              aria-pressed={returnsBasis === b}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                returnsBasis === b ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {RETURNS_BASIS_LABEL[b]}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-gray-500">
+          {returnsBasis === 'factura'
+            ? 'Cada devolución resta del período de su factura original (cuadra con un cálculo por factura; un mes cerrado puede cambiar si llegan devoluciones después).'
+            : 'Cada devolución resta del período en que se emitió la nota de crédito.'}
+        </span>
+      </div>
+
       {/* KPIs */}
       <section>
         {kpisLoading && <div className="p-6 text-sm text-gray-500">Cargando…</div>}
@@ -566,17 +596,33 @@ export default function TabVentas({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{kpisError}</p>
         )}
         {!kpisLoading && !kpisError && kpis && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KpiCard
+              label="Ventas brutas"
+              value={moneyLabel(kpis.salesGross, currency)}
+              title="Facturas sin IVA, sin anuladas, netas de descuentos, por fecha de factura, antes de devoluciones."
+            />
+            <KpiCard
+              label="Devoluciones"
+              value={moneyLabel(kpis.returns, currency)}
+              title={`Devoluciones sin IVA, ${basisLabel}.`}
+            />
             <KpiCard
               label="Ventas netas"
               value={moneyLabel(kpis.salesNet, currency)}
               delta={{ pct: salesDelta, label: 'vs. período anterior' }}
+              title={`Ventas brutas − devoluciones (${basisLabel}).`}
+            />
+            <KpiCard
+              label="Tasa de devolución"
+              value={kpis.returnRate !== null ? `${(kpis.returnRate * 100).toFixed(1)}%` : '—'}
+              title="Devoluciones ÷ ventas brutas."
             />
             <KpiCard label="Clientes activos" value={kpis.activeClients.toLocaleString('es-VE')} />
-            <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency) : '—'} />
-            <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} />
+            <KpiCard label="Ticket promedio" value={kpis.avgTicket !== null ? moneyLabel(kpis.avgTicket, currency) : '—'} title="Ventas brutas ÷ facturas." />
+            <KpiCard label="Unidades vendidas" value={kpis.unitsSold.toLocaleString('es-VE')} title="Unidades facturadas, antes de devoluciones." />
             <KpiCard
-              label="Ventas por cliente activo"
+              label="Ventas brutas por cliente activo"
               value={kpis.salesPerActiveClient !== null ? moneyLabel(kpis.salesPerActiveClient, currency) : '—'}
             />
           </div>
@@ -591,18 +637,20 @@ export default function TabVentas({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{mesError}</p>
         )}
         {!mesLoading && !mesError && (
-          <ChartCard title="Tendencia de ventas" subtitle={`Ventas netas por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`}>
+          <ChartCard title="Tendencia de ventas" subtitle={`Ventas brutas (barras) y ventas netas de devoluciones ${basisLabel} (línea) por ${TREND_UNIT_LABEL[trendMode]}${trendMode === 'range' ? '' : ` — clic en una barra para ver clientes de ese ${TREND_UNIT_LABEL[trendMode]}`}`}>
             {chartData.length === 0 ? (
               <EmptyState />
             ) : (
               <ResponsiveContainer width="100%" height={380}>
-                <BarChart data={chartData} margin={{ top: 8, left: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 8, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
                   <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar
-                    dataKey="salesNet"
+                    dataKey="salesGross"
+                    name="Ventas brutas"
                     fill="#2563eb"
                     radius={[3, 3, 0, 0]}
                     cursor="pointer"
@@ -610,7 +658,8 @@ export default function TabVentas({
                       if (entry.payload) handleBarClick(entry.payload.value);
                     }}
                   />
-                </BarChart>
+                  <Line type="monotone" dataKey="salesNet" name="Ventas netas" stroke="#16a34a" strokeWidth={2} dot={false} />
+                </ComposedChart>
               </ResponsiveContainer>
             )}
           </ChartCard>
@@ -638,7 +687,7 @@ export default function TabVentas({
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
             formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
-            hiddenMetricKeys={['salesNetUsd']}
+            hiddenMetricKeys={['salesGrossUsd']}
           />
         )}
         {bucket && (
@@ -670,13 +719,13 @@ export default function TabVentas({
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
             formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
-            hiddenMetricKeys={['salesNetUsd']}
+            hiddenMetricKeys={['salesGrossUsd']}
           />
         )}
       </section>
 
       {/* Comparación por línea */}
-      <ChartCard title="Comparar ventas por línea" subtitle="Selecciona hasta 4 líneas para comparar su tendencia mensual de ventas netas">
+      <ChartCard title="Comparar ventas por línea" subtitle="Selecciona hasta 4 líneas para comparar su tendencia de ventas brutas (antes de devoluciones)">
         <ComparisonChart
           options={comparisonOptions?.lineas ?? []}
           selected={lineaCompareKeys}
@@ -689,7 +738,7 @@ export default function TabVentas({
       </ChartCard>
 
       {/* Comparación por cadena */}
-      <ChartCard title="Comparar ventas por cadena" subtitle="Selecciona hasta 4 clientes (entidad/cadena) para comparar su tendencia mensual de ventas netas">
+      <ChartCard title="Comparar ventas por cadena" subtitle="Selecciona hasta 4 clientes (entidad/cadena) para comparar su tendencia de ventas brutas (antes de devoluciones)">
         <ComparisonChart
           options={comparisonOptions?.clientes ?? []}
           selected={clienteCompareKeys}

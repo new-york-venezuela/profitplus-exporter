@@ -49,7 +49,7 @@ function matrixQuery(groupBy: DepthGroupBy, dateWhere: string, scopeWhere: strin
       ${labelExpr} AS GroupLabel,
       c.SegmentCode AS SegmentCode,
       COUNT(DISTINCT c.LegalEntityKey) AS EntitiesBuying,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -82,7 +82,7 @@ function matrixQueryForSeller(groupBy: DepthGroupBy, dateWhere: string, scopeWhe
       ${labelExpr} AS GroupLabel,
       c.SegmentCode AS SegmentCode,
       COUNT(DISTINCT c.LegalEntityKey) AS EntitiesBuying,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -108,7 +108,7 @@ function activeTotalsBySegmentForSellerQuery(dateWhere: string): string {
 
 function gapQuery(dateWhere: string, scopeWhere: string): string {
   return `
-    SELECT le.LegalEntityKey, le.LegalEntityName, ${dualAmountExpr('fs', 'NetAmount', 'TotalSalesNetBs', 'TotalSalesNetUsd')}
+    SELECT le.LegalEntityKey, le.LegalEntityName, ${dualAmountExpr('fs', 'NetAmount', 'TotalSalesGrossBs', 'TotalSalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
@@ -121,7 +121,7 @@ function gapQuery(dateWhere: string, scopeWhere: string): string {
       JOIN dim.Dim_Product p2 ON p2.ProductKey = fs2.ProductKey
       WHERE fs2.IsVoided = 0 AND c2.LegalEntityKey = le.LegalEntityKey ${scopeWhere.replace(/\bfs\b/g, 'fs2').replace(/\bp\b/g, 'p2')} ${dateWhere.replace(/\bfs\b/g, 'fs2')}
     )
-    ORDER BY TotalSalesNetBs DESC
+    ORDER BY TotalSalesGrossBs DESC
   `;
 }
 
@@ -153,7 +153,7 @@ async function handleGap(
   const entities: DepthGapEntity[] = result.recordset.map(r => ({
     legalEntityKey: Number(r.LegalEntityKey),
     legalEntityName: String(r.LegalEntityName),
-    totalSalesNet: { bs: Number(r.TotalSalesNetBs), usd: r.TotalSalesNetUsd === null ? null : Number(r.TotalSalesNetUsd) },
+    totalSalesGross: { bs: Number(r.TotalSalesGrossBs), usd: r.TotalSalesGrossUsd === null ? null : Number(r.TotalSalesGrossUsd) },
   }));
 
   const response: DepthGapResponse = { entities, segment, productLabel };
@@ -197,7 +197,7 @@ async function handleMatrix(
   }
 
   const byLabel = new Map<string, DepthMatrixRow>();
-  // null should propagate to totalSalesNet.usd only when EVERY contributing
+  // null should propagate to totalSalesGross.usd only when EVERY contributing
   // row lacked a resolvable rate, not when any single one did — tracked here
   // per label rather than with an any-null-poisons accumulator.
   const sawUsdByLabel = new Set<string>();
@@ -205,13 +205,13 @@ async function handleMatrix(
     const label = String(r.GroupLabel);
     const segment = String(r.SegmentCode) as CustomerSegment;
     const entitiesBuying = Number(r.EntitiesBuying);
-    const salesNetBs = Number(r.SalesNetBs);
-    const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+    const salesGrossBs = Number(r.SalesGrossBs);
+    const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
     const entitiesActive = totalsBySegment.get(segment) ?? 0;
 
     let row = byLabel.get(label);
     if (!row) {
-      row = { label, value: label, cells: [], totalPenetration: null, totalSalesNet: { bs: 0, usd: 0 }, tier: 'sin-ventas' };
+      row = { label, value: label, cells: [], totalPenetration: null, totalSalesGross: { bs: 0, usd: 0 }, tier: 'sin-ventas' };
       byLabel.set(label, row);
     }
     row.cells.push({
@@ -219,16 +219,16 @@ async function handleMatrix(
       entitiesBuying,
       entitiesActive,
       penetration: entitiesActive > 0 ? entitiesBuying / entitiesActive : null,
-      salesNet: { bs: salesNetBs, usd: salesNetUsd },
+      salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
     });
-    if (salesNetUsd !== null) sawUsdByLabel.add(label);
-    row.totalSalesNet = {
-      bs: row.totalSalesNet.bs + salesNetBs,
-      usd: (row.totalSalesNet.usd ?? 0) + (salesNetUsd ?? 0),
+    if (salesGrossUsd !== null) sawUsdByLabel.add(label);
+    row.totalSalesGross = {
+      bs: row.totalSalesGross.bs + salesGrossBs,
+      usd: (row.totalSalesGross.usd ?? 0) + (salesGrossUsd ?? 0),
     };
   }
   for (const [label, row] of byLabel) {
-    if (!sawUsdByLabel.has(label)) row.totalSalesNet = { ...row.totalSalesNet, usd: null };
+    if (!sawUsdByLabel.has(label)) row.totalSalesGross = { ...row.totalSalesGross, usd: null };
   }
 
   const totalEntitiesActive = SEGMENTS.reduce((sum, s) => sum + (totalsBySegment.get(s) ?? 0), 0);
@@ -239,9 +239,9 @@ async function handleMatrix(
     return {
       ...row,
       totalPenetration,
-      tier: classifyTier(totalPenetration, row.totalSalesNet.bs > 0, thresholds),
+      tier: classifyTier(totalPenetration, row.totalSalesGross.bs > 0, thresholds),
     };
-  }).sort((a, b) => b.totalSalesNet.bs - a.totalSalesNet.bs);
+  }).sort((a, b) => b.totalSalesGross.bs - a.totalSalesGross.bs);
 
   const breadcrumb: DepthMatrixResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
   if (groupBy === 'sublinea' || groupBy === 'sku') breadcrumb.push({ label: linea as string, groupBy: 'sublinea' });
@@ -283,12 +283,12 @@ async function handleLeaderboard(dateWhere: string, thresholds: TierThresholds):
   for (const r of totalsResult.recordset) totalsBySegment.set(String(r.SegmentCode), Number(r.TotalEntities));
   const totalEntitiesActive = SEGMENTS.reduce((sum, s) => sum + (totalsBySegment.get(s) ?? 0), 0);
 
-  const byLinea = new Map<string, { entitiesBuying: number; salesNet: number }>();
+  const byLinea = new Map<string, { entitiesBuying: number; salesGross: number }>();
   for (const r of unscopedResult.recordset) {
     const label = String(r.GroupLabel);
-    const entry = byLinea.get(label) ?? { entitiesBuying: 0, salesNet: 0 };
+    const entry = byLinea.get(label) ?? { entitiesBuying: 0, salesGross: 0 };
     entry.entitiesBuying += Number(r.EntitiesBuying);
-    entry.salesNet += Number(r.SalesNetBs);
+    entry.salesGross += Number(r.SalesGrossBs);
     byLinea.set(label, entry);
   }
 
@@ -297,7 +297,7 @@ async function handleLeaderboard(dateWhere: string, thresholds: TierThresholds):
   let baselineCount = 0;
   for (const [label, entry] of byLinea) {
     const penetration = totalEntitiesActive > 0 ? entry.entitiesBuying / totalEntitiesActive : null;
-    const tier = classifyTier(penetration, entry.salesNet > 0, thresholds);
+    const tier = classifyTier(penetration, entry.salesGross > 0, thresholds);
     if (tier === 'primera' || tier === 'segunda') {
       tieredLineNames.push(label);
       if (penetration !== null) {

@@ -332,8 +332,8 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
       <KpiCard
         label="2. Cuota de ventas mensual"
-        actual={data.cuota.salesNet.usd ?? 0}
-        actualLabel={moneyLabel(data.cuota.salesNet, currency)}
+        actual={data.cuota.salesGross.usd ?? 0}
+        actualLabel={moneyLabel(data.cuota.salesGross, currency)}
         quota={data.cuota.quotaUsd}
         quotaSuffix=" USD"
       />

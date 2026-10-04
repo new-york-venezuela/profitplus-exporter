@@ -35,7 +35,7 @@ function monthlyQuery(): string {
     SELECT
       d.YearMonth AS GroupValue,
       d.YearMonth AS GroupLabel,
-      ${dualAmountExpr('fsl', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+      ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
@@ -62,7 +62,7 @@ function clienteQuery(monthFilter: string, salesRepFilter: string): string {
     SELECT TOP 15
       CAST(c.CustomerLegacyKey AS varchar(20)) AS GroupValue,
       ISNULL(c.CustomerName, c.CustomerCode) AS GroupLabel,
-      ${dualAmountExpr('fsl', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+      ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          WHERE frl.CustomerLegacyKey = c.CustomerLegacyKey AND frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
@@ -73,7 +73,7 @@ function clienteQuery(monthFilter: string, salesRepFilter: string): string {
     JOIN dim.Dim_Date d ON d.DateKey = fsl.DateKey
     WHERE fsl.IsVoided = 0 ${DATE_WINDOW} ${monthFilter} ${salesRepFilter}
     GROUP BY c.CustomerLegacyKey, ISNULL(c.CustomerName, c.CustomerCode)
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -82,7 +82,7 @@ function lineaQuery(): string {
     SELECT TOP 15
       ISNULL(p.LineCode, 'SIN_LINEA') AS GroupValue,
       ISNULL(p.LineName, 'Sin línea') AS GroupLabel,
-      ${dualAmountExpr('fsl', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+      ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
          JOIN dim.Dim_Product_Legacy pr ON pr.ProductLegacyKey = frl.ProductLegacyKey
@@ -92,7 +92,7 @@ function lineaQuery(): string {
     JOIN dim.Dim_Product_Legacy p ON p.ProductLegacyKey = fsl.ProductLegacyKey
     WHERE fsl.IsVoided = 0 ${DATE_WINDOW}
     GROUP BY ISNULL(p.LineCode, 'SIN_LINEA'), ISNULL(p.LineName, 'Sin línea')
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -103,19 +103,19 @@ function lineaProductBreakdownQuery(): string {
     SELECT TOP 15
       CAST(p.ProductLegacyKey AS varchar(20)) AS GroupValue,
       ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
-      ${dualAmountExpr('fsl', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
     JOIN dim.Dim_Product_Legacy p ON p.ProductLegacyKey = fsl.ProductLegacyKey
     WHERE fsl.IsVoided = 0 AND ISNULL(p.LineCode, 'SIN_LINEA') = @parentValue ${DATE_WINDOW}
     GROUP BY p.ProductLegacyKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
 const KPIS_QUERY = `
   SELECT
-    ${dualAmountExpr('fsl', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')},
+    ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
     SUM(fsl.QuantitySold) AS UnitsSold,
     COUNT(DISTINCT fsl.CustomerLegacyKey) AS ActiveClients,
     COUNT(DISTINCT fsl.InvoiceNumber) AS InvoiceCount
@@ -135,17 +135,17 @@ async function handleKpis(): Promise<NextResponse> {
   const pool = await getDwhPool();
   const kpiResult = await pool.request().query(KPIS_QUERY);
 
-  const row = kpiResult.recordset[0] as { SalesNetBs: number | null; SalesNetUsd: number | null; UnitsSold: number | null; ActiveClients: number; InvoiceCount: number };
-  const salesNetBs = Number(row.SalesNetBs ?? 0);
-  const salesNetUsd = row.SalesNetUsd === null ? null : Number(row.SalesNetUsd);
+  const row = kpiResult.recordset[0] as { SalesGrossBs: number | null; SalesGrossUsd: number | null; UnitsSold: number | null; ActiveClients: number; InvoiceCount: number };
+  const salesGrossBs = Number(row.SalesGrossBs ?? 0);
+  const salesGrossUsd = row.SalesGrossUsd === null ? null : Number(row.SalesGrossUsd);
   const invoiceCount = Number(row.InvoiceCount ?? 0);
 
-  const salesNet: DualAmount = { bs: salesNetBs, usd: salesNetUsd };
+  const salesGross: DualAmount = { bs: salesGrossBs, usd: salesGrossUsd };
 
   const kpis: HistoricoKpis = {
-    salesNet,
+    salesGross,
     activeClients: Number(row.ActiveClients ?? 0),
-    avgTicket: invoiceCount > 0 ? { bs: salesNetBs / invoiceCount, usd: salesNetUsd === null ? null : salesNetUsd / invoiceCount } : null,
+    avgTicket: invoiceCount > 0 ? { bs: salesGrossBs / invoiceCount, usd: salesGrossUsd === null ? null : salesGrossUsd / invoiceCount } : null,
     unitsSold: Number(row.UnitsSold ?? 0),
   };
 
@@ -186,8 +186,8 @@ export async function GET(request: NextRequest) {
         breakdown: result.recordset.map(r => ({
           label: r.GroupLabel,
           value: String(r.GroupValue),
-          salesNetBs: Number(r.SalesNetBs),
-          salesNetUsd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd),
+          salesGrossBs: Number(r.SalesGrossBs),
+          salesGrossUsd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd),
         })),
       });
     }
@@ -220,15 +220,15 @@ export async function GET(request: NextRequest) {
     }
 
     const rows: HistoricoRow[] = recordset.map(r => {
-      const salesNetBs = Number(r.SalesNetBs);
-      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+      const salesGrossBs = Number(r.SalesGrossBs);
+      const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
       const returnsNetBs = Number(r.ReturnsNetBs ?? 0);
       const label = groupBy === 'mes' ? formatYearMonth(String(r.GroupLabel)) : String(r.GroupLabel);
       return {
         label,
         value: r.GroupValue as string,
-        salesNet: { bs: salesNetBs, usd: salesNetUsd },
-        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
+        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
+        returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
       };
     });
 

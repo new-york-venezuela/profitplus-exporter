@@ -46,7 +46,7 @@ export interface DualAmount {
 
 // Resumen tab
 export interface ResumenKPIs {
-  salesNet12mo: DualAmount;
+  salesGross12mo: DualAmount;
   returnsNet12mo: DualAmount;
   returnRate: number | null;
   collected12mo: DualAmount;
@@ -66,7 +66,7 @@ export interface MonthlyTrendRow {
   // (week), YYYY-MM (month) or 'range' (one aggregate bucket). Format it with
   // bucketLabels()/bucketTitle() from ./lib/granularity.
   bucket: string;
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   returnsNet: DualAmount;
 }
 
@@ -77,7 +77,7 @@ export interface NamedAmount {
 
 export interface SalesRepRow {
   name: string;
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   returnsNet: DualAmount;
 }
 
@@ -108,13 +108,24 @@ export interface ResumenResponse {
   kpis: ResumenKPIs;
 }
 
+// Naming used across these interfaces (see lib/net-sales.ts and
+// content/help/analitica-definiciones.md):
+//   salesGross = "Ventas brutas" = SUM(Fact_Sales.NetAmount): sin IVA, sin
+//                anuladas, neto de descuentos, antes de devoluciones.
+//   returns / returnsNet = "Devoluciones" = SUM(Fact_Returns.NetAmount).
+//   salesNet   = "Ventas netas" = salesGross − returns. Only present where it
+//                is actually computed; never a gross-of-returns figure.
+export type ReturnsBasis = 'factura' | 'devolucion';
+
 // Ventas tab
 export interface VentasRow {
   label: string; // formatted trend bucket (groupBy=mes) or customer or line name
   title?: string; // groupBy=mes only: full tooltip label, e.g. "Semana 2 · 5–11 ene 2026"
   value: string | number; // the groupBy identifier (a bucket key for groupBy=mes)
-  salesNet: DualAmount;
-  returnRate: number | null;
+  salesGross: DualAmount;
+  returns: DualAmount; // on the response's returnsBasis
+  salesNet: DualAmount; // salesGross − returns
+  returnRate: number | null; // returns / salesGross
   avgDiscount: number | null;
 }
 
@@ -123,18 +134,23 @@ export interface VentasResponse {
   trendMode?: BucketMode; // groupBy=mes only: the grain `rows` are bucketed by
   groupBy: GroupBy;
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
+  returnsBasis: ReturnsBasis; // which date the returns were attributed by
 }
 
 // Ventas tab — KPI row, scoped to dateRange like every other section,
-// computed directly off Fact_Sales (no margin/profit field: DWH has no
-// reliable cost data, see AGENTS.md).
+// computed directly off Fact_Sales/Fact_Returns (no margin/profit field: DWH
+// has no reliable cost data, see AGENTS.md). Returns follow the request's
+// returnsBasis (default 'factura').
 export interface VentasKpis {
-  salesNet: DualAmount;
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount; // salesGross − returns
   salesNetPrevPeriod: DualAmount | null; // same-length immediately-preceding period, for the Δ%
+  returnRate: number | null;
   activeClients: number; // distinct Dim_LegalEntity with >=1 sale in range
-  avgTicket: DualAmount | null; // salesNet / distinct invoices (null if no invoices)
+  avgTicket: DualAmount | null; // salesGross / distinct invoices (null if no invoices)
   unitsSold: number;
-  salesPerActiveClient: DualAmount | null; // salesNet / activeClients (null if activeClients = 0)
+  salesPerActiveClient: DualAmount | null; // salesGross / activeClients (null if activeClients = 0)
 }
 
 export interface VentasKpisResponse {
@@ -143,7 +159,7 @@ export interface VentasKpisResponse {
 
 // Ventas tab — dynamic sales comparison charts (two independent charts: by
 // línea and by cliente/cadena). Each chart lets the user pick 2-4 series
-// from a fixed catalog (top N by sales in range) and shows salesNet per
+// from a fixed catalog (top N by sales in range) and shows salesGross per
 // month per series, pivoted so Recharts can render one <Line> per series.
 export interface ComparisonOption {
   value: string; // LineCode or LegalEntityKey, used as the series-select key
@@ -157,7 +173,7 @@ export interface ComparisonOptionsResponse {
 
 export interface ComparisonSeriesMonthRow {
   bucket: string; // bucket key for the response's trendMode (see MonthlyTrendRow.bucket)
-  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesNet in that bucket
+  values: Record<string, DualAmount>; // series value (LineCode or LegalEntityKey) -> salesGross in that bucket
 }
 
 export interface VentasComparisonResponse {
@@ -174,7 +190,7 @@ export interface VentasComparisonResponse {
 export interface HistoricoRow {
   label: string;
   value: string | number;
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   returnRate: number | null;
 }
 
@@ -190,7 +206,7 @@ export interface HistoricoResponse {
 }
 
 export interface HistoricoKpis {
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   activeClients: number;
   avgTicket: DualAmount | null;
   unitsSold: number;
@@ -283,16 +299,16 @@ export interface CxcResponse {
 export interface VendedoresRow {
   value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
   name: string;
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   returnsNet: DualAmount;
   returnRate: number | null;
   collectionRate: number | null;
   avgDiscount: number | null;
-  // Amounts excluded from salesNet/collected above because they came from a
+  // Amounts excluded from salesGross/collected above because they came from a
   // root-billed invoice of a chain flagged as a consignment-billing pattern
   // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
   // Zero for a seller with no flagged exclusions.
-  excludedSalesNet: DualAmount;
+  excludedSalesGross: DualAmount;
   excludedCollected: DualAmount;
   excludedInvoiceCount: number;
 }
@@ -301,7 +317,7 @@ export interface VendedoresResponse {
   rows: VendedoresRow[];
 }
 
-// Vendedores tab — audit list behind a seller row's excludedSalesNet figure:
+// Vendedores tab — audit list behind a seller row's excludedSalesGross figure:
 // the literal invoices pulled out of that seller's reliable totals.
 export interface VendedoresExcludedInvoice {
   legalEntityName: string;
@@ -317,7 +333,7 @@ export interface VendedoresExcludedResponse {
 // Clientes tab
 export interface ClientesRow {
   name: string;
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   returnsNet: DualAmount;
   returnRate: number | null;
   pareto: 'A' | 'B' | 'C'; // Pareto segment
@@ -368,9 +384,9 @@ export interface ProductosRow {
   linea: string;
   sublinea: string;
   rotacion: number; // QuantitySold * GrossProfitAmount or similar metric
-  salesNet: DualAmount;
+  salesGross: DualAmount;
   margin: number | null; // GrossProfitAmount / NetAmount
-  salesShare: number | null; // salesNet / sum(salesNet) across all rows at this drill level
+  salesShare: number | null; // salesGross / sum(salesGross) across all rows at this drill level
 }
 
 export interface ProductosResponse {
@@ -401,8 +417,8 @@ export interface ProfundidadLineaResponse {
 export interface UnitsByLineaMonthRow {
   bucket: string; // bucket key for the response's trendMode (see MonthlyTrendRow.bucket)
   units: Record<string, number>; // línea name -> units sold in that bucket
-  salesNet: Record<string, DualAmount>; // línea name -> sales net in that bucket (for % of total)
-  totalSalesNet: DualAmount; // sum of salesNet across all líneas in that bucket
+  salesGross: Record<string, DualAmount>; // línea name -> sales net in that bucket (for % of total)
+  totalSalesGross: DualAmount; // sum of salesGross across all líneas in that bucket
 }
 
 export interface UnitsByLineaResponse {
@@ -471,7 +487,7 @@ export interface DepthMatrixCell {
   entitiesBuying: number;
   entitiesActive: number;
   penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
-  salesNet: DualAmount;
+  salesGross: DualAmount;
 }
 
 export interface DepthMatrixRow {
@@ -479,7 +495,7 @@ export interface DepthMatrixRow {
   value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
   cells: DepthMatrixCell[];  // one per segment present for this row
   totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
-  totalSalesNet: DualAmount;
+  totalSalesGross: DualAmount;
   tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
 }
 
@@ -496,7 +512,7 @@ export interface DepthMatrixResponse {
 export interface DepthGapEntity {
   legalEntityKey: number;
   legalEntityName: string;
-  totalSalesNet: DualAmount; // this entity's total sales in range, for sort/context
+  totalSalesGross: DualAmount; // this entity's total sales in range, for sort/context
 }
 
 export interface DepthGapResponse {
@@ -567,7 +583,7 @@ export interface Seller360Response {
     weeklyVisitQuota: number | null;
   };
   cuota: {
-    salesNet: DualAmount;
+    salesGross: DualAmount;
     quotaUsd: number | null;
     isPartial: boolean; // true when any month in the selected range has no salesQuotaUsd row
   };

@@ -12,13 +12,13 @@ function pct(n: number | null): string {
 }
 
 // BreakdownRow's index signature can't hold a nested DualAmount, so
-// salesNet ships as two flat keys (salesNetBs/salesNetUsd — see the
+// salesGross ships as two flat keys (salesGrossBs/salesGrossUsd — see the
 // vendedores route's breakdownQuery); this picks the right one for the
 // currency toggle. hiddenMetricKeys (passed to GroupedDrilldownTable below)
 // keeps the Usd key from also rendering as its own column.
 function formatBreakdownMoney(row: BreakdownRow, currency: Currency): string {
-  const bs = row.salesNetBs;
-  const usd = row.salesNetUsd;
+  const bs = row.salesGrossBs;
+  const usd = row.salesGrossUsd;
   if (typeof bs !== 'number') return String(bs ?? '—');
   return moneyLabel({ bs, usd: typeof usd === 'number' ? usd : null }, currency);
 }
@@ -112,8 +112,8 @@ export default function TabVendedores({
     if (!data) return [];
     return [...data.rows]
       .sort((a, b) => {
-        const av = (currency === 'usd' ? a.salesNet.usd : a.salesNet.bs) ?? -Infinity;
-        const bv = (currency === 'usd' ? b.salesNet.usd : b.salesNet.bs) ?? -Infinity;
+        const av = (currency === 'usd' ? a.salesGross.usd : a.salesGross.bs) ?? -Infinity;
+        const bv = (currency === 'usd' ? b.salesGross.usd : b.salesGross.bs) ?? -Infinity;
         return bv - av;
       })
       .map(r => ({ ...r, label: r.name }));
@@ -129,10 +129,10 @@ export default function TabVendedores({
 
   const columns: DrilldownColumn<VendedoresTableRow>[] = [
     {
-      key: 'salesNet',
+      key: 'salesGross',
       label: 'Ventas netas',
       align: 'right',
-      format: row => moneyLabel(row.salesNet, currency),
+      format: row => moneyLabel(row.salesGross, currency),
     },
     {
       key: 'returnsNet',
@@ -205,7 +205,7 @@ export default function TabVendedores({
     );
   }
 
-  const rowsWithExclusions = rows.filter(r => r.excludedSalesNet.bs > 0);
+  const rowsWithExclusions = rows.filter(r => r.excludedSalesGross.bs > 0);
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -228,7 +228,7 @@ export default function TabVendedores({
             onBreakdownByChange={setBreakdownBy}
             onFetchBreakdown={handleFetchBreakdown}
             formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
-            hiddenMetricKeys={['salesNetUsd']}
+            hiddenMetricKeys={['salesGrossUsd']}
           />
         )}
       </div>
@@ -248,7 +248,7 @@ export default function TabVendedores({
                   onClick={() => handleToggleExcluded(row.value)}
                   className="text-amber-700 hover:text-amber-900 underline"
                 >
-                  {row.name}: {moneyLabel(row.excludedSalesNet, currency)} excluidos ({row.excludedInvoiceCount} facturas)
+                  {row.name}: {moneyLabel(row.excludedSalesGross, currency)} excluidos ({row.excludedInvoiceCount} facturas)
                 </button>
                 {excludedExpandedFor === row.value && (
                   <div className="mt-2 ml-4 text-xs">

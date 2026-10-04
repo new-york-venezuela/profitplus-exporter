@@ -141,7 +141,7 @@ export default function TabResumen({
   const trendData = data.monthlyTrend.map((r, i) => ({
     label: trendXLabels[i],
     title: bucketTitle(data.trendMode, r.bucket),
-    Ventas: currency === 'usd' ? r.salesNet.usd : r.salesNet.bs,
+    Ventas: currency === 'usd' ? r.salesGross.usd : r.salesGross.bs,
     Devoluciones: currency === 'usd' ? r.returnsNet.usd : r.returnsNet.bs,
   }));
 
@@ -173,7 +173,7 @@ export default function TabResumen({
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesNet12mo, currency)} />
+        <KpiCard label="Ventas netas (12m)" value={moneyLabel(data.kpis.salesGross12mo, currency)} />
         <KpiCard label="Devoluciones (12m)" value={moneyLabel(data.kpis.returnsNet12mo, currency)} />
         <KpiCard
           label="Tasa de devolución"
@@ -322,13 +322,13 @@ export default function TabResumen({
                   <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesNet, currency)}
+                      {moneyLabel(r.salesGross, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {moneyLabel(r.returnsNet, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {r.salesNet.bs > 0 ? pct(r.returnsNet.bs / r.salesNet.bs) : '—'}
+                      {r.salesGross.bs > 0 ? pct(r.returnsNet.bs / r.salesGross.bs) : '—'}
                     </td>
                   </tr>
                 ))}

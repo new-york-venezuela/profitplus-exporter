@@ -26,14 +26,15 @@ function toDateKey(iso: string): number {
 }
 
 /**
- * Drill-down filter for one clicked bucket, against a fact table's DateKey.
+ * Drill-down filter for one clicked bucket, against a fact table's DateKey
+ * (or another date-key column, e.g. Fact_Returns.OriginalInvoiceDateKey).
  * '' for the aggregate range bucket (dateRange already scopes it); null for a
  * malformed key. The numbers come out of bucketSpan's regex-validated digits,
  * so nothing user-controlled is concatenated as text.
  */
-export function bucketFilterClause(mode: BucketMode, bucketKey: string, factAlias: string): string | null {
+export function bucketFilterClause(mode: BucketMode, bucketKey: string, factAlias: string, column: string = 'DateKey'): string | null {
   if (mode === 'range') return '';
   const span = bucketSpan(mode, bucketKey);
   if (!span) return null;
-  return `AND ${factAlias}.DateKey >= ${toDateKey(span.start)} AND ${factAlias}.DateKey <= ${toDateKey(span.end)}`;
+  return `AND ${factAlias}.${column} >= ${toDateKey(span.start)} AND ${factAlias}.${column} <= ${toDateKey(span.end)}`;
 }

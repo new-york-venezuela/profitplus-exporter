@@ -33,7 +33,7 @@ function salesRepMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
       ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       (SELECT ISNULL(SUM(fs.NetAmount), 0)
          FROM fact.Fact_Sales fs
-         WHERE fs.SalesRepKey = fr.SalesRepKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNetBs
+         WHERE fs.SalesRepKey = fr.SalesRepKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesGrossBs
     FROM fact.Fact_Returns fr
     ${usdConversionJoin('fr')}
     LEFT JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fr.SalesRepKey
@@ -50,7 +50,7 @@ function productoMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
       ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')},
       (SELECT ISNULL(SUM(fs.NetAmount), 0)
          FROM fact.Fact_Sales fs
-         WHERE fs.ProductKey = fr.ProductKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesNetBs
+         WHERE fs.ProductKey = fr.ProductKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesGrossBs
     FROM fact.Fact_Returns fr
     ${usdConversionJoin('fr')}
     JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
@@ -72,7 +72,7 @@ function clienteMatrixQuery(dimension: Dimension, returnsDateWhere: string, sale
          FROM fact.Fact_Sales fs2
          ${innerJoin}
          WHERE fs2.IsVoided = 0 ${salesDateWhere} AND ${condition}
-      ) AS SalesNetBs
+      ) AS SalesGrossBs
     FROM fact.Fact_Returns fr
     ${usdConversionJoin('fr')}
     ${spec.joinClause.replace(/\bf\b/g, 'fr')}
@@ -96,12 +96,12 @@ function matrixQuery(groupBy: DevolucionesGroupBy, clienteDimension: Dimension, 
 
 function toMatrixCell(
   groupBy: DevolucionesGroupBy,
-  row: { GroupName: string; GroupValue?: unknown; ReturnsNetBs: unknown; ReturnsNetUsd: unknown; SalesNetBs: unknown }
+  row: { GroupName: string; GroupValue?: unknown; ReturnsNetBs: unknown; ReturnsNetUsd: unknown; SalesGrossBs: unknown }
 ): DevolucionesMatrixCell {
   const returnsNetBs = Number(row.ReturnsNetBs);
   const returnsNetUsd = row.ReturnsNetUsd === null ? null : Number(row.ReturnsNetUsd);
-  const salesNetBs = Number(row.SalesNetBs);
-  const ratioDevolucion = salesNetBs > 0 ? returnsNetBs / salesNetBs : null;
+  const salesGrossBs = Number(row.SalesGrossBs);
+  const ratioDevolucion = salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null;
   const placeholder = 'Todos';
 
   return {

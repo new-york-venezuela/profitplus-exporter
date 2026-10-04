@@ -16,13 +16,13 @@ export const dynamic = 'force-dynamic';
 // legal entity is flagged when its share of sales billed at the ROOT
 // customer code (rather than individual tienda codes) meets or exceeds
 // rootShareThreshold. Flagged entities' root-level invoices are excluded
-// from a seller's "reliable" salesNet/collected totals and surfaced
-// separately as excludedSalesNet/excludedCollected — never estimated or
+// from a seller's "reliable" salesGross/collected totals and surfaced
+// separately as excludedSalesGross/excludedCollected — never estimated or
 // redistributed across sellers.
 
 // Joins Dim_Customer independently of the dimension's own joinClause (which,
 // for 'producto'/'vendedor', doesn't touch Customer at all) so the same
-// flagged-root-code exclusion applied to the parent row's SalesNet also
+// flagged-root-code exclusion applied to the parent row's SalesGross also
 // applies here — otherwise a seller's breakdown would sum to a pre-exclusion
 // total while the collapsed row shows the post-exclusion figure, and a
 // flagged root customer would appear as its own (misleading, full-amount)
@@ -33,14 +33,14 @@ function breakdownQuery(dimension: Dimension, salesDateWhere: string, flaggedRoo
     ? `AND bqc.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`
     : '';
   return `
-    SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+    SELECT TOP 15 ${spec.valueExpr} AS GroupValue, ${spec.labelExpr} AS GroupLabel, ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Customer bqc ON bqc.CustomerKey = fs.CustomerKey
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
     WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${salesDateWhere} ${excludeClause}
     GROUP BY ${spec.groupByColumn}
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -57,12 +57,12 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
     SELECT
       CAST(fs.SalesRepKey AS varchar(20)) AS SalesRepKeyValue,
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
-      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount ELSE 0 END) AS SalesNetBs,
+      SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount ELSE 0 END) AS SalesGrossBs,
       CASE WHEN COUNT(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount END) = 0 THEN 0
-           ELSE SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount / ${salesRate} END) END AS SalesNetUsd,
-      SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount ELSE 0 END) AS ExcludedSalesNetBs,
+           ELSE SUM(CASE WHEN ${flaggedCase} = 0 THEN fs.NetAmount / ${salesRate} END) END AS SalesGrossUsd,
+      SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount ELSE 0 END) AS ExcludedSalesGrossBs,
       CASE WHEN COUNT(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount END) = 0 THEN 0
-           ELSE SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount / ${salesRate} END) END AS ExcludedSalesNetUsd,
+           ELSE SUM(CASE WHEN ${flaggedCase} = 1 THEN fs.NetAmount / ${salesRate} END) END AS ExcludedSalesGrossUsd,
       COUNT(DISTINCT CASE WHEN ${flaggedCase} = 1 THEN fs.InvoiceNumber END) AS ExcludedInvoiceCount,
       SUM(fs.GrossAmount) AS GrossAmount,
       SUM(fs.DiscountAmount) AS DiscountAmount,
@@ -104,7 +104,7 @@ function salesRepQuery(salesDateWhere: string, returnsDateWhere: string, collect
     JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
     WHERE fs.IsVoided = 0 ${salesDateWhere}
     GROUP BY fs.SalesRepKey, ISNULL(r.SalesRepName, r.SalesRepCode)
-    ORDER BY SalesNetBs DESC
+    ORDER BY SalesGrossBs DESC
   `;
 }
 
@@ -158,8 +158,8 @@ export async function GET(request: NextRequest) {
         breakdown: result.recordset.map(r => ({
           label: r.GroupLabel,
           value: String(r.GroupValue),
-          salesNetBs: Number(r.SalesNetBs),
-          salesNetUsd: r.SalesNetUsd === null ? null : Number(r.SalesNetUsd),
+          salesGrossBs: Number(r.SalesGrossBs),
+          salesGrossUsd: r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd),
         })),
       });
     }
@@ -191,8 +191,8 @@ export async function GET(request: NextRequest) {
     const salesReps = await salesReq.query(salesRepQuery(salesDateWhere, returnsDateWhere, collectionsDateWhere, flaggedRootCodes));
 
     const rows: VendedoresRow[] = salesReps.recordset.map(r => {
-      const salesNetBs = Number(r.SalesNetBs);
-      const salesNetUsd = r.SalesNetUsd === null ? null : Number(r.SalesNetUsd);
+      const salesGrossBs = Number(r.SalesGrossBs);
+      const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
       const returnsNetBs = Number(r.ReturnsNetBs);
       const returnsNetUsd = r.ReturnsNetUsd === null ? null : Number(r.ReturnsNetUsd);
       const grossAmount = Number(r.GrossAmount);
@@ -202,12 +202,12 @@ export async function GET(request: NextRequest) {
       return {
         value: String(r.SalesRepKeyValue),
         name: r.Name,
-        salesNet: { bs: salesNetBs, usd: salesNetUsd },
+        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
         returnsNet: { bs: returnsNetBs, usd: returnsNetUsd },
-        returnRate: salesNetBs > 0 ? returnsNetBs / salesNetBs : null,
-        collectionRate: salesNetBs > 0 ? collectedBs / salesNetBs : null,
+        returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
+        collectionRate: salesGrossBs > 0 ? collectedBs / salesGrossBs : null,
         avgDiscount: grossAmount > 0 ? discountAmount / grossAmount : null,
-        excludedSalesNet: { bs: Number(r.ExcludedSalesNetBs), usd: r.ExcludedSalesNetUsd === null ? null : Number(r.ExcludedSalesNetUsd) },
+        excludedSalesGross: { bs: Number(r.ExcludedSalesGrossBs), usd: r.ExcludedSalesGrossUsd === null ? null : Number(r.ExcludedSalesGrossUsd) },
         excludedCollected: { bs: Number(r.ExcludedCollectedBs), usd: r.ExcludedCollectedUsd === null ? null : Number(r.ExcludedCollectedUsd) },
         excludedInvoiceCount: Number(r.ExcludedInvoiceCount),
       };

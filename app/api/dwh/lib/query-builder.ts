@@ -113,6 +113,77 @@ export function dualAmountExpr(factAlias: string, column: string, bsAlias: strin
   return `SUM(${col}) AS ${bsAlias}, SUM(${col} / ${rate}) AS ${usdAlias}`;
 }
 
+/**
+ * Which date a fact.Fact_Returns row is attributed to when it is windowed
+ * into a period (see migrations/dwh/0036 and docs/ventas-netas-analysis.md):
+ *  - 'factura'    -> OriginalInvoiceDateKey: the date of the factura the
+ *                    returned line came from. This is the basis for
+ *                    "Ventas netas" (brutas − devoluciones), so a period's net
+ *                    matches a per-factura reconciliation. A later devolución
+ *                    restates the factura's (earlier) period.
+ *  - 'devolucion' -> DateKey: the devolución (nota de crédito) date. Used by
+ *                    views that report returns as an event of the period
+ *                    (Devoluciones tab, standalone return rates).
+ * OriginalInvoiceDateKey is never NULL after 0036 (unlinked lines fall back
+ * to DateKey). The legacy table fact.Fact_Returns_Legacy has no such column
+ * and always uses DateKey.
+ */
+export type ReturnsBasis = 'factura' | 'devolucion';
+
+export function parseReturnsBasis(value: string | null): ReturnsBasis {
+  return value === 'devolucion' ? 'devolucion' : 'factura';
+}
+
+export function returnsDateColumn(basis: ReturnsBasis): 'OriginalInvoiceDateKey' | 'DateKey' {
+  return basis === 'factura' ? 'OriginalInvoiceDateKey' : 'DateKey';
+}
+
+export function buildReturnsDateWhereClause(dateRange: string, tableName: string, basis: ReturnsBasis = 'factura'): string {
+  return buildDateWhereClause(dateRange, tableName, returnsDateColumn(basis));
+}
+
+/**
+ * USD rate join for a fact.Fact_Returns alias. A return line's NetAmount is
+ * BS at the ORIGINAL factura's price (its prec_vta equals the factura
+ * line's), so it is converted at the factura date's RateSell, not the
+ * devolución date's — whatever basis the row was windowed by. Converting at
+ * the devolución date understates USD returns by the BS devaluation in
+ * between (the ERP books that difference as monto_reca, which the DWH does
+ * not load). Use with dualAmountExpr(alias, ..., joinAlias) as usual.
+ */
+export function returnsUsdConversionJoin(factAlias: string = 'fr', joinAlias: string = 'fx'): string {
+  return usdConversionJoin(factAlias, 'OriginalInvoiceDateKey', joinAlias);
+}
+
+/**
+ * Two correlated scalar subqueries (BS, then USD) summing fact.Fact_Returns
+ * NetAmount for use inside an outer SELECT list — a scalar subquery can only
+ * return one column, so dualAmountExpr can't be used there. `extraJoins` and
+ * `where` are spliced in as-is (callers build them from regex-validated
+ * date keys and @-parameters only). USD converts each line at its original
+ * factura's rate (returnsUsdConversionJoin); a set of rows with no rate at
+ * all yields NULL USD, an empty set yields 0.
+ */
+export function returnsAmountSubqueries(opts: {
+  alias: string;
+  fxAlias: string;
+  extraJoins?: string;
+  where: string;
+  bsAlias: string;
+  usdAlias: string;
+}): string {
+  const { alias, fxAlias, extraJoins = '', where, bsAlias, usdAlias } = opts;
+  return `(SELECT ISNULL(SUM(${alias}.NetAmount), 0)
+         FROM fact.Fact_Returns ${alias}
+         ${extraJoins}
+         WHERE ${alias}.IsVoided = 0 ${where}) AS ${bsAlias},
+      (SELECT CASE WHEN COUNT(${alias}.NetAmount) = 0 THEN 0 ELSE SUM(${alias}.NetAmount / NULLIF(${fxAlias}.RateSell, 0)) END
+         FROM fact.Fact_Returns ${alias}
+         ${extraJoins}
+         ${returnsUsdConversionJoin(alias, fxAlias)}
+         WHERE ${alias}.IsVoided = 0 ${where}) AS ${usdAlias}`;
+}
+
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
 const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
 const YTD_RANGE_RE = /^ytd:(\d{4})$/;
@@ -129,20 +200,25 @@ function dateKey(d: Date): number {
 // portable behavior for any installation's actual data range (see
 // docs/superpowers/specs/2026-09-15-margen-operativo-accrual-design.md
 // section 2.5).
+//
+// `column` defaults to 'DateKey'. Pass 'OriginalInvoiceDateKey' to window
+// fact.Fact_Returns by the ORIGINAL factura's date instead of the
+// devolución's own date (see buildReturnsDateWhereClause below).
 export function buildDateWhereClause(
   dateRange: string,
-  tableName: string = 'f'
+  tableName: string = 'f',
+  column: string = 'DateKey'
 ): string {
   const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
   if (customMatch) {
     const [, start, end] = customMatch;
     const startKey = start.replace(/-/g, '');
     const endKey = end.replace(/-/g, '');
-    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+    return `AND ${tableName}.${column} >= ${startKey} AND ${tableName}.${column} <= ${endKey}`;
   }
 
   if (dateRange === '30d') {
-    return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
+    return `AND ${tableName}.${column} >= CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
   }
 
   const monthMatch = MONTH_RANGE_RE.exec(dateRange);
@@ -155,7 +231,7 @@ export function buildDateWhereClause(
     // automatically handles 28/29/30/31-day months and leap years without
     // a lookup table.
     const endKey = dateKey(new Date(Date.UTC(year, month, 0)));
-    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+    return `AND ${tableName}.${column} >= ${startKey} AND ${tableName}.${column} <= ${endKey}`;
   }
 
   const ytdMatch = YTD_RANGE_RE.exec(dateRange);
@@ -166,7 +242,7 @@ export function buildDateWhereClause(
     const endKey = year === currentYear
       ? parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''))
       : year * 10000 + 1231; // YYYY1231
-    return `AND ${tableName}.DateKey >= ${startKey} AND ${tableName}.DateKey <= ${endKey}`;
+    return `AND ${tableName}.${column} >= ${startKey} AND ${tableName}.${column} <= ${endKey}`;
   }
 
   // '30d'/'90d' were removed from the UI (analitica-client.tsx) in favor of
@@ -174,7 +250,7 @@ export function buildDateWhereClause(
   // recognize (including a stale bookmarked '30d'/'90d' URL) falls through
   // to the 365-day default rather than throwing, so an old link degrades
   // gracefully instead of erroring.
-  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
+  return `AND ${tableName}.${column} >= CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
 }
 
 /**
@@ -209,8 +285,8 @@ export function bucketKeyExpr(mode: 'day' | 'week' | 'month' | 'range', dateAlia
  * it (days -59..-30 relative to today), so a KPI Δ% compares like with like.
  * Shared by the ventas/resumen/clientes buildPrevPeriodDateWhereClause copies.
  */
-export function buildPrevThirtyDayWhereClause(tableName: string): string {
-  return `AND ${tableName}.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -59, GETDATE()), 'yyyyMMdd')) AND ${tableName}.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
+export function buildPrevThirtyDayWhereClause(tableName: string, column: string = 'DateKey'): string {
+  return `AND ${tableName}.${column} >= CONVERT(INT, FORMAT(DATEADD(DAY, -59, GETDATE()), 'yyyyMMdd')) AND ${tableName}.${column} < CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))`;
 }
 
 export type Dimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';

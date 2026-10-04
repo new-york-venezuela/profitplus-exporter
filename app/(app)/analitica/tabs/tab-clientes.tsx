@@ -132,7 +132,7 @@ function SegmentBadge({ segment }: { segment: Segment }) {
   );
 }
 
-type SortKey = 'name' | 'salesNet' | 'returnsNet' | 'returnRate' | 'pareto';
+type SortKey = 'name' | 'salesGross' | 'returnsNet' | 'returnRate' | 'pareto';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
@@ -143,7 +143,7 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: 'name', label: 'Cliente', align: 'left' },
-  { key: 'salesNet', label: 'Ventas netas', align: 'right' },
+  { key: 'salesGross', label: 'Ventas netas', align: 'right' },
   { key: 'returnsNet', label: 'Devoluciones', align: 'right' },
   { key: 'returnRate', label: 'Tasa dev.', align: 'right' },
   { key: 'pareto', label: 'Segmento', align: 'right' },
@@ -153,8 +153,8 @@ function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string |
   switch (key) {
     case 'name':
       return row.name ?? '';
-    case 'salesNet':
-      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
+    case 'salesGross':
+      return (currency === 'usd' ? row.salesGross.usd : row.salesGross.bs) ?? -Infinity;
     case 'returnsNet':
       return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
     case 'returnRate':
@@ -181,7 +181,7 @@ export default function TabClientes({
   const [data, setData] = useState<ClientesResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('salesNet');
+  const [sortKey, setSortKey] = useState<SortKey>('salesGross');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
@@ -443,7 +443,7 @@ export default function TabClientes({
                   <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
                     <td className="px-3 py-2 text-gray-800">{r.name}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesNet, currency)}
+                      {moneyLabel(r.salesGross, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {moneyLabel(r.returnsNet, currency)}

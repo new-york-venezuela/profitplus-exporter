@@ -319,7 +319,7 @@ export default function TabProductos({
                   >
                     <td className="px-3 py-2 text-gray-800">{rowLabel(row, groupBy)}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(row.salesNet, currency)}
+                      {moneyLabel(row.salesGross, currency)}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{pct(row.salesShare)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{qty(row.rotacion)}</td>
@@ -353,10 +353,10 @@ export default function TabProductos({
                 formatter={(value, name, entry) => {
                   const row = porLineaMesData.rows.find(r => r.bucket === (entry.payload as { bucket: string })?.bucket);
                   const lineaName = String(name);
-                  const salesNetAmount = row?.salesNet[lineaName] ?? { bs: 0, usd: 0 };
-                  const totalBs = row?.totalSalesNet.bs ?? 0;
-                  const share = totalBs > 0 ? salesNetAmount.bs / totalBs : null;
-                  return [`${qty(Number(value))} u. — ${moneyLabel(salesNetAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
+                  const salesGrossAmount = row?.salesGross[lineaName] ?? { bs: 0, usd: 0 };
+                  const totalBs = row?.totalSalesGross.bs ?? 0;
+                  const share = totalBs > 0 ? salesGrossAmount.bs / totalBs : null;
+                  return [`${qty(Number(value))} u. — ${moneyLabel(salesGrossAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
                 }}
                 labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
               />

@@ -65,25 +65,25 @@ describe('vendedor-360 SQL fixes — live DWH verification', () => {
 
     // Unscoped total (the pre-fix behavior — no Dim_Customer join/exclusion).
     const unscopedResult = await pool.request().input('salesRepKey', salesRepKey).query(`
-      SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
       FROM fact.Fact_Sales fs
       ${usdConversionJoin('fs')}
       WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${dateWhere}
     `);
-    const unscopedBs = Number(unscopedResult.recordset[0].SalesNetBs);
+    const unscopedBs = Number(unscopedResult.recordset[0].SalesGrossBs);
 
     // Fixed cuotaSalesQuery shape: excludes flagged root codes.
     const excludeClause = `AND c.CustomerCode NOT IN (${flaggedRootCodes.map((_, i) => `@flaggedRoot${i}`).join(', ')})`;
     const scopedReq = pool.request().input('salesRepKey', salesRepKey);
     flaggedRootCodes.forEach((code, i) => scopedReq.input(`flaggedRoot${i}`, code));
     const scopedResult = await scopedReq.query(`
-      SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesNetBs', 'SalesNetUsd')}
+      SELECT ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
       FROM fact.Fact_Sales fs
       ${usdConversionJoin('fs')}
       JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
       WHERE fs.IsVoided = 0 AND fs.SalesRepKey = @salesRepKey ${dateWhere} ${excludeClause}
     `);
-    const scopedBs = Number(scopedResult.recordset[0].SalesNetBs);
+    const scopedBs = Number(scopedResult.recordset[0].SalesGrossBs);
 
     // The fixed (scoped) total must be strictly less than the unscoped one —
     // proving the exclusion actually removes flagged-root sales — and must
