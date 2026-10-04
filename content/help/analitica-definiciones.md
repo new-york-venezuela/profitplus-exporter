@@ -82,6 +82,12 @@ La cobranza y el saldo por cobrar incluyen IVA. Por eso la **Tasa cobr.** y el *
 - **Tasa cobr.:** cobrado ÷ ventas con IVA.
 - **DSO:** saldo ÷ (ventas con IVA − devoluciones con IVA de los 90 días previos) × 90.
 
+**Tendencias de CxC.** El DSO y la antigüedad de saldos en el tiempo siguen el período seleccionado y el mismo criterio de agrupación que Resumen y Ventas: por día o semana si el período es de hasta un mes, por semana si es de hasta un año y por mes en los demás casos. Cada punto es el **último snapshot de cuentas por cobrar dentro de ese día, semana o mes**; los períodos sin snapshot no se dibujan (no se interpola). El detalle de la fecha del snapshot aparece al pasar el cursor.
+
+**Vencido y al corriente.** *Vencido* es todo saldo que ya pasó su fecha de vencimiento (tramos 1-30, 31-60, 61-90 y >90 días); *al corriente* es el que aún no vence. En el Top 10 de concentración de crédito, vencido + al corriente = saldo.
+
+**Concentración de deuda por cliente (Top 15).** Se escoge y se ordena por **saldo vencido** (de mayor a menor; a igual vencido, por saldo total), no por saldo total: así un cliente con mucha deuda pero sin vencimientos no desplaza a quienes hay que cobrar primero. En cada barra, lo rojo ya venció (más oscuro = más antiguo, empezando desde el eje) y lo gris aún no vence.
+
 ## Finanzas
 
 - **Ingresos operativos** son las ventas netas del período.

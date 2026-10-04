@@ -59,7 +59,7 @@ const CURRENCY_STORAGE_KEY = 'analytics-currency';
 // Tabs whose trend charts honor the granularity selector. Histórico is
 // excluded on purpose: it reads a fixed Jan 2025-Feb 2026 window and ignores
 // dateRange, so the range-based granularity rules do not apply to it.
-const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras']);
+const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras', 'cxc']);
 
 const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
 

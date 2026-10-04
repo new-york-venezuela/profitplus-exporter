@@ -6,6 +6,9 @@ import {
   LineChart, Line, AreaChart, Area, Legend,
 } from 'recharts';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
+import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
+import type { Granularity } from '../lib/granularity';
+import { splitOverdue } from '../lib/cxc-trends';
 import type { AgingBucketRow, Currency, CxcResponse, DateRange, DebtConcentrationResponse } from '../types';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
@@ -16,6 +19,17 @@ const BUCKET_COLORS: Record<string, string> = {
   '61-90': '#f97316',
   '>90': '#dc2626',
 };
+
+// Collection-priority chart: the most severe overdue bucket starts at the axis
+// (dark red, oldest first) and the not-yet-due part is drawn last in neutral
+// grey, so bar length from the axis reads as urgency.
+const CONCENTRATION_STACK: { bucket: string; name: string; color: string }[] = [
+  { bucket: '>90', name: '>90 días', color: '#7f1d1d' },
+  { bucket: '61-90', name: '61-90 días', color: '#b91c1c' },
+  { bucket: '31-60', name: '31-60 días', color: '#ef4444' },
+  { bucket: '1-30', name: '1-30 días', color: '#fca5a5' },
+  { bucket: 'Current', name: 'Al corriente', color: '#d1d5db' },
+];
 
 function pct(n: number | null): string {
   if (n === null) return '—';
@@ -56,7 +70,7 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
-export default function TabCxc({ currency }: { dateRange: DateRange; currency: Currency }) {
+export default function TabCxc({ dateRange, currency, granularity }: { dateRange: DateRange; currency: Currency; granularity: Granularity }) {
   const [data, setData] = useState<CxcResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +85,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ clienteDimension });
+        const params = new URLSearchParams({ clienteDimension, dateRange, granularity });
         const res = await fetch(`/api/dwh/cxc?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -92,7 +106,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     return () => {
       cancelled = true;
     };
-  }, [clienteDimension]);
+  }, [clienteDimension, dateRange, granularity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +160,27 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
     .filter((b): b is AgingBucketRow => b !== undefined);
   const agingData = orderedBuckets.map(b => ({ bucket: b.bucket, Monto: currency === 'usd' ? b.amount.usd : b.amount.bs }));
 
+  const trendTitle = (bucket: string, snapshotDateKey: number) =>
+    `${bucketTitle(data.trendMode, bucket)} · snapshot ${formatSnapshotDate(snapshotDateKey)}`;
+  const dsoLabels = bucketLabels(data.trendMode, data.dsoTrend.map(r => r.bucket));
+  const dsoChartData = data.dsoTrend.map((r, i) => ({
+    label: dsoLabels[i],
+    title: trendTitle(r.bucket, r.snapshotDateKey),
+    dso: r.dso,
+  }));
+  const agingTrendLabels = bucketLabels(data.trendMode, data.agingTrend.map(r => r.bucket));
+  const agingTrendChartData = data.agingTrend.map((row, i) => {
+    const flat: Record<string, string | number | null> = {
+      label: agingTrendLabels[i],
+      title: trendTitle(row.bucket, row.snapshotDateKey),
+    };
+    for (const bucket of BUCKET_ORDER) {
+      const amount = row.buckets.find(b => b.bucket === bucket)?.amount;
+      flat[bucket] = amount === undefined ? 0 : (currency === 'usd' ? amount.usd : amount.bs);
+    }
+    return flat;
+  });
+
   const totalOutstandingBs = data.agingBuckets.reduce((sum, b) => sum + b.amount.bs, 0);
   const totalOutstandingUsd = data.agingBuckets.every(b => b.amount.usd === null)
     ? null
@@ -194,7 +229,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
           <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
             <div>
               <h2 className="text-sm font-bold text-gray-900">Mayor concentración de crédito</h2>
-              <p className="text-xs text-gray-500">Top 10 clientes por saldo pendiente</p>
+              <p className="text-xs text-gray-500">Top 10 clientes por saldo pendiente — vencido vs. al corriente</p>
             </div>
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               <button
@@ -220,6 +255,9 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                   <tr className="border-b border-gray-200">
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Cliente</th>
                     <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Saldo</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-red-700 uppercase" title="Saldo en cualquier tramo ya vencido (1 día o más).">Vencido</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-green-700 uppercase" title="Saldo que aún no vence.">Al corriente</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">% vencido</th>
                     <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Días prom. de pago</th>
                   </tr>
                 </thead>
@@ -229,6 +267,11 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                       <td className="px-3 py-2 text-gray-800">{d.name}</td>
                       <td className="px-3 py-2 text-right font-medium text-gray-900">
                         {moneyLabel(d.outstanding, currency)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium text-red-700">{moneyLabel(d.overdue, currency)}</td>
+                      <td className="px-3 py-2 text-right text-green-700">{moneyLabel(d.current, currency)}</td>
+                      <td className="px-3 py-2 text-right text-gray-600">
+                        {d.outstanding.bs > 0 ? pct(d.overdue.bs / d.outstanding.bs) : '—'}
                       </td>
                       <td className="px-3 py-2 text-right text-gray-600">
                         {d.avgDaysToPay !== null ? d.avgDaysToPay.toFixed(1) : '—'}
@@ -273,17 +316,20 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       {/* DSO trend */}
       <ChartCard
         title="Tendencia de DSO (Days Sales Outstanding)"
-        subtitle="Saldo de cartera (con IVA) al cierre de cada mes con snapshot ÷ ventas con IVA menos devoluciones con IVA de los 90 días previos × 90. En Bs, por lo que la inflación del período puede sesgarlo."
+        subtitle={`Por ${TREND_UNIT_LABEL[data.trendMode]}, usando el último snapshot de cada período: saldo de cartera (con IVA) ÷ ventas con IVA menos devoluciones con IVA de los 90 días previos × 90. En Bs, por lo que la inflación del período puede sesgarlo.`}
       >
-        {data.dsoTrend.filter(d => d.dso !== null).length === 0 ? (
-          <EmptyState message="Se necesita más de un snapshot de cuentas por cobrar (fact.Fact_AR_Snapshot) para trazar una tendencia." />
+        {dsoChartData.length === 0 ? (
+          <EmptyState message="No hay snapshots de cuentas por cobrar (fact.Fact_AR_Snapshot) en el período seleccionado." />
         ) : (
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={data.dsoTrend}>
+            <LineChart data={dsoChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(val: unknown) => (val === null ? 'Sin datos' : `${Number(val).toFixed(1)} días`)} />
+              <Tooltip
+                formatter={(val: unknown) => (val === null ? 'Sin datos' : `${Number(val).toFixed(1)} días`)}
+                labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
+              />
               <Line type="monotone" dataKey="dso" name="DSO (días)" stroke="#2563eb" strokeWidth={2} dot connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -293,26 +339,17 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       {/* Aging trend */}
       <ChartCard
         title="Tendencia de antigüedad de saldos"
-        subtitle="Misma clasificación (Current/1-30/31-60/61-90/>90) que el corte actual, trazada mes a mes"
+        subtitle={`Misma clasificación (Current/1-30/31-60/61-90/>90) que el corte actual, por ${TREND_UNIT_LABEL[data.trendMode]} (último snapshot de cada período)`}
       >
-        {data.agingTrend.length === 0 ? (
-          <EmptyState message="Se necesita al menos un snapshot de cuentas por cobrar (fact.Fact_AR_Snapshot) para trazar esta tendencia." />
+        {agingTrendChartData.length === 0 ? (
+          <EmptyState message="No hay snapshots de cuentas por cobrar (fact.Fact_AR_Snapshot) en el período seleccionado." />
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart
-              data={data.agingTrend.map(row => {
-                const flat: Record<string, string | number | null> = { yearMonth: row.yearMonth };
-                for (const bucket of BUCKET_ORDER) {
-                  const amount = row.buckets.find(b => b.bucket === bucket)?.amount;
-                  flat[bucket] = amount === undefined ? 0 : (currency === 'usd' ? amount.usd : amount.bs);
-                }
-                return flat;
-              })}
-            >
+            <AreaChart data={agingTrendChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="yearMonth" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-              <Tooltip formatter={val => moneyTooltip(val, currency)} />
+              <Tooltip formatter={val => moneyTooltip(val, currency)} labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {BUCKET_ORDER.map(bucket => (
                 <Area
@@ -324,6 +361,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
                   stroke={BUCKET_COLORS[bucket]}
                   fill={BUCKET_COLORS[bucket]}
                   fillOpacity={0.7}
+                  dot
                 />
               ))}
             </AreaChart>
@@ -334,7 +372,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       {/* Debt concentration by customer */}
       <ChartCard
         title="Concentración de deuda por cliente"
-        subtitle="Top 15 clientes por saldo pendiente, desglosado por antigüedad — para priorizar cobranza"
+        subtitle="Top 15 clientes por saldo vencido (mayor primero). Lo rojo ya venció — más oscuro, más antiguo; lo gris aún no vence. Para priorizar cobranza."
       >
         {debtConcentrationLoading ? (
           <div className="h-64 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
@@ -347,7 +385,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
             <BarChart
               data={debtConcentration.rows.map(row => {
                 const flat: Record<string, string | number> = { name: row.name };
-                for (const bucket of BUCKET_ORDER) {
+                for (const { bucket } of CONCENTRATION_STACK) {
                   const amount = row.buckets.find(b => b.bucket === bucket)?.amount;
                   flat[bucket] = amount === undefined ? 0 : ((currency === 'usd' ? amount.usd : amount.bs) ?? 0);
                 }
@@ -358,11 +396,20 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={180} />
-              <Tooltip formatter={val => moneyTooltip(val, currency)} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={180} interval={0} />
+              <Tooltip
+                formatter={val => moneyTooltip(val, currency)}
+                labelFormatter={label => {
+                  const row = debtConcentration.rows.find(r => r.name === label);
+                  if (!row) return label;
+                  const split = splitOverdue(row.buckets);
+                  const share = split.total.bs > 0 ? pct(split.overdue.bs / split.total.bs) : '—';
+                  return `${label} — vencido ${moneyLabel(split.overdue, currency)} (${share} de su saldo)`;
+                }}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              {BUCKET_ORDER.map(bucket => (
-                <Bar key={bucket} dataKey={bucket} name={bucket} stackId="debt" fill={BUCKET_COLORS[bucket]} />
+              {CONCENTRATION_STACK.map(({ bucket, name, color }) => (
+                <Bar key={bucket} dataKey={bucket} name={name} stackId="debt" fill={color} />
               ))}
             </BarChart>
           </ResponsiveContainer>
