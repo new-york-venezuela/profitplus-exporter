@@ -37,3 +37,13 @@ export const RETURNS_BASIS_LABEL: Record<ReturnsBasisOption, string> = {
   factura: 'por fecha de factura',
   devolucion: 'por fecha de devolución',
 };
+
+/** Sums BS/USD pairs. Null for no items; USD ignores null rows and is null only when all are null. */
+export function sumDual(items: DualAmount[]): DualAmount | null {
+  if (items.length === 0) return null;
+  const withUsd = items.filter(i => i.usd !== null);
+  return {
+    bs: items.reduce((s, i) => s + i.bs, 0),
+    usd: withUsd.length === 0 ? null : withUsd.reduce((s, i) => s + (i.usd as number), 0),
+  };
+}

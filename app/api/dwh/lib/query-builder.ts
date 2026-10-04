@@ -204,6 +204,23 @@ function dateKey(d: Date): number {
 // `column` defaults to 'DateKey'. Pass 'OriginalInvoiceDateKey' to window
 // fact.Fact_Returns by the ORIGINAL factura's date instead of the
 // devolución's own date (see buildReturnsDateWhereClause below).
+// Last calendar day covered by buildDateWhereClause(dateRange) as a YYYYMMDD
+// int. '30d', '12m' and any unrecognised value are trailing windows ending today.
+export function rangeEndDateKey(dateRange: string, today: Date = new Date()): number {
+  const custom = CUSTOM_RANGE_RE.exec(dateRange);
+  if (custom) return parseInt(custom[2].replace(/-/g, ''));
+  const month = MONTH_RANGE_RE.exec(dateRange);
+  if (month) {
+    return dateKey(new Date(Date.UTC(parseInt(month[1]), parseInt(month[2]), 0)));
+  }
+  const ytd = YTD_RANGE_RE.exec(dateRange);
+  if (ytd) {
+    const year = parseInt(ytd[1]);
+    return year === today.getUTCFullYear() ? dateKey(today) : year * 10000 + 1231;
+  }
+  return dateKey(today);
+}
+
 export function buildDateWhereClause(
   dateRange: string,
   tableName: string = 'f',

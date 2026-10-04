@@ -53,3 +53,16 @@ describe('periodLabel', () => {
     expect(periodLabel('garbage')).toBe('últimos 12 meses');
   });
 });
+
+import { sumDual } from '../net-sales';
+
+describe('sumDual', () => {
+  test('empty list is null', () => expect(sumDual([])).toBeNull());
+  test('sums both currencies', () => {
+    expect(sumDual([{ bs: 10, usd: 1 }, { bs: 20, usd: 2 }])).toEqual({ bs: 30, usd: 3 });
+  });
+  test('ignores null USD rows but keeps null when all are null', () => {
+    expect(sumDual([{ bs: 10, usd: null }, { bs: 5, usd: 2 }])).toEqual({ bs: 15, usd: 2 });
+    expect(sumDual([{ bs: 10, usd: null }])).toEqual({ bs: 10, usd: null });
+  });
+});
