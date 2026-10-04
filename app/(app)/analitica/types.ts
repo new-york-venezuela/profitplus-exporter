@@ -62,6 +62,11 @@ export interface ResumenKPIs {
   // in the current period. Null when the previous period had zero active
   // customers (nothing to churn from).
   churnRate: number | null;
+  unitsSold: number; // SUM(Fact_Sales.QuantitySold) for the range, same scope as salesGross
+  // Total outstanding AR (sum of aging buckets, credit notes excluded) at
+  // ResumenResponse.snapshotDateKey — the latest snapshot on/before the range's
+  // last day. Null when no snapshot exists on/before that day.
+  receivable: DualAmount | null;
 }
 
 export interface MonthlyTrendRow {
@@ -84,6 +89,7 @@ export interface SalesRepRow {
   salesGross: DualAmount; // includes consignment-root invoices (see Vendedores)
   returnsNet: DualAmount;
   salesNet: DualAmount;
+  units: number; // SUM(QuantitySold), same invoice scope as salesGross
 }
 
 export interface AgingBucketRow {

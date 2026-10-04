@@ -12,6 +12,14 @@ Suma de las líneas de factura de venta del período:
 - **Por fecha de la factura.** Se toma el día de emisión, sin importar la hora.
 - **Antes de devoluciones.**
 
+## Unidades vendidas
+
+Suma de las cantidades facturadas en el período, sin facturas anuladas y antes de devoluciones. Es la misma cifra que muestra la pestaña Ventas. En "Desempeño por vendedor" cuenta todas las facturas del vendedor, incluida la consignación.
+
+## Pendiente por cobrar
+
+Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de crédito) según el snapshot de CxC más reciente **al último día del período seleccionado**. La tarjeta indica la fecha real del snapshot ("al 28/09/2026"). Si no existe un snapshot a esa fecha o antes, muestra "Sin datos". En USD se valora a la tasa de la fecha del snapshot.
+
 ## Devoluciones
 
 Suma de las líneas de devolución de clientes (módulo de devoluciones de Profit), sin IVA y sin las anuladas. Cada línea está enlazada a la factura que devuelve, así que una devolución se puede ubicar de dos formas:

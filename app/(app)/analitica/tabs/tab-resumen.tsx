@@ -10,6 +10,8 @@ import type { Currency, DateRange, ResumenResponse, AgingBucketRow } from '../ty
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import { periodLabel } from '../lib/period-label';
 import type { Granularity } from '../lib/granularity';
+import { KpiCard } from '../components/kpi-card';
+import { KpiGroup } from '../components/kpi-group';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
 const BUCKET_COLORS: Record<string, string> = {
@@ -29,32 +31,6 @@ function formatSnapshotDate(key: number | null): string {
   if (key === null) return 'sin datos';
   const s = String(key);
   return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
-}
-
-function KpiCard({
-  label,
-  value,
-  tone,
-  delta,
-}: {
-  label: string;
-  value: string;
-  tone?: 'default' | 'warn';
-  delta?: { pct: number | null; label: string; goodDirection?: 'up' | 'down' };
-}) {
-  const isGood =
-    delta && delta.pct !== null && ((delta.goodDirection ?? 'up') === 'up' ? delta.pct >= 0 : delta.pct <= 0);
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
-      {delta && (
-        <p className={`text-xs mt-1 font-medium ${delta.pct === null ? 'text-gray-400' : isGood ? 'text-green-600' : 'text-red-600'}`}>
-          {delta.pct === null ? '—' : `${delta.pct >= 0 ? '▲' : '▼'} ${Math.abs(delta.pct * 100).toFixed(1)}%`} {delta.label}
-        </p>
-      )}
-    </div>
-  );
 }
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -178,26 +154,45 @@ export default function TabResumen({
       <p className="text-xs text-gray-500 -mb-3">
         Período: {periodo}. Devoluciones atribuidas a la fecha de su factura original, sin IVA.
       </p>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label={`Ventas brutas (${periodo})`} value={moneyLabel(data.kpis.salesGross, currency)} />
-        <KpiCard label={`Devoluciones (${periodo})`} value={moneyLabel(data.kpis.returns, currency)} />
-        <KpiCard label={`Ventas netas (${periodo})`} value={moneyLabel(data.kpis.salesNet, currency)} />
-        <KpiCard
-          label="Tasa de devolución"
-          value={pct(data.kpis.returnRate)}
-          tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
-        />
-        <KpiCard label={`Cobrado (${periodo})`} value={moneyLabel(data.kpis.collected, currency)} />
-        <KpiCard
-          label="Clientes activos"
-          value={data.kpis.activeCustomers.toLocaleString('es-VE')}
-          delta={{ pct: activeCustomersDelta, label: 'vs. período anterior' }}
-        />
-        <KpiCard
-          label="Tasa de abandono"
-          value={pct(data.kpis.churnRate)}
-          tone={data.kpis.churnRate !== null && data.kpis.churnRate > 0.2 ? 'warn' : 'default'}
-        />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <KpiGroup title="Ventas" tone="sales">
+          <KpiCard label={`Ventas brutas (${periodo})`} value={moneyLabel(data.kpis.salesGross, currency)} />
+          <KpiCard label={`Ventas netas (${periodo})`} value={moneyLabel(data.kpis.salesNet, currency)} />
+          <KpiCard
+            label={`Unidades vendidas (${periodo})`}
+            value={data.kpis.unitsSold.toLocaleString('es-VE')}
+            title="Unidades facturadas, antes de devoluciones (misma definición que la pestaña Ventas)."
+          />
+        </KpiGroup>
+        <KpiGroup title="Devoluciones" tone="returns">
+          <KpiCard label={`Devoluciones (${periodo})`} value={moneyLabel(data.kpis.returns, currency)} />
+          <KpiCard
+            label="Tasa de devolución"
+            value={pct(data.kpis.returnRate)}
+            tone={data.kpis.returnRate !== null && data.kpis.returnRate > 0.05 ? 'warn' : 'default'}
+          />
+        </KpiGroup>
+        <KpiGroup title="Cuentas por cobrar" tone="collections">
+          <KpiCard label={`Cobrado (${periodo})`} value={moneyLabel(data.kpis.collected, currency)} />
+          <KpiCard
+            label="Pendiente por cobrar"
+            value={data.kpis.receivable ? moneyLabel(data.kpis.receivable, currency) : 'Sin datos'}
+            subtitle={data.snapshotDateKey !== null ? `al ${formatSnapshotDate(data.snapshotDateKey)}` : 'sin snapshot al cierre del período'}
+            title="Saldo pendiente total en el snapshot de CxC más reciente al último día del período seleccionado."
+          />
+        </KpiGroup>
+        <KpiGroup title="Clientes" tone="customers">
+          <KpiCard
+            label="Clientes activos"
+            value={data.kpis.activeCustomers.toLocaleString('es-VE')}
+            delta={{ pct: activeCustomersDelta, label: 'vs. período anterior' }}
+          />
+          <KpiCard
+            label="Tasa de abandono"
+            value={pct(data.kpis.churnRate)}
+            tone={data.kpis.churnRate !== null && data.kpis.churnRate > 0.2 ? 'warn' : 'default'}
+          />
+        </KpiGroup>
       </div>
 
       {/* Sales & returns trend */}
@@ -323,6 +318,7 @@ export default function TabResumen({
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Unidades</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
                 </tr>
               </thead>
@@ -339,6 +335,7 @@ export default function TabResumen({
                     <td className="px-3 py-2 text-right text-gray-900">
                       {moneyLabel(r.salesNet, currency)}
                     </td>
+                    <td className="px-3 py-2 text-right text-gray-600">{r.units.toLocaleString('es-VE')}</td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {r.salesGross.bs > 0 ? pct(r.returnsNet.bs / r.salesGross.bs) : '—'}
                     </td>

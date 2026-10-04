@@ -4,9 +4,9 @@ import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
   buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, jsonWithCache,
-  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr,
+  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey,
 } from '@/app/api/dwh/lib/query-builder';
-import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
+import { dualFromRow, subtractDual, sumDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
   ResumenResponse,
   MonthlyTrendRow,
@@ -102,6 +102,7 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
     SELECT
       ISNULL(r.SalesRepName, r.SalesRepCode) AS Name,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
+      SUM(fs.QuantitySold) AS UnitsSold,
       ${returnsAmountSubqueries({
         alias: 'fr',
         fxAlias: 'frfx',
@@ -118,11 +119,14 @@ function salesRepQuery(dateWhere: string, returnsDateWhere: string): string {
   `;
 }
 
-// Latest available snapshot date, not "today" — Fact_AR_Snapshot only has
-// data for dates it was actually run against (it's a disabled-by-default
-// SQL Agent job in this phase; see migrations/dwh/README.md).
-const LATEST_SNAPSHOT_QUERY = `
-  SELECT MAX(SnapshotDateKey) AS SnapshotDateKey FROM fact.Fact_AR_Snapshot
+// Latest snapshot ON OR BEFORE the range's last day (not "today" and not just
+// the newest): Fact_AR_Snapshot only has data for dates it was actually run
+// against (a disabled-by-default SQL Agent job; see migrations/dwh/README.md),
+// and "pendiente por cobrar" means what was owed when the selected range ended.
+const SNAPSHOT_AS_OF_QUERY = `
+  SELECT MAX(SnapshotDateKey) AS SnapshotDateKey
+  FROM fact.Fact_AR_Snapshot
+  WHERE SnapshotDateKey <= @rangeEndKey
 `;
 
 // AR balances are valued at the SNAPSHOT date's rate (usdConversionJoin('a',
@@ -177,6 +181,8 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
       (SELECT CASE WHEN COUNT(fr.NetAmount) = 0 THEN 0 ELSE SUM(fr.NetAmount / NULLIF(rfx.RateSell, 0)) END
          FROM fact.Fact_Returns fr ${returnsUsdConversionJoin('fr', 'rfx')}
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetPeriodUsd,
+      (SELECT ISNULL(SUM(fs.QuantitySold), 0) FROM fact.Fact_Sales fs
+         WHERE fs.IsVoided = 0 ${salesDateWhere}) AS UnitsSold,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS CollectedPeriodBs,
       (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(cfx.RateSell, 0)) END
@@ -317,7 +323,7 @@ export async function GET(request: NextRequest) {
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
       pool.request().query(salesRepQuery(salesDateWhere, returnsDateWhere)),
-      pool.request().query(LATEST_SNAPSHOT_QUERY),
+      pool.request().input('rangeEndKey', rangeEndDateKey(dateRange)).query(SNAPSHOT_AS_OF_QUERY),
       pool.request().query(totalsQuery(salesDateWhere, returnsDateWhere, collectionsDateWhere)),
       prevSalesDateWhere !== null
         ? pool.request().query(activeCustomersQuery(salesDateWhere, salesDateWhereFs2, prevSalesDateWhere))
@@ -342,7 +348,7 @@ export async function GET(request: NextRequest) {
       topDebtors = debtors.recordset;
     }
 
-    const totalsRow = totals.recordset[0] ?? { SalesGrossPeriodBs: 0, SalesGrossPeriodUsd: 0, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, CollectedPeriodBs: 0, CollectedPeriodUsd: 0 };
+    const totalsRow = totals.recordset[0] ?? { SalesGrossPeriodBs: 0, SalesGrossPeriodUsd: 0, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, CollectedPeriodBs: 0, CollectedPeriodUsd: 0, UnitsSold: 0 };
     const salesGrossBs = Number(totalsRow.SalesGrossPeriodBs);
     const salesGrossUsd = totalsRow.SalesGrossPeriodUsd === null ? null : Number(totalsRow.SalesGrossPeriodUsd);
     const returnsNetBs = Number(totalsRow.ReturnsNetPeriodBs);
@@ -381,7 +387,7 @@ export async function GET(request: NextRequest) {
     const salesRepsMapped: SalesRepRow[] = salesReps.recordset.map(r => {
       const salesGross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
       const returnsNet = dualFromRow(r.ReturnsNetBs, r.ReturnsNetUsd);
-      return { name: r.Name, salesGross, returnsNet, salesNet: subtractDual(salesGross, returnsNet) };
+      return { name: r.Name, salesGross, returnsNet, salesNet: subtractDual(salesGross, returnsNet), units: Number(r.UnitsSold ?? 0) };
     });
 
     const agingBucketsMapped: AgingBucketRow[] = agingBuckets.map(r => ({
@@ -419,6 +425,8 @@ export async function GET(request: NextRequest) {
         activeCustomers,
         activeCustomersPrevPeriod,
         churnRate,
+        unitsSold: Number(totalsRow.UnitsSold ?? 0),
+        receivable: sumDual(agingBucketsMapped.map(b => b.amount)),
       },
     };
 
