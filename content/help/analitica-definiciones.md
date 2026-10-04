@@ -32,6 +32,12 @@ La sección "Cobertura de clientes" de la pestaña Clientes **no depende del per
 - Los clientes inactivos se excluyen salvo que se marque "Incluir inactivos".
 - **Orden por Días sin vender (ascendente):** primero los "Sin datos", luego los de más días sin vender, hasta los más recientes.
 
+## Ventas por cliente
+
+La tabla siempre está agrupada por **Entidad** (cadena o razón social). Cada Entidad se puede abrir ("▸") para ver sus **tiendas**, y cada tienda para ver sus **productos**. Las filas hijas usan las mismas columnas y unidades que la tabla principal (ventas brutas, devoluciones, ventas netas, unidades, tasa de devolución, descuento), por lo que las tiendas suman exactamente la Entidad y los productos suman su tienda. Una Entidad con una sola tienda también se puede abrir.
+
+La gráfica "Tendencia de ventas" muestra **unidades** por defecto, ya que el dinero se ve en Resumen; el selector "Unidades | Dinero" cambia la métrica.
+
 ## Devoluciones
 
 Suma de las líneas de devolución de clientes (módulo de devoluciones de Profit), sin IVA y sin las anuladas. Cada línea está enlazada a la factura que devuelve, así que una devolución se puede ubicar de dos formas:

@@ -6,13 +6,14 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import EntidadTreeTable, { type TreeChildRequest } from '../components/entidad-tree-table';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import { RETURNS_BASIS_LABEL } from '../lib/net-sales';
 import type { Granularity } from '../lib/granularity';
 import type {
   BreakdownRow, Currency, DateRange, PivotDimension, VentasResponse, VentasRow,
-  VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse, ReturnsBasis,
+  VentasKpisResponse, ComparisonOptionsResponse, VentasComparisonResponse, ReturnsBasis, VentasChildrenResponse,
 } from '../types';
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -145,23 +146,6 @@ function ComparisonChart({
   );
 }
 
-// "Por cliente" always groups by cliente_entidad or cliente_tienda. The
-// Entidad/Tienda toggle is rendered by GroupedDrilldownTable itself (its
-// "Agrupar por" <select>, wired to clienteDimension via groupBy/
-// onGroupByChange below) — there is no separate hand-rolled toggle here.
-// Breakdown options are producto/vendedor per spec §5 — NOT cliente_tienda,
-// which would collide aliases with a cliente_entidad parent (see
-// query-builder.ts correlate()).
-const CLIENTE_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
-  { value: 'cliente_entidad', label: 'Entidad' },
-  { value: 'cliente_tienda', label: 'Tienda' },
-];
-
-const BREAKDOWN_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
-  { value: 'producto', label: 'Producto' },
-  { value: 'vendedor', label: 'Vendedor' },
-];
-
 // "Por línea" has no alternate grain (unlike cliente's Entidad/Tienda), but
 // GroupedDrilldownTable requires a groupBy/groupByOptions pair — fixed to a
 // single no-op option, same pattern as tab-vendedores.tsx.
@@ -244,11 +228,9 @@ export default function TabVentas({
   // reset in an effect) as soon as either changes.
   const [bucketSel, setBucketSel] = useState<{ key: string; granularity: Granularity; dateRange: DateRange } | null>(null);
   const bucket = bucketSel && bucketSel.granularity === granularity && bucketSel.dateRange === dateRange ? bucketSel.key : null;
-  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const [clienteData, setClienteData] = useState<VentasResponse | null>(null);
   const [clienteLoading, setClienteLoading] = useState<boolean>(true);
   const [clienteError, setClienteError] = useState<string | null>(null);
-  const [breakdownBy, setBreakdownBy] = useState<PivotDimension | null>(null);
 
   const [lineaData, setLineaData] = useState<VentasResponse | null>(null);
   const [lineaLoading, setLineaLoading] = useState<boolean>(true);
@@ -304,7 +286,7 @@ export default function TabVentas({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension, granularity, returnsBasis });
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension: 'cliente_entidad', granularity, returnsBasis });
         if (bucket) params.set('bucket', bucket);
         const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
         if (cancelled) return;
@@ -324,7 +306,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension, granularity, bucket, returnsBasis]);
+  }, [dateRange, granularity, bucket, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -512,20 +494,21 @@ export default function TabVentas({
     [lineaData]
   );
 
-  async function handleFetchBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
+  async function handleFetchChildren(req: TreeChildRequest): Promise<VentasRow[]> {
     const params = new URLSearchParams({
       dateRange,
       groupBy: 'cliente',
-      clienteDimension,
-      breakdownBy: dimension,
-      parentValue,
+      level: req.level,
+      entityKey: req.entityKey,
+      granularity,
+      returnsBasis,
     });
-    params.set('granularity', granularity);
+    if (req.level === 'producto') params.set('storeCode', req.storeCode);
     if (bucket) params.set('bucket', bucket);
     const res = await fetch(`/api/dwh/ventas?${params.toString()}`);
-    if (!res.ok) return [];
-    const body: { breakdown?: BreakdownRow[] } = await res.json().catch(() => ({}));
-    return body.breakdown ?? [];
+    if (!res.ok) throw new Error('children request failed');
+    const body: VentasChildrenResponse = await res.json();
+    return body.rows;
   }
 
   async function handleFetchLineaBreakdown(parentValue: string, dimension: PivotDimension): Promise<BreakdownRow[]> {
@@ -563,6 +546,13 @@ export default function TabVentas({
       align: 'right',
       title: `Ventas brutas − devoluciones (${basisLabel}).`,
       format: row => moneyLabel(row.salesNet, currency),
+    },
+    {
+      key: 'units',
+      label: 'Unidades',
+      align: 'right',
+      title: 'Unidades facturadas, antes de devoluciones.',
+      format: row => row.units.toLocaleString('es-VE'),
     },
     {
       key: 'returnRate',
@@ -744,18 +734,11 @@ export default function TabVentas({
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{clienteError}</p>
         )}
         {!clienteLoading && !clienteError && clienteData && (
-          <GroupedDrilldownTable<VentasTableRow>
+          <EntidadTreeTable
+            key={`${dateRange}|${granularity}|${bucket ?? ''}|${returnsBasis}`}
             rows={clienteTableRows}
             columns={clienteColumns}
-            groupByOptions={CLIENTE_GROUP_BY_OPTIONS}
-            groupBy={clienteDimension}
-            onGroupByChange={next => setClienteDimension(next as 'cliente_entidad' | 'cliente_tienda')}
-            breakdownByOptions={BREAKDOWN_BY_OPTIONS}
-            breakdownBy={breakdownBy}
-            onBreakdownByChange={setBreakdownBy}
-            onFetchBreakdown={handleFetchBreakdown}
-            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
-            hiddenMetricKeys={['salesGrossUsd']}
+            fetchChildren={handleFetchChildren}
           />
         )}
         {bucket && (
@@ -786,7 +769,9 @@ export default function TabVentas({
             breakdownBy={lineaBreakdownBy}
             onBreakdownByChange={setLineaBreakdownBy}
             onFetchBreakdown={handleFetchLineaBreakdown}
-            formatBreakdownMetric={(_key, _value, row) => formatBreakdownMoney(row, currency)}
+            formatBreakdownMetric={(key, _value, row) => (key === 'units'
+              ? Number(row.units ?? 0).toLocaleString('es-VE')
+              : formatBreakdownMoney(row, currency))}
             hiddenMetricKeys={['salesGrossUsd']}
           />
         )}
