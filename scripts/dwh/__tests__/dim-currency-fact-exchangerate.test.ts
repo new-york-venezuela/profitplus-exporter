@@ -74,8 +74,11 @@ describe('Dim_Currency + Fact_ExchangeRate', () => {
       SELECT COUNT(*) AS total
       FROM fact.Fact_ExchangeRate f
       INNER JOIN dim.Dim_Currency c ON c.CurrencyKey = f.CurrencyKey
-      WHERE RTRIM(c.CurrencyCode) = 'USD'
+      WHERE RTRIM(c.CurrencyCode) = 'USD' AND f.IsCarriedForward = 0
     `);
+    // Only real saTasa rows are compared here; days with no saTasa row are
+    // filled with IsCarriedForward = 1 rows since 0036 (see
+    // fact-exchangerate-carry-forward.test.ts).
     expect(dwhUsdCount.recordset[0].total).toBe(erpUsdCount.recordset[0].total);
   });
 });
