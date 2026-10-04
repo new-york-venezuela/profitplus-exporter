@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isClienteDimension, jsonWithCache, usdConversionJoin, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { parseTrendBucket } from '@/app/api/dwh/lib/trend-bucket';
+import { pickLastSnapshotPerBucket, rankByOverdue } from '@/app/(app)/analitica/lib/cxc-trends';
 import type {
-  CxcResponse, AgingBucketRow, DebtorRow, WeekdayVencimientoRow, DsoTrendRow, AgingTrendRow, DebtConcentrationRow, DebtConcentrationResponse,
+  CxcResponse, AgingBucketRow, CxcDebtorRow, WeekdayVencimientoRow, DsoTrendRow, AgingTrendRow, DebtConcentrationRow, DebtConcentrationResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +52,10 @@ function topDebtorsQuery(dimension: Dimension): string {
       ${spec.labelExpr} AS Name,
       SUM(a.OutstandingBalance) AS OutstandingBs,
       SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS OutstandingUsd,
+      SUM(CASE WHEN a.AgingBucket <> 'Current' THEN a.OutstandingBalance ELSE 0 END) AS OverdueBs,
+      SUM(CASE WHEN a.AgingBucket <> 'Current' THEN a.OutstandingBalance / NULLIF(fx.RateSell, 0) END) AS OverdueUsd,
+      SUM(CASE WHEN a.AgingBucket = 'Current' THEN a.OutstandingBalance ELSE 0 END) AS CurrentBs,
+      SUM(CASE WHEN a.AgingBucket = 'Current' THEN a.OutstandingBalance / NULLIF(fx.RateSell, 0) END) AS CurrentUsd,
       (
         SELECT AVG(CAST(fc2.DateKey - fc2.DueDateKey AS float))
         FROM fact.Fact_Collections fc2
@@ -66,15 +72,17 @@ function topDebtorsQuery(dimension: Dimension): string {
   `;
 }
 
-// Part 3e: top 15 customers by total outstanding balance at the latest
-// snapshot, broken out by AgingBucket — same bucket set as the aging chart,
+// Part 3e: top 15 customers by VENCIDO balance (any bucket but 'Current', ties
+// by total outstanding) at the latest snapshot, broken out by AgingBucket — same bucket set as the aging chart,
 // but per-customer instead of aggregated, to show where overdue debt
 // concentrates. Reuses the same dimension spec as topDebtorsQuery so the
-// Entidad/Tienda toggle applies here too.
+// Entidad/Tienda toggle applies here too. The 15-customer limit lives ONLY in
+// the IN (...) subquery: a TOP on the outer (customer, bucket) rows would cut
+// the result off after N bucket rows and silently drop whole customers.
 function debtConcentrationQuery(dimension: Dimension): string {
   const spec = getDimensionSpec(dimension);
   return `
-    SELECT TOP 15 ${spec.labelExpr} AS Name, a.AgingBucket,
+    SELECT ${spec.labelExpr} AS Name, a.AgingBucket,
       SUM(a.OutstandingBalance) AS AmountBs,
       SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
     FROM fact.Fact_AR_Snapshot a
@@ -87,7 +95,8 @@ function debtConcentrationQuery(dimension: Dimension): string {
         ${spec.joinClause.replace(/\bf\b/g, 'a2')}
         WHERE a2.SnapshotDateKey = @snapshotDateKey AND a2.IsCreditNote = 0
         GROUP BY ${spec.groupByColumn}
-        ORDER BY SUM(a2.OutstandingBalance) DESC
+        ORDER BY SUM(CASE WHEN a2.AgingBucket <> 'Current' THEN a2.OutstandingBalance ELSE 0 END) DESC,
+                 SUM(a2.OutstandingBalance) DESC
       )
     GROUP BY ${spec.groupByColumn}, a.AgingBucket
     ORDER BY ${spec.groupByColumn.split(',')[0].trim()}
@@ -127,23 +136,23 @@ const WEEKDAY_ES_LABELS: Record<string, string> = {
   Thursday: 'Jue', Friday: 'Vie', Saturday: 'Sáb',
 };
 
-// Part 3c: DSO = (AR balance at month end / net sales in a trailing period)
-// x days in period — one point per YearMonth that has at least one
-// Fact_AR_Snapshot run, using each month's LATEST snapshot as "month end"
-// (there may be 0 or several snapshot runs within a given month, since the
-// daily AR snapshot job is disabled by default -- see migrations/dwh/README.md's
-// "Enabling the SQL Agent jobs" section). Net sales trailing period =
-// the 90 days ending on that same snapshot date (fixed 90-day trailing
-// window, independent of the CxC tab's own date handling, per the spec).
-const DSO_TREND_QUERY = `
-  SELECT
-    d.YearMonth,
-    MAX(a.SnapshotDateKey) AS MonthEndSnapshotDateKey
-  FROM fact.Fact_AR_Snapshot a
-  JOIN dim.Dim_Date d ON d.DateKey = a.SnapshotDateKey
-  GROUP BY d.YearMonth
-  ORDER BY d.YearMonth
-`;
+// Part 3c: DSO = (AR balance at the snapshot / net sales in the trailing 90
+// days) x 90, one point per day/week/month bucket (see snapshotDatesQuery and
+// pickLastSnapshotPerBucket: each bucket uses its LAST snapshot; there may be
+// zero or several runs inside a bucket, since the daily AR snapshot job is
+// disabled by default -- see migrations/dwh/README.md's "Enabling the SQL
+// Agent jobs" section). The trailing 90-day window is fixed, independent of
+// the page's own range.
+// Snapshot dates inside the selected range (not all history); the per-bucket
+// choice is made in TypeScript.
+function snapshotDatesQuery(dateRange: string): string {
+  return `
+    SELECT DISTINCT a.SnapshotDateKey
+    FROM fact.Fact_AR_Snapshot a
+    WHERE 1 = 1 ${buildDateWhereClause(dateRange, 'a', 'SnapshotDateKey')}
+    ORDER BY a.SnapshotDateKey
+  `;
+}
 
 function dsoForSnapshotQuery(): string {
   return `
@@ -167,20 +176,21 @@ function dsoForSnapshotQuery(): string {
   `;
 }
 
-// Part 3d: same 5 buckets as the existing single-snapshot aging chart
-// (tab-cxc.tsx's BUCKET_ORDER/BUCKET_COLORS), trended across every distinct
-// SnapshotDateKey instead of just MAX(SnapshotDateKey). Ordered so the UI
-// can render oldest-to-newest without a client-side sort.
-const AGING_TREND_QUERY = `
-  SELECT a.SnapshotDateKey, a.AgingBucket,
-    SUM(a.OutstandingBalance) AS AmountBs,
-    SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
-  FROM fact.Fact_AR_Snapshot a
-  ${usdConversionJoin('a', 'SnapshotDateKey')}
-  WHERE a.IsCreditNote = 0
-  GROUP BY a.SnapshotDateKey, a.AgingBucket
-  ORDER BY a.SnapshotDateKey
-`;
+// Part 3d: same 5 buckets as the single-snapshot aging chart, for the chosen
+// snapshots only (one per day/week/month bucket). snapshotKeys are integers
+// that came out of snapshotDatesQuery, never user text.
+function agingTrendQuery(snapshotKeys: number[]): string {
+  return `
+    SELECT a.SnapshotDateKey, a.AgingBucket,
+      SUM(a.OutstandingBalance) AS AmountBs,
+      SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS AmountUsd
+    FROM fact.Fact_AR_Snapshot a
+    ${usdConversionJoin('a', 'SnapshotDateKey')}
+    WHERE a.IsCreditNote = 0 AND a.SnapshotDateKey IN (${snapshotKeys.join(', ')})
+    GROUP BY a.SnapshotDateKey, a.AgingBucket
+    ORDER BY a.SnapshotDateKey
+  `;
+}
 
 async function handleDebtConcentration(snapshotDateKey: number, clienteDimension: Dimension): Promise<NextResponse> {
   const pool = await getDwhPool();
@@ -196,7 +206,9 @@ async function handleDebtConcentration(snapshotDateKey: number, clienteDimension
     entry.buckets.push({ bucket: r.AgingBucket, amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) } });
   }
 
-  const response: DebtConcentrationResponse = { rows: Array.from(byName.values()) };
+  // The query picks the top 15 by vencido; the final order is the collection
+  // priority (vencido desc, then total), not alphabetical.
+  const response: DebtConcentrationResponse = { rows: rankByOverdue(Array.from(byName.values())) };
   return jsonWithCache(response);
 }
 
@@ -207,6 +219,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  // The point-in-time cards (aging, top debtors, concentration) always use the
+  // latest snapshot; only the DSO / aging TRENDS follow the page's date range
+  // and granularity (day/week/month rules shared with Resumen and Ventas).
+  const dateRange = searchParams.get('dateRange') ?? '12m';
+  const trendBucket = parseTrendBucket(searchParams, dateRange);
 
   try {
     const pool = await getDwhPool();
@@ -223,41 +240,42 @@ export async function GET(request: NextRequest) {
     }
 
     let agingBuckets: { AgingBucket: string; AmountBs: number; AmountUsd: number | null }[] = [];
-    let topDebtors: { Name: string; OutstandingBs: number; OutstandingUsd: number | null; AvgDaysToPay: number | null }[] = [];
+    let topDebtors: {
+      Name: string; OutstandingBs: number; OutstandingUsd: number | null; AvgDaysToPay: number | null;
+      OverdueBs: number; OverdueUsd: number | null; CurrentBs: number; CurrentUsd: number | null;
+    }[] = [];
     let weekdayRows: { DayOfWeek: number; DayName: string; VenceHoyBs: number; VenceHoyUsd: number | null; VencidaBs: number; VencidaUsd: number | null; NoVencidaBs: number; NoVencidaUsd: number | null }[] = [];
-    let agingTrendRows: { SnapshotDateKey: number; AgingBucket: string; AmountBs: number; AmountUsd: number | null }[] = [];
-    let dsoMonths: { YearMonth: string; MonthEndSnapshotDateKey: number }[] = [];
 
-    // Weekday x vencimiento and aging-trend queries don't depend on
-    // "latest" snapshot — they read across all of Fact_Collections/
-    // Fact_AR_Snapshot's history, so they run regardless of whether a
-    // snapshot has ever been taken, unlike the two snapshot-scoped queries
-    // below (kept inside the snapshotDateKey !== null guard, unchanged).
-    const [weekdayResult, agingTrendResult] = await Promise.all([
+    // Weekday x vencimiento reads all of Fact_Collections' history and the
+    // snapshot-date list is range-scoped; neither depends on "latest", so they
+    // run even if no snapshot has ever been taken.
+    const [weekdayResult, snapshotDatesResult] = await Promise.all([
       pool.request().query(WEEKDAY_VENCIMIENTO_QUERY),
-      pool.request().query(AGING_TREND_QUERY),
+      pool.request().query(snapshotDatesQuery(dateRange)),
     ]);
     weekdayRows = weekdayResult.recordset;
-    agingTrendRows = agingTrendResult.recordset;
+    const snapshotDates = snapshotDatesResult.recordset.map(r => Number(r.SnapshotDateKey)).filter(Number.isInteger);
+    const picks = pickLastSnapshotPerBucket(snapshotDates, trendBucket.mode);
 
     if (snapshotDateKey !== null) {
-      const [aging, debtors, dsoMonthsResult] = await Promise.all([
+      const [aging, debtors] = await Promise.all([
         pool.request().input('snapshotDateKey', snapshotDateKey).query(AGING_BUCKETS_QUERY),
         pool.request().input('snapshotDateKey', snapshotDateKey).query(topDebtorsQuery(clienteDimension)),
-        pool.request().query(DSO_TREND_QUERY),
       ]);
       agingBuckets = aging.recordset;
       topDebtors = debtors.recordset;
-      dsoMonths = dsoMonthsResult.recordset;
     }
 
-    // DSO needs one extra scalar query PER month-end snapshot (each month's
-    // own balance/net-sales pair) -- run them in parallel rather than
-    // sequentially, same pattern as every other Promise.all in this route.
+    // One aging query for all chosen snapshots, plus one DSO scalar query per
+    // chosen snapshot (each has its own balance / trailing net sales pair),
+    // run in parallel like every other Promise.all in this route.
+    const agingTrendResult = picks.length > 0
+      ? await pool.request().query(agingTrendQuery(picks.map(p => p.snapshotDateKey)))
+      : { recordset: [] as { SnapshotDateKey: number; AgingBucket: string; AmountBs: number; AmountUsd: number | null }[] };
     const dsoTrend: DsoTrendRow[] = await Promise.all(
-      dsoMonths.map(async m => {
+      picks.map(async p => {
         const req = pool.request();
-        req.input('snapshotDateKey', m.MonthEndSnapshotDateKey);
+        req.input('snapshotDateKey', p.snapshotDateKey);
         const result = await req.query(dsoForSnapshotQuery());
         // dsoForSnapshotQuery() has no named result sets, so `recordsets` is
         // always positional here -- mssql's type union with the named-sets
@@ -266,7 +284,7 @@ export async function GET(request: NextRequest) {
         const row = recordsets[recordsets.length - 1][0] as { Balance: number; NetSales: number } | undefined;
         const balance = Number(row?.Balance ?? 0);
         const netSales = Number(row?.NetSales ?? 0);
-        return { yearMonth: m.YearMonth, dso: netSales > 0 ? (balance / netSales) * 90 : null };
+        return { bucket: p.bucket, snapshotDateKey: p.snapshotDateKey, dso: netSales > 0 ? (balance / netSales) * 90 : null };
       })
     );
 
@@ -282,25 +300,27 @@ export async function GET(request: NextRequest) {
       noVencida: { bs: Number(r.NoVencidaBs), usd: r.NoVencidaUsd === null ? null : Number(r.NoVencidaUsd) },
     }));
 
-    const agingTrendByMonth = new Map<string, AgingBucketRow[]>();
-    for (const r of agingTrendRows) {
-      // SnapshotDateKey is an int like 20260915 -- slice to YYYY-MM without
-      // an extra Dim_Date join, same int->string convention formatSnapshotDate
-      // already uses client-side in tab-cxc.tsx.
-      const s = String(r.SnapshotDateKey);
-      const yearMonth = `${s.slice(0, 4)}-${s.slice(4, 6)}`;
-      const existing = agingTrendByMonth.get(yearMonth) ?? [];
-      existing.push({ bucket: r.AgingBucket, amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) } });
-      agingTrendByMonth.set(yearMonth, existing);
+    const agingBySnapshot = new Map<number, AgingBucketRow[]>();
+    for (const r of agingTrendResult.recordset) {
+      const list = agingBySnapshot.get(Number(r.SnapshotDateKey)) ?? [];
+      list.push({ bucket: r.AgingBucket, amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) } });
+      agingBySnapshot.set(Number(r.SnapshotDateKey), list);
     }
-    const agingTrend: AgingTrendRow[] = Array.from(agingTrendByMonth.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([yearMonth, buckets]) => ({ yearMonth, buckets }));
+    const agingTrend: AgingTrendRow[] = picks.map(p => ({
+      bucket: p.bucket,
+      snapshotDateKey: p.snapshotDateKey,
+      buckets: agingBySnapshot.get(p.snapshotDateKey) ?? [],
+    }));
 
-    const topDebtorsMapped: DebtorRow[] = topDebtors.map(r => ({
+    // A SUM over zero rows of one kind is NULL in SQL; with no BS amount there
+    // either, that is "nothing of this kind" (0), not an unknown USD figure.
+    const usdOrZero = (usd: number | null, bs: number): number | null => (usd === null ? (bs === 0 ? 0 : null) : Number(usd));
+    const topDebtorsMapped: CxcDebtorRow[] = topDebtors.map(r => ({
       name: r.Name,
       outstanding: { bs: Number(r.OutstandingBs), usd: r.OutstandingUsd === null ? null : Number(r.OutstandingUsd) },
       avgDaysToPay: r.AvgDaysToPay !== null && r.AvgDaysToPay !== undefined ? Number(r.AvgDaysToPay) : null,
+      overdue: { bs: Number(r.OverdueBs), usd: usdOrZero(r.OverdueUsd, Number(r.OverdueBs)) },
+      current: { bs: Number(r.CurrentBs), usd: usdOrZero(r.CurrentUsd, Number(r.CurrentBs)) },
     }));
 
     const totalOutstanding = agingBucketsMapped.reduce((sum, b) => sum + b.amount.bs, 0);
@@ -315,6 +335,7 @@ export async function GET(request: NextRequest) {
       overdueShare,
       snapshotDateKey,
       weekdayVencimiento,
+      trendMode: trendBucket.mode,
       dsoTrend,
       agingTrend,
     };

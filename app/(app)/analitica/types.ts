@@ -289,14 +289,18 @@ export interface WeekdayVencimientoRow {
 // Part 3c: monthly DSO, independent of the CxC tab's own snapshot-only date
 // handling — one point per month that has at least one Fact_AR_Snapshot run.
 export interface DsoTrendRow {
-  yearMonth: string;
+  // Bucket key for CxcResponse.trendMode (day YYYY-MM-DD, week YYYY-Www, month
+  // YYYY-MM or 'range'); one point per bucket, from the last snapshot in it.
+  bucket: string;
+  snapshotDateKey: number; // the snapshot this point was computed from
   dso: number | null;
 }
 
 // Part 3d: existing aging buckets (Current/1-30/31-60/61-90/>90), trended
 // monthly instead of a single MAX(SnapshotDateKey) snapshot.
 export interface AgingTrendRow {
-  yearMonth: string;
+  bucket: string;
+  snapshotDateKey: number;
   buckets: AgingBucketRow[];
 }
 
@@ -309,9 +313,17 @@ export interface DebtConcentrationResponse {
   rows: DebtConcentrationRow[];
 }
 
+// CxC top debtors split into vencido (any bucket but 'Current') and al
+// corriente; overdue + current = outstanding.
+export interface CxcDebtorRow extends DebtorRow {
+  overdue: DualAmount;
+  current: DualAmount;
+}
+
 export interface CxcResponse {
   agingBuckets: AgingBucketRow[];
-  topDebtors: DebtorRow[];
+  topDebtors: CxcDebtorRow[];
+  trendMode: BucketMode; // grain of dsoTrend / agingTrend
   overdueShare: number | null;
   snapshotDateKey: number | null;
   weekdayVencimiento: WeekdayVencimientoRow[];
