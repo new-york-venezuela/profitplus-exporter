@@ -58,6 +58,14 @@ describe('computeProductCost', () => {
     expect(result.totalUsd).toBeCloseTo(expectedErpLineUsd + 0.10, 5);
     expect(result.incomplete).toBe(false);
     expect(result.asOfRateDate).not.toBeNull();
+
+    // rawMaterialCostUsd must equal the erp_article line alone — it exists so
+    // the recipe list's "Costo Materia Prima" column and the detail page's
+    // subtotal agree, even though totalUsd (shown as "Costo de Fabricación")
+    // also includes the manual line's cost.
+    expect(result.rawMaterialCostUsd).toBeCloseTo(expectedErpLineUsd, 5);
+    expect(result.rawMaterialCostUsd).not.toBeCloseTo(result.totalUsd, 5);
+    expect(result.rawMaterialEstimated).toBe(fifo.estimated);
   });
 
   test('an erp_article line with zero purchase history has null cost and marks the result incomplete', async () => {
@@ -70,6 +78,9 @@ describe('computeProductCost', () => {
     expect(result.lines[0]!.costUsd).toBeNull();
     expect(result.incomplete).toBe(true);
     expect(result.totalUsd).toBe(0);
+    // Missing data must render as "Sin datos" (null), never a silent $0 that
+    // could be mistaken for a real zero-cost raw material.
+    expect(result.rawMaterialCostUsd).toBeNull();
   });
 
   test('a manual line with no manualUnitCostUsd set defaults to 0, not null', async () => {
@@ -81,5 +92,16 @@ describe('computeProductCost', () => {
 
     expect(result.lines[0]!.costUsd).toBe(0);
     expect(result.incomplete).toBe(false);
+  });
+
+  test('a recipe with only manual lines has a $0 (not null) raw-material cost, since there are no erp_article lines to be missing data for', async () => {
+    const lines: RecipeLineInput[] = [
+      { lineType: 'manual', coArt: null, quantity: 1, manualUnitCostUsd: 0.30 },
+    ];
+
+    const result = await computeProductCost(pool, lines, new Date());
+
+    expect(result.rawMaterialCostUsd).toBe(0);
+    expect(result.rawMaterialEstimated).toBe(false);
   });
 });

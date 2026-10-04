@@ -23,6 +23,12 @@ export interface ProductCostResult {
   lines: LineCostResult[];
   asOfRateDate: string | null;
   incomplete: boolean;
+  // Sum of erp_article lines only — excludes manual (non-Profit-Plus)
+  // ingredients like water, so it reads "what Profit Plus's real inventory
+  // costs us," separate from totalUsd's "what the whole batch costs us."
+  // null (not $0) when any erp_article line itself has costUsd === null.
+  rawMaterialCostUsd: number | null;
+  rawMaterialEstimated: boolean;
 }
 
 export async function computeProductCost(
@@ -75,10 +81,18 @@ export async function computeProductCost(
 
   const totalUsd = lineResults.reduce((sum, l) => sum + (l.costUsd ?? 0), 0);
 
+  const rawMaterialLines = lineResults.filter(l => l.lineType === 'erp_article');
+  const rawMaterialCostUsd = rawMaterialLines.some(l => l.costUsd === null)
+    ? null
+    : rawMaterialLines.reduce((sum, l) => sum + (l.costUsd ?? 0), 0);
+  const rawMaterialEstimated = rawMaterialLines.some(l => l.estimated);
+
   return {
     totalUsd,
     lines: lineResults,
     asOfRateDate: usdRate ? usdRate.date.toISOString() : null,
     incomplete,
+    rawMaterialCostUsd,
+    rawMaterialEstimated,
   };
 }

@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { SearchableSelect } from '@/components/searchable-select';
 
 interface Line {
   id?: number;
@@ -27,6 +29,12 @@ interface ArticleOption {
   unidad: string | null;
 }
 
+interface UnitOption {
+  coUni: string;
+  desUni: string;
+  uniPrincipal: boolean;
+}
+
 interface CostLineResult {
   lineType: 'erp_article' | 'manual';
   coArt: string | null;
@@ -40,6 +48,8 @@ interface CostResult {
   lines: CostLineResult[];
   asOfRateDate: string | null;
   incomplete: boolean;
+  rawMaterialCostUsd: number | null;
+  rawMaterialEstimated: boolean;
 }
 
 function emptyErpLine(): Line {
@@ -61,6 +71,28 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [cost, setCost] = useState<CostResult | null>(null);
   const [costLoading, setCostLoading] = useState(false);
+  const [unitsByArticle, setUnitsByArticle] = useState<Record<string, UnitOption[]>>({});
+  // Mirrors unitsByArticle without being a hook dependency, so ensureUnitsLoaded
+  // stays referentially stable — it's called from the recipe-load effect, and
+  // depending on unitsByArticle there would re-trigger that effect (re-fetching
+  // the whole recipe) every time a units fetch resolves.
+  const unitsCacheRef = useRef<Record<string, UnitOption[]>>({});
+  const fetchingUnits = useRef(new Set<string>());
+
+  const ensureUnitsLoaded = useCallback(async (coArt: string) => {
+    if (!coArt || unitsCacheRef.current[coArt] || fetchingUnits.current.has(coArt)) return;
+    fetchingUnits.current.add(coArt);
+    try {
+      const res = await fetch(`/api/inventory/items/${encodeURIComponent(coArt)}/units`);
+      if (res.ok) {
+        const units: UnitOption[] = await res.json();
+        unitsCacheRef.current = { ...unitsCacheRef.current, [coArt]: units };
+        setUnitsByArticle(unitsCacheRef.current);
+      }
+    } finally {
+      fetchingUnits.current.delete(coArt);
+    }
+  }, []);
 
   const loadCost = useCallback(async () => {
     setCostLoading(true);
@@ -91,7 +123,19 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
         setLines(recipeData.lines);
         if (itemsRes.ok) {
           const items: { coArt: string; artDes: string; unidad: string | null }[] = await itemsRes.json();
-          setArticles(items);
+          // /api/inventory/items returns one row per (co_art, co_alma) pair —
+          // dedupe by co_art since this picker only needs article identity.
+          const seen = new Set<string>();
+          const deduped: ArticleOption[] = [];
+          for (const i of items) {
+            if (seen.has(i.coArt)) continue;
+            seen.add(i.coArt);
+            deduped.push(i);
+          }
+          setArticles(deduped);
+        }
+        for (const line of recipeData.lines) {
+          if (line.lineType === 'erp_article' && line.coArt) void ensureUnitsLoaded(line.coArt);
         }
         if (!cancelled) await loadCost();
       } catch {
@@ -102,10 +146,19 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [recipeId, loadCost]);
+  }, [recipeId, loadCost, ensureUnitsLoaded]);
 
   function updateLine(index: number, patch: Partial<Line>) {
     setLines(prev => prev.map((l, i) => i === index ? { ...l, ...patch } : l));
+  }
+
+  async function handleArticleSelect(index: number, coArt: string) {
+    updateLine(index, { coArt });
+    if (!coArt) return;
+    await ensureUnitsLoaded(coArt);
+    const units = unitsCacheRef.current[coArt];
+    const principal = units?.find(u => u.uniPrincipal) ?? units?.[0];
+    if (principal) updateLine(index, { coArt, unit: principal.coUni });
   }
 
   function removeLine(index: number) {
@@ -150,6 +203,7 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
 
   return (
     <div className="p-6 max-w-4xl space-y-6">
+      <Link href="/recetas" className="text-sm text-blue-600 hover:underline">← Recetas</Link>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">{recipe.coArt} — {recipe.label}</h1>
         <button onClick={handleDelete} className="text-sm text-red-600 hover:underline">Eliminar receta</button>
@@ -161,18 +215,15 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
         {lines.map((line, index) => (
           <div key={index} className="flex flex-wrap items-end gap-2 border-b border-gray-100 pb-3">
             {line.lineType === 'erp_article' ? (
-              <div>
+              <div className="min-w-[16rem]">
                 <label className="block text-xs text-gray-500 mb-1">Artículo</label>
-                <select
+                <SearchableSelect
                   value={line.coArt ?? ''}
-                  onChange={e => updateLine(index, { coArt: e.target.value })}
-                  className={`${inputClass} min-w-[16rem]`}
-                >
-                  <option value="">Selecciona…</option>
-                  {articles.map(a => (
-                    <option key={a.coArt} value={a.coArt}>{a.coArt} — {a.artDes}</option>
-                  ))}
-                </select>
+                  onChange={coArt => void handleArticleSelect(index, coArt)}
+                  options={articles.map(a => ({ value: a.coArt, label: `${a.coArt} — ${a.artDes}` }))}
+                  placeholder="Selecciona…"
+                  className={inputClass}
+                />
               </div>
             ) : (
               <div>
@@ -200,12 +251,24 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
 
             <div>
               <label className="block text-xs text-gray-500 mb-1">Unidad</label>
-              <input
-                type="text"
-                value={line.unit}
-                onChange={e => updateLine(index, { unit: e.target.value })}
-                className={`${inputClass} w-20`}
-              />
+              {line.lineType === 'erp_article' && line.coArt && unitsByArticle[line.coArt]?.length ? (
+                <select
+                  value={line.unit}
+                  onChange={e => updateLine(index, { unit: e.target.value })}
+                  className={`${inputClass} w-24`}
+                >
+                  {unitsByArticle[line.coArt]!.map(u => (
+                    <option key={u.coUni} value={u.coUni}>{u.desUni}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={line.unit}
+                  onChange={e => updateLine(index, { unit: e.target.value })}
+                  className={`${inputClass} w-20`}
+                />
+              )}
             </div>
 
             {line.lineType === 'manual' && (
@@ -251,6 +314,17 @@ export function RecipeDetailClient({ recipeId }: { recipeId: number }) {
         {!costLoading && cost && (
           <>
             <p className="text-3xl font-bold text-gray-900">${cost.totalUsd.toFixed(4)}</p>
+            <p className="text-sm text-gray-500">
+              Costo Materia Prima (solo insumos de Profit Plus, excluye insumos manuales):{' '}
+              {cost.rawMaterialCostUsd === null ? (
+                <span className="text-gray-400">Sin datos</span>
+              ) : (
+                <span className="font-medium text-gray-700">
+                  ${cost.rawMaterialCostUsd.toFixed(4)}
+                  {cost.rawMaterialEstimated && <span className="ml-1 text-xs text-amber-700">Estimado</span>}
+                </span>
+              )}
+            </p>
             {cost.incomplete && (
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                 Este costo es incompleto o estimado — algún insumo no tiene suficiente historial de compras en Profit Plus.

@@ -3,7 +3,9 @@ import { eq } from 'drizzle-orm';
 import { getSessionFromRequest } from '@/lib/inventory/access';
 import { hasRecipesAccess } from '@/lib/recipes/access';
 import { getDb } from '@/lib/db/sqlite';
-import { recipes } from '@/lib/db/schema';
+import { recipes, recipeLines } from '@/lib/db/schema';
+import { getPool } from '@/lib/db/mssql';
+import { computeProductCost, type RecipeLineInput } from '@/lib/costing/product-cost';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +18,42 @@ export async function GET(request: NextRequest) {
   if (!allowed) return NextResponse.json({ error: 'Prohibido' }, { status: 403 });
 
   const rows = db.select().from(recipes).all();
-  return NextResponse.json(rows.map(r => ({ id: r.id, coArt: r.coArt, label: r.label, active: r.active })));
+
+  let pool;
+  try {
+    pool = await getPool();
+  } catch (error) {
+    console.error('Recipe list cost computation error:', error);
+    pool = null;
+  }
+
+  const results = await Promise.all(rows.map(async r => {
+    if (!pool) return { id: r.id, coArt: r.coArt, label: r.label, active: r.active, rawMaterialCostUsd: null, rawMaterialEstimated: false };
+
+    const lines = db.select().from(recipeLines)
+      .where(eq(recipeLines.recipeId, r.id))
+      .orderBy(recipeLines.sortOrder)
+      .all();
+    const input: RecipeLineInput[] = lines.map(l => ({
+      lineType: l.lineType,
+      coArt: l.coArt,
+      quantity: l.quantity,
+      manualUnitCostUsd: l.manualUnitCostUsd,
+    }));
+
+    try {
+      const cost = await computeProductCost(pool, input);
+      return {
+        id: r.id, coArt: r.coArt, label: r.label, active: r.active,
+        rawMaterialCostUsd: cost.rawMaterialCostUsd, rawMaterialEstimated: cost.rawMaterialEstimated,
+      };
+    } catch (error) {
+      console.error(`Recipe ${r.id} cost computation error:`, error);
+      return { id: r.id, coArt: r.coArt, label: r.label, active: r.active, rawMaterialCostUsd: null, rawMaterialEstimated: false };
+    }
+  }));
+
+  return NextResponse.json(results);
 }
 
 export async function POST(request: NextRequest) {

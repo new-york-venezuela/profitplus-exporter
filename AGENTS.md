@@ -316,6 +316,16 @@ every request recomputes from current ERP state, which is what makes it
 (the same live-ERP article search the Inventory module's ajustes/articulos
 pages already use) rather than building a second article picker.
 
+**DWH consumer**: `scripts/dwh-recipe-cost-load.ts` reads active recipes
+from here and feeds `computeProductCost()`'s `rawMaterialCostUsd` into
+`DWH_AlimentosNY`'s `fact.Fact_Sales.UnitCost`/`COGSAmount`/
+`GrossProfitAmount` (via `stg.RecipeCostSnapshot`, see
+`dwh-migrations/0031`/`0032` and `docs/DATA_WAREHOUSE_GUIDE.md`'s Cost Data
+Gap section). Any future change to `computeProductCost`'s return shape or
+the "Sin datos means null, not $0" invariant must be reflected there too —
+the DWH pipeline reuses this exact function and depends on `null` staying
+`null` all the way through to `CostSourceFlag = 'NO_COST_DATA'`.
+
 ## Auth Flow Summary
 
 ```

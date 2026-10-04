@@ -2,12 +2,15 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { SearchableSelect } from '@/components/searchable-select';
 
 interface RecipeRow {
   id: number;
   coArt: string;
   label: string;
   active: boolean;
+  rawMaterialCostUsd: number | null;
+  rawMaterialEstimated: boolean;
 }
 
 interface ArticleOption {
@@ -42,7 +45,9 @@ export function RecetasClient() {
       try {
         const [recipesRes, itemsRes] = await Promise.all([
           fetch('/api/recetas/recipes'),
-          fetch('/api/inventory/items'),
+          // tipo=V: only sellable finished products can have a recipe — raw
+          // materials (tipo M) and other article types are never produced.
+          fetch('/api/inventory/items?tipo=V'),
         ]);
         if (cancelled) return;
         if (!recipesRes.ok || !itemsRes.ok) {
@@ -51,7 +56,16 @@ export function RecetasClient() {
         }
         setRecipeList(await recipesRes.json());
         const items: { coArt: string; artDes: string }[] = await itemsRes.json();
-        setArticles(items.map(i => ({ coArt: i.coArt, artDes: i.artDes })));
+        // /api/inventory/items returns one row per (co_art, co_alma) pair —
+        // dedupe by co_art since this picker only needs article identity.
+        const seen = new Set<string>();
+        const deduped: ArticleOption[] = [];
+        for (const i of items) {
+          if (seen.has(i.coArt)) continue;
+          seen.add(i.coArt);
+          deduped.push({ coArt: i.coArt, artDes: i.artDes });
+        }
+        setArticles(deduped);
       } catch {
         if (!cancelled) setLoadError('No se pudo conectar con el servidor');
       } finally {
@@ -124,17 +138,16 @@ export function RecetasClient() {
           Crear receta para un producto
         </label>
         <div className="flex gap-2">
-          <select
-            id="new-recipe-article"
-            value={newCoArt}
-            onChange={e => { setNewCoArt(e.target.value); setCreateError(null); }}
-            className={`${inputClass} max-w-md`}
-          >
-            <option value="">Selecciona un producto…</option>
-            {availableArticles.map(a => (
-              <option key={a.coArt} value={a.coArt}>{a.coArt} — {a.artDes}</option>
-            ))}
-          </select>
+          <div className="w-full max-w-md">
+            <SearchableSelect
+              id="new-recipe-article"
+              value={newCoArt}
+              onChange={coArt => { setNewCoArt(coArt); setCreateError(null); }}
+              options={availableArticles.map(a => ({ value: a.coArt, label: `${a.coArt} — ${a.artDes}` }))}
+              placeholder="Selecciona un producto…"
+              className={inputClass}
+            />
+          </div>
           <button
             onClick={handleCreate}
             disabled={creating || !newCoArt}
@@ -162,7 +175,7 @@ export function RecetasClient() {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200">
-              {['Código', 'Producto', 'Estado', ''].map(h => (
+              {['Código', 'Producto', 'Estado', 'Costo Materia Prima', ''].map(h => (
                 <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -173,6 +186,16 @@ export function RecetasClient() {
                 <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">{r.coArt}</td>
                 <td className="px-3 py-2 text-gray-900">{r.label}</td>
                 <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.active ? 'Activa' : 'Inactiva'}</td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {r.rawMaterialCostUsd === null ? (
+                    <span className="text-gray-400">Sin datos</span>
+                  ) : (
+                    <>
+                      ${r.rawMaterialCostUsd.toFixed(4)}
+                      {r.rawMaterialEstimated && <span className="ml-1 text-xs text-amber-700">Estimado</span>}
+                    </>
+                  )}
+                </td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   <Link href={`/recetas/${r.id}`} className="text-blue-600 hover:underline">Editar / Costo</Link>
                 </td>
