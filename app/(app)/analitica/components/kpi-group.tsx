@@ -9,12 +9,24 @@ const TONE_CLASSES: Record<KpiTone, { panel: string; title: string }> = {
   customers: { panel: 'border-green-300 bg-green-50/50', title: 'text-green-700' },
 };
 
-export function KpiGroup({ title, tone, children }: { title: string; tone: KpiTone; children: ReactNode }) {
+const COLUMN_CLASSES = { 2: 'grid-cols-2', 3: 'grid-cols-2 md:grid-cols-3', 4: 'grid-cols-2 md:grid-cols-4' } as const;
+
+export function KpiGroup({
+  title,
+  tone,
+  columns = 2,
+  children,
+}: {
+  title: string;
+  tone: KpiTone;
+  columns?: 2 | 3 | 4;
+  children: ReactNode;
+}) {
   const t = TONE_CLASSES[tone];
   return (
     <section className={`rounded-xl border-2 p-3 ${t.panel}`} aria-label={title}>
       <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 ${t.title}`}>{title}</h3>
-      <div className="grid grid-cols-2 gap-3">{children}</div>
+      <div className={`grid gap-3 ${COLUMN_CLASSES[columns]}`}>{children}</div>
     </section>
   );
 }

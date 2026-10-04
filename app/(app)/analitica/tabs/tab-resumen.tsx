@@ -151,10 +151,10 @@ export default function TabResumen({
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row — every figure is for the selected range (periodo). */}
-      <p className="text-xs text-gray-500 -mb-3">
+      <p className="text-xs text-gray-500">
         Período: {periodo}. Devoluciones atribuidas a la fecha de su factura original, sin IVA.
       </p>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <KpiGroup title="Ventas" tone="sales">
           <KpiCard label={`Ventas brutas (${periodo})`} value={moneyLabel(data.kpis.salesGross, currency)} />
           <KpiCard label={`Ventas netas (${periodo})`} value={moneyLabel(data.kpis.salesNet, currency)} />

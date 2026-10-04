@@ -218,7 +218,7 @@ export default function CoberturaClientes() {
           </div>
         </div>
 
-        <KpiGroup title="Cobertura" tone="customers">
+        <KpiGroup title="Cobertura" tone="customers" columns={4}>
           <KpiCard label="Nunca vendido" value={String(summary.never)} tone={summary.never > 0 ? 'warn' : 'default'} />
           <KpiCard label="Vende vía matriz" value={String(summary.viaMatriz)} title="Sin facturas propias, pero otra tienda de su misma entidad sí tiene ventas." />
           <KpiCard label="Sin ventas 30+ días" value={String(summary.lapsed)} />
@@ -282,9 +282,9 @@ export default function CoberturaClientes() {
                     <td className="px-3 py-2 text-gray-600">{r.entityName ?? NO_DATA}</td>
                     <td className="px-3 py-2 text-gray-600">{r.sellerName ?? 'Sin vendedor'}</td>
                     <td className="px-3 py-2 text-gray-600">{lastSaleCell(r)}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{r.daysSinceLastSale ?? NO_DATA}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{usd(r.avgMonthlyUsd)}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{units(r.avgMonthlyUnits)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{r.daysSinceLastSale ?? NO_DATA}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{usd(r.avgMonthlyUsd)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{units(r.avgMonthlyUnits)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${STATUS_CLASS[r.status]}`}>
                         {STATUS_LABEL[r.status]}

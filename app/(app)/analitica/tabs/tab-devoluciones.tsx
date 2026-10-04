@@ -372,7 +372,7 @@ export default function TabDevoluciones({
           const k = kpisData.kpis;
           const nameValue = 'text-base font-bold break-words';
           return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
               <KpiGroup title="Magnitud" tone="returns">
                 <KpiCard label="Devoluciones netas" value={moneyLabel(k.returnsNet, currency)} title="Notas de crédito del período (por fecha de devolución), sin IVA." />
                 <KpiCard
