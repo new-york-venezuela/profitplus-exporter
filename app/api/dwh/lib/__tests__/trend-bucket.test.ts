@@ -53,3 +53,10 @@ describe('bucketFilterClause', () => {
     expect(bucketFilterClause('day', 'nope', 'fs')).toBeNull();
   });
 });
+
+describe('bucketFilterClause on another date column', () => {
+  test('filters Fact_Returns by OriginalInvoiceDateKey when asked', () => {
+    expect(bucketFilterClause('month', '2026-06', 'fr2', 'OriginalInvoiceDateKey'))
+      .toBe('AND fr2.OriginalInvoiceDateKey >= 20260601 AND fr2.OriginalInvoiceDateKey <= 20260630');
+  });
+});

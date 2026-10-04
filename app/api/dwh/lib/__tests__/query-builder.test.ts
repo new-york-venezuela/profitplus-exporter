@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr, bucketKeyExpr, buildPrevThirtyDayWhereClause } from '../query-builder';
+import {
+  getDimensionSpec, isDimension, isDimensionForFact, isClienteDimension, buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr,
+  bucketKeyExpr, buildPrevThirtyDayWhereClause, parseReturnsBasis, returnsDateColumn, buildReturnsDateWhereClause, returnsUsdConversionJoin,
+  returnsAmountSubqueries,
+} from '../query-builder';
 
 describe('getDimensionSpec', () => {
   test('cliente_entidad groups and labels by legal entity', () => {
@@ -299,5 +303,47 @@ describe('buildPrevThirtyDayWhereClause', () => {
     const sql = buildPrevThirtyDayWhereClause('prev_fs');
     expect(sql).toContain("prev_fs.DateKey >= CONVERT(INT, FORMAT(DATEADD(DAY, -59, GETDATE()), 'yyyyMMdd'))");
     expect(sql).toContain("prev_fs.DateKey < CONVERT(INT, FORMAT(DATEADD(DAY, -29, GETDATE()), 'yyyyMMdd'))");
+  });
+});
+
+describe('returns basis helpers', () => {
+  test('parseReturnsBasis defaults to factura', () => {
+    expect(parseReturnsBasis(null)).toBe('factura');
+    expect(parseReturnsBasis('garbage')).toBe('factura');
+    expect(parseReturnsBasis('devolucion')).toBe('devolucion');
+  });
+
+  test('returnsDateColumn maps the basis to the Fact_Returns column', () => {
+    expect(returnsDateColumn('factura')).toBe('OriginalInvoiceDateKey');
+    expect(returnsDateColumn('devolucion')).toBe('DateKey');
+  });
+
+  test('buildReturnsDateWhereClause windows on the chosen column', () => {
+    expect(buildReturnsDateWhereClause('month:2026-06', 'fr', 'factura'))
+      .toBe('AND fr.OriginalInvoiceDateKey >= 20260601 AND fr.OriginalInvoiceDateKey <= 20260630');
+    expect(buildReturnsDateWhereClause('month:2026-06', 'fr', 'devolucion'))
+      .toBe('AND fr.DateKey >= 20260601 AND fr.DateKey <= 20260630');
+  });
+
+  test('buildDateWhereClause keeps DateKey as the default column', () => {
+    expect(buildDateWhereClause('month:2026-06', 'fs')).toBe('AND fs.DateKey >= 20260601 AND fs.DateKey <= 20260630');
+    expect(buildDateWhereClause('30d', 'fr', 'OriginalInvoiceDateKey')).toContain('fr.OriginalInvoiceDateKey >=');
+  });
+
+  test('buildPrevThirtyDayWhereClause accepts a column', () => {
+    expect(buildPrevThirtyDayWhereClause('fr', 'OriginalInvoiceDateKey')).toContain('fr.OriginalInvoiceDateKey <');
+  });
+
+  test('returnsUsdConversionJoin converts at the original factura date', () => {
+    expect(returnsUsdConversionJoin('fr2', 'r2fx')).toContain('r2fx.DateKey = fr2.OriginalInvoiceDateKey');
+  });
+
+  test('returnsAmountSubqueries emits a BS and a USD scalar subquery with the given scope', () => {
+    const sql = returnsAmountSubqueries({ alias: 'fr', fxAlias: 'frfx', where: 'AND fr.SalesRepKey = 7', bsAlias: 'RB', usdAlias: 'RU' });
+    expect(sql).toContain(') AS RB');
+    expect(sql).toContain(') AS RU');
+    expect(sql.match(/AND fr\.SalesRepKey = 7/g)?.length).toBe(2);
+    expect(sql).toContain('frfx.DateKey = fr.OriginalInvoiceDateKey');
+    expect(sql).toContain('COUNT(fr.NetAmount) = 0 THEN 0');
   });
 });
