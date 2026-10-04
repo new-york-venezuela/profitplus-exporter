@@ -709,3 +709,29 @@ export interface SellerMatrixResponse {
   stores: SellerMatrixStore[];
   cells: SellerMatrixCell[];
 }
+
+// Clientes tab — cobertura de clientes (see lib/cobertura.ts). Independent of the date range.
+export type { CoberturaStatus } from './lib/cobertura';
+import type { CoberturaStatus } from './lib/cobertura';
+
+export interface CoberturaRowView {
+  customerCode: string;
+  customerName: string;
+  entityName: string | null;
+  sellerCode: string | null;
+  sellerName: string | null;
+  lastSaleDateKey: number | null; // own invoices, all history; null = no invoice found
+  entityLastSaleDateKey: number | null; // any store of the same legal entity
+  daysSinceLastSale: number | null;
+  avgMonthlyUsd: number | null; // trailing 12 months, over invoiced months only
+  avgMonthlyUnits: number | null;
+  monthsWithSales: number;
+  status: CoberturaStatus;
+}
+
+export interface CoberturaResponse {
+  rows: CoberturaRowView[];
+  asOfDateKey: number;
+  windowStartDateKey: number;
+  lapsedAfterDays: number;
+}
