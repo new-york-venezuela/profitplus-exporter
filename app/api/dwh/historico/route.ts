@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, jsonWithCache, usdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, returnRate, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
   HistoricoResponse, HistoricoRow,
@@ -29,11 +29,14 @@ export const dynamic = 'force-dynamic';
 // placeholder for BS-denominated documents, not a real rate) — conversion is
 // always via fact.Fact_ExchangeRate.RateSell for the row's own DateKey.
 const DATE_WINDOW = 'AND fsl.DateKey BETWEEN 20250101 AND 20260228';
-const RETURNS_DATE_WINDOW = 'AND frl.DateKey BETWEEN 20250101 AND 20260228';
-// Fact_Returns_Legacy has no link to the original factura (no
-// OriginalInvoiceDateKey, unlike fact.Fact_Returns after 0036), so every
-// devolución here is attributed by its OWN date (DateKey). Ventas netas in
-// this tab = ventas brutas − devoluciones por fecha de devolución; the UI says so.
+// Devoluciones follow the same rule as the rest of Analítica (0036/0037):
+// windowed by the ORIGINAL factura's date (OriginalInvoiceDateKey — never
+// NULL; unlinked lines fall back to the devolución's own date) and converted
+// to USD at that factura date's rate (returnsUsdConversionJoin). Ventas
+// netas = ventas brutas − devoluciones por fecha de factura. A devolución
+// issued in the window for a factura from before 2025 is therefore not part
+// of this tab (it restates a period the tab doesn't cover).
+const RETURNS_DATE_WINDOW = 'AND frl.OriginalInvoiceDateKey BETWEEN 20250101 AND 20260228';
 
 function monthlyQuery(): string {
   return `
@@ -43,12 +46,12 @@ function monthlyQuery(): string {
       ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
-         JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
+         JOIN dim.Dim_Date dr ON dr.DateKey = frl.OriginalInvoiceDateKey
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsBs,
       (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns_Legacy frl
-         JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
-         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         JOIN dim.Dim_Date dr ON dr.DateKey = frl.OriginalInvoiceDateKey
+         ${returnsUsdConversionJoin('frl', 'frfx')}
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
@@ -80,7 +83,7 @@ function clienteQuery(monthFilter: string, salesRepFilter: string, returnsMonthF
       (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns_Legacy frl
          
-         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         ${returnsUsdConversionJoin('frl', 'frfx')}
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND frl.CustomerLegacyKey = c.CustomerLegacyKey ${returnsMonthFilter} ${returnsSalesRepFilter}) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
@@ -105,7 +108,7 @@ function lineaQuery(): string {
       (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns_Legacy frl
          JOIN dim.Dim_Product_Legacy pr ON pr.ProductLegacyKey = frl.ProductLegacyKey
-         ${usdConversionJoin('frl', 'DateKey', 'frfx')}
+         ${returnsUsdConversionJoin('frl', 'frfx')}
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND ISNULL(pr.LineCode, 'SIN_LINEA') = ISNULL(p.LineCode, 'SIN_LINEA')) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
     ${usdConversionJoin('fsl')}
@@ -147,7 +150,7 @@ const KPIS_QUERY = `
 const RETURNS_KPI_QUERY = `
   SELECT ${dualAmountExpr('frl', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
   FROM fact.Fact_Returns_Legacy frl
-  ${usdConversionJoin('frl')}
+  ${returnsUsdConversionJoin('frl')}
   WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW}
 `;
 
@@ -240,7 +243,7 @@ export async function GET(request: NextRequest) {
         }
         req.input('month', month);
         monthFilter = 'AND d.YearMonth = @month';
-        returnsMonthFilter = buildDateWhereClause(`month:${month}`, 'frl');
+        returnsMonthFilter = buildReturnsDateWhereClause(`month:${month}`, 'frl');
       }
       let salesRepFilter = '';
       let returnsSalesRepFilter = '';

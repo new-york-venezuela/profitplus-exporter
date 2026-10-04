@@ -47,9 +47,9 @@ function DisclaimerBanner() {
         las cifras de 2026 en adelante.
       </p>
       <p className="mt-2">
-        Ventas brutas sin IVA y antes de devoluciones. Las devoluciones de este período no están enlazadas a su
-        factura original, así que aquí se restan por <strong>fecha de devolución</strong> (en el resto de
-        Analítica se restan por fecha de la factura).
+        Ventas brutas sin IVA y antes de devoluciones. Las devoluciones se restan por <strong>fecha de la factura
+        original</strong>, igual que en el resto de Analítica (una devolución sin factura identificable se
+        cuenta en su propia fecha). Las devoluciones de facturas anteriores a enero 2025 no se incluyen.
       </p>
     </div>
   );
@@ -253,7 +253,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
       key: 'returns',
       label: 'Devoluciones',
       align: 'right',
-      title: 'Por fecha de devolución (sin enlace a la factura en los datos del sistema anterior).',
+      title: 'Por fecha de la factura original; convertidas a USD con la tasa de esa fecha.',
       format: row => moneyLabel(row.returns, currency),
     },
     {

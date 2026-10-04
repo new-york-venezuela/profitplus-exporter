@@ -125,8 +125,7 @@ export function dualAmountExpr(factAlias: string, column: string, bsAlias: strin
  *                    views that report returns as an event of the period
  *                    (Devoluciones tab, standalone return rates).
  * OriginalInvoiceDateKey is never NULL after 0036 (unlinked lines fall back
- * to DateKey). The legacy table fact.Fact_Returns_Legacy has no such column
- * and always uses DateKey.
+ * to DateKey). fact.Fact_Returns_Legacy has the same column since 0037.
  */
 export type ReturnsBasis = 'factura' | 'devolucion';
 

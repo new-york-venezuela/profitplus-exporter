@@ -111,6 +111,19 @@ describe('0034_legacy_2025_schema migration', () => {
     expect(referencedTables).not.toContain('Dim_SalesRep');
   });
 
+  test('0037 adds the original-factura link columns to Fact_Returns_Legacy', async () => {
+    const result = await pool.request().query(`
+      SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'fact' AND TABLE_NAME = 'Fact_Returns_Legacy'
+    `);
+    const columns = result.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME);
+    expect(columns).toEqual(expect.arrayContaining([
+      'OriginalInvoiceNumber', 'OriginalInvoiceLineNumber', 'OriginalInvoiceDateKey', 'HasInvoiceLink',
+    ]));
+    const hasLink = result.recordset.find((r: { COLUMN_NAME: string }) => r.COLUMN_NAME === 'HasInvoiceLink');
+    expect(hasLink.IS_NULLABLE).toBe('NO');
+  });
+
   test('migration is re-runnable without error', async () => {
     await expect(runDwhMigrations()).resolves.toBeDefined();
   });

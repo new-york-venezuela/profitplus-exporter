@@ -152,8 +152,8 @@ export async function loadDimSalesRepLegacy(legacyPool: sql.ConnectionPool, dwhP
   return count;
 }
 
-// Mirrors migrations/dwh/0009_fact_sales.sql's Load_Fact_Sales column
-// mapping exactly, against the legacy connection and legacy dimensions
+// Mirrors dwh.Load_Fact_Sales (migrations/dwh/0036: NetAmount nets
+// monto_desc_glob) column mapping exactly, against the legacy connection and legacy dimensions
 // instead of Ncake_a/current dimensions. No MERGE/watermark logic (see
 // Task 3's design notes) — a one-time INSERT into an empty table.
 export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
@@ -165,12 +165,12 @@ export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPoo
         r.reng_num AS LineNumber, r.doc_num AS InvoiceNumber, r.co_art AS ProductCode,
         r.total_art AS QuantitySold,
         ISNULL(r.monto_desc, 0) + ISNULL(r.monto_desc_glob, 0) AS DiscountAmount,
-        r.reng_neto AS NetAmount,
+        r.reng_neto - ISNULL(r.monto_desc_glob, 0) AS NetAmount,
         f.co_cli AS CustomerCode, f.co_ven AS SalesRepCode, f.tasa AS DocumentExchangeRate,
-        CONVERT(int, FORMAT(f.fec_emis, 'yyyyMMdd')) AS DateKey,
+        CONVERT(int, CONVERT(char(8), f.fec_emis, 112)) AS DateKey,
         ISNULL(f.anulado, 0) AS IsVoided
-      FROM dbo.saFacturaVentaReng r
-      INNER JOIN dbo.saFacturaVenta f ON f.doc_num = r.doc_num
+      FROM dbo.saFacturaVenta f
+      INNER JOIN dbo.saFacturaVentaReng r ON r.doc_num = f.doc_num
       WHERE f.fec_emis >= @startDate AND f.fec_emis < DATEADD(day, 1, @endDate)
     `);
 
@@ -220,23 +220,55 @@ export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPoo
   return count;
 }
 
-// Mirrors migrations/dwh/0010_fact_returns.sql's Load_Fact_Returns column
-// mapping, same legacy-only resolution as loadFactSalesLegacy above.
+// Mirrors dwh.Load_Fact_Returns (migrations/dwh/0036: global-discount-netted
+// NetAmount + original-factura link), same legacy-only resolution as
+// loadFactSalesLegacy above.
 export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
   const result = await legacyPool.request()
     .input('startDate', sql.Date, IMPORT_START_DATE)
     .input('endDate', sql.Date, IMPORT_END_DATE)
     .query(`
+      -- Window the devoluciones FIRST (a derived table over the devolución
+      -- header date), and only then look up each line's original factura —
+      -- so the factura lookups run for the ~14 months of returns in scope,
+      -- never for the whole devolución history. The factura side is a key
+      -- lookup (rowguid / doc_num), not a date scan, so a factura older than
+      -- the window still resolves (its date is what excludes it from the
+      -- Histórico tab).
       SELECT
-        r.reng_num AS LineNumber, r.doc_num AS CreditNoteNumber, r.co_art AS ProductCode,
-        r.total_art AS QuantityReturned,
-        r.reng_neto AS NetAmount,
-        d.co_cli AS CustomerCode, d.co_ven AS SalesRepCode, d.tasa AS DocumentExchangeRate,
-        CONVERT(int, FORMAT(d.fec_emis, 'yyyyMMdd')) AS DateKey,
-        ISNULL(d.anulado, 0) AS IsVoided
-      FROM dbo.saDevolucionClienteReng r
-      INNER JOIN dbo.saDevolucionCliente d ON d.doc_num = r.doc_num
-      WHERE d.fec_emis >= @startDate AND d.fec_emis < DATEADD(day, 1, @endDate)
+        w.reng_num AS LineNumber, w.doc_num AS CreditNoteNumber, w.co_art AS ProductCode,
+        w.total_art AS QuantityReturned,
+        w.reng_neto - ISNULL(w.monto_desc_glob, 0) AS NetAmount,
+        w.co_cli AS CustomerCode, w.co_ven AS SalesRepCode, w.tasa AS DocumentExchangeRate,
+        CONVERT(int, CONVERT(char(8), w.fec_emis, 112)) AS DateKey,
+        ISNULL(w.anulado, 0) AS IsVoided,
+        COALESCE(byLine.doc_num, byDoc.doc_num) AS OriginalInvoiceNumber,
+        byLine.reng_num AS OriginalInvoiceLineNumber,
+        CONVERT(int, CONVERT(char(8), COALESCE(byLine.fec_emis, byDoc.fec_emis), 112)) AS OriginalInvoiceDateKey
+      FROM (
+        SELECT
+          r.reng_num, r.doc_num, r.co_art, r.total_art, r.reng_neto, r.monto_desc_glob,
+          r.rowguid_doc, r.tipo_doc, r.num_doc,
+          d.co_cli, d.co_ven, d.tasa, d.fec_emis, d.anulado
+        FROM dbo.saDevolucionCliente d
+        INNER JOIN dbo.saDevolucionClienteReng r ON r.doc_num = d.doc_num
+        WHERE d.fec_emis >= @startDate AND d.fec_emis < DATEADD(day, 1, @endDate)
+      ) w
+      -- (a) exact factura line via rowguid_doc — same resolution as dwh.Load_Fact_Returns (0036)
+      OUTER APPLY (
+        SELECT TOP 1 fv.doc_num, fvr.reng_num, fv.fec_emis
+        FROM dbo.saFacturaVentaReng fvr
+        INNER JOIN dbo.saFacturaVenta fv ON fv.doc_num = fvr.doc_num
+        WHERE fvr.rowguid = w.rowguid_doc
+      ) byLine
+      -- (b) fallback: factura header by num_doc
+      OUTER APPLY (
+        SELECT TOP 1 fv.doc_num, fv.fec_emis
+        FROM dbo.saFacturaVenta fv
+        WHERE byLine.doc_num IS NULL
+          AND RTRIM(w.tipo_doc) = 'FACT'
+          AND fv.doc_num = w.num_doc
+      ) byDoc
     `);
 
   const customerKeys = await dwhPool.request().query(`SELECT CustomerLegacyKey, RTRIM(CustomerCode) AS CustomerCode FROM dim.Dim_Customer_Legacy`);
@@ -251,10 +283,15 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
     LineNumber: number; CreditNoteNumber: string; ProductCode: string; QuantityReturned: number;
     NetAmount: number; CustomerCode: string; SalesRepCode: string | null;
     DocumentExchangeRate: number | null; DateKey: number; IsVoided: boolean;
+    OriginalInvoiceNumber: string | null; OriginalInvoiceLineNumber: number | null; OriginalInvoiceDateKey: number | null;
   }[]) {
     const customerLegacyKey = customerKeyByCode.get(row.CustomerCode.trim());
     const productLegacyKey = productKeyByCode.get(row.ProductCode.trim());
     if (customerLegacyKey === undefined || productLegacyKey === undefined) continue;
+    // Same fallback as 0036: no resolvable factura -> attribute to the
+    // devolución's own date and flag HasInvoiceLink = 0.
+    const hasInvoiceLink = row.OriginalInvoiceDateKey !== null;
+    const originalInvoiceDateKey = row.OriginalInvoiceDateKey ?? row.DateKey;
     const salesRepLegacyKey = row.SalesRepCode ? salesRepKeyByCode.get(row.SalesRepCode.trim()) ?? null : null;
 
     await dwhPool.request()
@@ -268,14 +305,20 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
       .input('netAmount', sql.Decimal(18, 2), row.NetAmount)
       .input('documentExchangeRate', sql.Decimal(21, 8), row.DocumentExchangeRate)
       .input('isVoided', sql.Bit, row.IsVoided)
+      .input('originalInvoiceNumber', sql.Char(20), row.OriginalInvoiceNumber)
+      .input('originalInvoiceLineNumber', sql.Int, row.OriginalInvoiceLineNumber)
+      .input('originalInvoiceDateKey', sql.Int, originalInvoiceDateKey)
+      .input('hasInvoiceLink', sql.Bit, hasInvoiceLink)
       .query(`
         INSERT INTO fact.Fact_Returns_Legacy (
           DateKey, CustomerLegacyKey, ProductLegacyKey, SalesRepLegacyKey,
-          CreditNoteNumber, LineNumber, QuantityReturned, NetAmount, DocumentExchangeRate, IsVoided
+          CreditNoteNumber, LineNumber, QuantityReturned, NetAmount, DocumentExchangeRate, IsVoided,
+          OriginalInvoiceNumber, OriginalInvoiceLineNumber, OriginalInvoiceDateKey, HasInvoiceLink
         )
         VALUES (
           @dateKey, @customerLegacyKey, @productLegacyKey, @salesRepLegacyKey,
-          @creditNoteNumber, @lineNumber, @quantityReturned, @netAmount, @documentExchangeRate, @isVoided
+          @creditNoteNumber, @lineNumber, @quantityReturned, @netAmount, @documentExchangeRate, @isVoided,
+          @originalInvoiceNumber, @originalInvoiceLineNumber, @originalInvoiceDateKey, @hasInvoiceLink
         )
       `);
     count++;
