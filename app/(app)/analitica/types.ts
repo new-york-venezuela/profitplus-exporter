@@ -741,3 +741,21 @@ export interface CoberturaResponse {
   windowStartDateKey: number;
   lapsedAfterDays: number;
 }
+
+// Devoluciones tab headline KPIs (section=kpis). Same basis as the tab's own
+// tables: returns by devolución date, rates against ventas brutas of the same range.
+export interface DevolucionesKpis {
+  returnsNet: DualAmount;
+  returnRate: number | null; // returns ÷ ventas brutas, BS side
+  unitsReturned: number;
+  unitsReturnRate: number | null; // unitsReturned ÷ unitsSold
+  creditNotes: number;
+  avgCreditNote: DualAmount | null;
+  topProduct: { name: string; amount: DualAmount } | null;
+  topCustomer: { name: string; amount: DualAmount } | null; // by Entidad
+  topSellerByRate: { name: string; rate: number; amount: DualAmount } | null;
+}
+
+export interface DevolucionesKpisResponse {
+  kpis: DevolucionesKpis;
+}
