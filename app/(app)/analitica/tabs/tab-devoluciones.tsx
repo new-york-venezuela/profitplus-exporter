@@ -322,7 +322,11 @@ export default function TabDevoluciones({
     <div className="p-6 max-w-7xl space-y-8">
       <div>
         <h2 className="text-lg font-bold text-gray-900">Devoluciones</h2>
-        <p className="text-sm text-gray-500">Matriz de devoluciones y tasa de devolución (devoluciones / ventas)</p>
+        <p className="text-sm text-gray-500">
+          Devoluciones sin IVA <strong>por fecha de devolución</strong> (fecha de la nota de crédito) y tasa de devolución
+          (devoluciones del período ÷ ventas brutas del período, incluida la consignación). En Ventas, Resumen y las
+          columnas de ventas netas, las devoluciones se restan por fecha de la factura original.
+        </p>
       </div>
 
       {/* Por vendedor */}

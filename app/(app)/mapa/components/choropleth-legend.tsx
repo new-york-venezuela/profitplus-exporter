@@ -17,6 +17,7 @@ export function ChoroplethLegend({ scale }: { scale: Scale }) {
         ))}
       </ul>
       <p className="mt-1 text-gray-500">Clientes según los filtros activos</p>
+      <p className="mt-1 max-w-48 text-gray-500">Ventas brutas sin IVA, antes de devoluciones, solo clientes activos del ERP: no coincide con los totales de Analítica.</p>
     </div>
   );
 }

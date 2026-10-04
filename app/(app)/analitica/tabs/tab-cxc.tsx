@@ -273,7 +273,7 @@ export default function TabCxc({ currency }: { dateRange: DateRange; currency: C
       {/* DSO trend */}
       <ChartCard
         title="Tendencia de DSO (Days Sales Outstanding)"
-        subtitle="Saldo de cartera al cierre de cada mes con snapshot / ventas netas de los 90 días previos × 90"
+        subtitle="Saldo de cartera (con IVA) al cierre de cada mes con snapshot ÷ ventas con IVA menos devoluciones con IVA de los 90 días previos × 90. En Bs, por lo que la inflación del período puede sesgarlo."
       >
         {data.dsoTrend.filter(d => d.dso !== null).length === 0 ? (
           <EmptyState message="Se necesita más de un snapshot de cuentas por cobrar (fact.Fact_AR_Snapshot) para trazar una tendencia." />

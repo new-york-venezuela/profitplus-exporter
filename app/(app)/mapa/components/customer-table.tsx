@@ -25,10 +25,10 @@ export function CustomerTable({ customers, onSelect, onChangeSeller }: { custome
     });
   }, [customers, sort]);
 
-  function header(key: SortKey, label: string) {
+  function header(key: SortKey, label: string, title?: string) {
     const active = sort.key === key;
     return (
-      <th scope="col" aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+      <th scope="col" title={title} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
         <button type="button" className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" onClick={() => setSort(s => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}>
           {label}{active ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
         </button>
@@ -43,7 +43,7 @@ export function CustomerTable({ customers, onSelect, onChangeSeller }: { custome
           <tr>
             {header('name', 'Cliente')}
             {header('seller', 'Vendedor')}
-            {header('revenueUsd', 'Ingresos (USD)')}
+            {header('revenueUsd', 'Ingresos (USD)', 'Ventas brutas del período: sin IVA, sin anuladas, antes de devoluciones. Por código de tienda; el segmento A/B/C se calcula por tienda, no por entidad como en Analítica.')}
             {header('pareto', 'Segmento')}
             <th scope="col" className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Zona</th>
             <th scope="col" className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Ubicación</th>

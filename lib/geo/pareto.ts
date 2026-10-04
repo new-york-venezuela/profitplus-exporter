@@ -1,8 +1,10 @@
 import { PARETO_THRESHOLDS, type Pareto } from './types';
 
-// Mirrors app/api/dwh/clientes/route.ts so a customer has the same segment
-// on /analitica and on /mapa: rank by period net sales (BS) descending,
-// bucket by the cumulative share INCLUDING the row itself.
+// Same thresholds and rule as app/api/dwh/clientes/route.ts: rank by period
+// ventas brutas (BS, sin IVA, before returns) descending, bucket by the
+// cumulative share INCLUDING the row itself. NOT always the same segment as
+// /analitica: the map ranks per tienda code (ERP-active customers only),
+// while the Clientes tab defaults to the legal-entity grain.
 export function assignPareto(rows: { coCli: string; revenueBs: number }[]): Map<string, Pareto> {
   const ranked = rows.filter(r => r.revenueBs > 0).sort((a, b) => b.revenueBs - a.revenueBs);
   const total = ranked.reduce((s, r) => s + r.revenueBs, 0);

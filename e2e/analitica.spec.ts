@@ -116,7 +116,7 @@ test.describe('analitica @mssql', () => {
     await expect(margenCard.getByText('Margen Operativo', { exact: true }).and(adminPage.locator('p'))).toBeVisible();
     await expect(margenCard.getByText('Intereses', { exact: true })).toBeVisible();
     await expect(margenCard.getByText('Impuestos', { exact: true })).toBeVisible();
-    await expect(margenCard.getByText('Utilidad neta', { exact: true })).toBeVisible();
+    await expect(margenCard.getByText('Resultado después de intereses e impuestos', { exact: true })).toBeVisible();
 
     // The D&A/cost-center caveat tooltip lives on the card's info icon.
     await expect(adminPage.locator('[title*="depreciación"]').first()).toBeVisible();

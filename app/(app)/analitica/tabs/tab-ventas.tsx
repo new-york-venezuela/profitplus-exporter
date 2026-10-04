@@ -391,7 +391,7 @@ export default function TabVentas({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [dateRange]);
 
   useEffect(() => {

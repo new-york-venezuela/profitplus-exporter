@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { getUsdRate, buildDateWhereClause, getDimensionSpec, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
-import type { FinanzasResponse, ExpenseCategoryRow, MargenProxy } from '@/app/(app)/analitica/types';
+import { buildDateWhereClause, buildReturnsDateWhereClause, getDimensionSpec, jsonWithCache, usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
+import type { FinanzasResponse, ExpenseCategoryRow } from '@/app/(app)/analitica/types';
 import { computeMargenProxy } from './margen-proxy';
 
 export const dynamic = 'force-dynamic';
@@ -11,38 +11,63 @@ export const dynamic = 'force-dynamic';
 // migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM
 // gymnastics needed here, that work already happened at load time.
 
-// Ingresos Netos for Margen Operativo: Fact_Sales.NetAmount minus
-// Fact_Returns.NetAmount. Mirrors app/api/dwh/devoluciones/route.ts's
-// existing Fact_Returns query shape (SUM(fr.NetAmount), fr.IsVoided = 0).
-function salesGrossQuery(dateWhere: string): string {
+// Every amount below is returned in the REQUESTED currency. For 'usd' each
+// row is converted at its own date's Fact_ExchangeRate.RateSell before
+// summing (same historical-rate rule as every other Analítica tab), not
+// the summed BS total divided by today's rate. Rows dated before the first
+// USD rate in the DWH (2026-03-16 on this installation; Fact_CashMovements
+// goes back years) have no rate: they are left out of the USD sums and
+// their BS total is reported as usdUnconvertedBs so the UI can say so.
+type AmountCurrency = 'bs' | 'usd';
+
+function sumAmount(column: string, currency: AmountCurrency, fxAlias: string): string {
+  return currency === 'usd' ? `SUM(${column} / NULLIF(${fxAlias}.RateSell, 0))` : `SUM(${column})`;
+}
+
+function missingRate(column: string, currency: AmountCurrency, fxAlias: string): string {
+  return currency === 'usd' ? `SUM(CASE WHEN ${fxAlias}.RateSell IS NULL THEN ${column} ELSE 0 END)` : '0';
+}
+
+function fxJoin(alias: string, currency: AmountCurrency, fxAlias: string, column: string = 'DateKey'): string {
+  return currency === 'usd' ? usdConversionJoin(alias, column, fxAlias) : '';
+}
+
+// Ingresos operativos = ventas brutas − devoluciones (Fact_Sales.NetAmount −
+// Fact_Returns.NetAmount), i.e. the same "Ventas netas" as the Ventas tab:
+// devoluciones attributed to the ORIGINAL factura's date and, in USD,
+// converted at that factura's rate.
+function salesGrossQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
-    SELECT ISNULL(SUM(fs.NetAmount), 0) AS SalesGross
+    SELECT ISNULL(${sumAmount('fs.NetAmount', currency, 'fx')}, 0) AS SalesGross,
+           ISNULL(${missingRate('fs.NetAmount', currency, 'fx')}, 0) AS MissingBs
     FROM fact.Fact_Sales fs
+    ${fxJoin('fs', currency, 'fx')}
     WHERE fs.IsVoided = 0 ${dateWhere}
   `;
 }
 
-function returnsNetQuery(dateWhere: string): string {
+function returnsNetQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
-    SELECT ISNULL(SUM(fr.NetAmount), 0) AS ReturnsNet
+    SELECT ISNULL(${sumAmount('fr.NetAmount', currency, 'fx')}, 0) AS ReturnsNet,
+           ISNULL(${missingRate('fr.NetAmount', currency, 'fx')}, 0) AS MissingBs
     FROM fact.Fact_Returns fr
+    ${fxJoin('fr', currency, 'fx', 'OriginalInvoiceDateKey')}
     WHERE fr.IsVoided = 0 ${dateWhere}
   `;
 }
 
-// Gastos Operativos by category, now sourced from the durable
-// dwh.vw_GastosOperativos view (0026_gastos_operativos_view.sql) instead of
-// hand-assembling the Fact_Purchases + Fact_CashMovements union here — the
-// view is the single place "what counts as a real operating expense" is
-// defined, so this query has no business-rule logic of its own beyond the
-// date filter. The view has no fact-table alias of its own (it's a UNION
-// ALL of two differently-aliased sources internally), so it's given the
-// alias 'v' here — the caller must build dateWhere with buildDateWhereClause(dateRange, 'v'),
-// not 'fe' or 'fp'.
-function expenseCategoryQuery(dateWhere: string): string {
+// Gastos Operativos by category, sourced from the durable
+// dwh.vw_GastosOperativos view (0026_gastos_operativos_view.sql) — the view
+// is the single place "what counts as a real operating expense" is defined,
+// so this query has no business-rule logic of its own beyond the date filter.
+// The view is aliased 'v' here — the caller must build dateWhere with
+// buildDateWhereClause(dateRange, 'v').
+function expenseCategoryQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
-    SELECT v.Category, SUM(v.Amount) AS TotalAmount
+    SELECT v.Category, ${sumAmount('v.Amount', currency, 'fx')} AS TotalAmount,
+           ${missingRate('v.Amount', currency, 'fx')} AS MissingBs
     FROM dwh.vw_GastosOperativos v
+    ${fxJoin('v', currency, 'fx')}
     WHERE 1 = 1 ${dateWhere}
     GROUP BY v.Category
     ORDER BY TotalAmount DESC
@@ -52,12 +77,13 @@ function expenseCategoryQuery(dateWhere: string): string {
 // Intereses/Impuestos, kept separate from Gastos Operativos so Margen
 // Operativo can exclude them per definition. These never appear in
 // dwh.vw_GastosOperativos (the view's WHERE clause already excludes
-// IsExcludedFromEbitda = 1 rows), so this stays a direct Fact_CashMovements
-// query, unchanged from before.
-function excludedExpenseQuery(dateWhere: string): string {
+// IsExcludedFromEbitda = 1 rows), so this stays a direct Fact_CashMovements query.
+function excludedExpenseQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
-    SELECT ec.Category, SUM(fe.Amount) AS TotalAmount
+    SELECT ec.Category, ${sumAmount('fe.Amount', currency, 'fx')} AS TotalAmount,
+           ${missingRate('fe.Amount', currency, 'fx')} AS MissingBs
     FROM fact.Fact_CashMovements fe
+    ${fxJoin('fe', currency, 'fx')}
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
     WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.IsExcludedFromEbitda = 1 ${dateWhere}
     GROUP BY ec.Category
@@ -69,10 +95,11 @@ function excludedExpenseQuery(dateWhere: string): string {
 // Otros, Comisiones — every Gastos Operativos category except Compras).
 // CostCenter is only ever non-NULL for Category = 'Nomina' concepts (see
 // 0024_nomina_cost_center.sql).
-function conceptBreakdownQuery(dateWhere: string): string {
+function conceptBreakdownQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
-    SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, SUM(fe.Amount) AS Amount, ec.CostCenter AS CostCenter
+    SELECT TOP 15 ec.ConceptName AS GroupLabel, ec.ConceptCode AS GroupValue, ${sumAmount('fe.Amount', currency, 'fx')} AS Amount, ec.CostCenter AS CostCenter
     FROM fact.Fact_CashMovements fe
+    ${fxJoin('fe', currency, 'fx')}
     JOIN dim.Dim_ExpenseConcept ec ON ec.ExpenseConceptKey = fe.ExpenseConceptKey
     WHERE fe.IsVoided = 0 AND ec.ConceptType = 'Gasto' AND ec.Category = @category ${dateWhere}
     GROUP BY ec.ConceptName, ec.ConceptCode, ec.CostCenter
@@ -85,11 +112,12 @@ function conceptBreakdownQuery(dateWhere: string): string {
 // bank-movement ConceptCode), so it drills into supplier instead, reusing
 // the same getDimensionSpec('proveedor') mechanism app/api/dwh/compras/
 // route.ts's own proveedorQuery already uses.
-function comprasSupplierBreakdownQuery(dateWhere: string): string {
+function comprasSupplierBreakdownQuery(dateWhere: string, currency: AmountCurrency): string {
   const spec = getDimensionSpec('proveedor');
   return `
-    SELECT TOP 15 ${spec.labelExpr} AS GroupLabel, ${spec.valueExpr} AS GroupValue, SUM(fp.NetAmount) AS Amount
+    SELECT TOP 15 ${spec.labelExpr} AS GroupLabel, ${spec.valueExpr} AS GroupValue, ${sumAmount('fp.NetAmount', currency, 'fx')} AS Amount
     FROM fact.Fact_Purchases fp
+    ${fxJoin('fp', currency, 'fx')}
     ${spec.joinClause.replace(/\bf\b/g, 'fp')}
     WHERE fp.IsVoided = 0 ${dateWhere}
     GROUP BY ${spec.groupByColumn.replace(/\bf\b/g, 'fp')}
@@ -103,7 +131,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const currency = searchParams.get('currency') ?? 'bs';
+  const currency: AmountCurrency = searchParams.get('currency') === 'usd' ? 'usd' : 'bs';
   const breakdownByParam = searchParams.get('breakdownBy');
   const parentValue = searchParams.get('parentValue');
 
@@ -111,7 +139,7 @@ export async function GET(request: NextRequest) {
     const pool = await getDwhPool();
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
     const expenseDateWhere = buildDateWhereClause(dateRange, 'fe');
     // dwh.vw_GastosOperativos is queried with alias 'v' (see
     // expenseCategoryQuery above) — a separate date-where from
@@ -124,14 +152,14 @@ export async function GET(request: NextRequest) {
 
     if (breakdownByParam === 'concepto' && parentValue) {
       if (parentValue === 'Compras') {
-        const result = await pool.request().query(comprasSupplierBreakdownQuery(purchasesDateWhere));
+        const result = await pool.request().query(comprasSupplierBreakdownQuery(purchasesDateWhere, currency));
         return jsonWithCache({
           breakdown: result.recordset.map(r => ({ label: r.GroupLabel, value: String(r.GroupValue), amount: Number(r.Amount) })),
         });
       }
       const req = pool.request();
       req.input('category', parentValue);
-      const result = await req.query(conceptBreakdownQuery(expenseDateWhere));
+      const result = await req.query(conceptBreakdownQuery(expenseDateWhere, currency));
       const isNomina = parentValue === 'Nomina';
       return jsonWithCache({
         breakdown: result.recordset.map(r => ({
@@ -143,17 +171,20 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [salesGrossResult, returnsNetResult, categoryResult, excludedResult, usdRate] = await Promise.all([
-      pool.request().query(salesGrossQuery(salesDateWhere)),
-      pool.request().query(returnsNetQuery(returnsDateWhere)),
-      pool.request().query(expenseCategoryQuery(gastosViewDateWhere)),
-      pool.request().query(excludedExpenseQuery(expenseDateWhere)),
-      currency === 'usd' ? getUsdRate() : Promise.resolve(null),
+    const [salesGrossResult, returnsNetResult, categoryResult, excludedResult] = await Promise.all([
+      pool.request().query(salesGrossQuery(salesDateWhere, currency)),
+      pool.request().query(returnsNetQuery(returnsDateWhere, currency)),
+      pool.request().query(expenseCategoryQuery(gastosViewDateWhere, currency)),
+      pool.request().query(excludedExpenseQuery(expenseDateWhere, currency)),
     ]);
+    const missing = (rs: { MissingBs: number | null }[]) => rs.reduce((sum, r) => sum + Number(r.MissingBs ?? 0), 0);
+    const usdUnconvertedBs = currency === 'usd'
+      ? missing(salesGrossResult.recordset) + missing(returnsNetResult.recordset) + missing(categoryResult.recordset) + missing(excludedResult.recordset)
+      : 0;
 
     const expenseBreakdown: ExpenseCategoryRow[] = categoryResult.recordset.map(r => ({
       category: String(r.Category),
-      amount: Number(r.TotalAmount),
+      amount: Number(r.TotalAmount ?? 0),
     }));
 
     const gastosOperativos = expenseBreakdown.reduce((sum, r) => sum + r.amount, 0);
@@ -190,7 +221,8 @@ export async function GET(request: NextRequest) {
       },
       margenProxy,
       expenseBreakdown,
-      usdRate,
+      currency,
+      usdUnconvertedBs,
     };
 
     return jsonWithCache(response);

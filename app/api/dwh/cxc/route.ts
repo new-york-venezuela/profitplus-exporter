@@ -153,9 +153,15 @@ function dsoForSnapshotQuery(): string {
     DECLARE @TrailingStart int = (
       SELECT CONVERT(int, FORMAT(DATEADD(day, -90, CAST(CAST(@snapshotDateKey AS varchar(8)) AS date)), 'yyyyMMdd'))
     );
+    -- Denominator on the SAME basis as the AR balance (saldo, IVA incluido):
+    -- sales WITH IVA minus returns WITH IVA (by devolución date, the date
+    -- the credit note reduces the balance) over the trailing 90 days.
     DECLARE @NetSales decimal(18,2) = (
-      SELECT ISNULL(SUM(fs.NetAmount), 0) FROM fact.Fact_Sales fs
+      SELECT ISNULL(SUM(fs.NetAmount + ISNULL(fs.TaxAmount, 0)), 0) FROM fact.Fact_Sales fs
       WHERE fs.IsVoided = 0 AND fs.DateKey >= @TrailingStart AND fs.DateKey <= @snapshotDateKey
+    ) - (
+      SELECT ISNULL(SUM(fr.NetAmount + ISNULL(fr.TaxAmount, 0)), 0) FROM fact.Fact_Returns fr
+      WHERE fr.IsVoided = 0 AND fr.DateKey >= @TrailingStart AND fr.DateKey <= @snapshotDateKey
     );
     SELECT @Balance AS Balance, @NetSales AS NetSales;
   `;

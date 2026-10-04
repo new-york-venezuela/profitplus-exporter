@@ -36,9 +36,9 @@ export interface BreakdownRow {
 // divisor — it's a literal `1` "no conversion" placeholder for BS-denominated
 // documents, not a real rate). `usd` is null only when that date has no
 // resolvable Fact_ExchangeRate row for any of the underlying rows.
-// Finanzas/Multimoneda money fields (backed by Fact_Expenses/
-// Fact_CashMovements, which have no rate column) are NOT DualAmount — they
-// remain plain `number`, out of scope.
+// Finanzas money fields are NOT DualAmount: the route returns plain numbers
+// already in the requested currency (converted per row at each row's own
+// date, see FinanzasResponse). Multimoneda's are exchange rates.
 export interface DualAmount {
   bs: number;
   usd: number | null;
@@ -472,6 +472,9 @@ export interface CashFlowEbitda {
   ebitda: number;
   intereses: number;
   impuestos: number;
+  // ebitda − intereses − impuestos (cash movements). NOT accounting net
+  // income (no COGS beyond Compras, no D&A, no income-tax accrual) — shown
+  // as "Resultado después de intereses e impuestos".
   utilidadNeta: number;
 }
 
@@ -479,7 +482,11 @@ export interface FinanzasResponse {
   cashFlowEbitda: CashFlowEbitda;
   margenProxy: MargenProxy;
   expenseBreakdown: ExpenseCategoryRow[];
-  usdRate: number | null;
+  // Every amount in this response is in `currency`. USD is converted per row
+  // at its own date's rate; rows with no rate (before the DWH's first USD
+  // rate) are left out of the USD sums and their BS total is reported here.
+  currency: Currency;
+  usdUnconvertedBs: number;
 }
 
 // Multimoneda tab

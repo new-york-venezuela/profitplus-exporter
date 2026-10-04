@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, usdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, returnsUsdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import type { DevolucionesResponse, DevolucionesMatrixCell, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
+// This tab reports devoluciones as events of the period: windowed by the
+// devolución's own date (Fact_Returns.DateKey), not the original factura's
+// (that basis is used wherever returns are netted against sales, e.g. Ventas
+// netas). USD converts at the original factura's rate. The tasa denominator
+// is ventas brutas of the same group in the same range.
+//
 // All queries here read from the pre-aggregated dwh/dim/fact schema in
 // DWH_AlimentosNY (see migrations/dwh/), not the raw Profit Plus ERP —
 // so no COLLATE/RTRIM gymnastics are needed here, that work already
@@ -35,7 +41,7 @@ function salesRepMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
          FROM fact.Fact_Sales fs
          WHERE fs.SalesRepKey = fr.SalesRepKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesGrossBs
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     LEFT JOIN dim.Dim_SalesRep r ON r.SalesRepKey = fr.SalesRepKey
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY fr.SalesRepKey, ISNULL(r.SalesRepName, ISNULL(r.SalesRepCode, 'Sin vendedor'))
@@ -52,7 +58,7 @@ function productoMatrixQuery(returnsDateWhere: string, salesDateWhere: string): 
          FROM fact.Fact_Sales fs
          WHERE fs.ProductKey = fr.ProductKey AND fs.IsVoided = 0 ${salesDateWhere}) AS SalesGrossBs
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY fr.ProductKey, ISNULL(p.ProductName, p.ProductCode)
@@ -74,7 +80,7 @@ function clienteMatrixQuery(dimension: Dimension, returnsDateWhere: string, sale
          WHERE fs2.IsVoided = 0 ${salesDateWhere} AND ${condition}
       ) AS SalesGrossBs
     FROM fact.Fact_Returns fr
-    ${usdConversionJoin('fr')}
+    ${returnsUsdConversionJoin('fr')}
     ${spec.joinClause.replace(/\bf\b/g, 'fr')}
     WHERE fr.IsVoided = 0 ${returnsDateWhere}
     GROUP BY ${spec.groupByColumn}
@@ -151,7 +157,7 @@ export async function GET(request: NextRequest) {
       const result = await req.query(`
         SELECT TOP 15 ${breakdownSpec.valueExpr} AS GroupValue, ${breakdownSpec.labelExpr} AS GroupLabel, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd')}
         FROM fact.Fact_Returns fr
-        ${usdConversionJoin('fr')}
+        ${returnsUsdConversionJoin('fr')}
         ${breakdownSpec.joinClause.replace(/\bf\b/g, 'fr')}
         ${parentSpec.joinClause.replace(/\bf\b/g, 'fr')}
         WHERE fr.IsVoided = 0 AND ${parentSpec.valueExpr.replace(/\bf\b/g, 'fr')} = @parentValue ${returnsDateWhere}

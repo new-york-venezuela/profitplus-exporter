@@ -14,7 +14,9 @@ function trendQuery(dateWhere: string): string {
     FROM fact.Fact_ExchangeRate f
     JOIN dim.Dim_Date d ON d.DateKey = f.DateKey
     JOIN dim.Dim_Currency c ON c.CurrencyKey = f.CurrencyKey
-    WHERE RTRIM(c.CurrencyCode) = 'USD' ${dateWhere}
+    -- Only real quoted days: carried-forward rows (0036, weekends/holidays)
+    -- would otherwise weight the monthly average toward non-business days.
+    WHERE RTRIM(c.CurrencyCode) = 'USD' AND f.IsCarriedForward = 0 ${dateWhere}
     GROUP BY d.YearMonth
     ORDER BY d.YearMonth
   `;

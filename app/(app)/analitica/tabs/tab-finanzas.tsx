@@ -25,7 +25,7 @@ const NEGATIVE_COLOR = '#dc2626'; // red — cost / discount steps
 // cash-ledger categories for expense — see docs/superpowers/specs/
 // 2026-09-15-margen-operativo-accrual-design.md) instead of the pure
 // cash-ledger calc this tooltip used to describe.
-const MARGIN_TOOLTIP = 'Ingresos netos (ventas menos devoluciones) menos gastos operativos (compras más nómina y otros gastos desde movimientos bancarios/caja). No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
+const MARGIN_TOOLTIP = 'Ingresos netos (ventas brutas menos devoluciones por fecha de factura) menos gastos operativos (compras más nómina y otros gastos desde movimientos bancarios/caja). No aísla la nómina de producción (~93% de la nómina no tiene centro de costo identificable en el origen) ni incluye ajuste por depreciación/amortización.';
 
 const PROXY_TOOLTIP = 'Utilidad Bruta (proxy) = Ingresos operativos − Compras. Profit Plus no registra costo de producto (Fact_Sales.GrossProfitAmount siempre es NULL), así que Compras se usa como aproximación de costo directo — no es un margen bruto exacto basado en COGS real. Distinto de Margen Operativo, que resta TODOS los gastos operativos, no solo Compras.';
 
@@ -55,9 +55,9 @@ function pct(n: number | null): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
+function KpiCard({ label, value, tone, title }: { label: string; value: string; tone?: 'default' | 'warn'; title?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4" title={title}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
     </div>
@@ -92,16 +92,20 @@ interface WaterfallDatum {
   isNegative: boolean;
 }
 
+// Finanzas amounts arrive already in the requested currency (see
+// FinanzasResponse), so formatting just picks the right prefix.
+function fmtAmount(n: number, currency: Currency): string {
+  return moneyLabel({ bs: n, usd: n }, currency);
+}
+
 function WaterfallTooltip({
   active,
   payload,
   currency,
-  rate,
 }: {
   active?: boolean;
   payload?: Array<{ payload: WaterfallDatum }>;
   currency: Currency;
-  rate?: number;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
@@ -109,10 +113,10 @@ function WaterfallTooltip({
     <div className="bg-white border border-gray-200 rounded shadow-sm px-3 py-2 text-xs">
       <p className="font-semibold text-gray-900 mb-1">{d.step}</p>
       <p className="text-gray-600">
-        Monto: <span className="font-medium text-gray-900">{moneyLabel({ bs: d.amount, usd: rate ? d.amount / rate : null }, currency)}</span>
+        Monto: <span className="font-medium text-gray-900">{fmtAmount(d.amount, currency)}</span>
       </p>
       <p className="text-gray-600">
-        Acumulado: <span className="font-medium text-gray-900">{moneyLabel({ bs: d.cumulative, usd: rate ? d.cumulative / rate : null }, currency)}</span>
+        Acumulado: <span className="font-medium text-gray-900">{fmtAmount(d.cumulative, currency)}</span>
       </p>
     </div>
   );
@@ -172,7 +176,11 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
     );
   }
 
-  const rate = data.usdRate ?? undefined;
+  // The response is for the currency it was fetched with; while a refetch for
+  // a toggled currency is in flight, format with the response's own currency.
+  const amountCurrency = data.currency;
+  const fmt = (n: number) => fmtAmount(n, amountCurrency);
+  const fmtAxis = (n: number) => money({ bs: n, usd: n }, amountCurrency);
   const margenProxy = data.margenProxy;
 
   const proxyWaterfallData: WaterfallDatum[] = [
@@ -212,22 +220,32 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
   }));
 
   const categoryColumns: DrilldownColumn<CategoryTableRow>[] = [
-    { key: 'amount', label: 'Monto', align: 'right', format: row => moneyLabel({ bs: row.amount, usd: rate ? row.amount / rate : null }, currency) },
+    { key: 'amount', label: 'Monto', align: 'right', format: row => fmt(row.amount) },
   ];
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
       {/* KPI row — Utilidad Bruta (proxy) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Ingresos operativos" value={moneyLabel({ bs: margenProxy.ingresos, usd: rate ? margenProxy.ingresos / rate : null }, currency)} />
-        <KpiCard label="Compras" value={moneyLabel({ bs: margenProxy.compras, usd: rate ? margenProxy.compras / rate : null }, currency)} />
-        <KpiCard label="Utilidad bruta (proxy)" value={moneyLabel({ bs: margenProxy.utilidadBruta, usd: rate ? margenProxy.utilidadBruta / rate : null }, currency)} />
+        <KpiCard label="Ingresos operativos" value={fmt(margenProxy.ingresos)} />
+        <KpiCard label="Compras" value={fmt(margenProxy.compras)} />
+        <KpiCard label="Utilidad bruta (proxy)" value={fmt(margenProxy.utilidadBruta)} />
         <KpiCard
           label="Margen bruto (proxy)"
           value={pct(margenProxy.margenBrutoRate)}
           tone={margenProxy.margenBrutoRate !== null && margenProxy.margenBrutoRate < 0 ? 'warn' : 'default'}
         />
       </div>
+
+      <p className="text-xs text-gray-500">
+        Ingresos operativos = ventas netas: ventas brutas sin IVA − devoluciones (por fecha de la factura original).
+        {amountCurrency === 'usd' && ' USD convertido fila por fila a la tasa de su fecha.'}
+        {amountCurrency === 'usd' && data.usdUnconvertedBs > 0 && (
+          <span className="text-amber-700">
+            {' '}Bs. {money({ bs: data.usdUnconvertedBs, usd: null }, 'bs')} de movimientos anteriores a la primera tasa registrada no tienen tasa histórica y no se incluyen en USD.
+          </span>
+        )}
+      </p>
 
       <p className="text-xs text-gray-500 flex items-center gap-1">
         <span title={PROXY_TOOLTIP} className="cursor-help text-gray-400">ⓘ</span>
@@ -240,19 +258,20 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
           <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <KpiCard label="Ingresos operativos" value={moneyLabel({ bs: data.cashFlowEbitda.ingresosOperativos, usd: rate ? data.cashFlowEbitda.ingresosOperativos / rate : null }, currency)} />
-          <KpiCard label="Gastos operativos" value={moneyLabel({ bs: data.cashFlowEbitda.gastosOperativos, usd: rate ? data.cashFlowEbitda.gastosOperativos / rate : null }, currency)} />
-          <KpiCard label="Margen Operativo" value={moneyLabel({ bs: data.cashFlowEbitda.ebitda, usd: rate ? data.cashFlowEbitda.ebitda / rate : null }, currency)} />
+          <KpiCard label="Ingresos operativos" value={fmt(data.cashFlowEbitda.ingresosOperativos)} />
+          <KpiCard label="Gastos operativos" value={fmt(data.cashFlowEbitda.gastosOperativos)} />
+          <KpiCard label="Margen Operativo" value={fmt(data.cashFlowEbitda.ebitda)} />
           <KpiCard
             label="Margen Operativo %"
             value={pct(margenProxy.margenOperativoRate)}
             tone={margenProxy.margenOperativoRate !== null && margenProxy.margenOperativoRate < 0 ? 'warn' : 'default'}
           />
-          <KpiCard label="Intereses" value={moneyLabel({ bs: data.cashFlowEbitda.intereses, usd: rate ? data.cashFlowEbitda.intereses / rate : null }, currency)} />
-          <KpiCard label="Impuestos" value={moneyLabel({ bs: data.cashFlowEbitda.impuestos, usd: rate ? data.cashFlowEbitda.impuestos / rate : null }, currency)} />
+          <KpiCard label="Intereses" value={fmt(data.cashFlowEbitda.intereses)} />
+          <KpiCard label="Impuestos" value={fmt(data.cashFlowEbitda.impuestos)} />
           <KpiCard
-            label="Utilidad neta"
-            value={moneyLabel({ bs: data.cashFlowEbitda.utilidadNeta, usd: rate ? data.cashFlowEbitda.utilidadNeta / rate : null }, currency)}
+            label="Resultado después de intereses e impuestos"
+            title="Margen Operativo − Intereses − Impuestos (movimientos de caja). No es la utilidad neta contable: no incluye costo de ventas real, depreciación ni impuesto sobre la renta causado."
+            value={fmt(data.cashFlowEbitda.utilidadNeta)}
             tone={data.cashFlowEbitda.utilidadNeta < 0 ? 'warn' : 'default'}
           />
         </div>
@@ -269,8 +288,8 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
             <BarChart data={proxyWaterfallData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="step" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: Number(v), usd: rate ? Number(v) / rate : null }, currency)} />
-              <Tooltip content={<WaterfallTooltip currency={currency} rate={rate} />} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => fmtAxis(Number(v))} />
+              <Tooltip content={<WaterfallTooltip currency={amountCurrency} />} />
               <Bar dataKey="base" stackId="waterfall" fill="transparent" isAnimationActive={false} />
               <Bar dataKey="value" stackId="waterfall" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {proxyWaterfallData.map(d => (
@@ -300,7 +319,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
             breakdownBy={categoryBreakdownBy}
             onBreakdownByChange={setCategoryBreakdownBy}
             onFetchBreakdown={parentValue => handleFetchCategoryBreakdown(parentValue)}
-            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? moneyLabel({ bs: value, usd: rate ? value / rate : null }, currency) : String(value ?? '—'))}
+            formatBreakdownMetric={(_key, value) => (typeof value === 'number' ? fmt(value) : String(value ?? '—'))}
           />
         )}
       </div>
