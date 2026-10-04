@@ -22,96 +22,97 @@ import { test, expect } from './fixtures';
 //   which also has zero cost layers but has no saStockAlmacen row at all —
 //   that fails a level earlier (never appears in the ingredient picker).
 
-function existingRecipeLink(page: import('@playwright/test').Page, coArt: string) {
-  return page.getByRole('row', { name: new RegExp(coArt) }).getByRole('link', { name: 'Editar / Costo' });
+type Page = import('@playwright/test').Page;
+
+// SearchableSelect is a text input + <li> list (not a native <select>), so pick
+// an option by typing the code and clicking the matching list item.
+async function pickFromSearchable(page: Page, inputSelector: string, coArt: string) {
+  const input = page.locator(inputSelector);
+  await input.click();
+  await input.fill(coArt);
+  await page.locator('ul li', { hasText: coArt }).first().click();
+}
+
+// Open the recipe for coArt, creating it first if a previous run didn't leave one.
+// Creating redirects straight to the editor.
+async function openOrCreateRecipe(page: Page, coArt: string) {
+  await page.goto('/recetas');
+  await expect(page.getByLabel('Crear receta para un producto')).toBeVisible({ timeout: 10_000 });
+  const row = page.getByRole('row', { name: new RegExp(coArt) });
+  if (await row.isVisible().catch(() => false)) {
+    await row.getByRole('link', { name: /Editar receta/ }).click();
+  } else {
+    await pickFromSearchable(page, '#new-recipe-article', coArt);
+    await page.getByRole('button', { name: 'Crear Receta' }).click();
+  }
+  await expect(page).toHaveURL(/\/recetas\/\d+/);
+}
+
+async function deleteRecipe(page: Page) {
+  await page.getByRole('button', { name: 'Eliminar receta' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sí, eliminar' }).click();
+  await page.waitForURL('/recetas');
 }
 
 test.describe('recetas @mssql', () => {
   test('creates a recipe, saves ERP + manual lines, and sees a live FIFO cost', async ({ adminPage }) => {
-    await adminPage.goto('/recetas');
-    // The create dropdown and the recipes table render from the same
-    // client-side load — waiting for the dropdown to appear means the
-    // table has settled too, so the row check right after it isn't racing
-    // the initial fetch (a bare .isVisible() doesn't auto-wait/retry the
-    // way expect().toBeVisible() does, so without this it can read "not
-    // visible" just because the page hasn't finished loading yet).
-    await expect(adminPage.getByLabel('Crear receta para un producto')).toBeVisible({ timeout: 10_000 });
-
-    // Create a recipe for a real finished-good article. If a previous run
-    // left this recipe behind (no delete-in-test-teardown convention in
-    // this suite — see inventory-adjustments.spec.ts), skip straight to it
-    // instead of failing on the duplicate-coArt rejection.
-    const alreadyExists = await adminPage.getByRole('row', { name: /0000005/ }).isVisible().catch(() => false);
-
-    if (!alreadyExists) {
-      await adminPage.getByLabel('Crear receta para un producto').selectOption('0000005');
-      await adminPage.getByRole('button', { name: 'Crear Receta' }).click();
-      await expect(adminPage.getByRole('row', { name: /0000005/ })).toBeVisible({ timeout: 10_000 });
-    }
-
-    await existingRecipeLink(adminPage, '0000005').click();
-    await expect(adminPage).toHaveURL(/\/recetas\/\d+/);
+    await openOrCreateRecipe(adminPage, '0000005');
 
     // Add an ERP-article line using a real raw material with known FIFO layers.
     await adminPage.getByRole('button', { name: '+ Insumo de Profit Plus' }).click();
-    await adminPage.locator('select').last().selectOption('0000083');
-    const erpQuantityInput = adminPage.locator('input[type="number"]').nth(0);
-    await erpQuantityInput.fill('0.2');
+    await pickFromSearchable(adminPage, '#line-0-item', '0000083');
+    await adminPage.locator('#line-0-qty').fill('0.2');
 
     // Add a manual line for a non-ERP ingredient (e.g. water).
     await adminPage.getByRole('button', { name: '+ Insumo manual' }).click();
     await adminPage.getByPlaceholder('Ej: Agua').fill('Agua');
-    const manualQuantityInput = adminPage.locator('input[type="number"]').nth(1);
-    await manualQuantityInput.fill('0.15');
-    const manualCostInput = adminPage.locator('input[type="number"]').nth(2);
-    await manualCostInput.fill('0.05');
+    await adminPage.locator('#line-1-qty').fill('0.15');
+    await adminPage.locator('#line-1-cost').fill('0.05');
 
     await adminPage.getByRole('button', { name: 'Guardar Receta' }).click();
+    await expect(adminPage.getByText('✓ Cambios guardados')).toBeVisible({ timeout: 10_000 });
 
     // Assert the live cost panel renders a computed USD total.
     await expect(adminPage.getByText('Costo de Fabricación (en vivo)')).toBeVisible();
-    await expect(adminPage.getByText(/^\$\d+\.\d{4}$/)).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByTestId('cost-total')).toHaveText(/^\$\d+\.\d{4}$/, { timeout: 10_000 });
 
     // Clean up: delete the recipe so subsequent runs hit the "create" branch again.
-    adminPage.once('dialog', dialog => dialog.accept());
-    await adminPage.getByRole('button', { name: 'Eliminar receta' }).click();
-    await adminPage.waitForURL('/recetas');
+    await deleteRecipe(adminPage);
+  });
+
+  test('blocks saving an invalid line and points at the field', async ({ adminPage }) => {
+    await openOrCreateRecipe(adminPage, '0000005');
+
+    await adminPage.getByRole('button', { name: '+ Insumo manual' }).click();
+    await adminPage.getByRole('button', { name: 'Guardar Receta' }).click();
+    await expect(adminPage.getByRole('alert').filter({ hasText: 'Corrige' })).toBeVisible();
+    await expect(adminPage.getByText('Escribe el nombre del insumo')).toBeVisible();
+    await expect(adminPage.getByText('Debe ser mayor que 0')).toBeVisible();
+
+    await deleteRecipe(adminPage);
   });
 
   // UX invariant (see AGENTS.md → "Recipes / Product Costing (FIFO)"): a
   // line with no purchase history must render as "Sin datos", never as a
   // silent $0.00 — and the recipe must be visibly flagged as incomplete.
   test('a no-purchase-history ingredient shows "Sin datos" and flags the recipe as incomplete, never a silent $0', async ({ adminPage }) => {
-    await adminPage.goto('/recetas');
-    await expect(adminPage.getByLabel('Crear receta para un producto')).toBeVisible({ timeout: 10_000 });
-
-    const alreadyExists = await adminPage.getByRole('row', { name: /0000001/ }).isVisible().catch(() => false);
-
-    if (!alreadyExists) {
-      await adminPage.getByLabel('Crear receta para un producto').selectOption('0000001');
-      await adminPage.getByRole('button', { name: 'Crear Receta' }).click();
-      await expect(adminPage.getByRole('row', { name: /0000001/ })).toBeVisible({ timeout: 10_000 });
-    }
-
-    await existingRecipeLink(adminPage, '0000001').click();
-    await expect(adminPage).toHaveURL(/\/recetas\/\d+/);
+    await openOrCreateRecipe(adminPage, '0000001');
 
     await adminPage.getByRole('button', { name: '+ Insumo de Profit Plus' }).click();
-    await adminPage.locator('select').last().selectOption('0000167');
-    await adminPage.locator('input[type="number"]').nth(0).fill('1');
+    await pickFromSearchable(adminPage, '#line-0-item', '0000167');
+    await adminPage.locator('#line-0-qty').fill('1');
     await adminPage.getByRole('button', { name: 'Guardar Receta' }).click();
 
     await expect(adminPage.getByText('Costo de Fabricación (en vivo)')).toBeVisible();
-    await expect(adminPage.getByText('Sin datos')).toBeVisible({ timeout: 10_000 });
+    // Shown both on the raw-material summary and the per-line breakdown.
+    await expect(adminPage.getByText('Sin datos').first()).toBeVisible({ timeout: 10_000 });
     await expect(adminPage.getByText(/incompleto o estimado/)).toBeVisible();
     // The only line is the no-data ingredient, so the total must read $0.0000
     // (nothing else contributing) — but it must never be presented as if
     // that were a real, reliable cost; the warning banner above is what
     // makes that distinction visible to the user.
-    await expect(adminPage.getByText('$0.0000')).toBeVisible();
+    await expect(adminPage.getByTestId('cost-total')).toHaveText('$0.0000');
 
-    adminPage.once('dialog', dialog => dialog.accept());
-    await adminPage.getByRole('button', { name: 'Eliminar receta' }).click();
-    await adminPage.waitForURL('/recetas');
+    await deleteRecipe(adminPage);
   });
 });
