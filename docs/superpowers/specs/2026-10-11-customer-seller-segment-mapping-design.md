@@ -74,7 +74,8 @@ classification. The correction applies from **2026-03-01**.
 ## Risks / open items
 - Rewriting posted invoice sellers changes historical commission and sales
   reports inside Profit Plus.
-- Workbook sellers cover only Sep–Oct 2026 but are applied from March. A
-  customer who changed seller in between receives the latest seller for the whole
-  range. If wrong, the CSV needs a per-period seller column.
+- Workbook sellers cover only Sep–Oct 2026 but are applied from March.
+  **Confirmed:** every invoice from 2026-03-01 onward is rewritten to the
+  customer's latest seller, even if the customer had another seller in
+  between. No per-period seller column.
 - Assumption to verify: workbook seller codes equal `saVendedor.co_ven`.
