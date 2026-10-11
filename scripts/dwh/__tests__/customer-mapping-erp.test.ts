@@ -185,3 +185,92 @@ describe('customer-mapping pApi procs', () => {
     expect(r.recordset[0].coVen).toBe(sellerCustomer.coVen);
   });
 });
+
+describe('route pApi procs', () => {
+  const TEST_ZONE = 'CCS999';
+  let pool: Awaited<ReturnType<typeof getPool>>;
+  let cus: { coCli: string; coZon: string; frecuVist: string | null; coVen: string; coSeg: string; tipCli: string };
+
+  const setRoute = (coCli: string, zon: string, frec: string | null) => pool.request()
+    .input('sCoCli', sql.Char(16), coCli).input('sCoZon', sql.Char(6), zon)
+    .input('sFrecuVist', sql.VarChar(60), frec).input('sCoUsMo', sql.Char(6), 'TESTRN')
+    .execute('pApiActualizarRutaCliente');
+  const restoreRoute = (coCli: string, zon: string, frec: string | null) => pool.request()
+    .input('sCoCli', sql.Char(16), coCli).input('sCoZon', sql.Char(6), zon)
+    .input('sFrecuVist', sql.VarChar(60), frec).input('sCoUsMo', sql.Char(6), 'TESTRN')
+    .execute('pApiRestaurarRutaCliente');
+  const insertZone = (zon: string, des = 'Ruta de prueba') => pool.request()
+    .input('sCoZon', sql.Char(6), zon).input('sZonDes', sql.VarChar(60), des).input('sCoUsIn', sql.Char(6), 'TESTRN')
+    .execute('pApiInsertarZona');
+  const readCus = async () => (await pool.request().input('c', sql.Char(16), cus.coCli).query(`
+    SELECT RTRIM(co_zon) AS coZon, RTRIM(frecu_vist) AS frecuVist, RTRIM(co_ven) AS coVen, RTRIM(co_seg) AS coSeg,
+           RTRIM(tip_cli) AS tipCli, RTRIM(co_us_mo) AS usMo FROM saCliente WHERE co_cli = @c`)).recordset[0];
+
+  beforeAll(async () => {
+    pool = await getPool();
+    const r = await pool.request().query(`
+      SELECT TOP 1 RTRIM(co_cli) AS coCli, RTRIM(co_zon) AS coZon, RTRIM(frecu_vist) AS frecuVist,
+             RTRIM(co_ven) AS coVen, RTRIM(co_seg) AS coSeg, RTRIM(tip_cli) AS tipCli
+      FROM saCliente WHERE inactivo = 0 ORDER BY co_cli`);
+    cus = r.recordset[0];
+  });
+
+  afterAll(async () => {
+    try {
+      await restoreRoute(cus.coCli, cus.coZon, cus.frecuVist);
+    } finally {
+      await pool.request().query(
+        `DELETE FROM saZona WHERE RTRIM(co_zon) = '${TEST_ZONE}' AND NOT EXISTS (SELECT 1 FROM saCliente WHERE RTRIM(co_zon) = '${TEST_ZONE}')`);
+    }
+  });
+
+  test('pApiInsertarZona creates a route zone once; a second call is a no-op that keeps the first description', async () => {
+    await insertZone(TEST_ZONE, 'Ruta de prueba');
+    await insertZone(TEST_ZONE, 'Otro nombre');
+    const z = await pool.request().input('z', sql.Char(6), TEST_ZONE)
+      .query(`SELECT COUNT(*) AS n, MAX(RTRIM(zon_des)) AS des, MAX(RTRIM(co_us_in)) AS usIn FROM saZona WHERE co_zon = @z`);
+    expect(z.recordset[0]).toEqual({ n: 1, des: 'Ruta de prueba', usIn: 'TESTRN' });
+  });
+
+  test('pApiInsertarZona rejects codes that are not CCSnnn (wrong shape, hyphen, lower case)', async () => {
+    for (const bad of ['CCS-03', 'ABC123', 'ccs998', 'CCS99', '001']) {
+      await expect(insertZone(bad)).rejects.toThrow(/Codigo de ruta .* invalido/);
+    }
+    const n = await pool.request().query(`SELECT COUNT(*) AS n FROM saZona WHERE RTRIM(co_zon) IN ('CCS-03','ABC123','ccs998','CCS99')`);
+    expect(n.recordset[0].n).toBe(0);
+  });
+
+  test('pApiActualizarRutaCliente sets zone and upper-cased frequency, stamps the row, touches nothing else', async () => {
+    await insertZone(TEST_ZONE);
+    await setRoute(cus.coCli, TEST_ZONE, ' quincenal ');
+    const after = await readCus();
+    expect(after).toMatchObject({ coZon: TEST_ZONE, frecuVist: 'QUINCENAL', usMo: 'TESTRN' });
+    expect([after.coVen, after.coSeg, after.tipCli]).toEqual([cus.coVen, cus.coSeg, cus.tipCli]); // tip_cli/co_seg/co_ven untouched
+  });
+
+  test('unknown customer, unknown zone and bad frequency are rejected and leave the row unchanged', async () => {
+    await setRoute(cus.coCli, TEST_ZONE, 'MENSUAL');
+    const before = await readCus();
+    await expect(setRoute('NO-SUCH-CLI', TEST_ZONE, 'SEMANAL')).rejects.toThrow(/Cliente .* no encontrado/);
+    await expect(setRoute(cus.coCli, 'CCS997', 'SEMANAL')).rejects.toThrow(/Zona .* no encontrada/);
+    for (const bad of ['DIARIA', '', '  ', null]) {
+      await expect(setRoute(cus.coCli, TEST_ZONE, bad)).rejects.toThrow(/Frecuencia .* invalida/);
+    }
+    expect(await readCus()).toEqual(before);
+  });
+
+  test('pApiRestaurarRutaCliente restores a previous zone and a NULL or free-text frequency that the update proc rejects', async () => {
+    await setRoute(cus.coCli, TEST_ZONE, 'SEMANAL');
+    await restoreRoute(cus.coCli, cus.coZon, null);
+    expect(await readCus()).toMatchObject({ coZon: cus.coZon, frecuVist: null, usMo: 'TESTRN' });
+    await restoreRoute(cus.coCli, cus.coZon, 'cada dos semanas');
+    expect((await readCus()).frecuVist).toBe('cada dos semanas');
+    await restoreRoute(cus.coCli, cus.coZon, cus.frecuVist);
+    expect((await readCus()).frecuVist).toBe(cus.frecuVist);
+  });
+
+  test('pApiRestaurarRutaCliente rejects an unknown zone or customer', async () => {
+    await expect(restoreRoute(cus.coCli, 'CCS997', null)).rejects.toThrow(/Zona .* no encontrada/);
+    await expect(restoreRoute('NO-SUCH-CLI', cus.coZon, null)).rejects.toThrow(/Cliente .* no encontrado/);
+  });
+});
