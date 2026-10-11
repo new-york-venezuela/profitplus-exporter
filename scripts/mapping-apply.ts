@@ -5,7 +5,7 @@ import { getPool } from '@/lib/db/mssql';
 import { getDb } from '@/lib/db/sqlite';
 import { applyPlan, rollbackRun } from '@/lib/customer-mapping/apply';
 import { csvToMapping } from '@/lib/customer-mapping/csv';
-import { assertConfirmedDb, diffCsv } from '@/lib/customer-mapping/diff-csv';
+import { assertConfirmedDb, deriveSince, diffCsv } from '@/lib/customer-mapping/diff-csv';
 import { findSellerMismatches, runDwhRestateLoads, upsertDwhMapping } from '@/lib/customer-mapping/dwh';
 import { mssqlGateway } from '@/lib/customer-mapping/erp';
 import { buildPlan } from '@/lib/customer-mapping/plan';
@@ -47,7 +47,7 @@ async function main() {
     const file = values.file as string;
     const { rows, errors } = csvToMapping(await readFile(file, 'utf8'));
     if (errors.length) throw new Error(`CSV inválido:\n${errors.join('\n')}`);
-    const since = rows[0]?.effectiveFrom ?? '2026-03-01';
+    const since = deriveSince(rows);
 
     if (values.verify) {
       const sinceKey = Number(since.replaceAll('-', ''));
@@ -69,6 +69,7 @@ async function main() {
       `clientes (vendedor): ${plan.customerSeller.length} | documentos: ${plan.docSeller.length} | problemas: ${plan.problems.length}`);
     for (const p of plan.problems.slice(0, 20)) console.log(`  ✗ [${p.kind}] ${p.coCli}: ${p.detail}`);
     console.log(`Diff completo: ${diffPath}`);
+    if (plan.problems.length) process.exitCode = 1;
 
     if (!values.apply) { console.log('Simulación: no se escribió nada. Use --apply --confirm-db para aplicar.'); return; }
 

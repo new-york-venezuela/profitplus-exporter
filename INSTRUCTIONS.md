@@ -515,13 +515,15 @@ Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs, migration 0016) 
    `2026-03.conflicts.csv`. Review the conflicts (customers with several sellers, duplicate codes,
    customers without invoices) and edit the CSV by hand.
 2. **Dry-run (default)**: `bun run mapping:apply -- --file data/customer-mapping/2026-03.csv` only reads
-   the ERP and writes `2026-03.diff.csv` next to the mapping. Resolve every `PROBLEMA_*` row
+   the ERP and writes `2026-03.diff.csv` next to the mapping. With problems the dry-run still prints everything and writes the diff, but exits with code 1 (scriptable). Resolve every `PROBLEMA_*` row
    (unknown customer/seller, duplicate mapping row); a plan with problems cannot be applied.
 3. **Apply**: `bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]`.
    `--confirm-db` must equal the ERP `DB_NAME` exactly. Prints a run id; the DWH is updated afterwards
    unless `--no-dwh` is given or any ERP step failed (non-zero exit code).
 4. **Verify**: `bun run mapping:apply -- --file ... --verify` compares the DWH sellers with the CSV.
 5. **Rollback**: `bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>`.
+   This reverts only the ERP (customers and documents); it does not touch the DWH. Afterwards run
+   `bun run dwh:incremental-load` to realign it; `dim.Dim_CustomerMapping` keeps its last-loaded values until the next apply.
    Not reverted: segments created by the run, and `co_seg` of customers whose previous value was NULL.
 
 The first real run must go against a **non-production** copy of the ERP. `bun run test:mapping-erp`

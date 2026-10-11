@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { diffCsv, assertConfirmedDb } from '../../../lib/customer-mapping/diff-csv';
+import { diffCsv, assertConfirmedDb, deriveSince } from '../../../lib/customer-mapping/diff-csv';
 import type { Plan } from '../../../lib/customer-mapping/plan';
 
 const plan: Plan = {
@@ -36,4 +36,11 @@ describe('assertConfirmedDb', () => {
     expect(() => assertConfirmedDb('x', undefined)).toThrow(/DB_NAME/);
     expect(() => assertConfirmedDb(undefined, undefined)).toThrow();
   });
+});
+
+describe('deriveSince', () => {
+  const r = (d: string) => ({ coCli: 'J1', nombre: '', coVen: '1', grupo: 'g', tipoCliente: 'Independiente' as const, clientePrincipal: '', effectiveFrom: d, sourceNote: '' });
+  test('empty throws', () => expect(() => deriveSince([])).toThrow(/filas/));
+  test('mixed throws', () => expect(() => deriveSince([r('2026-03-01'), r('2026-04-01')])).toThrow(/effective_from/));
+  test('single', () => expect(deriveSince([r('2026-03-01'), r('2026-03-01')])).toBe('2026-03-01'));
 });

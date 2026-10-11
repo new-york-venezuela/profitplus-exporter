@@ -1,5 +1,6 @@
 import { buildCsv } from '@/lib/csv';
 import type { Plan } from './plan';
+import type { MappingRow } from './types';
 
 const COLUMNS = ['kind', 'key', 'from', 'to'].map((k, i) => ({
   key: k, label: k, defaultVisible: true, defaultOrder: i,
@@ -24,4 +25,14 @@ export function assertConfirmedDb(confirm: string | undefined, dbName: string | 
   if (confirm !== dbName) {
     throw new Error(`--confirm-db debe ser exactamente '${dbName}' (la base de datos ERP destino)`);
   }
+}
+
+/** Single effective-from date of the mapping; refuses empty or mixed-date CSVs. */
+export function deriveSince(rows: MappingRow[]): string {
+  if (rows.length === 0) throw new Error('El CSV no contiene filas de mapeo');
+  const dates = [...new Set(rows.map(r => r.effectiveFrom))].sort();
+  if (dates.length > 1) {
+    throw new Error(`El CSV tiene más de una fecha effective_from (${dates.join(', ')}); debe haber exactamente una`);
+  }
+  return dates[0];
 }
