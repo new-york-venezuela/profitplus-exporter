@@ -1,9 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
-import { buildCsv } from '@/lib/csv';
 import { buildMapping } from '@/lib/customer-mapping/build';
-import { mappingToCsv } from '@/lib/customer-mapping/csv';
+import { conflictsToCsv, mappingToCsv } from '@/lib/customer-mapping/csv';
 import { readWorkbook } from '@/lib/customer-mapping/workbook';
 
 async function main() {
@@ -16,6 +15,7 @@ async function main() {
   });
   const xlsx = positionals[0];
   if (!xlsx) throw new Error('Uso: bun run mapping:build -- <archivo.xlsx> [--out ruta.csv] [--from YYYY-MM-DD]');
+  if (!values.out!.endsWith('.csv')) throw new Error(`--out debe terminar en .csv (recibido: ${values.out})`);
 
   const { master, lines, badDates } = readWorkbook(xlsx);
   const { rows, conflicts } = buildMapping(master, lines, { effectiveFrom: values.from! });
@@ -23,10 +23,7 @@ async function main() {
   const conflictsPath = values.out!.replace(/\.csv$/, '.conflicts.csv');
   await mkdir(dirname(values.out!), { recursive: true });
   await writeFile(values.out!, mappingToCsv(rows), 'utf8');
-  await writeFile(conflictsPath, buildCsv(
-    ['co_cli', 'nombre', 'kind', 'detail'].map((k, i) => ({ key: k, label: k, defaultVisible: true, defaultOrder: i })),
-    conflicts as unknown as Record<string, unknown>[],
-  ), 'utf8');
+  await writeFile(conflictsPath, conflictsToCsv(conflicts), 'utf8');
 
   const dates = lines.map(l => l.fecha).sort();
   console.log(`Maestro: ${master.length} filas → ${rows.length} filas de mapeo`);

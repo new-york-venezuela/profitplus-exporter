@@ -37,6 +37,18 @@ describe('buildMapping', () => {
     ], opts);
     expect(rows[0].coVen).toBe('7');
   });
+  test('Factura lines with blank seller are ignored; all-blank means no_invoices', () => {
+    const { rows, conflicts } = buildMapping([m({})], [
+      l({ numero: 'F1', fecha: '2026-09-01', coVen: '7' }),
+      l({ numero: 'F2', fecha: '2026-09-30', coVen: '  ' }),
+    ], opts);
+    expect(rows[0].coVen).toBe('7');
+    expect(conflicts.map(c => c.kind)).not.toContain('multi_seller');
+
+    const blank = buildMapping([m({})], [l({ coVen: '' }), l({ numero: 'F9', coVen: ' ' })], opts);
+    expect(blank.rows[0].coVen).toBe('');
+    expect(blank.conflicts.map(c => c.kind)).toEqual(['no_invoices']);
+  });
   test('customer without invoices gets blank seller and a no_invoices conflict', () => {
     const { rows, conflicts } = buildMapping([m({})], [], opts);
     expect(rows[0].coVen).toBe('');

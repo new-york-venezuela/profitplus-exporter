@@ -38,11 +38,14 @@ export function buildMapping(
   const latest = new Map<string, InvoiceLine>();
   const sellers = new Map<string, Set<string>>();
   for (const line of lines) {
-    if (line.tipoDocumento !== 'Factura') continue;
+    // Only invoices that name a seller can decide the mapping; blank-seller lines are ignored.
+    const coVen = trimCode(line.coVen);
+    if (line.tipoDocumento !== 'Factura' || !coVen) continue;
+    const normalized = { ...line, coVen };
     const best = latest.get(line.coCli);
-    if (!best || isLater(line, best)) latest.set(line.coCli, line);
+    if (!best || isLater(normalized, best)) latest.set(line.coCli, normalized);
     if (!sellers.has(line.coCli)) sellers.set(line.coCli, new Set());
-    sellers.get(line.coCli)!.add(line.coVen);
+    sellers.get(line.coCli)!.add(coVen);
   }
 
   const rows: MappingRow[] = [];

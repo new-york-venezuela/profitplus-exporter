@@ -1,6 +1,6 @@
 import { buildCsv } from '@/lib/csv';
 import type { ColumnDef } from '@/lib/reports/registry';
-import { MAPPING_COLUMNS, type MappingRow, type CustomerType } from './types';
+import { MAPPING_COLUMNS, type Conflict, type MappingRow, type CustomerType } from './types';
 
 export function parseCsv(input: string): string[][] {
   const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
@@ -33,6 +33,16 @@ export function mappingToCsv(rows: MappingRow[]): string {
   return buildCsv(MAPPING_COLUMN_DEFS, rows.map(r => ({
     co_cli: r.coCli, nombre: r.nombre, co_ven: r.coVen, grupo: r.grupo, tipo_cliente: r.tipoCliente,
     cliente_principal: r.clientePrincipal, effective_from: r.effectiveFrom, source_note: r.sourceNote,
+  })));
+}
+
+export const CONFLICT_COLUMN_DEFS: ColumnDef[] = ['co_cli', 'nombre', 'kind', 'detail'].map((k, i) => ({
+  key: k, label: k, defaultVisible: true, defaultOrder: i,
+}));
+
+export function conflictsToCsv(conflicts: Conflict[]): string {
+  return buildCsv(CONFLICT_COLUMN_DEFS, conflicts.map(c => ({
+    co_cli: c.coCli, nombre: c.nombre, kind: c.kind, detail: c.detail,
   })));
 }
 
