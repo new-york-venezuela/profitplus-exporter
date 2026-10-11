@@ -120,3 +120,7 @@ timing should re-verify against real production volume first.
 Note: SQL Agent jobs for scheduling the incremental load and AR snapshot were removed (see git
 history, "Remove job agents") — loads are triggered externally (`bun run dwh:incremental-load`,
 `bun run dwh:snapshot-load`), not via `msdb` jobs.
+
+## Customer classification (0039)
+
+`0039_dim_customer_mapping.sql` adds `dim.Dim_CustomerMapping` (group/type/parent customer supplied by the business, populated by `bun run mapping:apply`) and `dim.vw_Customer_Classified` (`Dim_Customer` left-joined to it).
