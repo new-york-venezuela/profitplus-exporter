@@ -504,6 +504,29 @@ sent=… failed=…`). Check the latest rows of `pricing_sweep_runs` (`ok`,
 `skipped=disabled` means alerts are turned off in the tab's settings;
 `skipped=no-recipients` means no explicit list and no admin/editor emails.
 
+## Customer mapping fix (seller and group per customer)
+
+One-off correction of `saCliente.co_ven`, `saCliente.co_seg` and the seller on invoices/returns
+since the mapping's `effectiveFrom` date, driven by a reviewed CSV. Library: `lib/customer-mapping/`.
+Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs, migration 0016) and `bun run migrate:dwh`
+(migration 0039, DWH mapping table).
+
+1. **Build**: `bun run mapping:build -- <workbook.xlsx>` writes `data/customer-mapping/2026-03.csv` and
+   `2026-03.conflicts.csv`. Review the conflicts (customers with several sellers, duplicate codes,
+   customers without invoices) and edit the CSV by hand.
+2. **Dry-run (default)**: `bun run mapping:apply -- --file data/customer-mapping/2026-03.csv` only reads
+   the ERP and writes `2026-03.diff.csv` next to the mapping. Resolve every `PROBLEMA_*` row
+   (unknown customer/seller, duplicate mapping row); a plan with problems cannot be applied.
+3. **Apply**: `bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]`.
+   `--confirm-db` must equal the ERP `DB_NAME` exactly. Prints a run id; the DWH is updated afterwards
+   unless `--no-dwh` is given or any ERP step failed (non-zero exit code).
+4. **Verify**: `bun run mapping:apply -- --file ... --verify` compares the DWH sellers with the CSV.
+5. **Rollback**: `bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>`.
+   Not reverted: segments created by the run, and `co_seg` of customers whose previous value was NULL.
+
+The first real run must go against a **non-production** copy of the ERP. `bun run test:mapping-erp`
+writes to the ERP (then restores) — non-production only.
+
 ## Redeploy Procedure
 
 ```powershell

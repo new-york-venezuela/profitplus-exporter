@@ -79,6 +79,10 @@ lib/
   pricing/promo-status.ts, timeline.ts, dates.ts — promotion status, timeline data, date-only helpers (YYYY-MM-DD)
   pricing/health.ts, health-loader.ts, health-repo.ts — pure expiry checks, live report loader, sweep heartbeat + alert settings/log
   pricing/digest.ts       — composeDigest()/sendDigest(): daily expiry email (template pricing-expiry-digest)
+  customer-mapping/types, codes, csv, build, workbook — mapping rows, code normalization, CSV/xlsx I/O (`mapping:build`)
+  customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`
+  customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots
+  customer-mapping/dwh.ts  — DWH mapping upsert, restate loads, seller-mismatch verification
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
@@ -87,6 +91,8 @@ app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zon
 app/api/pricing/           — pricing API (segments, customers, assignments, price-lists, lists/[coPrecio]/rates|export,
                               articles, promotions, health, alert-settings), gated per route (see Pricing below)
 
+migrations/dwh/0039        — customer mapping table/view and restate loads (`mapping:apply`)
+migrations/mssql/0016      — pApiActualizarSegmentoCliente / customer mapping procs
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
@@ -395,7 +401,7 @@ ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
 
 - **ERP pricing writes only through `pApi*` wrapper procs** (`migrations/mssql/0010-0014`) — never raw
   INSERT/UPDATE on `saArtPrecio`, `saTipoPrecio` or `saTipoCliente`.
-- **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only).
+- **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only) — except by `bun run mapping:apply` (`pApiActualizarSegmentoCliente`), which assigns the business customer group.
 - **Planners never create overlapping periods** for an article/list/warehouse (`rate-planner.ts`,
   `promo-planner.ts`; pure, unit-tested). `hasta` is **end of day** (23:59:59.997, set by the procs;
   `desde` stays midnight) — Profit treats `hasta >= GETDATE()` as current. Dates in the app are `YYYY-MM-DD`.
@@ -496,5 +502,6 @@ See `.env.example` for the full list; `INSTRUCTIONS.md` covers setup end to end.
   `--path-ignore-patterns`, matching how `compras-export.integration.test.ts` is excluded and run
   separately via `test:mssql`. Only run it against a non-production Profit Plus instance.
 - `bun run test:geo-erp` writes to the ERP (then restores) — non-production only.
+- `bun run test:mapping-erp` writes to the ERP (customer mapping procs) — non-production only.
 - See `INSTRUCTIONS.md` → "Running Tests" for the full command reference (unit, e2e, MSSQL
   integration).
