@@ -1,0 +1,50 @@
+﻿co_cli,nombre,kind,detail
+,CHARCUTERIA ABASTOS FRUTERIA SIEMPRE FRESCO C.A.,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express La Castellana) S005",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Los Palos Grandes) S001",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C.A. (Express Los Palos Grandes LPG)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express Santa Eduvigis) G-100",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express Sebucán) G 113",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Plus Sta Eduvigis) S007",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,FARMATODO C.A. (Mucura),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,INVERSIONES LUVEBRAS C.A. (Sebucan),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express Las Mercedes) G103",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Santa Fe) S005",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C.A. (EXPRESS SANTA FE)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,PANADERIA PASTELERIA Y CHARCUTERIA ALICANTINA C A,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A (Express Caurimare) G108",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (EXPRESS Chuao) G102",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Vizcaya) S004",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,INVERSIONES LUVEBRAS C.A. (Esmeralda),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,INVERSIONES LUVEBRAS C.A. (Valle Arriba),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express La Urbina) G106",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,INVERSIONES LUVEBRAS C.A. (El Marques),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"SUPERMERCADO SUPERNOVA, C. A.",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express El Paraiso)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C.A. ( La India)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (EXPRESS STA MONICA) G114",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"PLANSUAREZ, C.A. (Santa Monica)",multi_seller,"vendedores 6,7 → se usa 7 (F009706 2026-10-06)"
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express La Trinidad) G 110",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Plus La Trinidad) S008",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Tahona) S002",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"GFG Cantina A, C.A",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Macaracuay) S003",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"EXCELSIOR GAMA SUPERMERCADOS, C.A (PANAMERICANA)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,MI NEGOCIO SUPERMERCADOS C. A. ( La Florida),multi_seller,"vendedores 17,39 → se usa 39 (B004904 2026-10-06)"
+,PASTELERIA Y HELADERIA EDELVAYS C.A,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,AUTOMERCADOS PLAZA'S (San Bernardino),multi_seller,"vendedores 17,39 → se usa 39 (B004928 2026-10-08)"
+,AUTOMERCADOS PLAZA'S C.A. (Los Cedros),multi_seller,"vendedores 17,39 → se usa 39 (F009627 2026-09-28)"
+,"EXCELSIOR GAMA SUPERMERCADOS, C. A. (Express San Bernardino) G-101",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"AUTOMERCADO LA MURALLA , C. A.",multi_seller,"vendedores 39,6 → se usa 39 (F009698 2026-10-05)"
+,AUTOMERCADOS PLAZA'S C.A. (La Lagunita),multi_seller,"vendedores 39,7 → se usa 39 (B004905 2026-10-06)"
+,BELLE VUE,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"INVERSIONES MADVEN 2015, C.A.",multi_seller,"vendedores 15,6 → se usa 6 (B004903 2026-10-06)"
+,FUNDACIÓN KEREN EZRA,missing_code,fila sin código en Maestro Clientes
+,CLUB HEBRAICA,duplicate_code,"ya existe como 'Kreps Gadol, C.A (Club Hebraica)'; se conserva la primera fila"
+,ACHE COMFORT FOOD,missing_code,fila sin código en Maestro Clientes
+,031 Bistro,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,Unimarket Caribe,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,Grupo OML 07 (Bosko),no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,SUPERMERCADO RIO VIDA C.A,no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"INVERSIONES COLD 2024,C.A",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)
+,"ENTREN QUE CABEN CIEN,C.A. (LOS ILUSTRES)",no_invoices,sin facturas; vendedor en blanco (solo se actualiza el grupo)

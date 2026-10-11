@@ -26,6 +26,7 @@
     "migrate:all": "bun run migrate && bun run migrate:mssql && bun run migrate:dwh",
     "send-invoice-reminders": "bun --bun run scripts/send-invoice-reminders.ts",
     "pricing:sweep-promotions": "bun --bun run scripts/sweep-promotions.ts",
+    "mapping:build": "bun --bun run scripts/mapping-build.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "dwh:incremental-load": "bun --run run scripts/dwh-incremental-load.ts",
