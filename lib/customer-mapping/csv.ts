@@ -1,6 +1,9 @@
 import { buildCsv } from '@/lib/csv';
 import type { ColumnDef } from '@/lib/reports/registry';
-import { MAPPING_COLUMNS, type Conflict, type MappingRow, type CustomerType } from './types';
+import { DEFAULT_VISIT_FREQUENCY, VISIT_FREQUENCIES, parseVisitFrequency } from './frequency';
+import { parseRouteNumber } from './route-zones';
+import type { RouteOwner } from './route-owners';
+import { MAPPING_COLUMNS, type Conflict, type MappingRow } from './types';
 
 export function parseCsv(input: string): string[][] {
   const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
@@ -31,8 +34,22 @@ export const MAPPING_COLUMN_DEFS: ColumnDef[] = MAPPING_COLUMNS.map((k, i) => ({
 
 export function mappingToCsv(rows: MappingRow[]): string {
   return buildCsv(MAPPING_COLUMN_DEFS, rows.map(r => ({
-    co_cli: r.coCli, nombre: r.nombre, co_ven: r.coVen, grupo: r.grupo, tipo_cliente: r.tipoCliente,
-    cliente_principal: r.clientePrincipal, effective_from: r.effectiveFrom, source_note: r.sourceNote,
+    co_cli: r.coCli, nombre: r.nombre, co_ven: r.coVen, grupo: r.grupo,
+    ruta: r.ruta == null ? '' : String(r.ruta), frecuencia: r.frecuencia,
+    effective_from: r.effectiveFrom, source_note: r.sourceNote,
+  })));
+}
+
+const ROUTE_OWNER_COLUMNS = ['ruta', 'zona', 'propietario', 'clientes', 'vendedores', 'estado'];
+const ROUTE_OWNER_COLUMN_DEFS: ColumnDef[] = ROUTE_OWNER_COLUMNS.map((k, i) => ({
+  key: k, label: k, defaultVisible: true, defaultOrder: i,
+}));
+
+export function routeOwnersToCsv(owners: RouteOwner[]): string {
+  return buildCsv(ROUTE_OWNER_COLUMN_DEFS, owners.map(o => ({
+    ruta: o.route, zona: o.zone, propietario: o.owner ?? '', clientes: o.customers,
+    vendedores: o.bySeller.map(s => `${s.coVen}:${s.n}`).join(' | '),
+    estado: o.tie ? 'empate' : o.owner == null ? 'sin_vendedor' : o.bySeller.length > 1 ? 'varios_vendedores' : 'ok',
   })));
 }
 
@@ -59,16 +76,22 @@ export function csvToMapping(text: string): { rows: MappingRow[]; errors: string
   const seen = new Set<string>();
   table.slice(1).forEach((cells, i) => {
     const line = i + 2;
-    const [coCli, nombre, coVen, grupo, tipo, principal, eff, note] = MAPPING_COLUMNS.map((_, c) => (cells[c] ?? '').trim());
+    const [coCli, nombre, coVen, grupo, ruta, frec, eff, note] = MAPPING_COLUMNS.map((_, c) => (cells[c] ?? '').trim());
     if (!coCli) { errors.push(`línea ${line}: co_cli vacío`); return; }
     if (seen.has(coCli)) errors.push(`línea ${line}: co_cli duplicado ${coCli}`);
     seen.add(coCli);
     if (!grupo) errors.push(`línea ${line}: grupo vacío (${coCli})`);
-    if (tipo !== 'Cadena' && tipo !== 'Independiente') errors.push(`línea ${line}: tipo_cliente inválido '${tipo}' (${coCli})`);
+    let rutaNum: number | null = null;
+    if (ruta) {
+      rutaNum = parseRouteNumber(ruta);
+      if (rutaNum == null) errors.push(`línea ${line}: ruta inválida '${ruta}' (${coCli}); use un número 1..999`);
+    }
+    const frecuencia = frec ? parseVisitFrequency(frec) : DEFAULT_VISIT_FREQUENCY;
+    if (!frecuencia) errors.push(`línea ${line}: frecuencia inválida '${frec}' (${coCli}); use ${VISIT_FREQUENCIES.join('/')}`);
     if (!ISO.test(eff)) errors.push(`línea ${line}: effective_from debe ser YYYY-MM-DD (${coCli})`);
     rows.push({
-      coCli, nombre, coVen, grupo, tipoCliente: tipo as CustomerType,
-      clientePrincipal: principal, effectiveFrom: eff, sourceNote: note,
+      coCli, nombre, coVen, grupo, ruta: rutaNum, frecuencia: frecuencia ?? DEFAULT_VISIT_FREQUENCY,
+      effectiveFrom: eff, sourceNote: note,
     });
   });
   return { rows, errors };
