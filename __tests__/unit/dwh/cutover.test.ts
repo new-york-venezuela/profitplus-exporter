@@ -1,4 +1,6 @@
 import { describe, test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { MIGRATION_CUTOVER_DATE, customerKindInYear, isMigrationBatch } from '../../../lib/dwh/cutover';
 
 describe('migration cutover', () => {
@@ -23,5 +25,14 @@ describe('migration cutover', () => {
   });
   test('rejects malformed dates', () => {
     expect(() => customerKindInYear('28/03/2026', 2026)).toThrow(/YYYY-MM-DD/);
+  });
+});
+
+describe('SQL copy of the cutover date (migrations/dwh/0040)', () => {
+  test('every @CutoverDate literal in 0040 equals MIGRATION_CUTOVER_DATE', () => {
+    const sql = readFileSync(join(import.meta.dir, '..', '..', '..', 'migrations', 'dwh', '0040_route_frequency_registration.sql'), 'utf8');
+    const literals = [...sql.matchAll(/DECLARE @CutoverDate date = '([^']*)'/g)].map(m => m[1]);
+    expect(literals.length).toBeGreaterThan(0);
+    for (const l of literals) expect(l).toBe(MIGRATION_CUTOVER_DATE);
   });
 });

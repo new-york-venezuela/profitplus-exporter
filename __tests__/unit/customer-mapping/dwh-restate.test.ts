@@ -17,6 +17,15 @@ describe('runDwhRestateLoads', () => {
   });
 });
 
+describe('INCREMENTAL_LOAD ordering (0040)', () => {
+  test('zone and segment mirrors load before the customer dimension', () => {
+    expect(INCREMENTAL_LOAD.indexOf('Load_Dim_Zone')).toBeGreaterThan(-1);
+    expect(INCREMENTAL_LOAD.indexOf('Load_Dim_Segment')).toBeGreaterThan(-1);
+    expect(INCREMENTAL_LOAD.indexOf('Load_Dim_Zone')).toBeLessThan(INCREMENTAL_LOAD.indexOf('Load_Dim_Customer'));
+    expect(INCREMENTAL_LOAD.indexOf('Load_Dim_Segment')).toBeLessThan(INCREMENTAL_LOAD.indexOf('Load_Dim_Customer'));
+  });
+});
+
 describe("dead PR #12 code", () => {
   test("the Dim_CustomerMapping writer is gone", () => {
     expect("upsertDwhMapping" in dwh).toBe(false);
