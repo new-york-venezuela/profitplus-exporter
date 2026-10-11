@@ -62,6 +62,33 @@ describe('buildPlan', () => {
     expect(p.segmentsToCreate).toEqual([{ coSeg: 'GRP01', segDes: 'Tienda Online' }]);
     expect(p.customerSegment[0].to).toBe('GRP01');
   });
+  test('missing groups differing only by case or spacing create ONE segment, first spelling kept', () => {
+    const p = buildPlan(input({
+      rows: [
+        row({ coCli: 'J1', grupo: 'Tienda' }),
+        row({ coCli: 'J2', grupo: '  TIENDA ' }),
+      ],
+      customers: new Map([
+        ['J1', { coCli: 'J1', coVen: '7', coSeg: null }],
+        ['J2', { coCli: 'J2', coVen: '7', coSeg: null }],
+      ]),
+      docs: [],
+    }));
+    expect(p.segmentsToCreate).toEqual([{ coSeg: 'GRP01', segDes: 'Tienda' }]);
+    expect(p.customerSegment.map(c => c.to)).toEqual(['GRP01', 'GRP01']);
+  });
+  test('a duplicate mapping row for the same customer is a problem and produces no changes', () => {
+    const p = buildPlan(input({
+      rows: [row({ coVen: '15' }), row({ coVen: '6', grupo: 'Abasto' })],
+      docs: [],
+    }));
+    expect(p.problems).toEqual([
+      { kind: 'duplicate_mapping_row', coCli: 'J1', detail: expect.stringContaining('duplicad') },
+    ]);
+    // only the first row contributes changes
+    expect(p.customerSeller).toEqual([{ coCli: 'J1', from: '7', to: '000015' }]);
+    expect(p.customerSegment).toHaveLength(1);
+  });
   test('documents before the effective date are left alone', () => {
     const p = buildPlan(input({
       docs: [{ kind: 'FACT', docNum: 'OLD', coCli: 'J1', coVen: '7', fecEmis: '2026-02-28' }],

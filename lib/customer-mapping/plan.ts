@@ -11,7 +11,11 @@ export interface PlanInput {
   since: string;
 }
 
-export interface PlanProblem { kind: 'unknown_customer' | 'unknown_seller'; coCli: string; detail: string }
+export interface PlanProblem {
+  kind: 'unknown_customer' | 'unknown_seller' | 'duplicate_mapping_row';
+  coCli: string;
+  detail: string;
+}
 
 export interface Plan {
   customerSeller: { coCli: string; from: string; to: string }[];
@@ -52,13 +56,28 @@ export function buildPlan(input: PlanInput): Plan {
   }
 
   // Groups with no saSegmento row yet get a generated code (shown in the dry-run).
-  const missingGroups = [...new Set(
-    input.rows.map(r => r.grupo.trim()).filter(g => !input.segments.byDesc.has(g.toLowerCase())),
-  )];
+  // Deduplicated by trimmed, lower-cased key; the first-seen spelling is the segment description.
+  const missingByKey = new Map<string, string>();
+  for (const r of input.rows) {
+    const g = r.grupo.trim();
+    const k = g.toLowerCase();
+    if (!input.segments.byDesc.has(k) && !missingByKey.has(k)) missingByKey.set(k, g);
+  }
+  const missingGroups = [...missingByKey.values()];
   const newCodes = assignSegmentCodes(missingGroups, input.segments.codes);
   for (const g of missingGroups) plan.segmentsToCreate.push({ coSeg: newCodes.get(g)!, segDes: g });
 
+  const seenCustomers = new Set<string>();
   for (const r of input.rows) {
+    if (seenCustomers.has(r.coCli)) {
+      plan.problems.push({
+        kind: 'duplicate_mapping_row', coCli: r.coCli,
+        detail: `fila duplicada en el mapeo para ${r.coCli}; solo se usa la primera`,
+      });
+      continue;
+    }
+    seenCustomers.add(r.coCli);
+
     const erp = input.customers.get(r.coCli);
     if (!erp) {
       const sugg = looseIndex.get(looseCustomerKey(r.coCli)) ?? [];
@@ -70,7 +89,8 @@ export function buildPlan(input: PlanInput): Plan {
     }
 
     const grupo = r.grupo.trim();
-    const toSeg = input.segments.byDesc.get(grupo.toLowerCase()) ?? newCodes.get(grupo)!;
+    const groupKey = grupo.toLowerCase();
+    const toSeg = input.segments.byDesc.get(groupKey) ?? newCodes.get(missingByKey.get(groupKey)!)!;
     if ((erp.coSeg ?? '') !== toSeg) {
       plan.customerSegment.push({ coCli: r.coCli, from: erp.coSeg, to: toSeg, grupo });
     }

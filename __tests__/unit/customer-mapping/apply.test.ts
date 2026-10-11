@@ -66,13 +66,20 @@ describe('applyPlan / rollbackRun', () => {
   test('snapshot is written before any ERP write and rollback restores everything', async () => {
     const { erp, customers, docs } = fakeErp();
     const runs = fakeStore();
-    const spy = erp.setCustomerSeller;
-    erp.setCustomerSeller = async (c, v) => {
-      expect(runs.all.get('run1')?.status).toBe('pending'); // snapshot already stored
-      return spy(c, v);
+    // Record the run status observed at every ERP write; all must be 'pending' (snapshot already stored).
+    const statusesAtWrite: (string | undefined)[] = [];
+    const observe = <A extends unknown[], R>(fn: (...a: A) => Promise<R>) => async (...a: A) => {
+      statusesAtWrite.push(runs.all.get('run1')?.status);
+      return fn(...a);
     };
-    await applyPlan({ erp, runs, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
-    erp.setCustomerSeller = spy; // the pending-status assertion only applies to the apply phase
+    erp.createSegment = observe(erp.createSegment);
+    erp.setCustomerSegment = observe(erp.setCustomerSegment);
+    erp.setCustomerSeller = observe(erp.setCustomerSeller);
+    erp.setDocSeller = observe(erp.setDocSeller);
+    const res = await applyPlan({ erp, runs, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(res.failures).toEqual([]);
+    expect(statusesAtWrite.length).toBeGreaterThan(0);
+    expect(statusesAtWrite.every(s => s === 'pending')).toBe(true);
     const rb = await rollbackRun({ erp, runs }, 'run1');
     expect(rb.failures).toEqual([]);
     expect(customers.get('J1')).toMatchObject({ coVen: '7', coSeg: '0001' });
