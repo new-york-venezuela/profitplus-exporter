@@ -5,7 +5,7 @@ import type { ErpGateway, ErpCustomerState, SellerDoc } from '../../../lib/custo
 import type { RunRecord, RunStore, RunStatus } from '../../../lib/customer-mapping/runs-repo';
 import type { MappingRow } from '../../../lib/customer-mapping/types';
 
-function fakeErp(opts: { failDoc?: string } = {}) {
+function fakeErp(opts: { failDoc?: string; inactiveSellers?: string[] } = {}) {
   const customers = new Map<string, ErpCustomerState>([['J1', { coCli: 'J1', coVen: '7', coSeg: '0001' }]]);
   const docs: SellerDoc[] = [
     { kind: 'FACT', docNum: 'F1', coCli: 'J1', coVen: '7', fecEmis: '2026-03-05' },
@@ -18,7 +18,11 @@ function fakeErp(opts: { failDoc?: string } = {}) {
     listSegments: async () => ({ byDesc: new Map(segs), codes: new Set(['0001', '0023']) }),
     listSellerDocs: async () => docs.map(d => ({ ...d })),
     createSegment: async (c, d) => { segs.set(d.toLowerCase(), c); },
-    setCustomerSeller: async (c, v) => { customers.get(c)!.coVen = v; },
+    setCustomerSeller: async (c, v) => {
+      if (opts.inactiveSellers?.includes(v)) throw new Error(`Vendedor ${v} no encontrado`);
+      customers.get(c)!.coVen = v;
+    },
+    restoreCustomerSeller: async (c, v) => { customers.get(c)!.coVen = v; },
     setCustomerSegment: async (c, s) => { customers.get(c)!.coSeg = s; },
     setDocSeller: async (_k, n, v) => {
       if (n === opts.failDoc) throw new Error('boom');
@@ -38,6 +42,8 @@ function fakeStore(): RunStore & { all: Map<string, RunRecord> } {
   };
 }
 
+const T = 'srv/DB1';
+
 const rows: MappingRow[] = [{
   coCli: 'J1', nombre: 'Uno', coVen: '15', grupo: 'Abasto', tipoCliente: 'Independiente',
   clientePrincipal: 'Uno', effectiveFrom: '2026-03-01', sourceNote: '',
@@ -54,7 +60,7 @@ describe('applyPlan / rollbackRun', () => {
   test('applies, then a second plan is empty (idempotent)', async () => {
     const { erp, customers, docs } = fakeErp();
     const runs = fakeStore();
-    const res = await applyPlan({ erp, runs, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
     expect(res.failures).toEqual([]);
     expect(customers.get('J1')).toMatchObject({ coVen: '000015', coSeg: '0023' });
     expect(docs.map(d => d.coVen)).toEqual(['000015', '000015']);
@@ -76,11 +82,11 @@ describe('applyPlan / rollbackRun', () => {
     erp.setCustomerSegment = observe(erp.setCustomerSegment);
     erp.setCustomerSeller = observe(erp.setCustomerSeller);
     erp.setDocSeller = observe(erp.setDocSeller);
-    const res = await applyPlan({ erp, runs, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
     expect(res.failures).toEqual([]);
     expect(statusesAtWrite.length).toBeGreaterThan(0);
     expect(statusesAtWrite.every(s => s === 'pending')).toBe(true);
-    const rb = await rollbackRun({ erp, runs }, 'run1');
+    const rb = await rollbackRun({ erp, runs, target: T }, 'run1');
     expect(rb.failures).toEqual([]);
     expect(customers.get('J1')).toMatchObject({ coVen: '7', coSeg: '0001' });
     expect(docs.map(d => d.coVen)).toEqual(['7', '6']);
@@ -90,7 +96,7 @@ describe('applyPlan / rollbackRun', () => {
   test('a failing document is reported, the run is marked failed, the rest still applies', async () => {
     const { erp, docs } = fakeErp({ failDoc: 'F1' });
     const runs = fakeStore();
-    const res = await applyPlan({ erp, runs, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
     expect(res.failures[0]).toMatch(/F1.*boom/);
     expect(runs.all.get('run1')!.status).toBe('failed');
     expect(docs.find(d => d.docNum === 'F2')!.coVen).toBe('000015');
@@ -101,6 +107,99 @@ describe('applyPlan / rollbackRun', () => {
     const { erp } = fakeErp();
     const plan = await planFrom(erp);
     plan.problems.push({ kind: 'unknown_customer', coCli: 'X', detail: 'x' });
-    await expect(applyPlan({ erp, runs: fakeStore() }, plan, { mappingFile: 'm.csv' })).rejects.toThrow(/problemas/i);
+    await expect(applyPlan({ erp, runs: fakeStore(), target: T }, plan, { mappingFile: 'm.csv' })).rejects.toThrow(/problemas/i);
+  });
+
+  test('rollback restores customers through restoreCustomerSeller, even when the previous seller is now inactive', async () => {
+    const { erp, customers } = fakeErp({ inactiveSellers: ['7'] });
+    const runs = fakeStore();
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(res.failures).toEqual([]);
+    let restored = 0;
+    const orig = erp.restoreCustomerSeller;
+    erp.restoreCustomerSeller = async (c, v) => { restored++; return orig(c, v); };
+    const rb = await rollbackRun({ erp, runs, target: T }, 'run1');
+    expect(rb.failures).toEqual([]);
+    expect(restored).toBe(1);
+    expect(customers.get('J1')!.coVen).toBe('7'); // '7' is inactive: setCustomerSeller would have rejected it
+    expect(runs.all.get('run1')!.status).toBe('rolled_back');
+  });
+
+  test('rolling back a run whose status is failed restores what was applied', async () => {
+    const opts: { failDoc?: string } = { failDoc: 'F1' };
+    const { erp, customers, docs } = fakeErp(opts);
+    const runs = fakeStore();
+    await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(runs.all.get('run1')!.status).toBe('failed');
+    expect(customers.get('J1')).toMatchObject({ coVen: '000015', coSeg: '0023' });
+    expect(docs.find(d => d.docNum === 'F2')!.coVen).toBe('000015');
+    opts.failDoc = undefined; // the document that failed on apply can be written again
+    const rb = await rollbackRun({ erp, runs, target: T }, 'run1');
+    expect(rb.failures).toEqual([]);
+    expect(customers.get('J1')).toMatchObject({ coVen: '7', coSeg: '0001' });
+    expect(docs.map(d => d.coVen)).toEqual(['7', '6']);
+    expect(runs.all.get('run1')!.status).toBe('rolled_back');
+  });
+
+  test('a failing document is reported, the run is marked failed, the rest still applies', async () => {
+    const { erp, docs } = fakeErp({ failDoc: 'F1' });
+    const runs = fakeStore();
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(res.failures[0]).toMatch(/F1.*boom/);
+    expect(runs.all.get('run1')!.status).toBe('failed');
+    expect(docs.find(d => d.docNum === 'F2')!.coVen).toBe('000015');
+    expect(runs.all.get('run1')!.snapshot.docs.map(d => d.docNum)).toContain('F1'); // can still roll back
+  });
+
+  test('refuses to apply a plan that has problems', async () => {
+    const { erp } = fakeErp();
+    const plan = await planFrom(erp);
+    plan.problems.push({ kind: 'unknown_customer', coCli: 'X', detail: 'x' });
+    await expect(applyPlan({ erp, runs: fakeStore(), target: T }, plan, { mappingFile: 'm.csv' })).rejects.toThrow(/problemas/i);
+  });
+
+  test('rollback restores customers through restoreCustomerSeller, even when the previous seller is now inactive', async () => {
+    const { erp, customers } = fakeErp({ inactiveSellers: ['7'] });
+    const runs = fakeStore();
+    const res = await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(res.failures).toEqual([]);
+    let restored = 0;
+    const orig = erp.restoreCustomerSeller;
+    erp.restoreCustomerSeller = async (c, v) => { restored++; return orig(c, v); };
+    const rb = await rollbackRun({ erp, runs, target: T }, 'run1');
+    expect(rb.failures).toEqual([]);
+    expect(restored).toBe(1);
+    expect(customers.get('J1')!.coVen).toBe('7'); // '7' is inactive: setCustomerSeller would have rejected it
+    expect(runs.all.get('run1')!.status).toBe('rolled_back');
+  });
+
+  test('rolling back a run whose status is failed restores what was applied', async () => {
+    const opts: { failDoc?: string } = { failDoc: 'F1' };
+    const { erp, customers, docs } = fakeErp(opts);
+    const runs = fakeStore();
+    await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(runs.all.get('run1')!.status).toBe('failed');
+    expect(customers.get('J1')).toMatchObject({ coVen: '000015', coSeg: '0023' });
+    expect(docs.find(d => d.docNum === 'F2')!.coVen).toBe('000015');
+    const orig = erp.setDocSeller; // F1 can be written again now
+    erp.setDocSeller = async (k, n, v) => orig(k, n, v);
+    const failing = fakeErp(); void failing;
+    const rb = await rollbackRun({ erp: { ...erp, setDocSeller: async (_k, n, v) => { docs.find(d => d.docNum === n)!.coVen = v; } }, runs, target: T }, 'run1');
+    expect(rb.failures).toEqual([]);
+    expect(customers.get('J1')).toMatchObject({ coVen: '7', coSeg: '0001' });
+    expect(docs.map(d => d.coVen)).toEqual(['7', '6']);
+    expect(runs.all.get('run1')!.status).toBe('rolled_back');
+  });
+
+  test('apply records the target and rollback refuses a run applied to a different database', async () => {
+    const { erp, customers } = fakeErp();
+    const runs = fakeStore();
+    await applyPlan({ erp, runs, target: T, newId: () => 'run1' }, await planFrom(erp), { mappingFile: 'm.csv' });
+    expect(runs.all.get('run1')!.target).toBe(T);
+    await expect(rollbackRun({ erp, runs, target: 'otro/DB2' }, 'run1')).rejects.toThrow(/srv\/DB1.*otro\/DB2/);
+    expect(customers.get('J1')).toMatchObject({ coVen: '000015' }); // nothing was touched
+    expect(runs.all.get('run1')!.status).toBe('applied');
+    const ok = await rollbackRun({ erp, runs, target: T }, 'run1');
+    expect(ok.failures).toEqual([]);
   });
 });

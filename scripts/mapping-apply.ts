@@ -34,7 +34,9 @@ async function main() {
   const getDwh = async () => (dwhPool ??= await new sql.ConnectionPool(buildConfig(dwhDatabaseName())).connect());
   const runs = sqliteRunStore(getDb());
   const erp = mssqlGateway(erpPool);
-  const deps = { erp, runs, log: console.log };
+  // Identifies the ERP database (never credentials); rollback refuses a run recorded for another target.
+  const target = `${process.env.DB_SERVER ?? ''}/${process.env.DB_NAME ?? ''}`;
+  const deps = { erp, runs, target, log: console.log };
 
   try {
     if (values.rollback) {
@@ -74,7 +76,7 @@ async function main() {
     if (!values.apply) { console.log('Simulación: no se escribió nada. Use --apply --confirm-db para aplicar.'); return; }
 
     const res = await applyPlan(deps, plan, { mappingFile: file });
-    console.log(`Corrida ${res.runId}: ${res.failures.length ? `${res.failures.length} fallos` : 'OK'}`);
+    console.log(`Corrida ${res.runId} (${target}): ${res.failures.length ? `${res.failures.length} fallos` : 'OK'}`);
     for (const f of res.failures.slice(0, 20)) console.log(`  ✗ ${f}`);
     if (res.failures.length) { process.exitCode = 1; return; } // no DWH step on ERP failures
 

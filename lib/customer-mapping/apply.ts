@@ -5,6 +5,7 @@ import type { RunSnapshot, RunStore } from './runs-repo';
 export interface ApplyDeps {
   erp: ErpGateway;
   runs: RunStore;
+  target: string;           // which ERP database this process points at, e.g. `${DB_SERVER}/${DB_NAME}`
   now?: () => number;
   newId?: () => string;
   log?: (m: string) => void;
@@ -38,7 +39,7 @@ export async function applyPlan(
 
   // Snapshot BEFORE the first write, so a crash mid-run is still recoverable with --rollback.
   runs.create({
-    id: runId, createdAt: (deps.now ?? Date.now)(), mappingFile: meta.mappingFile,
+    id: runId, createdAt: (deps.now ?? Date.now)(), mappingFile: meta.mappingFile, target: deps.target,
     status: 'pending', snapshot: snapshotOf(plan),
   });
 
@@ -64,6 +65,9 @@ export async function rollbackRun(deps: ApplyDeps, runId: string): Promise<{ fai
   const run = deps.runs.get(runId);
   if (!run) throw new Error(`Corrida ${runId} no encontrada`);
   if (run.status === 'rolled_back') throw new Error(`La corrida ${runId} ya fue revertida`);
+  if (run.target !== deps.target) {
+    throw new Error(`La corrida ${runId} se aplicó en '${run.target}', pero esta sesión apunta a '${deps.target}'; no se revierte`);
+  }
 
   const failures: string[] = [];
   const attempt = async (label: string, fn: () => Promise<void>) => {
@@ -71,7 +75,7 @@ export async function rollbackRun(deps: ApplyDeps, runId: string): Promise<{ fai
   };
   for (const c of run.snapshot.customers) {
     if (c.coSeg) await attempt(`cliente ${c.coCli} segmento`, () => deps.erp.setCustomerSegment(c.coCli, c.coSeg!));
-    if (c.coVen) await attempt(`cliente ${c.coCli} vendedor`, () => deps.erp.setCustomerSeller(c.coCli, c.coVen!));
+    if (c.coVen) await attempt(`cliente ${c.coCli} vendedor`, () => deps.erp.restoreCustomerSeller(c.coCli, c.coVen!));
   }
   for (const d of run.snapshot.docs) await attempt(`${d.kind} ${d.docNum}`, () => deps.erp.setDocSeller(d.kind, d.docNum, d.coVen));
 

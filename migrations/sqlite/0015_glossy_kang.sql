@@ -1,0 +1,1 @@
+ALTER TABLE `mapping_apply_runs` ADD `target` text DEFAULT '' NOT NULL;

@@ -317,6 +317,7 @@ export const mappingApplyRuns = sqliteTable('mapping_apply_runs', {
   id:          text('id').primaryKey(),
   createdAt:   integer('created_at').notNull(),            // unix ms
   mappingFile: text('mapping_file').notNull(),
+  target:      text('target').notNull().default(''),       // `${DB_SERVER}/${DB_NAME}` the run was applied to
   status:      text('status', { enum: ['pending', 'applied', 'failed', 'rolled_back'] }).notNull(),
   snapshot:    text('snapshot').notNull(),                 // JSON RunSnapshot: values BEFORE the run
 });

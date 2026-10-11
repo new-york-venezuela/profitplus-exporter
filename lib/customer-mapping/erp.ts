@@ -14,6 +14,8 @@ export interface ErpGateway {
   listSellerDocs(sinceIso: string): Promise<SellerDoc[]>;
   createSegment(coSeg: string, segDes: string): Promise<void>;
   setCustomerSeller(coCli: string, coVen: string): Promise<void>;
+  // Rollback only: like setCustomerSeller but accepts a seller that has been deactivated since.
+  restoreCustomerSeller(coCli: string, coVen: string): Promise<void>;
   setCustomerSegment(coCli: string, coSeg: string): Promise<void>;
   setDocSeller(kind: DocKind, docNum: string, coVen: string): Promise<void>;
 }
@@ -58,6 +60,12 @@ export function mssqlGateway(pool: sql.ConnectionPool): ErpGateway {
     },
     async setCustomerSeller(coCli, coVen) {
       await updateCustomerSeller(pool, coCli, coVen);
+    },
+    async restoreCustomerSeller(coCli, coVen) {
+      await pool.request()
+        .input('sCoCli', sql.Char(16), coCli).input('sCoVen', sql.Char(6), coVen)
+        .input('sCoUsMo', sql.Char(6), ERP_USER_CODE)
+        .execute('pApiRestaurarVendedorCliente');
     },
     async setCustomerSegment(coCli, coSeg) {
       await pool.request()

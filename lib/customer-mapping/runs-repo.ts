@@ -14,6 +14,7 @@ export interface RunRecord {
   id: string;
   createdAt: number;
   mappingFile: string;
+  target: string;
   status: RunStatus;
   snapshot: RunSnapshot;
 }
@@ -28,7 +29,7 @@ export function sqliteRunStore(db: BunSQLiteDatabase<typeof schema>): RunStore {
   return {
     create(r) {
       db.insert(schema.mappingApplyRuns).values({
-        id: r.id, createdAt: r.createdAt, mappingFile: r.mappingFile, status: r.status,
+        id: r.id, createdAt: r.createdAt, mappingFile: r.mappingFile, target: r.target, status: r.status,
         snapshot: JSON.stringify(r.snapshot),
       }).run();
     },
