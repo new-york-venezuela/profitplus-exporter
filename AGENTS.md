@@ -82,7 +82,7 @@ lib/
   customer-mapping/types, codes, csv, build, workbook — mapping rows, code normalization, CSV/xlsx I/O (`mapping:build`)
   customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`
   customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots
-  customer-mapping/dwh.ts  — DWH mapping upsert, restate loads, seller-mismatch verification
+  customer-mapping/dwh.ts  — DWH mapping upsert, restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller-mismatch verification
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
@@ -91,8 +91,10 @@ app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zon
 app/api/pricing/           — pricing API (segments, customers, assignments, price-lists, lists/[coPrecio]/rates|export,
                               articles, promotions, health, alert-settings), gated per route (see Pricing below)
 
-migrations/dwh/0039        — customer mapping table/view and restate loads (`mapping:apply`)
-migrations/mssql/0016      — pApiActualizarSegmentoCliente / customer mapping procs
+migrations/dwh/0039        — `dim.Dim_CustomerMapping` table + `dim.vw_Customer_Classified` view (no loads; `mapping:apply` fills it)
+migrations/mssql/0016      — customer mapping procs: pApiInsertarSegmento (insert segment), pApiActualizarSegmentoCliente (update customer segment),
+                              pApiCorregirVendedorDocumento (correct document seller; FACT also mirrors its ledger row by customer, DEV header only),
+                              pApiRestaurarVendedorCliente (restore customer seller on rollback, accepts inactive sellers)
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures

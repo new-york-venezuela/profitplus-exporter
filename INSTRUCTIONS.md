@@ -519,11 +519,20 @@ Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs, migration 0016) 
    (unknown customer/seller, duplicate mapping row); a plan with problems cannot be applied.
 3. **Apply**: `bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]`.
    `--confirm-db` must equal the ERP `DB_NAME` exactly. Prints a run id; the DWH is updated afterwards
-   unless `--no-dwh` is given or any ERP step failed (non-zero exit code).
+   unless `--no-dwh` is given or any ERP step failed (non-zero exit code). The run records the ERP target
+   (`DB_SERVER/DB_NAME`, no credentials) and `--rollback` refuses a run applied to a different database.
+   The DWH step runs the same dimension-then-fact batch as `bun run dwh:incremental-load`, but not its
+   recipe-cost snapshots; **after a mapping apply run `bun run dwh:incremental-load`** (the scheduled path,
+   which also refreshes the recipe cost snapshots).
+   **DWH-only retry**: if the ERP step succeeded but the DWH step failed, rerun the same `--apply` command.
+   The plan is then empty (idempotent), nothing is written to the ERP and the DWH step runs again.
+   `dim.Dim_CustomerMapping` rows are upserted only: a customer removed from the CSV is not deleted there.
 4. **Verify**: `bun run mapping:apply -- --file ... --verify` compares the DWH sellers with the CSV.
 5. **Rollback**: `bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>`.
    This reverts only the ERP (customers and documents); it does not touch the DWH. Afterwards run
    `bun run dwh:incremental-load` to realign it; `dim.Dim_CustomerMapping` keeps its last-loaded values until the next apply.
+   Customer sellers are restored with `pApiRestaurarVendedorCliente`, which also accepts a seller that has
+   been deactivated since. Return ledger rows are never written by the run, so there is nothing to revert there.
    Not reverted: segments created by the run, and `co_seg` of customers whose previous value was NULL.
 
 The first real run must go against a **non-production** copy of the ERP. `bun run test:mapping-erp`
