@@ -12,13 +12,14 @@ export interface ApplyDeps {
 }
 
 function snapshotOf(plan: Plan): RunSnapshot {
-  const customers = new Map<string, { coCli: string; coVen?: string; coSeg?: string }>();
+  const customers = new Map<string, RunSnapshot['customers'][number]>();
   const entry = (coCli: string) => {
     if (!customers.has(coCli)) customers.set(coCli, { coCli });
     return customers.get(coCli)!;
   };
   for (const c of plan.customerSeller) entry(c.coCli).coVen = c.from;
   for (const c of plan.customerSegment) if (c.from) entry(c.coCli).coSeg = c.from;
+  for (const c of plan.customerRoute) entry(c.coCli).route = { coZon: c.fromZon, frecuVist: c.fromFrec };
   return {
     customers: [...customers.values()],
     docs: plan.docSeller.map(d => ({ kind: d.kind, docNum: d.docNum, coVen: d.from })),
@@ -49,7 +50,9 @@ export async function applyPlan(
   };
 
   for (const s of plan.segmentsToCreate) await attempt(`segmento ${s.segDes}`, () => erp.createSegment(s.coSeg, s.segDes));
+  for (const z of plan.zonesToCreate) await attempt(`zona ${z.coZon}`, () => erp.createZone(z.coZon, z.zonDes));
   for (const c of plan.customerSegment) await attempt(`cliente ${c.coCli} segmento`, () => erp.setCustomerSegment(c.coCli, c.to));
+  for (const c of plan.customerRoute) await attempt(`cliente ${c.coCli} ruta`, () => erp.setCustomerRoute(c.coCli, c.toZon, c.toFrec));
   for (const c of plan.customerSeller) await attempt(`cliente ${c.coCli} vendedor`, () => erp.setCustomerSeller(c.coCli, c.to));
   let done = 0;
   for (const d of plan.docSeller) {
@@ -75,6 +78,7 @@ export async function rollbackRun(deps: ApplyDeps, runId: string): Promise<{ fai
   };
   for (const c of run.snapshot.customers) {
     if (c.coSeg) await attempt(`cliente ${c.coCli} segmento`, () => deps.erp.setCustomerSegment(c.coCli, c.coSeg!));
+    if (c.route) await attempt(`cliente ${c.coCli} ruta`, () => deps.erp.restoreCustomerRoute(c.coCli, c.route!.coZon, c.route!.frecuVist));
     if (c.coVen) await attempt(`cliente ${c.coCli} vendedor`, () => deps.erp.restoreCustomerSeller(c.coCli, c.coVen!));
   }
   for (const d of run.snapshot.docs) await attempt(`${d.kind} ${d.docNum}`, () => deps.erp.setDocSeller(d.kind, d.docNum, d.coVen));

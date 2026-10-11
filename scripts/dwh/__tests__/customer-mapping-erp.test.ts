@@ -2,6 +2,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { getPool } from '../../../lib/db/mssql';
+import { mssqlGateway } from '../../../lib/customer-mapping/erp';
 
 describe('customer-mapping pApi procs', () => {
   let pool: Awaited<ReturnType<typeof getPool>>;
@@ -272,5 +273,23 @@ describe('route pApi procs', () => {
   test('pApiRestaurarRutaCliente rejects an unknown zone or customer', async () => {
     await expect(restoreRoute(cus.coCli, 'CCS997', null)).rejects.toThrow(/Zona .* no encontrada/);
     await expect(restoreRoute('NO-SUCH-CLI', cus.coZon, null)).rejects.toThrow(/Cliente .* no encontrado/);
+  });
+
+  test('mssqlGateway: createZone is idempotent, listCustomers/listZones expose route data, set/restore round-trip', async () => {
+    const gw = mssqlGateway(pool);
+    await gw.createZone('CCS998', 'Ruta 998');
+    await gw.createZone('CCS998', 'Ruta 998');
+    try {
+      expect((await gw.listZones()).has('CCS998')).toBe(true);
+      await gw.setCustomerRoute(cus.coCli, 'CCS998', 'QUINCENAL');
+      const moved = (await gw.listCustomers()).get(cus.coCli)!;
+      expect(moved).toMatchObject({ coZon: 'CCS998', frecuVist: 'QUINCENAL', coVen: cus.coVen, coSeg: cus.coSeg });
+      await gw.restoreCustomerRoute(cus.coCli, cus.coZon, cus.frecuVist);
+      expect((await gw.listCustomers()).get(cus.coCli)).toMatchObject({ coZon: cus.coZon, frecuVist: cus.frecuVist });
+    } finally {
+      await gw.restoreCustomerRoute(cus.coCli, cus.coZon, cus.frecuVist);
+      await pool.request().query(
+        `DELETE FROM saZona WHERE RTRIM(co_zon) = 'CCS998' AND NOT EXISTS (SELECT 1 FROM saCliente WHERE RTRIM(co_zon) = 'CCS998')`);
+    }
   });
 });

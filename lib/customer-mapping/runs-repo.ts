@@ -6,7 +6,7 @@ import type { DocKind } from './erp';
 export type RunStatus = 'pending' | 'applied' | 'failed' | 'rolled_back';
 
 export interface RunSnapshot {
-  customers: { coCli: string; coVen?: string; coSeg?: string }[];
+  customers: { coCli: string; coVen?: string; coSeg?: string; route?: { coZon: string; frecuVist: string | null } }[];
   docs: { kind: DocKind; docNum: string; coVen: string }[];
 }
 
