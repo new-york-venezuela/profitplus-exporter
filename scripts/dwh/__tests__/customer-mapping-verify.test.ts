@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import sql from 'mssql';
 import { runDwhMigrations, dwhDatabaseName } from '../../migrate-dwh';
-import { findSellerMismatches } from '../../../lib/customer-mapping/dwh';
+import { findSellerMismatches, findRouteMismatches } from '../../../lib/customer-mapping/dwh';
 import type { MappingRow } from '../../../lib/customer-mapping/types';
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_cm_verify_${Date.now()}`;
@@ -86,6 +86,19 @@ describe('findSellerMismatches', () => {
       { table: 'Fact_Returns', coCli: 'C-NULL', expected: '7', actual: null, n: 1 },
       { table: 'Fact_Sales', coCli: 'C-Pad', expected: '7', actual: '009', n: 1 },
       { table: 'Fact_Sales', coCli: 'C-WRONG', expected: '7', actual: '009', n: 2 },
+    ]);
+  });
+
+  test('findRouteMismatches reads the CURRENT Dim_Customer row', async () => {
+    await pool.request().batch(`
+      INSERT INTO dim.Dim_Customer (CustomerCode, IsSpecialTaxpayer, IsLegalEntity, IsInactive, ValidFrom, ValidTo, IsCurrent, ZoneCode, DefaultSalesRepCode, VisitFrequency)
+        VALUES ('C-RT', 0,0,0,'2020-01-01','2021-01-01',0,'CCS',  '009', NULL),
+               ('C-RT', 0,0,0,'2021-01-01',NULL,      1,'CCS005','007', 'SEMANAL');`);
+    const mk = (o: Partial<MappingRow>): MappingRow => ({ ...row('C-RT', '7'), ...o });
+    expect(await findRouteMismatches(pool, [mk({ ruta: 5 })])).toEqual([]);
+    expect(await findRouteMismatches(pool, [mk({ ruta: 6, frecuencia: 'MENSUAL' })])).toEqual([
+      { coCli: 'C-RT', field: 'ZoneCode', expected: 'CCS006', actual: 'CCS005' },
+      { coCli: 'C-RT', field: 'VisitFrequency', expected: 'MENSUAL', actual: 'SEMANAL' },
     ]);
   });
 });

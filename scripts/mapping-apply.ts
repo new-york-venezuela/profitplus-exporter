@@ -6,7 +6,8 @@ import { getDb } from '@/lib/db/sqlite';
 import { applyPlan, rollbackRun } from '@/lib/customer-mapping/apply';
 import { csvToMapping } from '@/lib/customer-mapping/csv';
 import { assertConfirmedDb, deriveSince, diffCsv } from '@/lib/customer-mapping/diff-csv';
-import { findSellerMismatches, runDwhRestateLoads } from '@/lib/customer-mapping/dwh';
+import { checkCoherence } from '@/lib/customer-mapping/route-owners';
+import { findRouteMismatches, findSellerMismatches, runDwhRestateLoads } from '@/lib/customer-mapping/dwh';
 import { mssqlGateway } from '@/lib/customer-mapping/erp';
 import { buildPlan } from '@/lib/customer-mapping/plan';
 import { sqliteRunStore } from '@/lib/customer-mapping/runs-repo';
@@ -16,7 +17,7 @@ const USAGE = `Uso:
   bun run mapping:apply -- --file data/customer-mapping/2026-03.csv                       # simulación (por defecto)
   bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]           # aplica
   bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>                       # revierte
-  bun run mapping:apply -- --file ... --verify                                             # compara el DWH con el CSV`;
+  bun run mapping:apply -- --file ... --verify                                             # compara el CSV (coherencia) y el DWH (hechos y Dim_Customer)`;
 
 async function main() {
   const { values } = parseArgs({
@@ -52,11 +53,21 @@ async function main() {
     const since = deriveSince(rows);
 
     if (values.verify) {
+      const incoherent = checkCoherence(rows);
+      console.log(incoherent.length
+        ? `${incoherent.length} excepciones de coherencia ruta/vendedor en el CSV:`
+        : 'Ruta y vendedor coherentes en el CSV.');
+      for (const i of incoherent) console.log(`  ✗ [${i.kind}] ${i.coCli}: ${i.detail}`);
+
+      const dwh = await getDwh();
       const sinceKey = Number(since.replaceAll('-', ''));
-      const bad = await findSellerMismatches(await getDwh(), rows, sinceKey);
-      console.log(bad.length ? `${bad.length} grupos con vendedor distinto al mapeo:` : 'DWH coincide con el mapeo.');
+      const bad = await findSellerMismatches(dwh, rows, sinceKey);
+      console.log(bad.length ? `${bad.length} grupos con vendedor distinto al mapeo:` : 'Hechos del DWH coinciden con el mapeo.');
       console.table(bad.slice(0, 30));
-      process.exitCode = bad.length ? 1 : 0;
+      const badDim = await findRouteMismatches(dwh, rows);
+      console.log(badDim.length ? `${badDim.length} diferencias de ruta/frecuencia/vendedor en Dim_Customer:` : 'Dim_Customer coincide con el mapeo.');
+      console.table(badDim.slice(0, 30));
+      process.exitCode = incoherent.length || bad.length || badDim.length ? 1 : 0;
       return;
     }
 

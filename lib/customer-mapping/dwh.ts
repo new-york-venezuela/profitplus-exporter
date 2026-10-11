@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import { INCREMENTAL_LOAD } from '@/lib/dwh/incremental-load-sql';
 import { sellerKey } from './codes';
+import { routeZoneCode } from './route-zones';
 import type { MappingRow } from './types';
 
 // Runs the exact INCREMENTAL_LOAD batch (every dimension, then every fact). A partial chain is
@@ -39,4 +40,38 @@ export async function findSellerMismatches(
     }
   }
   return out;
+}
+
+export interface DimRouteRow { coCli: string; zone: string | null; frequency: string | null; rep: string | null }
+export interface RouteMismatch {
+  coCli: string;
+  field: 'ZoneCode' | 'VisitFrequency' | 'DefaultSalesRepCode';
+  expected: string;
+  actual: string | null;
+}
+
+export function compareRouteDim(rows: MappingRow[], dim: DimRouteRow[]): RouteMismatch[] {
+  const byCode = new Map(dim.map(d => [d.coCli.trim().toUpperCase(), d]));
+  const out: RouteMismatch[] = [];
+  for (const r of rows) {
+    const d = byCode.get(r.coCli.trim().toUpperCase());
+    if (!d) continue;
+    if (r.ruta != null) {
+      const want = routeZoneCode(r.ruta);
+      if ((d.zone ?? '').trim() !== want) out.push({ coCli: r.coCli, field: 'ZoneCode', expected: want, actual: d.zone?.trim() ?? null });
+      if (d.frequency !== r.frecuencia) out.push({ coCli: r.coCli, field: 'VisitFrequency', expected: r.frecuencia, actual: d.frequency });
+    }
+    if (r.coVen.trim() && (d.rep == null || sellerKey(d.rep) !== sellerKey(r.coVen))) {
+      out.push({ coCli: r.coCli, field: 'DefaultSalesRepCode', expected: r.coVen.trim(), actual: d.rep?.trim() ?? null });
+    }
+  }
+  return out;
+}
+
+export async function findRouteMismatches(pool: sql.ConnectionPool, rows: MappingRow[]): Promise<RouteMismatch[]> {
+  const res = await pool.request().query(`
+    SELECT RTRIM(CustomerCode) AS coCli, RTRIM(ZoneCode) AS zone, VisitFrequency AS frequency,
+           RTRIM(DefaultSalesRepCode) AS rep
+    FROM dim.Dim_Customer WHERE IsCurrent = 1`);
+  return compareRouteDim(rows, res.recordset as DimRouteRow[]);
 }
