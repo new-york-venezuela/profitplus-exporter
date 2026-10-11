@@ -94,7 +94,7 @@ App:
   invoice lines (on click).
 - Per row, visual: weekly activation strip (small bar per ISO week with % active), quota
   bar with a projection marker, average price, category-mix stacked bar (Panadería,
-  Pastelería, Pizza, Navidad), and a "new customers vs target" chip. The table form is one
+  Pastelería, Pizza, and any line added later), and a "new customers vs target" chip. The table form is one
   click away, not the default view.
 - Definitions (mirroring the workbook):
   - Active in a week = at least one invoice that ISO week, against the seller's assigned
@@ -105,12 +105,12 @@ App:
 - New API route `app/api/dwh/seguimiento/route.ts`, gated on the `dwh` module, using
   `getDwhPool()` with `.input()` for user values; pure helpers (activation, projection,
   coherence, overdue) live in `lib/` and are unit-tested.
-- Workbook "categoría" = `Dim_Product.LineName` (Panaderia, Pasteleria, Pizza). Drill-down:
-  line -> `SubLineName` (Artesanal / Industrial) -> product. `CategoryName` (Fresco /
-  Congelado) is a filter/split, not a drill level. Navidad has no products in the DWH today;
-  it appears as a column once a Navidad line/products exist, and sales of other lines
-  show as "Otros". The workbook's product family ("Pan molde integral", "Baguette") has no
-  DWH field, so it is not a level; it can be added later.
+- Workbook "categoría" = `Dim_Product.LineName`, read dynamically (today Panaderia,
+  Pasteleria, Pizza). Drill-down: line -> `SubLineName` (Artesanal / Industrial) -> product.
+  `CategoryName` (Fresco / Congelado) is a filter/split, not a drill level. Navidad is
+  not special-cased: the user will create it in Profit Plus, and it appears like any
+  other line once it has sales. Product family ("Pan molde integral", "Baguette") is out
+  of scope until the user defines its structure.
 
 ### C. Consolidation
 
