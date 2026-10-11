@@ -6,7 +6,7 @@ import { getDb } from '@/lib/db/sqlite';
 import { applyPlan, rollbackRun } from '@/lib/customer-mapping/apply';
 import { csvToMapping } from '@/lib/customer-mapping/csv';
 import { assertConfirmedDb, deriveSince, diffCsv } from '@/lib/customer-mapping/diff-csv';
-import { findSellerMismatches, runDwhRestateLoads, upsertDwhMapping } from '@/lib/customer-mapping/dwh';
+import { findSellerMismatches, runDwhRestateLoads } from '@/lib/customer-mapping/dwh';
 import { mssqlGateway } from '@/lib/customer-mapping/erp';
 import { buildPlan } from '@/lib/customer-mapping/plan';
 import { sqliteRunStore } from '@/lib/customer-mapping/runs-repo';
@@ -82,7 +82,6 @@ async function main() {
 
     if (!values['no-dwh']) {
       const dwh = await getDwh();
-      await upsertDwhMapping(dwh, rows);
       await runDwhRestateLoads(dwh);
       console.log('DWH actualizado. Verifique con: bun run mapping:apply -- --file ' + file + ' --verify');
     }

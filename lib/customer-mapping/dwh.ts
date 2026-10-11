@@ -3,31 +3,6 @@ import { INCREMENTAL_LOAD } from '@/lib/dwh/incremental-load-sql';
 import { sellerKey } from './codes';
 import type { MappingRow } from './types';
 
-export async function upsertDwhMapping(pool: sql.ConnectionPool, rows: MappingRow[]): Promise<number> {
-  const tx = new sql.Transaction(pool);
-  await tx.begin();
-  try {
-    for (const r of rows) {
-      await new sql.Request(tx)
-        .input('code', sql.Char(16), r.coCli).input('grupo', sql.VarChar(60), r.grupo)
-        .input('tipo', sql.VarChar(20), r.tipoCliente).input('parent', sql.VarChar(120), r.clientePrincipal)
-        .input('eff', sql.VarChar(10), r.effectiveFrom)
-        .query(`
-          MERGE dim.Dim_CustomerMapping AS t
-          USING (SELECT @code AS CustomerCode) AS s ON RTRIM(t.CustomerCode) = RTRIM(s.CustomerCode)
-          WHEN MATCHED THEN UPDATE SET CustomerGroup = @grupo, CustomerType = @tipo,
-               ParentCustomerName = @parent, EffectiveFrom = CONVERT(date, @eff, 23), LoadedAtUtc = SYSUTCDATETIME()
-          WHEN NOT MATCHED THEN INSERT (CustomerCode, CustomerGroup, CustomerType, ParentCustomerName, EffectiveFrom)
-               VALUES (@code, @grupo, @tipo, @parent, CONVERT(date, @eff, 23));`);
-    }
-    await tx.commit();
-    return rows.length;
-  } catch (e) {
-    await tx.rollback();
-    throw e;
-  }
-}
-
 // Runs the exact INCREMENTAL_LOAD batch (every dimension, then every fact). A partial chain is
 // unsafe: the fact loads skip lines whose product/warehouse/currency dimension is not loaded yet
 // and still advance their watermark, which would permanently drop those lines.
