@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import { INCREMENTAL_LOAD } from '@/lib/dwh/incremental-load-sql';
 import { sellerKey } from './codes';
 import type { MappingRow } from './types';
 
@@ -27,14 +28,14 @@ export async function upsertDwhMapping(pool: sql.ConnectionPool, rows: MappingRo
   }
 }
 
-// Order matters: dimensions before facts (same rule as scripts/dwh-incremental-load.ts).
+// Runs the exact INCREMENTAL_LOAD batch (every dimension, then every fact). A partial chain is
+// unsafe: the fact loads skip lines whose product/warehouse/currency dimension is not loaded yet
+// and still advance their watermark, which would permanently drop those lines.
+// The recipe-cost snapshot step of `bun run dwh:incremental-load` is NOT run here (it needs the
+// SQLite and ERP pools); run that command afterwards.
 // Facts reload by themselves because the ERP writes bumped `validador` on the changed documents.
 export async function runDwhRestateLoads(pool: sql.ConnectionPool): Promise<void> {
-  await pool.request().batch(`
-    EXEC dwh.Load_Dim_Customer;
-    EXEC dwh.Load_Dim_SalesRep;
-    EXEC dwh.Load_Fact_Sales;
-    EXEC dwh.Load_Fact_Returns;`);
+  await pool.request().batch(INCREMENTAL_LOAD);
 }
 
 export interface SellerMismatch {
