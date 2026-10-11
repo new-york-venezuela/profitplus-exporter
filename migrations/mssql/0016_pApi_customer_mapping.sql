@@ -1,7 +1,11 @@
 -- migrations/mssql/0016_pApi_customer_mapping.sql
 -- Procs used by `bun run mapping:apply` (customer seller / group data-quality fix).
--- Changes ONLY: saSegmento (insert), saCliente.co_seg, and the seller (co_ven) of a
--- sales invoice / customer return plus its saDocumentoVenta ledger row.
+-- Changes ONLY: saSegmento (insert), saCliente.co_seg / co_ven, and the seller (co_ven)
+-- of a sales invoice or customer return header.
+-- For a FACT, the invoice's own saDocumentoVenta ledger row is mirrored too, guarded by
+-- the invoice's customer. A customer return (DEV) is NOT mirrored into the ledger: a
+-- credit note has its own number (linked via doc_orig/nro_orig), so matching by the
+-- return's doc_num could hit another customer's credit note.
 -- Header rows are stamped with co_us_mo / fe_us_mo (which also bumps `validador`,
 -- so the DWH incremental loads pick the change up). Annulled documents are refused.
 
@@ -81,7 +85,8 @@ BEGIN
             WHERE doc_num = @sNroDoc;
 
             UPDATE saDocumentoVenta SET co_ven = @sCoVen
-            WHERE co_tipo_doc = 'FACT' AND nro_doc = @sNroDoc;
+            WHERE co_tipo_doc = 'FACT' AND nro_doc = @sNroDoc
+              AND co_cli = (SELECT co_cli FROM saFacturaVenta WHERE doc_num = @sNroDoc);
         END
         ELSE IF @sTipo = 'DEV'
         BEGIN
@@ -93,12 +98,40 @@ BEGIN
             UPDATE saDevolucionCliente
             SET co_ven = @sCoVen, co_us_mo = @sCoUsMo, fe_us_mo = GETDATE()
             WHERE doc_num = @sNroDoc;
-
-            UPDATE saDocumentoVenta SET co_ven = @sCoVen
-            WHERE co_tipo_doc IN ('N/CR', 'NCR') AND nro_doc = @sNroDoc;
         END
         ELSE
             RAISERROR('Tipo de documento invalido', 16, 1);
+
+        COMMIT TRAN;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorNumber INT = ERROR_NUMBER();
+        RAISERROR(@ErrorMessage, 16, @ErrorNumber);
+    END CATCH
+END
+GO
+
+CREATE OR ALTER PROCEDURE [pApiRestaurarVendedorCliente]
+    ( @sCoCli CHAR(16), @sCoVen CHAR(6), @sCoUsMo CHAR(6) )
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRAN;
+        DECLARE @sCoCliTrim VARCHAR(16) = RTRIM(@sCoCli);
+        DECLARE @sVenTrim VARCHAR(6)    = RTRIM(@sCoVen);
+
+        IF NOT EXISTS (SELECT 1 FROM saCliente WHERE co_cli = @sCoCli)
+            RAISERROR('Cliente %s no encontrado', 16, 1, @sCoCliTrim);
+        -- Rollback only: the previous seller may have been deactivated since, so inactivo is not checked.
+        IF NOT EXISTS (SELECT 1 FROM saVendedor WHERE co_ven = @sCoVen)
+            RAISERROR('Vendedor %s no encontrado', 16, 1, @sVenTrim);
+
+        UPDATE saCliente
+        SET co_ven = @sCoVen, co_us_mo = @sCoUsMo, fe_us_mo = GETDATE()
+        WHERE co_cli = @sCoCli;
 
         COMMIT TRAN;
     END TRY
