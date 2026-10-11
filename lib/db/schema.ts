@@ -310,3 +310,13 @@ export const recipeLines = sqliteTable('recipe_lines', {
 
 export type RecipeLine    = typeof recipeLines.$inferSelect;
 export type NewRecipeLine = typeof recipeLines.$inferInsert;
+
+// ── Customer mapping fix ────────────────────────────────────────────
+
+export const mappingApplyRuns = sqliteTable('mapping_apply_runs', {
+  id:          text('id').primaryKey(),
+  createdAt:   integer('created_at').notNull(),            // unix ms
+  mappingFile: text('mapping_file').notNull(),
+  status:      text('status', { enum: ['pending', 'applied', 'failed', 'rolled_back'] }).notNull(),
+  snapshot:    text('snapshot').notNull(),                 // JSON RunSnapshot: values BEFORE the run
+});
