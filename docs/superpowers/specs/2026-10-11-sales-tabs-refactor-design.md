@@ -55,6 +55,7 @@ App:
 | Customer attributes | Group = `saCliente.co_seg`; type = `tip_cli` (read only, pricing depends on it). `dim.Dim_CustomerMapping` and the `tipo_cliente`/`cliente_principal` CSV columns are removed from PR #12. |
 | Seller x route | No table. A seller's routes are derived from their customers. Real world is 1-* (a route has one seller); a route with several sellers is reported, not silently accepted. |
 | Coherence | `mapping:build` derives each route's owner (seller with most customers on it; a tie is a conflict left blank) and assigns the owner as `co_ven` to every customer on that route, recording each override in `source_note` and the conflicts file. `mapping:apply` refuses to run while any customer lacks a route or a seller, or its seller is not its route's owner. |
+| Customer type "Patrimonio" / "Nuevo" | Derived, never stored. `saCliente.fecha_reg` of the cutover batch (2026-03-28: 115 customers, same timestamp) marks patrimonio; any later registration is new. "New in year Y" = registered in Y and not in the cutover batch; patrimonio in year Y = registered before Jan 1 of Y or in the cutover batch. The cutover date is a single constant. Customers created in the old system just before the cutover and migrated with it count as patrimonio. |
 | Dashboard | New Seguimiento tab; merges and removals below. |
 | Histórico 2025 | Kept; window limited to 2025 (`20250101..20251231`). Jan and Feb 2026 stay in the legacy tables but are no longer shown anywhere. |
 | Cadencia | Removed, replaced by visit compliance. |
@@ -83,6 +84,8 @@ App:
   carries `ZoneCode`/`SegmentCode`.
 - `mapping:verify` gains the coherence report (see Decisions) and prints exceptions
   per customer.
+- `Dim_Customer` also gets `RegisteredDate` (from `fecha_reg`) and `IsMigrationBatch`
+  (`RegisteredDate` = cutover date), used for new-vs-patrimonio and "new customers vs target".
 - Overdue visits: a customer is overdue when days since its last invoice exceed
   `VisitIntervalDays`. Computed in queries, not stored.
 
