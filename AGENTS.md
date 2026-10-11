@@ -93,8 +93,9 @@ app/api/pricing/           — pricing API (segments, customers, assignments, pr
 
 migrations/dwh/0039        — `dim.Dim_CustomerMapping` table + `dim.vw_Customer_Classified` view (no loads; `mapping:apply` fills it)
 migrations/mssql/0016      — customer mapping procs: pApiInsertarSegmento (insert segment), pApiActualizarSegmentoCliente (update customer segment),
-                              pApiCorregirVendedorDocumento (correct document seller; FACT also mirrors its ledger row by customer, DEV header only),
-                              pApiRestaurarVendedorCliente (restore customer seller on rollback, accepts inactive sellers)
+                              pApiCorregirVendedorDocumento (initial version, superseded by 0017)
+migrations/mssql/0017      — supersedes pApiCorregirVendedorDocumento (FACT mirrors its ledger row guarded by customer, DEV header only, no credit-note ledger writes)
+                              and adds pApiRestaurarVendedorCliente (restore customer seller on rollback, accepts inactive sellers)
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures

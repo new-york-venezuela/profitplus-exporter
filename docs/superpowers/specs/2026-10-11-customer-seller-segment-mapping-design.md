@@ -50,7 +50,7 @@ classification. The correction applies from **2026-03-01**.
 - `migrations/mssql/0016`: `pApiActualizarSegmentoCliente` (writes `co_seg`,
   resolving/creating the `saSegmento` row) and `pApiCorregirVendedorFactura`
   (updates `co_ven` for `fec_emis >= 2026-03-01`, refuses annulled documents).
-  Returns are updated on the header only; their credit-note ledger rows
+  (Superseded in `migrations/mssql/0017`:) returns are updated on the header only; their credit-note ledger rows
   (`saDocumentoVenta` N/CR, NCR) are never touched (a credit note has its own
   number, so matching by the return's number could hit another customer's note).
   Invoices also update their own ledger row, guarded by customer. Seller changes on customers reuse

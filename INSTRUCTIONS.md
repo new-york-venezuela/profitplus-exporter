@@ -508,7 +508,7 @@ sent=… failed=…`). Check the latest rows of `pricing_sweep_runs` (`ok`,
 
 One-off correction of `saCliente.co_ven`, `saCliente.co_seg` and the seller on invoices/returns
 since the mapping's `effectiveFrom` date, driven by a reviewed CSV. Library: `lib/customer-mapping/`.
-Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs, migration 0016) and `bun run migrate:dwh`
+Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs, migrations 0016 and 0017) and `bun run migrate:dwh`
 (migration 0039, DWH mapping table).
 
 1. **Build**: `bun run mapping:build -- <workbook.xlsx>` writes `data/customer-mapping/2026-03.csv` and
