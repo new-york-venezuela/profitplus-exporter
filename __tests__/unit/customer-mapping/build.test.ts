@@ -74,4 +74,29 @@ describe('buildMapping', () => {
     expect(rows.map(r => r.coCli)).toEqual(['J1', 'J2']);
     expect(rows[0].effectiveFrom).toBe('2026-03-01');
   });
+
+  test('sales-sheet customer codes missing from the master are flagged, once per code', () => {
+    const { rows, conflicts } = buildMapping([m({ codigo: 'J1' })], [
+      l({ coCli: 'J1' }),
+      l({ coCli: 'J-99999-9', numero: 'F2' }),
+      l({ coCli: 'J-99999-9', numero: 'F3' }),
+      l({ coCli: 'D1', numero: 'F4', tipoDocumento: 'Devolucion' }),
+    ], opts);
+    expect(rows.map(r => r.coCli)).toEqual(['J1']);
+    const miss = conflicts.filter(c => c.kind === 'sales_code_not_in_master');
+    expect(miss.map(c => c.coCli)).toEqual(['J-99999-9']);
+    expect(miss[0].detail).not.toMatch(/parecido/);
+  });
+  test('an unmatched sales code suggests the master code that matches loosely, only if unique', () => {
+    const one = buildMapping([m({ codigo: 'J30142', cliente: 'Cliente X' })], [l({ coCli: 'J-30142-20' })], opts);
+    const c = one.conflicts.find(x => x.kind === 'sales_code_not_in_master')!;
+    expect(c.detail).toContain('J30142');
+    expect(c.detail).toContain('Cliente X');
+    const two = buildMapping([m({ codigo: 'J30142' }), m({ codigo: 'J-30142' })], [l({ coCli: 'J 30142' })], opts);
+    expect(two.conflicts.find(x => x.kind === 'sales_code_not_in_master')!.detail).not.toMatch(/parecido/);
+  });
+  test('a sales code that matches a master row exactly is not flagged', () => {
+    const { conflicts } = buildMapping([m({})], [l({})], opts);
+    expect(conflicts.map(c => c.kind)).not.toContain('sales_code_not_in_master');
+  });
 });

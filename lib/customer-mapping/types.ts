@@ -11,7 +11,8 @@ export interface MappingRow {
   sourceNote: string;
 }
 
-export type ConflictKind = 'multi_seller' | 'duplicate_code' | 'missing_code' | 'no_invoices' | 'invalid_type';
+export type ConflictKind = 'multi_seller' | 'duplicate_code' | 'missing_code' | 'no_invoices' | 'invalid_type'
+  | 'sales_code_not_in_master';
 
 export interface Conflict {
   coCli: string;

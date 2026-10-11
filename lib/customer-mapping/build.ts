@@ -1,5 +1,5 @@
 import type { Conflict, CustomerType, MappingRow } from './types';
-import { trimCode } from './codes';
+import { looseCustomerKey, trimCode } from './codes';
 
 export interface MasterRow { codigo: string; cliente: string; grupo: string; tipo: string; principal: string }
 export interface InvoiceLine {
@@ -83,6 +83,22 @@ export function buildMapping(
       coCli, nombre, coVen, grupo: trimCode(r.grupo), tipoCliente: tipo as CustomerType,
       clientePrincipal: trimCode(r.principal), effectiveFrom: opts.effectiveFrom, sourceNote,
     });
+  }
+
+  // Factura customers that the master sheet never lists would silently keep their ERP seller/group.
+  // Suggestion only: same code ignoring punctuation/case, or one is the other plus a suffix
+  // (e.g. sales 'J-30142-20' vs master 'J30142'). Never used to match silently.
+  const masterLoose = [...seen].map(([coCli, nombre]) => ({ coCli, nombre, key: looseCustomerKey(coCli) }));
+  const looselyMatches = (k: string) => masterLoose.filter(x =>
+    x.key.length >= 5 && k.length >= 5 && (k === x.key || k.startsWith(x.key) || x.key.startsWith(k)));
+  const reported = new Set<string>();
+  for (const line of lines) {
+    const code = trimCode(line.coCli);
+    if (line.tipoDocumento !== 'Factura' || !code || seen.has(code) || reported.has(code)) continue;
+    reported.add(code);
+    const near = looselyMatches(looseCustomerKey(code));
+    const hint = near.length === 1 ? `; código parecido en el maestro: ${near[0].coCli} (${near[0].nombre})` : '';
+    conflicts.push({ coCli: code, nombre: '', kind: 'sales_code_not_in_master', detail: `código de la hoja de ventas sin fila en Maestro Clientes${hint}` });
   }
   rows.sort((a, b) => a.coCli.localeCompare(b.coCli));
   return { rows, conflicts };
