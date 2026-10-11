@@ -1,5 +1,8 @@
 import { looseCustomerKey, resolveSeller } from './codes';
 import type { DocKind, ErpCustomerState, SellerDoc } from './erp';
+import type { VisitFrequency } from './frequency';
+import { checkCoherence, type CoherenceKind } from './route-owners';
+import { routeZoneCode, routeZoneName } from './route-zones';
 import type { MappingRow } from './types';
 
 export interface PlanInput {
@@ -7,12 +10,13 @@ export interface PlanInput {
   customers: Map<string, ErpCustomerState>;
   activeSellers: string[];
   segments: { byDesc: Map<string, string>; codes: Set<string> };
+  zones: Set<string>;               // trimmed saZona codes that already exist
   docs: SellerDoc[];
   since: string;
 }
 
 export interface PlanProblem {
-  kind: 'unknown_customer' | 'unknown_seller' | 'duplicate_mapping_row';
+  kind: 'unknown_customer' | 'unknown_seller' | 'duplicate_mapping_row' | CoherenceKind;
   coCli: string;
   detail: string;
 }
@@ -20,8 +24,10 @@ export interface PlanProblem {
 export interface Plan {
   customerSeller: { coCli: string; from: string; to: string }[];
   customerSegment: { coCli: string; from: string | null; to: string; grupo: string }[];
+  customerRoute: { coCli: string; fromZon: string; fromFrec: string | null; toZon: string; toFrec: VisitFrequency }[];
   docSeller: { kind: DocKind; docNum: string; coCli: string; from: string; to: string }[];
   segmentsToCreate: { coSeg: string; segDes: string }[];
+  zonesToCreate: { coZon: string; zonDes: string }[];
   problems: PlanProblem[];
 }
 
@@ -39,7 +45,10 @@ export function assignSegmentCodes(groups: string[], existing: Set<string>): Map
 }
 
 export function buildPlan(input: PlanInput): Plan {
-  const plan: Plan = { customerSeller: [], customerSegment: [], docSeller: [], segmentsToCreate: [], problems: [] };
+  const plan: Plan = {
+    customerSeller: [], customerSegment: [], customerRoute: [], docSeller: [],
+    segmentsToCreate: [], zonesToCreate: [], problems: [],
+  };
 
   const docsByCustomer = new Map<string, SellerDoc[]>();
   for (const d of input.docs) {
@@ -47,6 +56,18 @@ export function buildPlan(input: PlanInput): Plan {
     const list = docsByCustomer.get(d.coCli) ?? [];
     list.push(d);
     docsByCustomer.set(d.coCli, list);
+  }
+
+  // Coherence runs over the first row of each customer (later duplicates are reported separately).
+  const unique = new Map<string, MappingRow>();
+  for (const r of input.rows) if (!unique.has(r.coCli)) unique.set(r.coCli, r);
+  for (const i of checkCoherence([...unique.values()])) {
+    plan.problems.push({ kind: i.kind, coCli: i.coCli, detail: i.detail });
+  }
+  const routes = [...new Set([...unique.values()].filter(r => r.ruta != null).map(r => r.ruta!))].sort((a, b) => a - b);
+  for (const n of routes) {
+    const coZon = routeZoneCode(n);
+    if (!input.zones.has(coZon)) plan.zonesToCreate.push({ coZon, zonDes: routeZoneName(n) });
   }
 
   const looseIndex = new Map<string, string[]>();
@@ -93,6 +114,14 @@ export function buildPlan(input: PlanInput): Plan {
     const toSeg = input.segments.byDesc.get(groupKey) ?? newCodes.get(missingByKey.get(groupKey)!)!;
     if ((erp.coSeg ?? '') !== toSeg) {
       plan.customerSegment.push({ coCli: r.coCli, from: erp.coSeg, to: toSeg, grupo });
+    }
+
+    if (r.ruta != null) {
+      const toZon = routeZoneCode(r.ruta);
+      const fromFrec = (erp.frecuVist ?? '').trim().toUpperCase();
+      if (erp.coZon !== toZon || fromFrec !== r.frecuencia) {
+        plan.customerRoute.push({ coCli: r.coCli, fromZon: erp.coZon, fromFrec: erp.frecuVist, toZon, toFrec: r.frecuencia });
+      }
     }
 
     if (!r.coVen.trim()) continue;

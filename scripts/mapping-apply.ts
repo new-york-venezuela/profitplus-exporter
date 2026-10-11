@@ -63,11 +63,12 @@ async function main() {
     const plan = buildPlan({
       rows, since,
       customers: await erp.listCustomers(), activeSellers: await erp.listActiveSellers(),
-      segments: await erp.listSegments(), docs: await erp.listSellerDocs(since),
+      segments: await erp.listSegments(), zones: await erp.listZones(), docs: await erp.listSellerDocs(since),
     });
     const diffPath = file.replace(/\.csv$/, '.diff.csv');
     await writeFile(diffPath, diffCsv(plan), 'utf8');
-    console.log(`Segmentos a crear: ${plan.segmentsToCreate.length} | clientes (grupo): ${plan.customerSegment.length} | ` +
+    console.log(`Segmentos a crear: ${plan.segmentsToCreate.length} | zonas a crear: ${plan.zonesToCreate.length} | ` +
+      `clientes (grupo): ${plan.customerSegment.length} | clientes (ruta/frecuencia): ${plan.customerRoute.length} | ` +
       `clientes (vendedor): ${plan.customerSeller.length} | documentos: ${plan.docSeller.length} | problemas: ${plan.problems.length}`);
     for (const p of plan.problems.slice(0, 20)) console.log(`  ✗ [${p.kind}] ${p.coCli}: ${p.detail}`);
     console.log(`Diff completo: ${diffPath}`);

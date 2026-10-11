@@ -1,10 +1,11 @@
 import sql from 'mssql';
 import { ERP_USER_CODE } from '@/lib/geo/erp-location';
 import { updateCustomerSeller } from '@/lib/geo/erp-seller';
+import type { VisitFrequency } from './frequency';
 
 export type DocKind = 'FACT' | 'DEV';
 
-export interface ErpCustomerState { coCli: string; coVen: string; coSeg: string | null }
+export interface ErpCustomerState { coCli: string; coVen: string; coSeg: string | null; coZon: string; frecuVist: string | null }
 export interface SellerDoc { kind: DocKind; docNum: string; coCli: string; coVen: string; fecEmis: string }
 
 export interface ErpGateway {
@@ -18,15 +19,44 @@ export interface ErpGateway {
   restoreCustomerSeller(coCli: string, coVen: string): Promise<void>;
   setCustomerSegment(coCli: string, coSeg: string): Promise<void>;
   setDocSeller(kind: DocKind, docNum: string, coVen: string): Promise<void>;
+  listZones(): Promise<Set<string>>;
+  createZone(coZon: string, zonDes: string): Promise<void>;
+  setCustomerRoute(coCli: string, coZon: string, frecuencia: VisitFrequency): Promise<void>;
+  // Rollback only: restores any previous zone and ANY previous frecu_vist (NULL or free text).
+  restoreCustomerRoute(coCli: string, coZon: string, frecuVist: string | null): Promise<void>;
 }
 
 export function mssqlGateway(pool: sql.ConnectionPool): ErpGateway {
   return {
     async listCustomers() {
       const r = await pool.request().query(
-        `SELECT RTRIM(co_cli) AS coCli, RTRIM(co_ven) AS coVen, RTRIM(co_seg) AS coSeg FROM saCliente`);
-      return new Map(r.recordset.map((x: { coCli: string; coVen: string; coSeg: string | null }) =>
-        [x.coCli, { coCli: x.coCli, coVen: x.coVen, coSeg: x.coSeg }]));
+        `SELECT RTRIM(co_cli) AS coCli, RTRIM(co_ven) AS coVen, RTRIM(co_seg) AS coSeg,
+                RTRIM(co_zon) AS coZon, RTRIM(frecu_vist) AS frecuVist FROM saCliente`);
+      return new Map(r.recordset.map((x: ErpCustomerState) => [x.coCli, {
+        coCli: x.coCli, coVen: x.coVen, coSeg: x.coSeg, coZon: x.coZon, frecuVist: x.frecuVist,
+      }]));
+    },
+    async listZones() {
+      const r = await pool.request().query(`SELECT RTRIM(co_zon) AS coZon FROM saZona`);
+      return new Set((r.recordset as { coZon: string }[]).map(x => x.coZon));
+    },
+    async createZone(coZon, zonDes) {
+      await pool.request()
+        .input('sCoZon', sql.Char(6), coZon).input('sZonDes', sql.VarChar(60), zonDes)
+        .input('sCoUsIn', sql.Char(6), ERP_USER_CODE)
+        .execute('pApiInsertarZona');
+    },
+    async setCustomerRoute(coCli, coZon, frecuencia) {
+      await pool.request()
+        .input('sCoCli', sql.Char(16), coCli).input('sCoZon', sql.Char(6), coZon)
+        .input('sFrecuVist', sql.VarChar(60), frecuencia).input('sCoUsMo', sql.Char(6), ERP_USER_CODE)
+        .execute('pApiActualizarRutaCliente');
+    },
+    async restoreCustomerRoute(coCli, coZon, frecuVist) {
+      await pool.request()
+        .input('sCoCli', sql.Char(16), coCli).input('sCoZon', sql.Char(6), coZon)
+        .input('sFrecuVist', sql.VarChar(60), frecuVist).input('sCoUsMo', sql.Char(6), ERP_USER_CODE)
+        .execute('pApiRestaurarRutaCliente');
     },
     async listActiveSellers() {
       const r = await pool.request().query(`SELECT RTRIM(co_ven) AS coVen FROM saVendedor WHERE inactivo = 0`);

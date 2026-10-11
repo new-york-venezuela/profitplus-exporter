@@ -9,7 +9,11 @@ const COLUMNS = ['kind', 'key', 'from', 'to'].map((k, i) => ({
 export function diffCsv(plan: Plan): string {
   const rows: Record<string, unknown>[] = [
     ...plan.segmentsToCreate.map(s => ({ kind: 'crear_segmento', key: s.coSeg, from: '', to: s.segDes })),
+    ...plan.zonesToCreate.map(z => ({ kind: 'crear_zona', key: z.coZon, from: '', to: z.zonDes })),
     ...plan.customerSegment.map(c => ({ kind: 'cliente_segmento', key: c.coCli, from: c.from ?? '', to: `${c.to} (${c.grupo})` })),
+    ...plan.customerRoute.map(c => ({
+      kind: 'cliente_ruta', key: c.coCli, from: `${c.fromZon}/${c.fromFrec ?? ''}`, to: `${c.toZon}/${c.toFrec}`,
+    })),
     ...plan.customerSeller.map(c => ({ kind: 'cliente_vendedor', key: c.coCli, from: c.from, to: c.to })),
     ...plan.docSeller.map(d => ({ kind: `doc_${d.kind}`, key: `${d.docNum} (${d.coCli})`, from: d.from, to: d.to })),
     ...plan.problems.map(p => ({ kind: `PROBLEMA_${p.kind}`, key: p.coCli, from: '', to: p.detail })),
