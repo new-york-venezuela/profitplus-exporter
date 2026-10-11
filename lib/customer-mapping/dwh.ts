@@ -45,7 +45,7 @@ export interface SellerMismatch {
 export async function findSellerMismatches(
   pool: sql.ConnectionPool, rows: MappingRow[], sinceDateKey: number,
 ): Promise<SellerMismatch[]> {
-  const expected = new Map(rows.filter(r => r.coVen.trim()).map(r => [r.coCli, r.coVen.trim()]));
+  const expected = new Map(rows.filter(r => r.coVen.trim()).map(r => [r.coCli.trim().toUpperCase(), r.coVen.trim()]));
   const out: SellerMismatch[] = [];
   for (const table of ['Fact_Sales', 'Fact_Returns'] as const) {
     const res = await pool.request().input('since', sql.Int, sinceDateKey).query(`
@@ -56,7 +56,7 @@ export async function findSellerMismatches(
       WHERE f.DateKey >= @since AND f.IsVoided = 0
       GROUP BY RTRIM(c.CustomerCode), RTRIM(rep.SalesRepCode)`);
     for (const x of res.recordset as { coCli: string; rep: string | null; n: number }[]) {
-      const want = expected.get(x.coCli);
+      const want = expected.get(x.coCli.trim().toUpperCase());
       if (want && (x.rep == null || sellerKey(x.rep) !== sellerKey(want))) {
         out.push({ table, coCli: x.coCli, expected: want, actual: x.rep, n: x.n });
       }

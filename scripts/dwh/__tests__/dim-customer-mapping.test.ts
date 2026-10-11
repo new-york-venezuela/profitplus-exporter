@@ -29,16 +29,19 @@ describe('Dim_CustomerMapping', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await pool.close();
-    const master = await new sql.ConnectionPool(testConfig('master')).connect();
-    await master.request().query(`
-      ALTER DATABASE [${dwhDatabaseName()}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-      DROP DATABASE [${dwhDatabaseName()}];`);
-    await master.close();
+    try { await pool.close(); } finally {
+      const master = await new sql.ConnectionPool(testConfig('master')).connect();
+      try {
+        await master.request().query(`
+          ALTER DATABASE [${dwhDatabaseName()}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+          DROP DATABASE [${dwhDatabaseName()}];`);
+      } finally { await master.close(); }
+    }
   });
 
   test('upsert inserts then updates; the view exposes group/type/parent next to the dimension row', async () => {
-    const pick = await pool.request().query(`SELECT TOP 1 RTRIM(CustomerCode) AS code FROM dim.Dim_Customer WHERE IsCurrent = 1`);
+    const pick = await pool.request().query(`SELECT TOP 2 RTRIM(CustomerCode) AS code FROM dim.Dim_Customer WHERE IsCurrent = 1 ORDER BY CustomerKey`);
+    expect(pick.recordset.length).toBeGreaterThanOrEqual(1);
     const code: string = pick.recordset[0].code;
     const row = (grupo: string) => ({
       coCli: code, nombre: 'X', coVen: '', grupo, tipoCliente: 'Cadena' as const,
@@ -55,6 +58,14 @@ describe('Dim_CustomerMapping', () => {
       .query(`SELECT CustomerGroup, CustomerType, ParentCustomerName FROM dim.vw_Customer_Classified
               WHERE RTRIM(CustomerCode) = RTRIM(@c) AND IsCurrent = 1`);
     expect(v.recordset[0]).toMatchObject({ CustomerGroup: 'Farmacia', CustomerType: 'Cadena', ParentCustomerName: 'Gama' });
+
+    if (pick.recordset.length > 1) {
+      const other: string = pick.recordset[1].code;
+      const u = await pool.request().input('c', sql.Char(16), other)
+        .query(`SELECT CustomerGroup, CustomerType, ParentCustomerName FROM dim.vw_Customer_Classified
+                WHERE RTRIM(CustomerCode) = RTRIM(@c) AND IsCurrent = 1`);
+      expect(u.recordset[0]).toMatchObject({ CustomerGroup: null, CustomerType: null, ParentCustomerName: null });
+    }
   });
 
   test('migration 0039 is re-runnable', async () => {
