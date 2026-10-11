@@ -105,8 +105,12 @@ App:
 - New API route `app/api/dwh/seguimiento/route.ts`, gated on the `dwh` module, using
   `getDwhPool()` with `.input()` for user values; pure helpers (activation, projection,
   coherence, overdue) live in `lib/` and are unit-tested.
-- Category = the product's existing category/line in `Dim_Product`; the four workbook
-  categories are mapped there. If a product has none, it appears as "Otros".
+- Workbook "categoría" = `Dim_Product.LineName` (Panaderia, Pasteleria, Pizza). Drill-down:
+  line -> `SubLineName` (Artesanal / Industrial) -> product. `CategoryName` (Fresco /
+  Congelado) is a filter/split, not a drill level. Navidad has no products in the DWH today;
+  it appears as a column once a Navidad line/products exist, and sales of other lines
+  show as "Otros". The workbook's product family ("Pan molde integral", "Baguette") has no
+  DWH field, so it is not a level; it can be added later.
 
 ### C. Consolidation
 
@@ -114,8 +118,8 @@ App:
 - **Ventas, Devoluciones**: kept.
 - **Clientes**: group and route filters; visit-compliance column and an overdue list;
   the workbook's inactive-customer list (assigned customers with no invoice in the period).
-- **Productos**: absorbs Profundidad de Línea and Matriz Vendedor-Producto. Category ->
-  line -> product drill, plus a product x customer-group share matrix (the workbook's
+- **Productos**: absorbs Profundidad de Línea and Matriz Vendedor-Producto. Line ->
+  sub-line -> product drill (Fresco/Congelado filter), plus a product x customer-group share matrix (the workbook's
   `Hoja1`), replacing the duplicated "Cobertura por vendedor" panels.
 - **Histórico 2025**: kept as is, window limited to 2025 in both the sales and returns
   queries and the tab label.
@@ -148,5 +152,6 @@ C (consolidation). B depends on A; C depends on A and partly on B.
   they are outside Caracas; renaming later is expensive, accepted.
 - The 45 customers without a neighborhood no longer matter, but customers without a
   route in the workbook (1 row) and tied routes must be resolved by hand in the CSV.
-- To verify while writing the plans: exact behaviour of each tab being merged or removed,
-  and which `Dim_Product` field carries the four categories.
+- To verify while writing the plans: exact behaviour of each tab being merged or removed.
+- Verified: product hierarchy in `Dim_Product` is Line -> SubLine -> Category (Fresco/Congelado);
+  sellable lines are Panaderia (56), Pasteleria (5) and Pizza (4); no Navidad products exist.
