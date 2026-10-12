@@ -237,7 +237,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
       </div>
 
       <KpiCard
-        label="2. Cuota de ventas mensual"
+        label="2. Cuota de ventas mensual — ventas facturadas por el vendedor"
         actual={data.cuota.salesGross.usd ?? 0}
         actualLabel={moneyLabel(data.cuota.salesGross, currency)}
         quota={data.cuota.quotaUsd}
@@ -252,7 +252,9 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         />
       </div>
       <p className="text-xs text-gray-500 -mt-2">
-        Ventas brutas sin IVA (antes de devoluciones), excluida la facturación de consignación — igual que la pestaña Seguimiento.
+        Ventas brutas sin IVA (antes de devoluciones), excluida la facturación de consignación. Cuenta las facturas según el
+        vendedor del documento; la tarjeta de Seguimiento atribuye por el vendedor actual del cliente, así que
+        pueden diferir si un cliente fue reasignado.
       </p>
       {data.cuota.isPartial && (
         <p className="text-xs text-amber-700">Meta parcial: falta la meta de algún mes del rango seleccionado.</p>

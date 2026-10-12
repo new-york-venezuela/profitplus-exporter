@@ -43,6 +43,15 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe('SellerProfile quota sales label', () => {
+  test('labels the quota sales as invoices issued by the seller, not as the Seguimiento card total', async () => {
+    render(<SellerProfile salesRepKey="7" dateRange="month:2026-10" currency="usd" onBack={() => {}} />);
+    expect(await screen.findByText('2. Cuota de ventas mensual — ventas facturadas por el vendedor')).toBeTruthy();
+    expect(screen.getByText(/según el vendedor del documento/)).toBeTruthy();
+    expect(screen.queryByText(/igual que la pestaña Seguimiento/)).toBeNull();
+  });
+});
+
 describe('SellerProfile quota editing', () => {
   test('saves through the shared helper with the full row, updates the editor and refetches', async () => {
     render(<SellerProfile salesRepKey="7" dateRange="month:2026-10" currency="usd" onBack={() => {}} />);

@@ -46,8 +46,9 @@ function activacionQuery(entityGrain: EntityGrain, dateWhere: string): string {
 // getFlaggedRootCodes) — otherwise this profile's sales
 // figure double-counts consignment-pattern root invoices that the
 // Seguimiento tab deliberately excludes as unreliable per-seller
-// attribution, inflating this KPI relative to that list for the same
-// seller/period. Requires a join to Dim_Customer (the base CUOTA query
+// attribution. Note this query filters by the invoice's seller
+// (fs.SalesRepKey), not the customer's current seller, so it does not
+// necessarily equal the Seguimiento card total (see Section 2 below). Requires a join to Dim_Customer (the base CUOTA query
 // didn't need one before this fix) purely to read CustomerCode for the
 // exclusion check.
 function cuotaSalesQuery(flaggedRootCodes: string[]): string {
@@ -368,9 +369,13 @@ export async function GET(request: NextRequest) {
     const latestMonthRow = targetRows.find(t => t.periodMonth === months[months.length - 1]);
 
     // Section 2: Cuota de ventas mensual — same flagged-root-invoice
-    // exclusion as the Seguimiento tab (see cuotaSalesQuery above), so
-    // this profile's sales figure matches that tab exactly for the same
-    // seller/period.
+    // exclusion as the Seguimiento tab (see cuotaSalesQuery above). The
+    // attribution differs, though: this counts invoices by the seller on the
+    // document (fs.SalesRepKey), while Seguimiento attributes each customer's
+    // sales to its CURRENT Dim_Customer.DefaultSalesRepCode
+    // (lib/seguimiento/queries.ts). The two figures can differ for customers
+    // reassigned to another seller; the profile UI labels this one as
+    // "ventas facturadas por el vendedor".
     const flaggedRootCodes = await getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD);
     const cuotaReq = pool.request().input('salesRepKey', salesRepKey);
     flaggedRootCodes.forEach((code, i) => cuotaReq.input(`flaggedRoot${i}`, code));
