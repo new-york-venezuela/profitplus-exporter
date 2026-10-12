@@ -10,7 +10,7 @@ import {
 import { resolveQuotaSum } from './quota-resolution';
 import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
 import { GET as getProfundidadLinea } from '@/app/api/dwh/profundidad-linea/route';
-import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/vendedores/consignment';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import type { ActivacionWeekRow, AgingBucketRow, Seller360Response } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';

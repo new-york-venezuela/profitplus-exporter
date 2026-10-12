@@ -10,7 +10,7 @@ export function isConsignmentPattern(salesOnRoot: number, totalSales: number, th
 // Per legal-entity root-billing ratio, scoped to the current date range —
 // recomputed per request rather than persisted, since this is a reporting
 // judgment (tunable threshold) not a stable ERP fact. Shared by
-// vendedores/route.ts and vendedor-360/route.ts so both routes exclude the
+// vendedores/route.ts, vendedor-360/route.ts and seguimiento/route.ts so these routes exclude the
 // exact same set of flagged root-billed invoices from a seller's sales
 // figures — see docs/superpowers/specs/
 // 2026-09-21-consignment-commission-exclusion-design.md.

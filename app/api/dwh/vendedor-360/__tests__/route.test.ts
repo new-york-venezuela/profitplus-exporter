@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { GET } from '../route';
 import { NextRequest } from 'next/server';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/vendedores/consignment';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { buildDateWhereClause, dualAmountExpr, usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
 
 describe('GET /api/dwh/vendedor-360', () => {

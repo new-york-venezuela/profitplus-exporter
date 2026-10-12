@@ -6,7 +6,7 @@ import {
   returnsAmountSubqueries, dualAmountExpr, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
 import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
-import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from './consignment';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import type { VendedoresResponse, VendedoresRow, VendedoresExcludedInvoice, VendedoresExcludedResponse } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
