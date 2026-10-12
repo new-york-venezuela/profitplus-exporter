@@ -511,6 +511,10 @@ frequency) and the seller on invoices/returns since the mapping's `effectiveFrom
 (columns `co_cli, nombre, co_ven, grupo, ruta, frecuencia, effective_from, source_note`). Library: `lib/customer-mapping/`.
 Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs: 0016, 0017 and 0018) and `bun run migrate:dwh`
 (0040: `Dim_Customer` route/frequency/registration columns, `Dim_Zone`, `Dim_Segment`).
+**Before running `migrate:dwh` with 0040**, count and export `dim.Dim_CustomerMapping` (`SELECT * FROM dim.Dim_CustomerMapping`
+to a CSV): 0040 drops that table without a check, and its `CustomerType` / `ParentCustomerName` values exist nowhere else.
+After the migration, `SELECT CustomerCode FROM dim.Dim_Customer WHERE IsCurrent = 1 GROUP BY CustomerCode HAVING COUNT(*) > 1`
+must return 0 rows (Seguimiento, Productos and Clientes rely on one current row per customer).
 
 1. **Build**: `bun run mapping:build -- --master <2026-bbdd-profit.xlsx> --tracking <10-2026-ventas-seguimiento-por-ruta.xlsx>`
  writes `data/customer-mapping/2026-03.csv`, `2026-03.conflicts.csv` and `2026-03.routes.csv`. The customer list, group and
