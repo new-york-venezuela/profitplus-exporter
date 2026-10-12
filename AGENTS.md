@@ -85,6 +85,10 @@ lib/
   customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots; route procs pApiInsertarZona / pApiActualizarRutaCliente / pApiRestaurarRutaCliente
   customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
   dwh/cutover.ts           — MIGRATION_CUTOVER_DATE (2026-03-28), customerKindInYear(): patrimonio / nuevo derived from Dim_Customer.RegisteredDate, never stored
+  clientes/scope.ts, cobertura-sql.ts — Clientes tab: group/route scope (decided by the CURRENT Dim_Customer row) and the cobertura query (last invoice, period activity, route, group, visit frequency)
+  productos/group-share.ts, queries.ts — Productos tab: product x customer-group share matrix (pure builder + SQL), category list
+  dwh/depth-tier.ts, seller-coverage.ts — line-depth tiers and the per-seller coverage figure shown on Vendedor 360 (moved from the removed Profundidad route)
+  dwh/historico-window.ts  — Histórico 2025 window (calendar 2025, sales and returns)
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
   seguimiento/             — pure helpers for the Seguimiento tab: iso-date.ts, month-pace.ts (monthPace/projectToMonth/resolveReferenceMonth),
                               iso-weeks.ts, visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas,
@@ -124,6 +128,7 @@ content/help/pricing-*.md    — in-app help pages for the pricing tabs (segment
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
     tabs/tab-seguimiento.tsx + components/seguimiento/ — Seguimiento tab
+    lib/tab-keys.ts — tab registry (TAB_KEYS/TAB_LABELS/resolveActiveTab); an unknown or retired ?tab= resolves to Resumen
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
   pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
@@ -356,6 +361,15 @@ projection excludes weekends only (no holidays). Quotas come from `seller_target
 summed per distinct seller and flagged `quotaShared` when a seller spans several roots. Consignment-root customer
 codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `VisitIntervalDays` NULL means the
 customer is never overdue ("Sin frecuencia").
+
+## Analítica tabs (consolidated)
+
+Tabs, in order: Resumen (with the month-pace strip), Seguimiento, Ventas, Devoluciones, CXC y Cobranzas, Clientes, Productos, Histórico 2025, Finanzas, Multimoneda, Compras. The registry is `app/(app)/analitica/lib/tab-keys.ts`; `?tab=vendedores|profundidad|matriz-vendedor|cadencia` (removed) open Resumen.
+- **Clientes** extends "Cobertura de clientes" (`/api/dwh/clientes/cobertura`): route, group, patrimonio/nuevo (`customerKindInYear`), visit compliance (`visitCompliance`; `VisitIntervalDays` NULL = "Sin frecuencia", never overdue) and "Sin compras en el período". The group/route filters (`lib/clientes/scope.ts`) scope the whole tab by the customer's CURRENT row; they filter the sales side only.
+- **Productos**: Line > SubLine > product drill; `CategoryName` (Fresco/Congelado) is a filter, not a level; `section=grupos` is the product x customer-group share matrix (group = `Dim_Segment.SegmentName` of the current `ErpSegmentCode`); the presence table carries the Primera/Segunda/Addon tier from `lib/dwh/depth-tier.ts`.
+- **Histórico 2025** shows calendar 2025 only (`lib/dwh/historico-window.ts`); Jan-Feb 2026 stay in the legacy tables, shown nowhere.
+- `visit_cadence_targets` (SQLite) is deprecated and unused (kept on purpose, see `lib/db/schema.ts`).
+- Vendedor 360's `coverage` comes from `lib/dwh/seller-coverage.ts` (pooled over all legal entities, no CADENA/INDEPENDIENTES split).
 
 ## Auth Flow Summary
 
