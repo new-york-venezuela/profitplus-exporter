@@ -8,9 +8,12 @@ import { moneyLabel } from '../lib/format';
 import SearchableSelect from '@/lib/components/searchable-select';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
+import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
+import { DepthTable } from '../components/productos/depth-table';
 import type {
   Currency, DateRange, ProductosResponse, ProductosRow,
   ProfundidadLineaResponse, UnitsByLineaResponse,
+  ProductosCategoriasResponse, ProductosGroupShareResponse,
 } from '../types';
 
 // Stable palette cycled across whatever líneas a given date range/tienda
@@ -84,6 +87,11 @@ export default function TabProductos({
   const [sublinea, setSublinea] = useState<string | null>(null);
   const [tienda, setTienda] = useState<string | null>(null);
   const [tiendas, setTiendas] = useState<{ value: string; label: string }[]>([]);
+  const [categoria, setCategoria] = useState<string | null>(null);
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [grupoData, setGrupoData] = useState<ProductosGroupShareResponse | null>(null);
+  const [grupoLoading, setGrupoLoading] = useState<boolean>(true);
+  const [grupoError, setGrupoError] = useState<string | null>(null);
   const [data, setData] = useState<ProductosResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +124,22 @@ export default function TabProductos({
 
   useEffect(() => {
     let cancelled = false;
+    async function loadCategorias() {
+      try {
+        const res = await fetch('/api/dwh/productos?categorias=1');
+        if (cancelled || !res.ok) return;
+        const body: ProductosCategoriasResponse = await res.json().catch(() => ({ categorias: [] }));
+        if (!cancelled) setCategorias(body.categorias ?? []);
+      } catch {
+        // Non-critical: the filter just stays empty.
+      }
+    }
+    loadCategorias();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     async function load() {
       setError(null);
       setLoading(true);
@@ -124,6 +148,7 @@ export default function TabProductos({
         if (groupBy !== 'linea' && linea) params.set('linea', linea);
         if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
         if (tienda) params.set('tienda', tienda);
+        if (categoria) params.set('categoria', categoria);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -144,7 +169,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, groupBy, linea, sublinea, tienda]);
+  }, [dateRange, groupBy, linea, sublinea, tienda, categoria]);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +179,7 @@ export default function TabProductos({
       try {
         const params = new URLSearchParams({ dateRange, section: 'profundidad' });
         if (tienda) params.set('tienda', tienda);
+        if (categoria) params.set('categoria', categoria);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -172,7 +198,7 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, tienda]);
+  }, [dateRange, tienda, categoria]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,6 +208,7 @@ export default function TabProductos({
       try {
         const params = new URLSearchParams({ dateRange, section: 'porLineaMes', granularity });
         if (tienda) params.set('tienda', tienda);
+        if (categoria) params.set('categoria', categoria);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -200,7 +227,37 @@ export default function TabProductos({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, granularity, tienda]);
+  }, [dateRange, granularity, tienda, categoria]);
+
+  // Follows the drill state so the matrix always matches the table above it.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setGrupoError(null);
+      setGrupoLoading(true);
+      try {
+        const params = new URLSearchParams({ dateRange, section: 'grupos', groupBy });
+        if (groupBy !== 'linea' && linea) params.set('linea', linea);
+        if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
+        if (tienda) params.set('tienda', tienda);
+        if (categoria) params.set('categoria', categoria);
+        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setGrupoError(body.error ?? 'Error desconocido');
+          return;
+        }
+        setGrupoData(await res.json());
+      } catch {
+        if (!cancelled) setGrupoError('No se pudo conectar con el servidor');
+      } finally {
+        if (!cancelled) setGrupoLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [dateRange, groupBy, linea, sublinea, tienda, categoria]);
 
   function handleRowClick(row: ProductosRow) {
     if (groupBy === 'linea') {
@@ -275,17 +332,31 @@ export default function TabProductos({
       <div id="productos-drilldown-section" className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
           <h2 className="text-sm font-bold text-gray-900">Ventas y rotación por producto</h2>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            Tienda:
-            <SearchableSelect
-              value={tienda}
-              onChange={setTienda}
-              options={tiendas}
-              allLabel="Todas"
-              placeholder="Buscar tienda..."
-              className="max-w-[220px]"
-            />
-          </label>
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              Categoría:
+              <select
+                aria-label="Filtrar por categoría"
+                className="border border-gray-200 rounded px-2 py-1 text-sm"
+                value={categoria ?? ''}
+                onChange={e => setCategoria(e.target.value || null)}
+              >
+                <option value="">Todas</option>
+                {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              Tienda:
+              <SearchableSelect
+                value={tienda}
+                onChange={setTienda}
+                options={tiendas}
+                allLabel="Todas"
+                placeholder="Buscar tienda..."
+                className="max-w-[220px]"
+              />
+            </label>
+          </div>
         </div>
         <p className="text-xs text-gray-500 mb-3">
           {groupBy === 'linea' && 'Ventas brutas, devoluciones (por fecha de factura), ventas netas y unidades por línea de producto, sin IVA — clic en una fila para ver sus sublíneas'}
@@ -341,6 +412,23 @@ export default function TabProductos({
         )}
       </div>
 
+      <ChartCard
+        title="Participación por grupo de cliente"
+        subtitle="Qué parte de las ventas brutas de cada fila va a cada grupo de cliente (grupo actual del cliente en Profit Plus) — sigue el nivel y los filtros de la tabla de arriba"
+      >
+        {grupoLoading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : grupoError ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{grupoError}</p>
+        ) : (
+          <GroupShareMatrixTable
+            matrix={grupoData ?? { columns: [], rows: [] }}
+            currency={currency}
+            rowHeader={COLUMN_LABEL[groupBy]}
+          />
+        )}
+      </ChartCard>
+
       {/* Unidades vendidas por mes, apiladas por línea */}
       <ChartCard
         title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por línea`}
@@ -385,54 +473,18 @@ export default function TabProductos({
         )}
       </ChartCard>
 
-      {/* Profundidad de Línea */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h2 className="text-sm font-bold text-gray-900 mb-1">Profundidad de Línea</h2>
-        <p className="text-xs text-gray-500 mb-3">
-          Top 15 productos por ventas brutas — presencia en clientes y tiendas, precio y unidades promedio mensuales, tasa de devolución (devoluciones por fecha de devolución ÷ ventas brutas)
-        </p>
-
+      <ChartCard
+        title="Presencia y profundidad por producto"
+        subtitle="Top 15 productos por ventas brutas — clientes y tiendas que lo compran (y su % de los activos), clasificación por penetración de clientes, precio y unidades promedio mensuales, tasa de devolución (devoluciones por fecha de devolución ÷ ventas brutas)"
+      >
         {profundidadLoading ? (
           <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
         ) : profundidadError ? (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
-        ) : !profundidadData || profundidadData.rows.length === 0 ? (
-          <EmptyState />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Producto</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Clientes</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tiendas</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Precio prom./mes</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Unidades prom./mes</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Tasa dev.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {profundidadData.rows.map((row, i) => (
-                  <tr key={`${row.sku}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
-                    <td className="px-3 py-2 text-gray-800">{row.sku}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {qty(row.clientCount)} <span className="text-gray-400">({pct(row.clientShare)})</span>
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {qty(row.storeCount)} <span className="text-gray-400">({pct(row.storeShare)})</span>
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(row.avgMonthlyPrice, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">{qty(row.avgMonthlyUnits)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.returnRate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} />
         )}
-      </div>
+      </ChartCard>
     </div>
   );
 }

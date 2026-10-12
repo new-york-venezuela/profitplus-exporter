@@ -20,6 +20,13 @@ Suma de las cantidades facturadas en el período, sin facturas anuladas y antes 
 
 Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de crédito) según el snapshot de CxC más reciente **al último día del período seleccionado**. La tarjeta indica la fecha real del snapshot ("al 28/09/2026"). Si no existe un snapshot a esa fecha o antes, muestra "Sin datos". En USD se valora a la tasa de la fecha del snapshot.
 
+## Productos
+
+La pestaña **Productos** baja de **línea** a **sublínea** (Artesanal / Industrial) y de ahí a **producto**. La **categoría** (Fresco / Congelado) es un filtro, no un nivel: al elegirla, todas las tablas y gráficos de la pestaña se limitan a esa categoría.
+
+- **Participación por grupo de cliente:** para cada fila del nivel actual, el porcentaje de sus ventas brutas (sin IVA) que va a cada grupo de cliente. Cada venta se asigna al grupo **actual** del cliente; los clientes sin grupo aparecen en "Sin grupo". Un "—" significa que ese grupo no compró esa fila. Pasar el cursor sobre una celda muestra el monto.
+- **Presencia y profundidad por producto:** clientes y tiendas que compraron el producto y su porcentaje sobre los clientes y tiendas activos del período (la categoría no reduce ese denominador). *Primera línea* = lo compra el 70% o más de los clientes activos; *Segunda línea* = 30% o más; *Addon* = menos. La tasa de devolución usa la fecha de la devolución.
+
 ## Cobertura de clientes
 
 La última venta y los promedios de la sección "Cobertura de clientes" no dependen del período seleccionado; solo "Sin compras en el período" y "Clientes nuevos" usan el rango de fechas.
