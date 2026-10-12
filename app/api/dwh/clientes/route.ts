@@ -298,6 +298,12 @@ async function handleTrend(dimension: Dimension, dateRange: string, scope: Carte
   return jsonWithCache(response);
 }
 
+// A NULL/blank SegmentName or ZoneName must not render as the text "null": fall back to the code.
+function optionLabel(name: unknown, code: string): string {
+  const label = name === null || name === undefined ? '' : String(name).trim();
+  return label === '' ? code : label;
+}
+
 async function handleFilters(): Promise<NextResponse> {
   const pool = await getDwhPool();
   const [groups, routes] = await Promise.all([
@@ -305,8 +311,14 @@ async function handleFilters(): Promise<NextResponse> {
     pool.request().query(CLIENTES_ROUTES_QUERY),
   ]);
   const response: ClientesFiltersResponse = {
-    groups: groups.recordset.map(r => ({ value: String(r.Code).trim(), label: String(r.Name).trim() })),
-    routes: routes.recordset.map(r => ({ value: String(r.RouteNumber), label: String(r.ZoneName).trim() })),
+    groups: groups.recordset.map(r => {
+      const value = String(r.Code).trim();
+      return { value, label: optionLabel(r.Name, value) };
+    }),
+    routes: routes.recordset.map(r => {
+      const value = String(r.RouteNumber).trim();
+      return { value, label: optionLabel(r.ZoneName, value) };
+    }),
   };
   return jsonWithCache(response);
 }

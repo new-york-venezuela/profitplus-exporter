@@ -186,6 +186,15 @@ describe('CoberturaClientes: cartera additions', () => {
     expect(section.getByText('Sin frecuencia asignada')).toBeTruthy();
   });
 
+  test('Visita sort: most overdue first, ties (no days overdue) broken by customer name', async () => {
+    // Server order reversed so the tie-break cannot come from a stable sort of the input.
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ ...payload, rows: [...rows].reverse() }) }) as unknown as Response);
+    const { user } = await loaded();
+    await user.click(within(screenSection()).getByRole('button', { name: /Visita/ }));
+    const names = [...screenSection().querySelectorAll('tbody tr')].map(tr => tr.querySelector('td')!.firstChild!.textContent);
+    expect(names).toEqual(['Cliente Inactivo Reciente', 'Cliente Activo', 'Nunca Vendido SA', 'Tienda Via Matriz']);
+  });
+
   test('dateRange is sent to the API and a change refetches', async () => {
     const { rerender } = render(<CoberturaClientes dateRange="month:2026-10" />);
     await screen.findByRole('region', { name: 'Cobertura de clientes' });

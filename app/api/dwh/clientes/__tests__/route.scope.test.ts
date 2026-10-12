@@ -62,6 +62,16 @@ describe('GET /api/dwh/clientes scope', () => {
       routes: [{ value: '3', label: 'Ruta 3' }, { value: '4', label: 'Ruta 4' }],
     });
   });
+  test('a NULL group or route name falls back to the trimmed code, never the text "null"', async () => {
+    respond = text => (text.includes('Dim_Segment')
+      ? [{ Code: 'S9  ', Name: null }]
+      : [{ RouteNumber: 7, ZoneName: null }]);
+    const res = await get('section=filters');
+    expect(await res.json()).toEqual({
+      groups: [{ value: 'S9', label: 'S9' }],
+      routes: [{ value: '7', label: '7' }],
+    });
+  });
   test('a database error is a 500 with the standard shape', async () => {
     respond = () => { throw new Error('boom'); };
     const res = await get('section=filters');

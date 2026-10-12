@@ -271,19 +271,27 @@ export default function TabClientes({
     }
   }
 
-  // Kept mounted in every state so changing a filter that yields an error or no data can be undone.
-  const filterBar = <CarteraFilterBar grupo={grupo} ruta={ruta} onGrupo={setGrupo} onRuta={setRuta} />;
+  // The filter bar and Cobertura sit at the same tree position in every state, so React keeps them mounted:
+  // a grupo/ruta change only reloads the Pareto/trend/churned part below, while Cobertura filters its
+  // already-fetched rows client-side and keeps its own seller/status/visit filters.
+  const shell = (body: React.ReactNode) => (
+    <div className="p-6 max-w-7xl space-y-6">
+      <CarteraFilterBar grupo={grupo} ruta={ruta} onGrupo={setGrupo} onRuta={setRuta} />
+      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} />
+      {body}
+    </div>
+  );
 
   if (loading) {
-    return <div className="p-6 space-y-6">{filterBar}<div className="text-sm text-gray-500">Cargando…</div></div>;
+    return shell(<div className="text-sm text-gray-500 print:hidden">Cargando…</div>);
   }
 
   if (error) {
-    return <div className="p-6 space-y-6">{filterBar}<p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p></div>;
+    return shell(<p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3 print:hidden">{error}</p>);
   }
 
   if (!data) {
-    return <div className="p-6 space-y-6">{filterBar}<EmptyState /></div>;
+    return shell(<div className="print:hidden"><EmptyState /></div>);
   }
 
   const segmentCounts = data.rows.reduce<Record<Segment, number>>(
@@ -300,10 +308,7 @@ export default function TabClientes({
     'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
   }));
 
-  return (
-    <div className="p-6 max-w-7xl space-y-6">
-      {filterBar}
-      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} />
+  return shell(
       <div className="space-y-6 print:hidden">
       <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-200 rounded-lg p-4">
         <div>
@@ -484,7 +489,6 @@ export default function TabClientes({
           </div>
         )}
       </div>
-      </div>
-    </div>
+      </div>,
   );
 }

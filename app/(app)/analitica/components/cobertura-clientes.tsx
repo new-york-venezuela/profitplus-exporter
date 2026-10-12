@@ -155,7 +155,9 @@ export default function CoberturaClientes({
         case 'units':
           return compareNullLast(a.avgMonthlyUnits, b.avgMonthlyUnits, sortDir);
         case 'visit':
-          return compareNullLast(a.visit.daysOverdue, b.visit.daysOverdue, sortDir);
+          // Customers without days overdue (no frequency / no invoice) all tie: order them by name.
+          return compareNullLast(a.visit.daysOverdue, b.visit.daysOverdue, sortDir)
+            || a.customerName.localeCompare(b.customerName);
       }
     });
     return out;
