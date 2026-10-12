@@ -13,18 +13,19 @@ mock.module('../seller-profile', () => ({
 const { default: TabSeguimiento } = await import('../tab-seguimiento');
 
 const json = (body: unknown, ok = true, status = 200) => ({ ok, status, json: async () => body }) as unknown as Response;
-const fetchMock = mock(async (url: string, _init?: RequestInit): Promise<Response> => {
+const defaultFetch = async (url: string, _init?: RequestInit): Promise<Response> => {
   if (url.includes('section=lines')) return json({ lines: FIXTURE_INVOICE_LINES });
   if (url.includes('section=excluded')) {
     return json({ invoices: [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber: 'F9', invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }] });
   }
   const kind = /kind=(\w+)/.exec(url)?.[1] ?? 'vendedor';
   return json(fixtureResponse(kind as 'vendedor' | 'ruta' | 'grupo'));
-});
+};
+const fetchMock = mock(defaultFetch);
 const urls = () => fetchMock.mock.calls.map(c => String(c[0]));
 
 beforeEach(() => {
-  fetchMock.mockClear(); capture.mockClear(); profileProps.length = 0;
+  fetchMock.mockClear(); fetchMock.mockImplementation(defaultFetch); capture.mockClear(); profileProps.length = 0;
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
 afterEach(cleanup);
@@ -153,5 +154,109 @@ describe('TabSeguimiento', () => {
     fetchMock.mockImplementationOnce(async () => json({ ...fixtureResponse('vendedor'), roots: [] }));
     render(<TabSeguimiento dateRange="30d" currency="usd" />);
     expect(await screen.findByText('Sin datos para este mes.')).toBeTruthy();
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>(r => { resolve = r; });
+  return { promise, resolve };
+}
+const excludedBody = (invoiceNumber: string) => ({
+  invoices: [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber, invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }],
+});
+
+describe('TabSeguimiento review fixes', () => {
+  test('two quota saves back to back (refetch still pending) keep both edits in the second POST', async () => {
+    await loaded();
+    const ana = screen.getByRole('article', { name: 'Ana' });
+    await userEvent.click(within(ana).getByRole('button', { name: 'Editar metas' }));
+    // From here on the post-save refetch never returns, so the card keeps the pre-save targets.
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/seller-targets') return json({ ok: true });
+      if (url.includes('/api/dwh/seguimiento') && !url.includes('section=')) return new Promise<Response>(() => {});
+      return defaultFetch(url, init);
+    });
+    await userEvent.click(within(ana).getByRole('button', { name: 'Editar meta (100USD)' }));
+    await userEvent.clear(within(ana).getByRole('spinbutton'));
+    await userEvent.type(within(ana).getByRole('spinbutton'), '120');
+    await userEvent.click(within(ana).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(c => String(c[0]) === '/api/admin/seller-targets').length).toBe(1));
+
+    await userEvent.click(within(ana).getByRole('button', { name: 'Editar meta (2)' }));
+    await userEvent.clear(within(ana).getByRole('spinbutton'));
+    await userEvent.type(within(ana).getByRole('spinbutton'), '5');
+    await userEvent.click(within(ana).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(c => String(c[0]) === '/api/admin/seller-targets').length).toBe(2));
+    const second = fetchMock.mock.calls.filter(c => String(c[0]) === '/api/admin/seller-targets')[1];
+    expect(JSON.parse(String((second[1] as RequestInit).body))).toEqual({
+      salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 5, newCustomerQuota: 1,
+    });
+    expect(within(ana).getByRole('button', { name: 'Editar meta (120USD)' })).toBeTruthy();
+  });
+
+  test('a stale excluded-invoices response never replaces the latest one', async () => {
+    await loaded();
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    const pending = [first, second];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('section=excluded') ? pending.shift()!.promise : defaultFetch(url, init));
+    const toggle = screen.getByRole('button', { name: /Beto: .* excluidos/ });
+    await userEvent.click(toggle);          // open: request 1 (slow)
+    await userEvent.click(toggle);          // close
+    await userEvent.click(toggle);          // reopen: request 2
+    await act(async () => { second.resolve(json(excludedBody('F-NEW'))); });
+    expect(await screen.findByText('F-NEW')).toBeTruthy();
+    await act(async () => { first.resolve(json(excludedBody('F-OLD'))); });
+    expect(screen.queryByText('F-OLD')).toBeNull();
+    expect(screen.getByText('F-NEW')).toBeTruthy();
+  });
+
+  test('a failed excluded-invoices request shows an error, not "Sin facturas."', async () => {
+    await loaded();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('section=excluded') ? json({ error: 'boom' }, false, 500) : defaultFetch(url, init));
+    await userEvent.click(screen.getByRole('button', { name: /Beto: .* excluidos/ }));
+    expect(await screen.findByText('No se pudieron cargar las facturas excluidas')).toBeTruthy();
+    expect(screen.queryByText('Sin facturas.')).toBeNull();
+  });
+
+  test('invoice lines from a previous date range are dropped and refetched for the new one', async () => {
+    const { rerender } = await loaded();
+    const slow = deferred<Response>();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('section=lines') && url.includes('dateRange=30d') ? slow.promise : defaultFetch(url, init));
+    let ana = screen.getByRole('article', { name: 'Ana' });
+    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
+
+    rerender(<TabSeguimiento dateRange="month:2026-09" currency="usd" />);
+    await waitFor(() => expect(urls().some(u => u.includes('dateRange=month%3A2026-09') && !u.includes('section='))).toBe(true));
+    await act(async () => { slow.resolve(json({ lines: FIXTURE_INVOICE_LINES })); });
+
+    ana = await screen.findByRole('article', { name: 'Ana' });
+    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
+    await waitFor(() => expect(urls().some(u => u.includes('section=lines') && u.includes('dateRange=month%3A2026-09'))).toBe(true));
+  });
+
+  test('invoice-lines requests do not send the unused kind param', async () => {
+    await loaded();
+    const ana = screen.getByRole('article', { name: 'Ana' });
+    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
+    await within(ana).findByRole('region', { name: 'Líneas de factura' });
+    const linesUrl = urls().find(u => u.includes('section=lines'))!;
+    expect(linesUrl).not.toContain('kind=');
+  });
+
+  test('a failed load keeps the toggles so another grouping can be chosen', async () => {
+    fetchMock.mockImplementationOnce(async () => json({ error: 'Error al consultar el Data Warehouse' }, false, 500));
+    render(<TabSeguimiento dateRange="30d" currency="usd" />);
+    expect(await screen.findByText('Error al consultar el Data Warehouse')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
+    expect(await screen.findByRole('article', { name: 'Ruta 3' })).toBeTruthy();
+    expect(screen.queryByText('Error al consultar el Data Warehouse')).toBeNull();
   });
 });

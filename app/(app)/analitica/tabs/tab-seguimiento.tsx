@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import posthog from 'posthog-js';
 import type { RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { KpiCard } from '../components/kpi-card';
@@ -20,6 +20,7 @@ const KIND_OPTIONS: { value: RootKind; label: string }[] = [
 
 type View = 'cards' | 'table';
 interface LinesState { loading: boolean; error: string | null; lines: SeguimientoInvoiceLine[] }
+interface ExcludedState { loading: boolean; error: string | null; invoices: SeguimientoExcludedInvoice[] }
 
 function ToggleGroup<T extends string>({ label, value, options, onChange }: {
   label: string; value: T; options: { value: T; label: string }[]; onChange: (v: T) => void;
@@ -52,11 +53,23 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   const [linesByCustomer, setLinesByCustomer] = useState<Record<string, LinesState>>({});
   const [selectedSeller, setSelectedSeller] = useState<string | null>(null);
   const [excludedFor, setExcludedFor] = useState<string | null>(null);
-  const [excluded, setExcluded] = useState<{ loading: boolean; invoices: SeguimientoExcludedInvoice[] }>({ loading: false, invoices: [] });
+  const [excluded, setExcluded] = useState<ExcludedState>({ loading: false, error: null, invoices: [] });
   const [editingMetas, setEditingMetas] = useState<string | null>(null);
+  // Targets saved since the last load, keyed by `${month}:${salesRepKey}`. The quota POST is a
+  // delete-then-reinsert upsert that needs the full three-field row, and root.targets only
+  // refreshes once the post-save refetch returns: without this overlay a second save made
+  // before then would write the first field back to its old value. Cleared on every load.
+  const [savedTargets, setSavedTargets] = useState<Record<string, SellerTargetRow>>({});
+  const savedTargetsRef = useRef<Record<string, SellerTargetRow>>({});
+  // Bumped whenever the main load starts; a drill-down response from an older generation
+  // (previous kind / date range / reload) is dropped instead of written into fresh state.
+  const generationRef = useRef(0);
+  // Only the latest excluded-invoices request may write its result.
+  const excludedRequestRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    generationRef.current += 1;
     async function load() {
       setError(null);
       setLoading(true);
@@ -77,6 +90,10 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         setOpenCustomer(null);
         setLinesByCustomer({});
         setExcludedFor(null);
+        excludedRequestRef.current += 1;
+        // Fresh targets came with this response (it started after any completed save).
+        savedTargetsRef.current = {};
+        setSavedTargets({});
       } catch {
         if (!cancelled) setError('No se pudo conectar con el servidor');
       } finally {
@@ -96,33 +113,44 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
     setView(next);
   };
 
-  const openCustomerLines = useCallback(async (code: string) => {
+  async function openCustomerLines(code: string) {
     if (openCustomer === code) { setOpenCustomer(null); return; }
     setOpenCustomer(code);
     if (linesByCustomer[code]) return;
-    setLinesByCustomer(prev => ({ ...prev, [code]: { loading: true, error: null, lines: [] } }));
+    const generation = generationRef.current;
+    const write = (state: LinesState) => {
+      if (generation !== generationRef.current) return;   // stale: kind/date range changed meanwhile
+      setLinesByCustomer(prev => ({ ...prev, [code]: state }));
+    };
+    write({ loading: true, error: null, lines: [] });
     try {
-      const params = new URLSearchParams({ section: 'lines', customerCode: code, dateRange, kind });
+      // The lines section only depends on the customer and the month, not on the grouping kind.
+      const params = new URLSearchParams({ section: 'lines', customerCode: code, dateRange });
       const res = await fetch(`/api/dwh/seguimiento?${params.toString()}`);
       if (!res.ok) throw new Error('lines');
       const body: { lines: SeguimientoInvoiceLine[] } = await res.json();
-      setLinesByCustomer(prev => ({ ...prev, [code]: { loading: false, error: null, lines: body.lines } }));
+      write({ loading: false, error: null, lines: body.lines });
     } catch {
-      setLinesByCustomer(prev => ({ ...prev, [code]: { loading: false, error: 'No se pudieron cargar las facturas', lines: [] } }));
+      write({ loading: false, error: 'No se pudieron cargar las facturas', lines: [] });
     }
-  }, [openCustomer, linesByCustomer, dateRange, kind]);
+  }
 
   async function toggleExcluded(root: SeguimientoRoot) {
+    const request = ++excludedRequestRef.current;
     if (excludedFor === root.value) { setExcludedFor(null); return; }
     setExcludedFor(root.value);
-    setExcluded({ loading: true, invoices: [] });
+    setExcluded({ loading: true, error: null, invoices: [] });
+    const write = (state: ExcludedState) => {
+      if (request === excludedRequestRef.current) setExcluded(state);
+    };
     try {
       const params = new URLSearchParams({ section: 'excluded', kind, rootValue: root.value, dateRange });
       const res = await fetch(`/api/dwh/seguimiento?${params.toString()}`);
-      const body: { invoices?: SeguimientoExcludedInvoice[] } = res.ok ? await res.json() : {};
-      setExcluded({ loading: false, invoices: body.invoices ?? [] });
+      if (!res.ok) throw new Error('excluded');
+      const body: { invoices?: SeguimientoExcludedInvoice[] } = await res.json();
+      write({ loading: false, error: null, invoices: body.invoices ?? [] });
     } catch {
-      setExcluded({ loading: false, invoices: [] });
+      write({ loading: false, error: 'No se pudieron cargar las facturas excluidas', invoices: [] });
     }
   }
 
@@ -138,27 +166,47 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
     );
   }
 
-  if (loading && !data) return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
-  if (error) {
+  if (loading && !data && !error) return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
+
+  const toggles = (
+    <div className="flex items-center gap-3 flex-wrap">
+      <ToggleGroup label="Agrupar por" value={kind} options={KIND_OPTIONS} onChange={changeKind} />
+      <ToggleGroup<View> label="Vista" value={view} options={[{ value: 'cards', label: 'Tarjetas' }, { value: 'table', label: 'Tabla' }]} onChange={changeView} />
+    </div>
+  );
+  // The error renders under the header and toggles, so a grouping that fails can be switched away from.
+  if (error || !data) {
     return (
-      <div className="p-6">
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
+      <div className="p-6 max-w-7xl space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h2 className="text-lg font-bold text-gray-900">Seguimiento de ventas</h2>
+          {toggles}
+        </div>
+        {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>}
       </div>
     );
   }
-  if (!data) return null;
 
   const currentWeekIdx = data.weeks.reduce((last, w, i) => (w.isFuture ? last : i), -1);
   const currentWeek = currentWeekIdx >= 0 ? data.total.weeks[currentWeekIdx] : null;
   const total = data.total;
   const rootsWithExcluded = data.roots.filter(r => r.excludedSales.bs > 0);
 
+  const targetsKey = (root: SeguimientoRoot) => `${data.month}:${root.salesRepKey}`;
+  const targetsOf = (root: SeguimientoRoot): SellerTargetRow => savedTargets[targetsKey(root)] ?? root.targets ?? EMPTY_TARGET_ROW;
+
   const saveField = async (root: SeguimientoRoot, field: keyof SellerTargetRow, value: number) => {
     if (!root.salesRepKey) return false;
-    const ok = await saveSellerTargetField({
-      salesRepKey: root.salesRepKey, periodMonth: data.month, current: root.targets ?? EMPTY_TARGET_ROW, field, value,
-    });
-    if (ok) setReloadToken(t => t + 1);
+    const key = targetsKey(root);
+    // Read the ref, not render state: two saves can be in flight before React re-renders.
+    const current = savedTargetsRef.current[key] ?? root.targets ?? EMPTY_TARGET_ROW;
+    const ok = await saveSellerTargetField({ salesRepKey: root.salesRepKey, periodMonth: data.month, current, field, value });
+    if (ok) {
+      const next = { ...current, [field]: value };
+      savedTargetsRef.current = { ...savedTargetsRef.current, [key]: next };
+      setSavedTargets(savedTargetsRef.current);
+      setReloadToken(t => t + 1);
+    }
     return ok;
   };
 
@@ -184,10 +232,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
           </p>
           <div className="mt-1"><MonthPaceStrip pace={data.pace} /></div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <ToggleGroup label="Agrupar por" value={kind} options={KIND_OPTIONS} onChange={changeKind} />
-          <ToggleGroup<View> label="Vista" value={view} options={[{ value: 'cards', label: 'Tarjetas' }, { value: 'table', label: 'Tabla' }]} onChange={changeView} />
-        </div>
+        {toggles}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -244,9 +289,9 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
               ) : undefined}
               footer={root.salesRepKey && editingMetas === root.value ? (
                 <div className="flex flex-wrap items-center gap-4 text-xs text-gray-600 border-t border-gray-100 pt-2">
-                  <span>Ventas: <QuotaEditor currentValue={root.targets?.salesQuotaUsd ?? null} field="salesQuotaUsd" suffix="USD" onSave={(f, v) => saveField(root, f, v)} /></span>
-                  <span>Visitas por semana: <QuotaEditor currentValue={root.targets?.weeklyVisitQuota ?? null} field="weeklyVisitQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
-                  <span>Clientes nuevos: <QuotaEditor currentValue={root.targets?.newCustomerQuota ?? null} field="newCustomerQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
+                  <span>Ventas: <QuotaEditor currentValue={targetsOf(root).salesQuotaUsd} field="salesQuotaUsd" suffix="USD" onSave={(f, v) => saveField(root, f, v)} /></span>
+                  <span>Visitas por semana: <QuotaEditor currentValue={targetsOf(root).weeklyVisitQuota} field="weeklyVisitQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
+                  <span>Clientes nuevos: <QuotaEditor currentValue={targetsOf(root).newCustomerQuota} field="newCustomerQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
                 </div>
               ) : undefined}
             >
@@ -272,6 +317,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
                 {excludedFor === root.value && (
                   <div className="mt-2 ml-4 text-xs">
                     {excluded.loading ? <div className="text-gray-400 py-1">Cargando…</div>
+                      : excluded.error ? <div className="text-red-600 py-1">{excluded.error}</div>
                       : excluded.invoices.length === 0 ? <div className="text-gray-400 py-1">Sin facturas.</div>
                       : (
                         <table className="min-w-full">
