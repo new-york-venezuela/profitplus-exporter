@@ -421,11 +421,16 @@ export default function TabProductos({
         ) : grupoError ? (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{grupoError}</p>
         ) : (
-          <GroupShareMatrixTable
-            matrix={grupoData ?? { columns: [], rows: [] }}
-            currency={currency}
-            rowHeader={COLUMN_LABEL[groupBy]}
-          />
+          <>
+            <GroupShareMatrixTable
+              matrix={grupoData ?? { columns: [], rows: [] }}
+              currency={currency}
+              rowHeader={COLUMN_LABEL[groupBy]}
+            />
+            <p className="mt-2 text-xs text-gray-400">
+              Solo ventas positivas y las 30 filas con más ventas: puede no cuadrar exactamente con la tabla de arriba.
+            </p>
+          </>
         )}
       </ChartCard>
 
@@ -482,7 +487,7 @@ export default function TabProductos({
         ) : profundidadError ? (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
         ) : (
-          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} />
+          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={Boolean(tienda)} />
         )}
       </ChartCard>
     </div>

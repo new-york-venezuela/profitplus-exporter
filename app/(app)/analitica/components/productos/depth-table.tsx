@@ -24,7 +24,9 @@ function qty(n: number): string {
   return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(n);
 }
 
-export function DepthTable({ rows, currency }: { rows: ProfundidadLineaRow[]; currency: Currency }) {
+// hideTier: the tier is a share of the active clients, meaningless when the table is scoped to
+// one tienda (every product it bought is bought by 100% of "the clients"), so it shows "—".
+export function DepthTable({ rows, currency, hideTier = false }: { rows: ProfundidadLineaRow[]; currency: Currency; hideTier?: boolean }) {
   if (rows.length === 0) {
     return <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">Sin datos disponibles todavía.</div>;
   }
@@ -53,7 +55,9 @@ export function DepthTable({ rows, currency }: { rows: ProfundidadLineaRow[]; cu
                 {qty(row.storeCount)} <span className="text-gray-400">({pct(row.storeShare)})</span>
               </td>
               <td className="px-3 py-2 text-center">
-                <span className={`inline-block px-2 py-0.5 rounded text-xs ${TIER_CLASS[row.tier]}`}>{TIER_LABEL[row.tier]}</span>
+                {hideTier
+                  ? <span className="text-gray-400" title="Sin clasificación con una tienda seleccionada">—</span>
+                  : <span className={`inline-block px-2 py-0.5 rounded text-xs ${TIER_CLASS[row.tier]}`}>{TIER_LABEL[row.tier]}</span>}
               </td>
               <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.avgMonthlyPrice, currency)}</td>
               <td className="px-3 py-2 text-right text-gray-600">{qty(row.avgMonthlyUnits)}</td>

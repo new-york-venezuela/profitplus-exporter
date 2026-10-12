@@ -30,6 +30,12 @@ describe('DepthTable', () => {
     expect(screen.getByText('Segunda línea')).toBeTruthy();
     expect(screen.getByText('Sin ventas')).toBeTruthy();
   });
+  test('hideTier (a tienda filter is active) replaces the tier badge with a dash', () => {
+    render(<DepthTable currency="usd" hideTier rows={[row({})]} />);
+    const cells = within(within(screen.getByRole('table', { name: 'Presencia por producto' })).getAllByRole('row')[1]).getAllByRole('cell');
+    expect(cells[3].textContent).toBe('—');
+    expect(screen.queryByText('Primera línea')).toBeNull();
+  });
   test('no rows renders the empty state', () => {
     render(<DepthTable currency="bs" rows={[]} />);
     expect(screen.getByText('Sin datos disponibles todavía.')).toBeTruthy();
