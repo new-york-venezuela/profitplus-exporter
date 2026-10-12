@@ -105,7 +105,7 @@ describe('TabSeguimiento', () => {
     await loaded();
     await userEvent.click(within(screen.getByRole('article', { name: 'Ana' })).getByRole('button', { name: 'Ver perfil' }));
     expect(await screen.findByText('Perfil mock 1')).toBeTruthy();
-    expect(profileProps.at(-1)).toMatchObject({ salesRepKey: '1', dateRange: '30d', currency: 'usd', backLabel: 'Seguimiento' });
+    expect(profileProps.at(-1)).toMatchObject({ salesRepKey: '1', dateRange: '30d', currency: 'usd', backLabel: 'Volver a Seguimiento' });
     await act(async () => { (profileProps.at(-1)!.onBack as () => void)(); });
     expect(await screen.findByRole('heading', { name: 'Seguimiento de ventas' })).toBeTruthy();
   });

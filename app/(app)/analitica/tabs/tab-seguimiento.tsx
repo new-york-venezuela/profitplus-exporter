@@ -161,7 +161,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         dateRange={dateRange}
         currency={currency}
         onBack={() => setSelectedSeller(null)}
-        backLabel="Seguimiento"
+        backLabel="Volver a Seguimiento"
       />
     );
   }
