@@ -182,3 +182,27 @@ describe('buildSeguimiento: weekly activation keys (review carry-forward)', () =
       .toEqual(['2026-W41', '2026-W42']);
   });
 });
+
+describe('buildSeguimiento: registration date vs the reference month', () => {
+  test('a customer registered after the month end is not assigned (denominator, customer counts); null registration still counts', () => {
+    const input = fixtureInput('vendedor');
+    const customers = [
+      ...input.customers,
+      { ...input.customers[0], customerCode: 'C6', customerName: 'Registrado Despues', registeredDate: '2026-11-05', lastInvoiceDate: null },
+      { ...input.customers[0], customerCode: 'C7', customerName: 'Sin Registro', registeredDate: null, lastInvoiceDate: null },
+    ];
+    const out = buildSeguimiento({ ...input, customers });
+    const ana = out.roots.find(r => r.label === 'Ana')!;
+    expect(ana.customerCount).toBe(3);                                    // C1, C2, C7 (not C6)
+    expect(ana.weeks[1]).toEqual({ yearWeek: '2026-W41', active: 2, assigned: 3, pct: 2 / 3 });
+    expect(ana.customers.map(c => c.customerCode)).not.toContain('C6');
+    expect(ana.customers.map(c => c.customerCode)).toContain('C7');
+    expect(out.total.customerCount).toBe(buildSeguimiento(input).total.customerCount + 1);
+  });
+
+  test('a customer registered on the last day of the month is assigned', () => {
+    const input = fixtureInput('vendedor');
+    const customers = [...input.customers, { ...input.customers[0], customerCode: 'C8', customerName: 'Fin De Mes', registeredDate: '2026-10-31' }];
+    expect(buildSeguimiento({ ...input, customers }).roots.find(r => r.label === 'Ana')!.customerCount).toBe(3);
+  });
+});

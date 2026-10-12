@@ -188,7 +188,9 @@ export function buildSeguimiento(
     const consignment = flagged.has(fact.customerCode);
     return {
       fact, consignment, lines,
-      assigned: !fact.isInactive && !consignment,
+      // A customer registered after the reference month did not exist yet in that month (matters when
+      // viewing a past month); a missing registration date keeps the customer in.
+      assigned: !fact.isInactive && !consignment && (fact.registeredDate === null || fact.registeredDate <= end),
       active: activeBy.get(fact.customerCode) ?? new Set<string>(),
       sales: sumDuals(lines.map(l => l.sales)),
       units: lines.reduce((s, l) => s + l.units, 0),
