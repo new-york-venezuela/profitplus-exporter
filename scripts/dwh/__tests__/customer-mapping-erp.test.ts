@@ -191,6 +191,7 @@ describe('route pApi procs', () => {
   const TEST_ZONE = 'CCS999';
   let pool: Awaited<ReturnType<typeof getPool>>;
   let cus: { coCli: string; coZon: string; frecuVist: string | null; coVen: string; coSeg: string; tipCli: string };
+  let stamp: { usMo: string | null; feMo: Date | null };
 
   const setRoute = (coCli: string, zon: string, frec: string | null) => pool.request()
     .input('sCoCli', sql.Char(16), coCli).input('sCoZon', sql.Char(6), zon)
@@ -214,11 +215,18 @@ describe('route pApi procs', () => {
              RTRIM(co_ven) AS coVen, RTRIM(co_seg) AS coSeg, RTRIM(tip_cli) AS tipCli
       FROM saCliente WHERE inactivo = 0 ORDER BY co_cli`);
     cus = r.recordset[0];
+    stamp = (await pool.request().input('c', sql.Char(16), cus.coCli)
+      .query(`SELECT co_us_mo AS usMo, fe_us_mo AS feMo FROM saCliente WHERE co_cli = @c`)).recordset[0];
   });
 
+  // Test-only cleanup on a NON-PRODUCTION ERP: the raw DELETE/UPDATE below exist only to undo what this suite
+  // did (there is no pApi proc to drop a zone or to restore the audit stamp); app code never writes raw SQL.
   afterAll(async () => {
     try {
       await restoreRoute(cus.coCli, cus.coZon, cus.frecuVist);
+      await pool.request().input('c', sql.Char(16), cus.coCli)
+        .input('u', sql.Char(6), stamp.usMo).input('f', sql.DateTime, stamp.feMo)
+        .query(`UPDATE saCliente SET co_us_mo = @u, fe_us_mo = @f WHERE co_cli = @c`);
     } finally {
       await pool.request().query(
         `DELETE FROM saZona WHERE RTRIM(co_zon) = '${TEST_ZONE}' AND NOT EXISTS (SELECT 1 FROM saCliente WHERE RTRIM(co_zon) = '${TEST_ZONE}')`);

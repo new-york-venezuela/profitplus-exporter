@@ -16,7 +16,7 @@ function build(extra: string[] = [], files = { master: () => master, tracking: (
     [process.execPath, 'run', 'scripts/mapping-build.ts', '--master', files.master(), '--tracking', files.tracking(), '--out', out, ...extra],
     { cwd: ROOT, env: process.env },
   );
-  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  return { code: p.exitCode, err: p.stderr.toString() };
 }
 
 beforeAll(() => {
@@ -69,9 +69,10 @@ describe('mapping:build CLI (synthetic workbooks)', () => {
     expect(readFileSync(out, 'utf8')).not.toBe('hand edited');
   });
   test('missing --tracking prints the usage and exits 1', () => {
-    const p = Bun.spawnSync([process.execPath, 'run', 'scripts/mapping-build.ts', '--master', master], { cwd: ROOT, env: process.env });
+    const target = join(dir, 'nothing.csv');
+    const p = Bun.spawnSync([process.execPath, 'run', 'scripts/mapping-build.ts', '--master', master, '--out', target], { cwd: ROOT, env: process.env });
     expect(p.exitCode).toBe(1);
     expect(p.stderr.toString()).toMatch(/--tracking/);
-    expect(existsSync(join(dir, 'nothing.csv'))).toBe(false);
+    expect(existsSync(target)).toBe(false); // the --out the failing run was given was not created
   });
 });

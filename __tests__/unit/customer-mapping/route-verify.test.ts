@@ -23,6 +23,12 @@ describe('compareRouteDim', () => {
     expect(compareRouteDim([row({ ruta: null, coVen: '' })], [dim({ zone: 'CCS', rep: '9' })])).toEqual([]);
     expect(compareRouteDim([row({ coCli: 'J2' })], [dim({})])).toEqual([]);
   });
+  test('the dimension frequency is compared trimmed and upper-cased', () => {
+    expect(compareRouteDim([row({})], [dim({ frequency: ' semanal  ' })])).toEqual([]);
+    expect(compareRouteDim([row({})], [dim({ frequency: ' mensual ' })])).toEqual([
+      { coCli: 'J1', field: 'VisitFrequency', expected: 'SEMANAL', actual: ' mensual ' },
+    ]);
+  });
   test('a NULL dimension frequency is a mismatch', () => {
     expect(compareRouteDim([row({})], [dim({ frequency: null })])).toEqual([
       { coCli: 'J1', field: 'VisitFrequency', expected: 'SEMANAL', actual: null },

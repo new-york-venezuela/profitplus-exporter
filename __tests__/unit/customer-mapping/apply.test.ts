@@ -189,7 +189,12 @@ describe('applyPlan / rollbackRun', () => {
     runs.create({ id: 'old', createdAt: 1, mappingFile: 'm.csv', target: T, status: 'applied',
       snapshot: { customers: [{ coCli: 'J1', coVen: '7' }], docs: [] } });
     customers.get('J1')!.coVen = '000015';
+    customers.get('J1')!.coZon = 'CCS005';
+    const calls: unknown[][] = [];
+    erp.restoreCustomerRoute = async (...a) => { calls.push(a); };
     expect((await rollbackRun({ erp, runs, target: T }, 'old')).failures).toEqual([]);
     expect(customers.get('J1')!.coVen).toBe('7');
+    expect(calls).toEqual([]); // no route in the snapshot: the route is left alone
+    expect(customers.get('J1')!.coZon).toBe('CCS005');
   });
 });

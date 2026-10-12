@@ -58,11 +58,13 @@ export function readTrackingWorkbook(path: string): { tracking: TrackingRow[] } 
   if (h < 0) throw new Error(`Columna 'Cod Cliente' no encontrada en '${TRACKING_SHEET}'`);
   const header = all[h].map(v => trimCode(v));
   const [cCod, cRuta, cFrec] = [col(header, 'Cod Cliente'), col(header, 'Codigo de Ruta'), col(header, 'Frecuencia')];
+  // sheet_to_json numbers rows from the start of the used range, which is not always row 1.
+  const firstRow = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r : 0;
   const tracking: TrackingRow[] = [];
   all.slice(h + 1).forEach((r, i) => {
     const codigo = trimCode(r[cCod]);
     if (!codigo) return;
-    tracking.push({ codigo, ruta: r[cRuta], frecuencia: r[cFrec], fila: h + i + 2 }); // 1-based Excel row
+    tracking.push({ codigo, ruta: r[cRuta], frecuencia: r[cFrec], fila: firstRow + h + i + 2 }); // 1-based Excel row
   });
   return { tracking };
 }

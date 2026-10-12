@@ -85,7 +85,9 @@ describe('0040: Dim_Customer route/frequency/registration, Dim_Zone, Dim_Segment
   test('Dim_Zone mirrors saZona; RouteNumber is set only for CCSnnn codes', async () => {
     const e = await erp.request().query(`SELECT RTRIM(co_zon) AS code, RTRIM(zon_des) AS name FROM saZona`);
     const d = await pool.request().query(`SELECT RTRIM(ZoneCode) AS code, ZoneName, IsRoute, RouteNumber FROM dim.Dim_Zone`);
-    expect(d.recordset.length).toBe(e.recordset.length);
+    const names = (rows: { code: string; name: string }[]) => rows.map(r => [r.code, r.name]).sort();
+    expect(names(d.recordset.map((z: { code: string; ZoneName: string }) => ({ code: z.code, name: z.ZoneName }))))
+      .toEqual(names(e.recordset));
     for (const z of d.recordset as { code: string; ZoneName: string; IsRoute: boolean; RouteNumber: number | null }[]) {
       expect(z.RouteNumber).toBe(routeNumberFromZone(z.code));
       expect(z.IsRoute).toBe(routeNumberFromZone(z.code) !== null);
@@ -93,9 +95,11 @@ describe('0040: Dim_Customer route/frequency/registration, Dim_Zone, Dim_Segment
   });
 
   test('Dim_Segment mirrors saSegmento', async () => {
-    const e = await erp.request().query(`SELECT COUNT(*) AS n FROM saSegmento`);
-    const d = await pool.request().query(`SELECT COUNT(*) AS n FROM dim.Dim_Segment`);
-    expect(d.recordset[0].n).toBe(e.recordset[0].n);
+    const e = await erp.request().query(`SELECT RTRIM(co_seg) AS code, RTRIM(seg_des) AS name FROM saSegmento`);
+    const d = await pool.request().query(`SELECT RTRIM(ErpSegmentCode) AS code, SegmentName AS name FROM dim.Dim_Segment`);
+    const names = (rows: { code: string; name: string }[]) => rows.map(r => [r.code, r.name]).sort();
+    expect(e.recordset.length).toBeGreaterThan(0);
+    expect(names(d.recordset)).toEqual(names(e.recordset));
   });
 
   test('re-running the loads, even with the customer watermark reset, creates no spurious versions', async () => {
@@ -108,7 +112,8 @@ describe('0040: Dim_Customer route/frequency/registration, Dim_Zone, Dim_Segment
   });
 
   test.each([
-    ['VisitFrequency', `VisitFrequency = 'MENSUAL'`],
+    // always a different valid value than the current one, so the drift is real whatever the ERP holds
+    ['VisitFrequency', `VisitFrequency = CASE WHEN VisitFrequency = 'MENSUAL' THEN 'SEMANAL' ELSE 'MENSUAL' END`],
     ['RegisteredDate', `RegisteredDate = '2001-01-01'`],
     ['IsMigrationBatch', `IsMigrationBatch = 1 - IsMigrationBatch`],
   ])('drift in %s versions the customer (old row closed, new current row inserted)', async (_name, setClause) => {

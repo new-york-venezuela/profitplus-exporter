@@ -59,7 +59,7 @@ export function compareRouteDim(rows: MappingRow[], dim: DimRouteRow[]): RouteMi
     if (r.ruta != null) {
       const want = routeZoneCode(r.ruta);
       if ((d.zone ?? '').trim() !== want) out.push({ coCli: r.coCli, field: 'ZoneCode', expected: want, actual: d.zone?.trim() ?? null });
-      if (d.frequency !== r.frecuencia) out.push({ coCli: r.coCli, field: 'VisitFrequency', expected: r.frecuencia, actual: d.frequency });
+      if ((d.frequency?.trim().toUpperCase() ?? null) !== r.frecuencia) out.push({ coCli: r.coCli, field: 'VisitFrequency', expected: r.frecuencia, actual: d.frequency });
     }
     if (r.coVen.trim() && (d.rep == null || sellerKey(d.rep) !== sellerKey(r.coVen))) {
       out.push({ coCli: r.coCli, field: 'DefaultSalesRepCode', expected: r.coVen.trim(), actual: d.rep?.trim() ?? null });
