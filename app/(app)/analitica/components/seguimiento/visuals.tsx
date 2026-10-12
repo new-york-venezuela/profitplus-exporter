@@ -5,7 +5,7 @@ import type { MonthPace } from '@/lib/seguimiento/month-pace';
 import { quotaBarGeometry } from '@/lib/seguimiento/quotas';
 import type { Dual, NewCustomersInfo, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
 import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
-import { moneyLabel } from '../../lib/format';
+import { moneyLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { lineColor } from './colors';
 import { pct } from './fmt';
@@ -69,22 +69,25 @@ export function QuotaBar({
   partial?: boolean;
 }) {
   const geometry = quotaBarGeometry(actual.usd, quotaUsd, projected?.usd ?? null);
-  const actualLabel = moneyLabel(actual, currency);
-  if (!geometry) {
+  if (!geometry || quotaUsd === null) {
     return (
       <div className="text-xs text-gray-500">
-        <div className="font-medium text-gray-900">{actualLabel}</div>
+        <div className="font-medium text-gray-900">{moneyLabel(actual, currency)}</div>
         <div className="text-gray-400">Sin meta</div>
       </div>
     );
   }
-  const projectedLabel = projected ? moneyLabel(projected, currency) : '—';
+  // The bar compares against a USD goal, so every figure on it is in USD whatever the
+  // selected currency (a Bs. actual next to a $ goal read as a mismatch).
+  const actualLabel = moneyLabel(actual, 'usd');
+  const projectedLabel = projected ? moneyLabel(projected, 'usd') : '—';
+  const quotaLabel = usdLabel(quotaUsd);
   const ratio = projected?.usd != null && quotaUsd ? projected.usd / quotaUsd : actual.usd != null && quotaUsd ? actual.usd / quotaUsd : null;
   return (
     <div className="text-xs text-gray-600">
       <div
         role="img"
-        aria-label={`Ventas ${actualLabel}, meta $${quotaUsd}, proyección ${projectedLabel}`}
+        aria-label={`Ventas ${actualLabel}, meta ${quotaLabel}, proyección ${projectedLabel}`}
         className="relative h-3 rounded bg-gray-100 overflow-visible"
       >
         <div
@@ -114,9 +117,10 @@ export function QuotaBar({
       </div>
       <div className="mt-1 flex flex-wrap justify-between gap-x-2">
         <span className="font-medium text-gray-900">{actualLabel}</span>
-        <span>Meta ${quotaUsd}</span>
+        <span>Meta {quotaLabel}</span>
         <span>Proy. {projectedLabel}</span>
       </div>
+      {currency !== 'usd' && <div className="text-gray-400">Meta en USD</div>}
       {(shared || partial) && (
         <div className="text-amber-700">{shared ? 'Meta compartida' : 'Meta parcial'}</div>
       )}

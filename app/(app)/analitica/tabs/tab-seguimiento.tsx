@@ -8,7 +8,7 @@ import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTarget
 import { monthLabel, pct } from '../components/seguimiento/fmt';
 import { CustomerList, overdueLabel, RootCard, RootTable } from '../components/seguimiento/root-views';
 import { MonthPaceStrip } from '../components/seguimiento/visuals';
-import { moneyLabel } from '../lib/format';
+import { moneyLabel, usdLabel } from '../lib/format';
 import type { Currency, DateRange } from '../types';
 import SellerProfile from './seller-profile';
 
@@ -238,8 +238,8 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard label="Ventas brutas" value={moneyLabel(total.sales, currency)} subtitle={total.avgPrice ? `Precio prom. ${moneyLabel(total.avgPrice, currency)}` : undefined} />
         <KpiCard
-          label="Meta de ventas"
-          value={total.salesQuotaUsd === null ? 'Sin meta' : `$${total.salesQuotaUsd}`}
+          label="Meta de ventas (USD)"
+          value={total.salesQuotaUsd === null ? 'Sin meta' : usdLabel(total.salesQuotaUsd)}
           subtitle={total.attainment === null ? undefined : `${pct(total.attainment)} de la meta`}
           tone={total.attainment !== null && total.attainment < 0.8 ? 'warn' : 'default'}
         />
@@ -303,7 +303,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
 
       {rootsWithExcluded.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h2 className="text-sm font-bold text-gray-900 mb-1">Facturas excluidas — patrón de consignación</h2>
+          <h3 className="text-sm font-bold text-gray-900 mb-1">Facturas excluidas — patrón de consignación</h3>
           <p className="text-xs text-gray-500 mb-3">
             Facturas emitidas de forma agregada a nivel de cadena (no por tienda): no es posible atribuir de forma confiable qué
             vendedor generó la venta. Se excluyen de las ventas, la meta y la activación de arriba en vez de estimarse.
@@ -311,7 +311,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
           <ul className="space-y-2">
             {rootsWithExcluded.map(root => (
               <li key={root.value} className="text-sm">
-                <button onClick={() => toggleExcluded(root)} className="text-amber-700 hover:text-amber-900 underline">
+                <button onClick={() => toggleExcluded(root)} aria-expanded={excludedFor === root.value} className="text-amber-700 hover:text-amber-900 underline">
                   {root.label}: {moneyLabel(root.excludedSales, currency)} excluidos
                 </button>
                 {excludedFor === root.value && (

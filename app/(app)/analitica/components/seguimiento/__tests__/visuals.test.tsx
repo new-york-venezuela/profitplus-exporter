@@ -78,10 +78,18 @@ describe('QuotaBar', () => {
     render(<QuotaBar actual={{ bs: 100, usd: 2 }} quotaUsd={100} projected={null} currency="usd" partial />);
     expect(screen.getByText('Meta parcial')).toBeTruthy();
   });
-  test('Bs currency shows the actual in Bs but the quota stays in USD', () => {
-    render(<QuotaBar actual={{ bs: 3500, usd: 70 }} quotaUsd={100} projected={null} currency="bs" />);
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('Bs. 3.500');
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('meta $100');
+  test('Bs currency: the bar is compared against a USD goal, so all its figures stay in USD and say so', () => {
+    render(<QuotaBar actual={{ bs: 3500, usd: 70 }} quotaUsd={100} projected={{ bs: 7700, usd: 154 }} currency="bs" />);
+    const label = screen.getByRole('img').getAttribute('aria-label')!;
+    expect(label).toBe('Ventas $70, meta $100, proyección $154');
+    expect(label).not.toContain('Bs.');
+    expect(screen.getByText('Meta en USD')).toBeTruthy();
+  });
+  test('the quota goes through the shared money formatter (thousands separator)', () => {
+    render(<QuotaBar actual={{ bs: 50000, usd: 1000 }} quotaUsd={1500} projected={null} currency="usd" />);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('meta $1,500');
+    expect(screen.getByText('Meta $1,500')).toBeTruthy();
+    expect(screen.queryByText('Meta en USD')).toBeNull();
   });
 });
 

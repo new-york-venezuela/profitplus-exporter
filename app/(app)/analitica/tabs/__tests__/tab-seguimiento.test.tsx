@@ -4,7 +4,7 @@ import { act, cleanup, render, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FIXTURE_INVOICE_LINES, fixtureResponse } from '../../../../../__tests__/unit/seguimiento/fixture';
 
-const capture = mock((_e: string, _p?: unknown) => {});
+const capture = mock(() => {});
 mock.module('posthog-js', () => ({ default: { capture } }));
 const profileProps: Array<Record<string, unknown>> = [];
 mock.module('../seller-profile', () => ({
@@ -45,7 +45,7 @@ describe('TabSeguimiento', () => {
     expect(screen.getByRole('article', { name: 'Beto' })).toBeTruthy();
     expect(screen.getByText(/Día laborable 10 de 22/)).toBeTruthy();
     expect(screen.getByText('Ventas brutas')).toBeTruthy();
-    expect(screen.getByText('Meta de ventas')).toBeTruthy();
+    expect(screen.getByText('Meta de ventas (USD)')).toBeTruthy();
     expect(screen.getByText('Visitas vencidas')).toBeTruthy();
     expect(screen.queryByRole('table')).toBeNull();                      // cards are the default view
   });
@@ -138,9 +138,24 @@ describe('TabSeguimiento', () => {
     expect(urls().some(u => u.includes('section=excluded') && u.includes('rootValue=2'))).toBe(true);
   });
 
-  test('Bs currency shows Bs amounts on the cards', async () => {
+  test('Bs currency shows Bs sales, but every figure compared with the USD goal stays in USD', async () => {
     await loaded('bs');
-    expect(within(screen.getByRole('article', { name: 'Ana' })).getAllByText(/Bs\. 3\.500/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Bs\. /).length).toBeGreaterThan(0);             // KPI "Ventas brutas"
+    const ana = screen.getByRole('article', { name: 'Ana' });
+    expect(within(ana).getByRole('img', { name: 'Ventas $70, meta $100, proyección $154' })).toBeTruthy();
+    expect(within(ana).getByText('Meta en USD')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Tabla' }));
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Meta (USD)' })).toBeTruthy();
+  });
+
+  test('the consignment toggle reports whether its invoice list is open', async () => {
+    await loaded();
+    expect(screen.getByRole('heading', { level: 3, name: 'Facturas excluidas — patrón de consignación' })).toBeTruthy();
+    const toggle = screen.getByRole('button', { name: /Beto: .* excluidos/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
   });
 
   test('server error shows the message and no cards', async () => {

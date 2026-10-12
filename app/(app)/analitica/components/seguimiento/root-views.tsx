@@ -4,7 +4,7 @@ import { Fragment, type ReactNode } from 'react';
 import type {
   RootMetrics, SeguimientoCustomer, SeguimientoInvoiceLine, SeguimientoRoot, WeekHeader,
 } from '@/lib/seguimiento/types';
-import { moneyLabel } from '../../lib/format';
+import { moneyLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { num, pct } from './fmt';
 import { MixBar, NewCustomersChip, QuotaBar, VisitBadge, WeekDots, WeekStrip } from './visuals';
@@ -177,7 +177,7 @@ export function RootTable({
       <td className="px-3 py-2 font-medium text-gray-900">{label}</td>
       <td className="px-3 py-2 text-right">{m.customerCount}</td>
       <td className="px-3 py-2 text-right">{moneyLabel(m.sales, currency)}</td>
-      <td className="px-3 py-2 text-right">{m.salesQuotaUsd === null ? '—' : `$${m.salesQuotaUsd}`}</td>
+      <td className="px-3 py-2 text-right">{m.salesQuotaUsd === null ? '—' : usdLabel(m.salesQuotaUsd)}</td>
       <td className="px-3 py-2 text-right">{pct(m.attainment)}</td>
       <td className="px-3 py-2 text-right">{m.projected ? moneyLabel(m.projected, currency) : '—'}</td>
       <td className="px-3 py-2 text-right">{m.avgPrice ? moneyLabel(m.avgPrice, currency) : '—'}</td>
@@ -194,7 +194,7 @@ export function RootTable({
             <th className="px-3 py-2">Raíz</th>
             <th className="px-3 py-2 text-right">Clientes</th>
             <th className="px-3 py-2 text-right">Ventas</th>
-            <th className="px-3 py-2 text-right">Meta</th>
+            <th className="px-3 py-2 text-right">Meta (USD)</th>
             <th className="px-3 py-2 text-right">Avance</th>
             <th className="px-3 py-2 text-right">Proyección</th>
             <th className="px-3 py-2 text-right">Precio prom.</th>

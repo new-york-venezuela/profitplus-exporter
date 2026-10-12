@@ -28,8 +28,8 @@ Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de créd
 
 La pestaña **Productos** baja de **línea** a **sublínea** (Artesanal / Industrial) y de ahí a **producto**. La **categoría** (Fresco / Congelado) es un filtro, no un nivel: al elegirla, todas las tablas y gráficos de la pestaña se limitan a esa categoría.
 
-- **Participación por grupo de cliente:** para cada fila del nivel actual, el porcentaje de sus ventas brutas (sin IVA) que va a cada grupo de cliente. Cada venta se asigna al grupo **actual** del cliente; los clientes sin grupo aparecen en "Sin grupo". Un "—" significa que ese grupo no compró esa fila. Pasar el cursor sobre una celda muestra el monto.
-- **Presencia y profundidad por producto:** clientes y tiendas que compraron el producto y su porcentaje sobre los clientes y tiendas activos del período (la categoría no reduce ese denominador). *Primera línea* = lo compra el 70% o más de los clientes activos; *Segunda línea* = 30% o más; *Addon* = menos. La tasa de devolución usa la fecha de la devolución.
+- **Participación por grupo de cliente:** para cada fila del nivel actual, el porcentaje de sus ventas brutas (sin IVA) que va a cada grupo de cliente. Cada venta se asigna al grupo **actual** del cliente; los clientes sin grupo aparecen en "Sin grupo". Un "—" significa que ese grupo no compró esa fila. Pasar el cursor sobre una celda muestra el monto. Solo cuenta ventas positivas y muestra las 30 filas con más ventas, por lo que puede no cuadrar exactamente con la tabla de arriba.
+- **Presencia y profundidad por producto:** clientes y tiendas que compraron el producto y su porcentaje sobre los clientes y tiendas activos del período (la categoría no reduce ese denominador). *Primera línea* = lo compra el 70% o más de los clientes activos; *Segunda línea* = 30% o más; *Addon* = menos. Con una tienda seleccionada no se muestra la clasificación (con un solo cliente no tiene sentido). La tasa de devolución usa la fecha de la devolución.
 
 ## Cobertura de clientes
 
@@ -122,8 +122,8 @@ La pestaña **Seguimiento** replica el cuadro de seguimiento por ruta: para un m
 - **Cliente asignado:** el cliente pertenece al vendedor, ruta o grupo que tiene hoy en su ficha del ERP; las facturas antiguas siguen al cliente. Los clientes inactivos no cuentan.
 - **Cliente activo en una semana:** tuvo al menos una factura esa semana ISO (lunes a domingo, aunque la semana empiece en el mes anterior). Porcentaje = clientes activos ÷ clientes asignados.
 - **Proyección:** ventas del mes ÷ (días laborables transcurridos ÷ días laborables del mes). Solo se excluyen sábados y domingos; los feriados no se consideran.
-- **Meta:** las metas se definen por vendedor (botón "Editar metas" en la tarjeta del vendedor). Para rutas y grupos es la suma de las metas de sus vendedores; si un vendedor atiende varias rutas, la meta aparece como "compartida" porque no se reparte entre ellas.
-- **Precio promedio:** ventas ÷ unidades vendidas del período (las unidades de distintas líneas se suman tal como se facturan).
+- **Meta:** las metas se definen por vendedor (botón "Editar metas" en la tarjeta del vendedor). Para rutas y grupos es la suma de las metas de sus vendedores; si un vendedor atiende varias rutas, la meta aparece como "compartida" porque no se reparte entre ellas. La meta se define en USD: la barra de avance y la columna Meta se muestran en USD aunque se haya elegido Bs.
+- **Precio promedio:** ventas ÷ unidades vendidas del mes (las unidades de distintas líneas se suman tal como se facturan).
 - **Mezcla por línea:** participación de cada línea de producto en las ventas; las líneas se leen de Profit Plus, de modo que una línea nueva aparece sola cuando tenga ventas. Las líneas menores se agrupan en "Otros".
 - **Clientes nuevos:** clientes registrados en el mes, sin contar el lote de clientes migrado en la puesta en marcha, frente a la meta de clientes nuevos.
 - **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada nunca figura como vencido ("Sin frecuencia").

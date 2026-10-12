@@ -29,3 +29,9 @@ export function moneyTooltip(value: unknown, currency: Currency = 'bs'): string 
     : new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 })
   ).format(numVal)}`;
 }
+
+// A plain USD figure (e.g. a sales goal, stored as a number of USD) in the same
+// format as moneyLabel(…, 'usd').
+export function usdLabel(usd: number): string {
+  return moneyLabel({ bs: 0, usd }, 'usd');
+}
