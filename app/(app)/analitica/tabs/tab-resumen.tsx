@@ -12,6 +12,7 @@ import { periodLabel } from '../lib/period-label';
 import type { Granularity } from '../lib/granularity';
 import { KpiCard } from '../components/kpi-card';
 import { KpiGroup } from '../components/kpi-group';
+import { ResumenPace } from '../components/resumen-pace';
 
 const BUCKET_ORDER = ['Current', '1-30', '31-60', '61-90', '>90'];
 const BUCKET_COLORS: Record<string, string> = {
@@ -93,13 +94,21 @@ export default function TabResumen({
     };
   }, [dateRange, granularity]);
 
+  const pace = <ResumenPace dateRange={dateRange} />;
+
   if (loading) {
-    return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
+    return (
+      <div className="p-6 space-y-3">
+        {pace}
+        <div className="text-sm text-gray-500">Cargando…</div>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-3">
+        {pace}
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
       </div>
     );
@@ -107,7 +116,8 @@ export default function TabResumen({
 
   if (!data) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-3">
+        {pace}
         <EmptyState />
       </div>
     );
@@ -154,6 +164,7 @@ export default function TabResumen({
       <p className="text-xs text-gray-500">
         Período: {periodo}. Devoluciones atribuidas a la fecha de su factura original, sin IVA.
       </p>
+      {pace}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <KpiGroup title="Ventas" tone="sales">
           <KpiCard label={`Ventas brutas (${periodo})`} value={moneyLabel(data.kpis.salesGross, currency)} />

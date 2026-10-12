@@ -2,6 +2,10 @@
 
 Todas las cifras de Analítica salen del Data Warehouse, que se actualiza desde Profit Plus. Los montos son **sin IVA** salvo que se indique lo contrario.
 
+## Ritmo del mes
+
+**Ritmo del mes** (Resumen): días laborables transcurridos del mes de referencia (el mes en que termina el rango elegido) y el porcentaje del mes. Solo se excluyen sábados y domingos; los feriados no se consideran.
+
 ## Ventas brutas
 
 Suma de las líneas de factura de venta del período:
