@@ -64,3 +64,6 @@ Ncake_a.bak
 # Uploaded QR logos
 data/qr-logos/
 .superpowers/
+
+# customer mapping dry-run output
+data/customer-mapping/*.diff.csv

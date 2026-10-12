@@ -1,4 +1,6 @@
 import type { BucketMode } from './lib/granularity';
+import type { DepthTier } from '@/lib/dwh/depth-tier';
+import type { GroupShareMatrix } from '@/lib/productos/group-share';
 export type Currency = 'bs' | 'usd';
 // '12m' | '30d' | `month:${YYYY-MM}` | `ytd:${YYYY}` | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
 // range is encoded as a single string (not separate start/end props) so it
@@ -6,16 +8,6 @@ export type Currency = 'bs' | 'usd';
 // param unchanged; only buildDateWhereClause parses the custom: prefix.
 export type DateRange = string;
 export type GroupBy = string; // e.g., 'mes', 'cliente', 'salesrep', 'producto', 'linea', 'sublinea', 'sku'
-
-export interface FilterParams {
-  dateRange: DateRange;
-  currency: Currency;
-}
-
-export interface DrillContext {
-  groupBy: GroupBy;
-  parentValue?: string; // e.g., salesRepKey=123 when drilling into products for that rep
-}
 
 export type PivotDimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';
 
@@ -86,7 +78,7 @@ export interface NamedAmount {
 
 export interface SalesRepRow {
   name: string;
-  salesGross: DualAmount; // includes consignment-root invoices (see Vendedores)
+  salesGross: DualAmount; // includes consignment-root invoices
   returnsNet: DualAmount;
   salesNet: DualAmount;
   units: number; // SUM(QuantitySold), same invoice scope as salesGross
@@ -198,7 +190,7 @@ export interface VentasComparisonResponse {
   trendMode: BucketMode;
 }
 
-// Histórico 2025 tab — a fixed, closed Jan 2025-Feb 2026 window imported
+// Histórico 2025 tab — a fixed 2025 window of the imported legacy snapshot
 // from the pre-March-2026-cutover Profit Plus server. No dateRange param
 // (the window never changes), no prev-period comparison (no meaningful
 // "before" this dataset), no entidad/tienda toggle (legacy customers have
@@ -332,42 +324,6 @@ export interface CxcResponse {
   agingTrend: AgingTrendRow[];
 }
 
-// Vendedores tab
-export interface VendedoresRow {
-  value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
-  name: string;
-  salesGross: DualAmount; // excludes consignment-root invoices (see below)
-  returnsNet: DualAmount; // by original factura date, same exclusion
-  salesNet: DualAmount; // salesGross − returnsNet
-  returnRate: number | null;
-  collectionRate: number | null; // collected / sales WITH IVA (both IVA-inclusive)
-  avgDiscount: number | null;
-  // Amounts excluded from salesGross/collected above because they came from a
-  // root-billed invoice of a chain flagged as a consignment-billing pattern
-  // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
-  // Zero for a seller with no flagged exclusions.
-  excludedSalesGross: DualAmount;
-  excludedCollected: DualAmount;
-  excludedInvoiceCount: number;
-}
-
-export interface VendedoresResponse {
-  rows: VendedoresRow[];
-}
-
-// Vendedores tab — audit list behind a seller row's excludedSalesGross figure:
-// the literal invoices pulled out of that seller's reliable totals.
-export interface VendedoresExcludedInvoice {
-  legalEntityName: string;
-  invoiceNumber: string;
-  invoiceDate: string; // ISO date
-  amountNet: DualAmount;
-}
-
-export interface VendedoresExcludedResponse {
-  invoices: VendedoresExcludedInvoice[];
-}
-
 // Clientes tab
 export interface ClientesRow {
   name: string;
@@ -447,11 +403,16 @@ export interface ProfundidadLineaRow {
   avgMonthlyPrice: DualAmount; // avg NetAmount per unit, averaged over months with sales
   avgMonthlyUnits: number; // QuantitySold / distinct months with sales in range
   returnRate: number | null;
+  tier: DepthTier; // primera/segunda/addon from clientShare vs DEFAULT_TIER_THRESHOLDS
 }
 
 export interface ProfundidadLineaResponse {
   rows: ProfundidadLineaRow[];
 }
+
+// Productos tab - product x customer-group share matrix (section=grupos) and the category filter options.
+export interface ProductosGroupShareResponse extends GroupShareMatrix { level: 'linea' | 'sublinea' | 'sku' }
+export interface ProductosCategoriasResponse { categorias: string[] }
 
 // Productos tab — units sold by month, stacked by línea (top lines by
 // volume; the rest bucketed as "Otras" to keep the stack legible).
@@ -525,53 +486,9 @@ export interface MultimonedaResponse {
   currentRate: number | null;
 }
 
-// Profundidad de Línea tab — segment-penetration matrix, gap drill-down, and
-// first/second-line/addon classification. See
-// docs/superpowers/specs/2026-09-21-profundidad-linea-tab-design.md.
-export type CustomerSegment = 'CADENA' | 'INDEPENDIENTES';
-
-export interface DepthMatrixCell {
-  segment: CustomerSegment;
-  entitiesBuying: number;
-  entitiesActive: number;
-  penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
-  salesGross: DualAmount;
-}
-
-export interface DepthMatrixRow {
-  label: string;            // línea, sublínea, or SKU name depending on drill level
-  value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
-  cells: DepthMatrixCell[];  // one per segment present for this row
-  totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
-  totalSalesGross: DualAmount;
-  tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
-}
-
-export interface DepthMatrixResponse {
-  rows: DepthMatrixRow[];
-  groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
-  breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  // Echoes the salesRepKey filter applied, if any — lets the UI label the
-  // matrix clearly ("Mostrando solo clientes de: Juan Pérez") when scoped.
-  // See docs/superpowers/specs/2026-09-21-seller-depth-of-line-coverage-design.md.
-  scopedToSalesRepName: string | null;
-}
-
-export interface DepthGapEntity {
-  legalEntityKey: number;
-  legalEntityName: string;
-  totalSalesGross: DualAmount; // this entity's total sales in range, for sort/context
-}
-
-export interface DepthGapResponse {
-  entities: DepthGapEntity[];
-  segment: CustomerSegment;
-  productLabel: string;
-}
-
-// Seller coverage leaderboard — one row per seller, comparing their own
-// pooled penetration (over entities/products they personally touched)
-// against the company-wide baseline from the unscoped matrix.
+// Seller line-depth coverage (lib/dwh/seller-coverage.ts, shown on the Vendedor 360
+// profile) — a seller's own pooled penetration (over entities/products they personally
+// touched) against the company-wide baseline.
 export interface SellerCoverageRow {
   salesRepKey: string;
   salesRepName: string;
@@ -581,12 +498,8 @@ export interface SellerCoverageRow {
   gapVsBaseline: number | null;       // ownPenetration - baselinePenetration; negative = underperforming
 }
 
-export interface SellerCoverageResponse {
-  rows: SellerCoverageRow[];
-}
-
 // Seller 360° profile — manager-facing per-seller scorecard reached from the
-// Vendedores tab. See docs/superpowers/specs/
+// Seguimiento tab. See docs/superpowers/specs/
 // 2026-09-27-seller-360-dashboard-design.md.
 
 export interface ActivacionWeekRow {
@@ -665,73 +578,11 @@ export interface Seller360Response {
   usdRate: number | null;
 }
 
-// Cadencia tab — per-customer purchase frequency, with an optional manual
-// target overlay. See docs/superpowers/specs/
-// 2026-09-21-active-customer-visit-cadence-design.md.
-export interface CadenceRow {
-  legalEntityKey: number;
-  legalEntityName: string;
-  purchaseDayCount: number;
-  avgGapDays: number | null;      // null if only one purchase in range (no gap to compute)
-  lastPurchaseDate: string;       // ISO date
-  daysSinceLastPurchase: number;
-  segment: CustomerSegment | null;
-  targetGapDays: number | null;    // resolved: entity override, else segment default, else null
-  isOverdue: boolean | null;       // null when no target resolves for this entity
-}
-
-export interface CadenceResponse {
-  rows: CadenceRow[];
-}
-
-// Matriz Vendedor-Producto tab — seller x product x store depth-of-line
-// coaching matrix. See docs/superpowers/specs/
-// 2026-09-23-seller-product-store-matrix-design.md.
-export interface SellerSummaryRow {
-  salesRepKey: string;
-  salesRepName: string;
-  salesGross: DualAmount; // all invoices, incl. consignment billing
-  returns: DualAmount; // by original factura date
-  salesNet: DualAmount; // salesGross − returns
-  entitiesServed: number;
-}
-
-export interface SellerSummaryResponse {
-  rows: SellerSummaryRow[];
-}
-
-export interface SellerMatrixProduct {
-  productKey: number;
-  productName: string;
-  lineName: string | null;
-  subLineName: string | null;
-  categoryName: string | null;
-}
-
-export interface SellerMatrixStore {
-  customerKey: number;
-  customerName: string;
-  legalEntityName: string;
-}
-
-export interface SellerMatrixCell {
-  productKey: number;
-  customerKey: number;
-  netSales: DualAmount; // ventas brutas of the cell (sin IVA, antes de devoluciones)
-  units: number;
-  returnRateUsd: number | null; // a RATIO (returns/sales), not a currency amount -- plain number despite the name
-  returnRateUnits: number | null;
-}
-
-export interface SellerMatrixResponse {
-  products: SellerMatrixProduct[];
-  stores: SellerMatrixStore[];
-  cells: SellerMatrixCell[];
-}
-
 // Clientes tab — cobertura de clientes (see lib/cobertura.ts). Independent of the date range.
 export type { CoberturaStatus } from './lib/cobertura';
 import type { CoberturaStatus } from './lib/cobertura';
+import type { CustomerKind } from '@/lib/dwh/cutover';
+import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
 
 export interface CoberturaRowView {
   customerCode: string;
@@ -746,6 +597,12 @@ export interface CoberturaRowView {
   avgMonthlyUnits: number | null;
   monthsWithSales: number;
   status: CoberturaStatus;
+  routeNumber: number | null;     // current Dim_Zone.RouteNumber; null = no route
+  groupCode: string | null;       // current ErpSegmentCode (customer group)
+  groupName: string | null;       // Dim_Segment.SegmentName
+  kind: CustomerKind | null;      // patrimonio / nuevo in the range's year; null = no registration date
+  visit: VisitCompliance;         // as of today
+  activeInPeriod: boolean | null; // >= 1 non-voided invoice in the selected range; null = registered after the range end (cartera.ts periodActivity)
 }
 
 export interface CoberturaResponse {
@@ -753,6 +610,13 @@ export interface CoberturaResponse {
   asOfDateKey: number;
   windowStartDateKey: number;
   lapsedAfterDays: number;
+  kindYear: number;               // the year patrimonio/nuevo were evaluated for (year of the range end)
+}
+
+// Clientes tab group/route filter options (GET /api/dwh/clientes?section=filters).
+export interface ClientesFiltersResponse {
+  groups: { value: string; label: string }[];   // value = ErpSegmentCode, label = SegmentName
+  routes: { value: string; label: string }[];   // value = RouteNumber as text, label = 'Ruta N'
 }
 
 // Devoluciones tab headline KPIs (section=kpis). Same basis as the tab's own

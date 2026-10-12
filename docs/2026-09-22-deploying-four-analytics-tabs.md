@@ -1,5 +1,7 @@
 # Deploying: Depth of Line, Consignment Exclusion, Seller Coverage, Cadencia
 
+> **Superseded (2026-10-11):** the Profundidad de Línea, Cadencia, Matriz Vendedor-Producto and Vendedores tabs described below were removed or replaced (Seguimiento, Clientes visit compliance, Productos). See docs/superpowers/plans/2026-10-11-sales-tabs-consolidation.md. The deploy steps for the consignment exclusion still apply.
+
 **Date:** 2026-09-22
 **Branch:** merged to `main` at `60158b3`
 

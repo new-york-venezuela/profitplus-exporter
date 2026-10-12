@@ -79,7 +79,20 @@ lib/
   pricing/promo-status.ts, timeline.ts, dates.ts — promotion status, timeline data, date-only helpers (YYYY-MM-DD)
   pricing/health.ts, health-loader.ts, health-repo.ts — pure expiry checks, live report loader, sweep heartbeat + alert settings/log
   pricing/digest.ts       — composeDigest()/sendDigest(): daily expiry email (template pricing-expiry-digest)
+  customer-mapping/types, codes, csv, build, workbook — mapping rows (co_cli, nombre, co_ven, grupo, ruta, frecuencia, ...), code normalization, CSV/xlsx I/O for the master AND the tracking workbook (`mapping:build`)
+  customer-mapping/frequency.ts, route-zones.ts, route-owners.ts — visit-frequency enum, route zone codes (CCSnnn), route-owner derivation and coherence check (pure; shared by build, plan, verify)
+  customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`, zones to create, route/frequency changes
+  customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots; route procs pApiInsertarZona / pApiActualizarRutaCliente / pApiRestaurarRutaCliente
+  customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
+  dwh/cutover.ts           — MIGRATION_CUTOVER_DATE (2026-03-28), customerKindInYear(): patrimonio / nuevo derived from Dim_Customer.RegisteredDate, never stored
+  clientes/scope.ts, cobertura-sql.ts — Clientes tab: group/route scope (decided by the CURRENT Dim_Customer row) and the cobertura query (last invoice, period activity, route, group, visit frequency)
+  productos/group-share.ts, queries.ts — Productos tab: product x customer-group share matrix (pure builder + SQL), category list
+  dwh/depth-tier.ts, seller-coverage.ts — line-depth tiers and the per-seller coverage figure shown on Vendedor 360 (moved from the removed Profundidad route)
+  dwh/historico-window.ts  — Histórico 2025 window (calendar 2025, sales and returns)
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
+  seguimiento/             — pure helpers for the Seguimiento tab: iso-date.ts, month-pace.ts (monthPace/projectToMonth/resolveReferenceMonth),
+                              iso-weeks.ts, visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas,
+                              quotaBarGeometry), category-mix.ts, aggregate.ts (buildSeguimiento), queries.ts (DWH SQL), targets-repo.ts (seller_targets)
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
   app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
@@ -87,6 +100,14 @@ app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zon
 app/api/pricing/           — pricing API (segments, customers, assignments, price-lists, lists/[coPrecio]/rates|export,
                               articles, promotions, health, alert-settings), gated per route (see Pricing below)
 
+migrations/dwh/0040        — drops the 0039 mapping table/view; Dim_Customer gains RegisteredDate, IsMigrationBatch, VisitFrequency,
+                              VisitIntervalDays (computed 7/15/30), ErpSegmentCode; adds dim.Dim_Zone and dim.Dim_Segment (mirrors of saZona/saSegmento)
+migrations/mssql/0016      — customer mapping procs: pApiInsertarSegmento (insert segment), pApiActualizarSegmentoCliente (update customer segment),
+                              pApiCorregirVendedorDocumento (initial version, superseded by 0017)
+migrations/mssql/0017      — supersedes pApiCorregirVendedorDocumento (FACT mirrors its ledger row guarded by customer, DEV header only, no credit-note ledger writes)
+                              and adds pApiRestaurarVendedorCliente (restore customer seller on rollback, accepts inactive sellers)
+migrations/mssql/0018      — route procs: pApiInsertarZona (CCSnnn zone, idempotent), pApiActualizarRutaCliente (co_zon + frecu_vist, enum-checked),
+                              pApiRestaurarRutaCliente (rollback only: accepts NULL/free-text frecu_vist)
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
@@ -106,6 +127,8 @@ content/help/pricing-*.md    — in-app help pages for the pricing tabs (segment
 
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
+    tabs/tab-seguimiento.tsx + components/seguimiento/ — Seguimiento tab
+    lib/tab-keys.ts — tab registry (TAB_KEYS/TAB_LABELS/resolveActiveTab); an unknown or retired ?tab= resolves to Resumen
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
   pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
@@ -116,6 +139,7 @@ app/(app)/
 
 app/api/
   recetas/recipes/            — recipe CRUD + GET .../[id]/cost (live cost computation)
+  dwh/seguimiento/            — Seguimiento API (kind=vendedor|ruta|grupo, sections lines/excluded), gated on 'dwh'
 ```
 
 **No `middleware.ts`** — there is no Edge Runtime request guard in this
@@ -326,6 +350,27 @@ the "Sin datos means null, not $0" invariant must be reflected there too —
 the DWH pipeline reuses this exact function and depends on `null` staying
 `null` all the way through to `CostSourceFlag = 'NO_COST_DATA'`.
 
+## Seguimiento (Analítica tab)
+
+A monthly scorecard per seller, route or customer group (`GET /api/dwh/seguimiento`, `lib/seguimiento/`).
+The reference month is the month the selected date range ends in (`resolveReferenceMonth`; "30 días"/"12 meses"
+use the current month), measured up to today. Customers are attributed by the CURRENT `Dim_Customer` row
+(`IsCurrent = 1`) looked up by `CustomerCode`, so old invoices follow the customer; inactive customers are not
+assigned. A customer is active in a week when an assigned customer has an invoice in that ISO week. The month
+projection excludes weekends only (no holidays). Quotas come from `seller_targets`; for route/group roots they are
+summed per distinct seller and flagged `quotaShared` when a seller spans several roots. Consignment-root customer
+codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `VisitIntervalDays` NULL means the
+customer is never overdue ("Sin frecuencia").
+
+## Analítica tabs (consolidated)
+
+Tabs, in order: Resumen (with the month-pace strip), Seguimiento, Ventas, Devoluciones, CXC y Cobranzas, Clientes, Productos, Histórico 2025, Finanzas, Multimoneda, Compras. The registry is `app/(app)/analitica/lib/tab-keys.ts`; `?tab=vendedores|profundidad|matriz-vendedor|cadencia` (removed) open Resumen.
+- **Clientes** extends "Cobertura de clientes" (`/api/dwh/clientes/cobertura`): route, group, patrimonio/nuevo (`customerKindInYear`), visit compliance (`visitCompliance`; `VisitIntervalDays` NULL = "Sin frecuencia", never overdue) and "Sin compras en el período". The group/route filters (`lib/clientes/scope.ts`) scope the whole tab by the customer's CURRENT row; they filter the sales side only.
+- **Productos**: Line > SubLine > product drill; `CategoryName` (Fresco/Congelado) is a filter, not a level; `section=grupos` is the product x customer-group share matrix (group = `Dim_Segment.SegmentName` of the current `ErpSegmentCode`); the presence table carries the Primera/Segunda/Addon tier from `lib/dwh/depth-tier.ts`.
+- **Histórico 2025** shows calendar 2025 only (`lib/dwh/historico-window.ts`); Jan-Feb 2026 stay in the legacy tables, shown nowhere.
+- `visit_cadence_targets` (SQLite) is deprecated and unused (kept on purpose, see `lib/db/schema.ts`).
+- Vendedor 360's `coverage` comes from `lib/dwh/seller-coverage.ts` (pooled over all legal entities, no CADENA/INDEPENDIENTES split).
+
 ## Auth Flow Summary
 
 ```
@@ -388,6 +433,10 @@ sellers, stamps `co_us_mo`/`fe_us_mo`). Area matching never changes a seller
 automatically. The seller picker lists `payload.sellers` (sellers with at least
 one active customer; inactive ones, flagged `inactive`, are excluded).
 
+## Routes and visit frequency
+
+A route is a `saZona` row coded `CCSnnn` (nnn = the route number in the business's tracking workbook; `char(6)`, so no hyphen — legacy `CCS-NN` zones are never reused). A customer's route is `saCliente.co_zon`, its visit frequency `saCliente.frecu_vist` (`SEMANAL`/`QUINCENAL`/`MENSUAL`). There is no seller x route table: a route's owner is the seller with most of its customers (`deriveRouteOwners`); `mapping:build` assigns it to every customer on the route, and `mapping:apply` refuses a customer without route or seller, or whose seller is not the route owner. In the DWH read the CURRENT `dim.Dim_Customer` row by `CustomerCode` for route/frequency/seller (a change versions the row). "Patrimonio" vs "new customer" is derived from `Dim_Customer.RegisteredDate` / `IsMigrationBatch` (`lib/dwh/cutover.ts`), never stored.
+
 ## Pricing (`/pricing`)
 
 Segments (`saTipoCliente`), price lists (`saTipoPrecio`/`saArtPrecio`), promotions and expiry tracking.
@@ -395,7 +444,7 @@ ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
 
 - **ERP pricing writes only through `pApi*` wrapper procs** (`migrations/mssql/0010-0014`) — never raw
   INSERT/UPDATE on `saArtPrecio`, `saTipoPrecio` or `saTipoCliente`.
-- **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only).
+- **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only) — except by `bun run mapping:apply` (`pApiActualizarSegmentoCliente`), which assigns the business customer group. `saCliente.co_zon` and `saCliente.frecu_vist` are written only by `bun run mapping:apply` (`pApiActualizarRutaCliente`).
 - **Planners never create overlapping periods** for an article/list/warehouse (`rate-planner.ts`,
   `promo-planner.ts`; pure, unit-tested). `hasta` is **end of day** (23:59:59.997, set by the procs;
   `desde` stays midnight) — Profit treats `hasta >= GETDATE()` as current. Dates in the app are `YYYY-MM-DD`.
@@ -496,5 +545,6 @@ See `.env.example` for the full list; `INSTRUCTIONS.md` covers setup end to end.
   `--path-ignore-patterns`, matching how `compras-export.integration.test.ts` is excluded and run
   separately via `test:mssql`. Only run it against a non-production Profit Plus instance.
 - `bun run test:geo-erp` writes to the ERP (then restores) — non-production only.
+- `bun run test:mapping-erp` writes to the ERP (customer mapping procs) — non-production only.
 - See `INSTRUCTIONS.md` → "Running Tests" for the full command reference (unit, e2e, MSSQL
   integration).

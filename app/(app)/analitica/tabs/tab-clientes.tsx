@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
+import CarteraFilterBar from '../components/cartera-filter-bar';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
@@ -40,7 +41,12 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
   );
 }
 
-function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+function useClientesTrend(
+  dateRange: DateRange,
+  clienteDimension: 'cliente_entidad' | 'cliente_tienda',
+  grupo: string | null,
+  ruta: string | null,
+) {
   const [data, setData] = useState<ClientesTrendResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +58,8 @@ function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entid
       setLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, clienteDimension, section: 'trend' });
+        if (grupo) params.set('grupo', grupo);
+        if (ruta) params.set('ruta', ruta);
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -72,12 +80,17 @@ function useClientesTrend(dateRange: DateRange, clienteDimension: 'cliente_entid
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension]);
+  }, [dateRange, clienteDimension, grupo, ruta]);
 
   return { data, loading, error };
 }
 
-function useClientesChurned(dateRange: DateRange, clienteDimension: 'cliente_entidad' | 'cliente_tienda') {
+function useClientesChurned(
+  dateRange: DateRange,
+  clienteDimension: 'cliente_entidad' | 'cliente_tienda',
+  grupo: string | null,
+  ruta: string | null,
+) {
   const [data, setData] = useState<ClientesChurnedResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +102,8 @@ function useClientesChurned(dateRange: DateRange, clienteDimension: 'cliente_ent
       setLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, clienteDimension, section: 'churned' });
+        if (grupo) params.set('grupo', grupo);
+        if (ruta) params.set('ruta', ruta);
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -109,7 +124,7 @@ function useClientesChurned(dateRange: DateRange, clienteDimension: 'cliente_ent
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension]);
+  }, [dateRange, clienteDimension, grupo, ruta]);
 
   return { data, loading, error };
 }
@@ -189,8 +204,10 @@ export default function TabClientes({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
-  const trend = useClientesTrend(dateRange, clienteDimension);
-  const churned = useClientesChurned(dateRange, clienteDimension);
+  const [grupo, setGrupo] = useState<string | null>(null);
+  const [ruta, setRuta] = useState<string | null>(null);
+  const trend = useClientesTrend(dateRange, clienteDimension, grupo, ruta);
+  const churned = useClientesChurned(dateRange, clienteDimension, grupo, ruta);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +216,8 @@ export default function TabClientes({
       setLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, clienteDimension });
+        if (grupo) params.set('grupo', grupo);
+        if (ruta) params.set('ruta', ruta);
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -219,7 +238,7 @@ export default function TabClientes({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension]);
+  }, [dateRange, clienteDimension, grupo, ruta]);
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
@@ -252,24 +271,27 @@ export default function TabClientes({
     }
   }
 
+  // The filter bar and Cobertura sit at the same tree position in every state, so React keeps them mounted:
+  // a grupo/ruta change only reloads the Pareto/trend/churned part below, while Cobertura filters its
+  // already-fetched rows client-side and keeps its own seller/status/visit filters.
+  const shell = (body: React.ReactNode) => (
+    <div className="p-6 max-w-7xl space-y-6">
+      <CarteraFilterBar grupo={grupo} ruta={ruta} onGrupo={setGrupo} onRuta={setRuta} />
+      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} />
+      {body}
+    </div>
+  );
+
   if (loading) {
-    return <div className="p-6 text-sm text-gray-500">Cargando…</div>;
+    return shell(<div className="text-sm text-gray-500 print:hidden">Cargando…</div>);
   }
 
   if (error) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
-      </div>
-    );
+    return shell(<p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3 print:hidden">{error}</p>);
   }
 
   if (!data) {
-    return (
-      <div className="p-6">
-        <EmptyState />
-      </div>
-    );
+    return shell(<div className="print:hidden"><EmptyState /></div>);
   }
 
   const segmentCounts = data.rows.reduce<Record<Segment, number>>(
@@ -286,9 +308,7 @@ export default function TabClientes({
     'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
   }));
 
-  return (
-    <div className="p-6 max-w-7xl space-y-6">
-      <CoberturaClientes />
+  return shell(
       <div className="space-y-6 print:hidden">
       <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-200 rounded-lg p-4">
         <div>
@@ -469,7 +489,6 @@ export default function TabClientes({
           </div>
         )}
       </div>
-      </div>
-    </div>
+      </div>,
   );
 }

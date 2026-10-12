@@ -2,6 +2,10 @@
 
 Todas las cifras de Analítica salen del Data Warehouse, que se actualiza desde Profit Plus. Los montos son **sin IVA** salvo que se indique lo contrario.
 
+## Ritmo del mes
+
+**Ritmo del mes** (Resumen): días laborables transcurridos del mes de referencia (el mes en que termina el rango elegido) y el porcentaje del mes. Solo se excluyen sábados y domingos; los feriados no se consideran.
+
 ## Ventas brutas
 
 Suma de las líneas de factura de venta del período:
@@ -20,9 +24,16 @@ Suma de las cantidades facturadas en el período, sin facturas anuladas y antes 
 
 Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de crédito) según el snapshot de CxC más reciente **al último día del período seleccionado**. La tarjeta indica la fecha real del snapshot ("al 28/09/2026"). Si no existe un snapshot a esa fecha o antes, muestra "Sin datos". En USD se valora a la tasa de la fecha del snapshot.
 
+## Productos
+
+La pestaña **Productos** baja de **línea** a **sublínea** (Artesanal / Industrial) y de ahí a **producto**. La **categoría** (Fresco / Congelado) es un filtro, no un nivel: al elegirla, todas las tablas y gráficos de la pestaña se limitan a esa categoría.
+
+- **Participación por grupo de cliente:** para cada fila del nivel actual, el porcentaje de sus ventas brutas (sin IVA) que va a cada grupo de cliente. Cada venta se asigna al grupo **actual** del cliente; los clientes sin grupo aparecen en "Sin grupo". Un "—" significa que ese grupo no compró esa fila. Pasar el cursor sobre una celda muestra el monto. Solo cuenta ventas positivas y muestra las 30 filas con más ventas, por lo que puede no cuadrar exactamente con la tabla de arriba.
+- **Presencia y profundidad por producto:** clientes y tiendas que compraron el producto y su porcentaje sobre los clientes y tiendas activos del período (la categoría no reduce ese denominador). *Primera línea* = lo compra el 70% o más de los clientes activos; *Segunda línea* = 30% o más; *Addon* = menos. Con una tienda seleccionada no se muestra la clasificación (con un solo cliente no tiene sentido). La tasa de devolución usa la fecha de la devolución.
+
 ## Cobertura de clientes
 
-La sección "Cobertura de clientes" de la pestaña Clientes **no depende del período seleccionado**, para no perder datos por un filtro de fechas.
+La última venta y los promedios de la sección "Cobertura de clientes" no dependen del período seleccionado; solo "Sin compras en el período" y "Clientes nuevos" usan el rango de fechas.
 
 - **Última venta:** la fecha de la última factura (sin anuladas) en todo el histórico. "Sin datos" significa que no existe ninguna factura para ese cliente.
 - **USD/mes y Unidades/mes:** promedio de los últimos 12 meses calendario (el mes en curso incluido), calculado **solo sobre los meses en que el cliente tuvo facturas**. Un cliente que compró en enero, marzo y abril se promedia entre 3. Ventas brutas, sin IVA, en USD a la tasa de cada factura.
@@ -31,6 +42,10 @@ La sección "Cobertura de clientes" de la pestaña Clientes **no depende del per
 - **Versiones del cliente:** se muestra solo la versión vigente (nombre y vendedor actuales); las ventas se suman sobre todas las versiones del mismo código.
 - Los clientes inactivos se excluyen salvo que se marque "Incluir inactivos".
 - **Orden por Días sin vender (ascendente):** primero los "Sin datos", luego los de más días sin vender, hasta los más recientes.
+- **Grupo y ruta:** salen de la ficha actual del cliente en Profit Plus (grupo = segmento del cliente; ruta = zona de ruta). Los filtros de arriba de la pestaña aplican a toda la pestaña; en Entidad, las devoluciones se atribuyen a la entidad completa.
+- **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada muestra "Sin frecuencia" y nunca figura como vencido. El cumplimiento es al día ÷ (al día + vencidas).
+- **Sin compras en el período:** clientes asignados (no inactivos) sin ninguna factura, sin anuladas, en el rango de fechas elegido. Un cliente registrado después del fin del rango no cuenta (todavía no existía).
+- **Tipo:** *Patrimonio* = registrado antes del año del rango o en el lote migrado en la puesta en marcha (28/03/2026); *Nuevo* = registrado en el año del rango, fuera de ese lote. Sin fecha de registro se muestra "—".
 
 ## Ventas por cliente
 
@@ -53,7 +68,7 @@ En la pestaña Ventas puede escoger cualquiera de las dos con el selector **Devo
 
 **Ventas netas = Ventas brutas − Devoluciones**, con las devoluciones por fecha de factura (o según el selector de la pestaña Ventas).
 
-La pestaña **Histórico 2025** sigue la misma regla (devoluciones por fecha de la factura original); las devoluciones de facturas anteriores a enero 2025 quedan fuera de esa pestaña.
+La pestaña **Histórico 2025** muestra solo el año 2025 del sistema anterior y sigue la misma regla (devoluciones por fecha de la factura original); las devoluciones de facturas anteriores a enero 2025 quedan fuera de esa pestaña, y enero y febrero de 2026 del sistema anterior no se muestran en ninguna.
 
 ## Tasa de devolución
 
@@ -71,9 +86,9 @@ Cada línea se convierte a la tasa de venta de **su propia fecha**, no a la tasa
 
 En **Finanzas**, los movimientos anteriores a la primera tasa registrada no tienen tasa histórica. Esos movimientos no se suman en USD, y la pestaña indica el monto que quedó fuera.
 
-## Vendedores y consignación
+## Seguimiento y consignación
 
-La pestaña **Vendedores** y el perfil del vendedor excluyen las facturas emitidas a la raíz de una cadena con patrón de consignación, porque no se puede saber qué vendedor generó esa venta. El monto excluido aparece en su propia columna. **Resumen** y **Matriz Vendedor-Producto** sí incluyen esas facturas, así que sus totales por vendedor son mayores.
+La pestaña **Seguimiento** y el perfil del vendedor excluyen las facturas emitidas a la raíz de una cadena con patrón de consignación, porque no se puede saber qué vendedor generó esa venta. El monto excluido aparece aparte (nota al pie con la lista de facturas). **Resumen** sí incluye esas facturas, así que su total por vendedor es mayor.
 
 ## Cobranza, DSO y tasa de cobranza
 
@@ -97,6 +112,22 @@ La cobranza y el saldo por cobrar incluyen IVA. Por eso la **Tasa cobr.** y el *
 ## Mapa de clientes
 
 **Ingresos** en el mapa son las ventas brutas, solo de los clientes activos en Profit y agrupadas por código de tienda. Por eso no coinciden con los totales de Analítica. El segmento A/B/C también puede diferir, porque Analítica lo calcula por entidad.
+
+## Seguimiento
+
+La pestaña **Seguimiento** replica el cuadro de seguimiento por ruta: para un mes muestra, por **vendedor**, **ruta** o **grupo de cliente**, la activación semanal, el avance contra la meta con su proyección, el precio promedio, la mezcla por línea y los clientes nuevos. Haga clic en un vendedor, ruta o grupo para ver sus clientes y en un cliente para ver sus líneas de factura. El botón **Tabla** muestra lo mismo en forma de tabla.
+
+- **Mes de referencia:** el mes en que termina el rango de fechas elegido (con "30 días" o "12 meses", el mes actual). Las ventas y la meta son de ese mes, hasta hoy.
+- **Ventas:** ventas brutas sin IVA, antes de devoluciones, sin la facturación agregada de consignación (que se lista aparte, igual que en el perfil del vendedor).
+- **Cliente asignado:** el cliente pertenece al vendedor, ruta o grupo que tiene hoy en su ficha del ERP; las facturas antiguas siguen al cliente. Los clientes inactivos no cuentan, ni los registrados después del mes de referencia (al consultar un mes pasado).
+- **Tarjeta del vendedor vs. perfil del vendedor:** la tarjeta de Seguimiento suma las ventas de los clientes que hoy tiene asignados el vendedor, mientras que el perfil del vendedor ("ventas facturadas por el vendedor") cuenta las facturas según el vendedor que figura en el documento. Si un cliente fue reasignado a otro vendedor, las dos cifras pueden diferir.
+- **Cliente activo en una semana:** tuvo al menos una factura esa semana ISO (lunes a domingo, aunque la semana empiece en el mes anterior). Porcentaje = clientes activos ÷ clientes asignados.
+- **Proyección:** ventas del mes ÷ (días laborables transcurridos ÷ días laborables del mes). Solo se excluyen sábados y domingos; los feriados no se consideran.
+- **Meta:** las metas se definen por vendedor (botón "Editar metas" en la tarjeta del vendedor). Para rutas y grupos es la suma de las metas de sus vendedores; si un vendedor atiende varias rutas, la meta aparece como "compartida" porque no se reparte entre ellas. La meta se define en USD: la barra de avance y la columna Meta se muestran en USD aunque se haya elegido Bs.
+- **Precio promedio:** ventas ÷ unidades vendidas del mes (las unidades de distintas líneas se suman tal como se facturan).
+- **Mezcla por línea:** participación de cada línea de producto en las ventas; las líneas se leen de Profit Plus, de modo que una línea nueva aparece sola cuando tenga ventas. Las líneas menores se agrupan en "Otros".
+- **Clientes nuevos:** clientes registrados en el mes, sin contar el lote de clientes migrado en la puesta en marcha, frente a la meta de clientes nuevos.
+- **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada nunca figura como vencido ("Sin frecuencia").
 
 ## Cómo cuadrar con un Excel de Profit
 

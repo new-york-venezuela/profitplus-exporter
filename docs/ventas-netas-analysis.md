@@ -1,5 +1,7 @@
 # Ventas netas: why Analítica did not match the Excel, and what changed
 
+> **Note (2026-10-11):** the Vendedores, Matriz Vendedor-Producto and Histórico sections below refer to tabs since removed (Vendedores, Matriz Vendedor-Producto) or windowed to calendar 2025 (Histórico 2025). See docs/superpowers/plans/2026-10-11-sales-tabs-consolidation.md.
+
 Date: 2026-10-04. Branch `fix/ventas-netas`. The numbers below come from the dev DWH (`DWH_AlimentosNY` on localhost) and the mock ERP `Ncake_a`. That data is small, so re-check the percentages on production before you rely on them.
 
 ## 1. What was wrong

@@ -36,6 +36,8 @@ USE DWH_AlimentosNY;
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;  -- depends on Dim_Currency
 
+EXEC dwh.Load_Dim_Zone;           -- full-refresh mirror of saZona (route zones); before Dim_Customer
+EXEC dwh.Load_Dim_Segment;        -- full-refresh mirror of saSegmento (customer groups); before Dim_Customer
 EXEC dwh.Load_Dim_Customer;       -- SCD Type 2 (tracks versions with ValidFrom/ValidTo)
 EXEC dwh.Load_Dim_LegalEntity;    -- Legal entity grouping (reads Dim_Customer.MatrizCode)
 EXEC dwh.Load_Dim_Product;        -- SCD Type 2
@@ -56,6 +58,7 @@ EXEC dwh.Snapshot_Fact_AR;
 This backfills the entire history from ERP:
 - **Dim_Customer**, **Dim_Product** — all versions (SCD Type 2 with ValidFrom/ValidTo for time-travel)
 - **Dim_SalesRep**, **Dim_Warehouse** — all current values (Type 1 overwrite)
+- **Dim_Zone**, **Dim_Segment** — full-refresh mirrors of `saZona` / `saSegmento`
 - **Dim_Date** — pre-generated calendar (1 row per day, years ahead)
 - **Dim_DocumentType** — pre-seeded static lookup (FACT, N/CR, N/DB, COBR, ANT, etc.)
 - **Dim_Currency** — all currencies from ERP with IsBaseCurrency flag
@@ -77,6 +80,8 @@ USE DWH_AlimentosNY;
 -- Incremental load (repeat as often as needed)
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;
+EXEC dwh.Load_Dim_Zone;
+EXEC dwh.Load_Dim_Segment;
 EXEC dwh.Load_Dim_Customer;
 EXEC dwh.Load_Dim_LegalEntity;
 EXEC dwh.Load_Dim_Product;
@@ -124,6 +129,8 @@ DWH_AlimentosNY (new database, same SQL Server instance as ERP)
 ├── dim schema (Conformed Dimensions)
 │   ├── Dim_Date              — calendar (Type 0, pre-generated)
 │   ├── Dim_Customer          — customer master (SCD Type 2 — tracks versions over time)
+│   ├── Dim_Zone              — ERP zones / sales routes (full refresh of saZona)
+│   ├── Dim_Segment           — ERP customer groups (full refresh of saSegmento)
 │   ├── Dim_Product           — article/SKU master (SCD Type 2)
 │   ├── Dim_SalesRep          — sales rep (Type 1 — overwrite)
 │   ├── Dim_Warehouse         — warehouse/location (Type 1)
@@ -148,6 +155,8 @@ DWH_AlimentosNY (new database, same SQL Server instance as ERP)
 | **Fact_AR_Snapshot** | `saDocumentoVenta` (open balances) | 1 row per open invoice per snapshot date |
 | **Fact_ExchangeRate** | `saTasa` | 1 row per currency per day |
 | **Dim_Customer** | `saCliente` | 1 row per customer version (SCD2) |
+| **Dim_Zone** | `saZona` | 1 row per zone (full refresh) |
+| **Dim_Segment** | `saSegmento` | 1 row per customer group (full refresh) |
 | **Dim_Product** | `saArticulo` + `saCatArticulo` + `saLineaArticulo` + `saSubLinea` (denormalized) | 1 row per product version (SCD2) |
 | **Dim_SalesRep** | `saVendedor` | 1 row per rep (Type 1) |
 | **Dim_Warehouse** | `saAlmacen` | 1 row per warehouse (Type 1) |
@@ -306,13 +315,42 @@ Not covered: credit notes booked as plain `N/CR` in `saDocumentoVenta` without a
 | `CreditLimit` | decimal(18,2) | `saCliente.mont_cre` | Credit limit (in original currency) |
 | `CreditLimitCurrency` | char(6) | `saCliente.co_mone` | Currency of credit limit |
 | `ZoneCode` | char(6) | `saCliente.co_zon` | Geographic/sales zone |
-| `SegmentCode` | char(6) | `saCliente.co_seg` | Customer segment (key for concentration risk) |
+| `SegmentCode` | char(6) | `saSegmento.seg_des` via `saCliente.co_seg` | Customer segment **name** (resolved in 0031, synced in place every run; key for concentration risk) |
+| `ErpSegmentCode` | char(6) | `RTRIM(saCliente.co_seg)` | Customer group code (0040), the join key to `dim.Dim_Segment`. Synced in place like `SegmentCode` (not SCD2-versioned). |
+| `RegisteredDate` | date | `CAST(saCliente.fecha_reg AS date)` | Registration date (0040). Part of SCD2 change detection. |
+| `IsMigrationBatch` | bit | Derived from `fecha_reg` | 1 when `RegisteredDate` is the system cutover date `2026-03-28` (the batch of customers migrated at go-live; `lib/dwh/cutover.ts`), so they are not counted as new customers. Part of SCD2 change detection. |
+| `VisitFrequency` | varchar(10) | `saCliente.frecu_vist` | `SEMANAL` / `QUINCENAL` / `MENSUAL` (trimmed, upper-cased); any other value is NULL (0040). Part of SCD2 change detection. |
+| `VisitIntervalDays` | int | Computed (persisted) | 7 / 15 / 30 from `VisitFrequency`, NULL when no frequency (0040). |
 | `IsInactive` | bit | `saCliente.inactivo` | Soft-delete flag (1=inactive) |
 | `IsLegalEntity` | bit | `saCliente.juridico` | Business type (1=legal entity, 0=natural person) |
 | `ValidFrom` | datetime2(3) | DWH load time | When this version became active |
 | `ValidTo` | datetime2(3) | DWH load time | When this version was superseded (NULL if current) |
 | `IsCurrent` | bit | Derived | 1 if this is the active version |
 | `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | DWH load timestamp |
+
+#### Dim_Zone
+**Type**: Full refresh (Type 1) — `dwh.Load_Dim_Zone` deletes and reloads the table every run (0040).
+**Source**: `Ncake_a.dbo.saZona`
+**Grain**: 1 row per ERP zone. Run it before `Load_Dim_Customer`.
+
+| Column | Type | Source | Notes |
+|---|---|---|---|
+| `ZoneCode` | char(6) | `saZona.co_zon` | PK; joins `Dim_Customer.ZoneCode` |
+| `ZoneName` | varchar(60) NOT NULL | `RTRIM(saZona.zon_des)` | Zone description (a NULL description would fail the load) |
+| `IsRoute` | bit | Derived | 1 for route zones `CCSnnn` (`CCS` + three digits, not `000`) |
+| `RouteNumber` | int | Derived | `nnn` of a route zone, NULL otherwise (mirrors `routeNumberFromZone` in `lib/customer-mapping/route-zones.ts`) |
+| `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | Load timestamp |
+
+#### Dim_Segment
+**Type**: Full refresh (Type 1) — `dwh.Load_Dim_Segment` deletes and reloads the table every run (0040).
+**Source**: `Ncake_a.dbo.saSegmento`
+**Grain**: 1 row per ERP customer group. Run it before `Load_Dim_Customer`.
+
+| Column | Type | Source | Notes |
+|---|---|---|---|
+| `ErpSegmentCode` | char(6) | `saSegmento.co_seg` | PK; joins `Dim_Customer.ErpSegmentCode` |
+| `SegmentName` | varchar(60) NOT NULL | `RTRIM(saSegmento.seg_des)` | Group name shown in Analítica (a NULL description would fail the load) |
+| `LoadedAtUtc` | datetime2(3) | SYSUTCDATETIME() | Load timestamp |
 
 #### Dim_LegalEntity
 **Type**: Type 1 (overwrite) — no time-travel need identified for entity membership.
@@ -470,7 +508,9 @@ WHERE SourceTableName IN ('saFacturaVenta', 'saFacturaVentaReng');
    ↓
 2. Dim_Currency ──→ Fact_ExchangeRate
    ↓
-3. Dim_Customer (SCD2)
+3. Dim_Zone, Dim_Segment (full refresh)
+   ↓
+   Dim_Customer (SCD2)
    Dim_Product (SCD2)
    Dim_SalesRep (Type 1)
    Dim_Warehouse (Type 1)
@@ -834,6 +874,8 @@ bun run migrate:dwh           # Step 1: Create database, schema, procedures
 -- Every 15–30 minutes (or as needed for near-real-time freshness)
 EXEC dwh.Load_Dim_Currency;
 EXEC dwh.Load_Fact_ExchangeRate;
+EXEC dwh.Load_Dim_Zone;
+EXEC dwh.Load_Dim_Segment;
 EXEC dwh.Load_Dim_Customer;
 EXEC dwh.Load_Dim_LegalEntity;
 EXEC dwh.Load_Dim_Product;

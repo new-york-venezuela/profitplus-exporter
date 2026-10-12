@@ -9,8 +9,8 @@ import {
 } from '@/app/api/dwh/lib/query-builder';
 import { resolveQuotaSum } from './quota-resolution';
 import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
-import { GET as getProfundidadLinea } from '@/app/api/dwh/profundidad-linea/route';
-import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/vendedores/consignment';
+import { fetchSellerCoverage } from '@/lib/dwh/seller-coverage';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import type { ActivacionWeekRow, AgingBucketRow, Seller360Response } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -20,11 +20,11 @@ export const dynamic = 'force-dynamic';
 // for seller_targets. See docs/superpowers/specs/
 // 2026-09-27-seller-360-dashboard-design.md.
 //
-// This route reuses existing query SHAPES from vendedores/cxc/clientes/
-// profundidad-linea routes (scoped to one seller here) rather than importing
-// those routes' private functions directly — none of them export a reusable
-// function today, and duplicating the ~10-line query shape is simpler and
-// safer than refactoring four already-shipped, tested routes mid-feature.
+// Most sections reuse query SHAPES from the cxc/clientes routes (scoped to
+// one seller here) rather than importing those routes' private functions.
+// Shared logic lives in modules: consignment exclusion in
+// app/api/dwh/lib/consignment.ts, line-depth coverage in
+// lib/dwh/seller-coverage.ts.
 
 type EntityGrain = 'entity' | 'tienda';
 
@@ -41,13 +41,14 @@ function activacionQuery(entityGrain: EntityGrain, dateWhere: string): string {
   `;
 }
 
-// Excludes the same flagged-root-billed invoices vendedores/route.ts's own
-// salesRepQuery excludes from SalesGrossBs/Usd (see app/api/dwh/vendedores/
-// consignment.ts's getFlaggedRootCodes) — otherwise this profile's sales
+// Excludes the same flagged-root-billed invoices the Seguimiento tab
+// excludes from SalesGrossBs/Usd (see app/api/dwh/lib/consignment.ts's
+// getFlaggedRootCodes) — otherwise this profile's sales
 // figure double-counts consignment-pattern root invoices that the
-// Vendedores tab list deliberately excludes as unreliable per-seller
-// attribution, inflating this KPI relative to that list for the same
-// seller/period. Requires a join to Dim_Customer (the base CUOTA query
+// Seguimiento tab deliberately excludes as unreliable per-seller
+// attribution. Note this query filters by the invoice's seller
+// (fs.SalesRepKey), not the customer's current seller, so it does not
+// necessarily equal the Seguimiento card total (see Section 2 below). Requires a join to Dim_Customer (the base CUOTA query
 // didn't need one before this fix) purely to read CustomerCode for the
 // exclusion check.
 function cuotaSalesQuery(flaggedRootCodes: string[]): string {
@@ -368,9 +369,13 @@ export async function GET(request: NextRequest) {
     const latestMonthRow = targetRows.find(t => t.periodMonth === months[months.length - 1]);
 
     // Section 2: Cuota de ventas mensual — same flagged-root-invoice
-    // exclusion as the Vendedores tab list (see cuotaSalesQuery above), so
-    // this profile's sales figure matches that list exactly for the same
-    // seller/period.
+    // exclusion as the Seguimiento tab (see cuotaSalesQuery above). The
+    // attribution differs, though: this counts invoices by the seller on the
+    // document (fs.SalesRepKey), while Seguimiento attributes each customer's
+    // sales to its CURRENT Dim_Customer.DefaultSalesRepCode
+    // (lib/seguimiento/queries.ts). The two figures can differ for customers
+    // reassigned to another seller; the profile UI labels this one as
+    // "ventas facturadas por el vendedor".
     const flaggedRootCodes = await getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD);
     const cuotaReq = pool.request().input('salesRepKey', salesRepKey);
     flaggedRootCodes.forEach((code, i) => cuotaReq.input(`flaggedRoot${i}`, code));
@@ -509,41 +514,18 @@ export async function GET(request: NextRequest) {
       amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) },
     }));
 
-    // Section 7: Profundidad — this seller's own SellerCoverageRow, derived
-    // the same way profundidad-linea/route.ts's handleLeaderboard computes
-    // its full leaderboard, but this route only needs one seller's row, so
-    // it queries dim.Dim_SalesRep + a scoped rebuild rather than fetching
-    // every seller. Kept intentionally simple: reruns the unscoped matrix's
-    // tiered-line-set computation (cheap, already the pattern
-    // handleLeaderboard itself uses) and then this one seller's coverage.
+    // Section 7: Profundidad — this seller's own SellerCoverageRow, picked out
+    // of the full leaderboard computed by lib/dwh/seller-coverage.ts
+    // (segment-agnostic: penetration pooled over all active legal entities).
     const sellerNameResult = await pool.request().input('salesRepKey', salesRepKey).query(SELLER_NAME_QUERY);
     const salesRepName = sellerNameResult.recordset[0]?.SalesRepName ? String(sellerNameResult.recordset[0].SalesRepName) : `Vendedor ${salesRepKey}`;
 
-    // profundidad-linea/route.ts's handleLeaderboard is not exported and
-    // returns a NextResponse, not raw data — rather than refactor that
-    // shipped route (out of scope per the spec), this route calls it the
-    // same way any other consumer would: an internal fetch to its own
-    // deployment is unnecessary complexity for a same-process call. Instead,
-    // import and invoke its exported GET handler directly (Next.js Route
-    // Handlers are plain async functions — calling one from another route in
-    // the same process is supported and already how this route imports work).
+    // Coverage is supplementary context on this profile: a failed read must not fail the whole response.
     let coverage: Seller360Response['profundidad']['coverage'] = null;
     try {
-      const leaderboardReq = new NextRequest(
-        `http://localhost/api/dwh/profundidad-linea?section=leaderboard&dateRange=${encodeURIComponent(dateRange)}`,
-        { headers: request.headers },
-      );
-      const leaderboardRes = await getProfundidadLinea(leaderboardReq);
-      if (leaderboardRes.ok) {
-        const leaderboardBody = await leaderboardRes.json() as { rows: Array<Seller360Response['profundidad']['coverage']> };
-        coverage = leaderboardBody.rows.find(r => r?.salesRepKey === salesRepKeyParam) ?? null;
-      }
+      const rows = await fetchSellerCoverage(pool, buildDateWhereClause(dateRange, 'fs'));
+      coverage = rows.find(r => r.salesRepKey === salesRepKeyParam) ?? null;
     } catch {
-      // Profundidad coverage is supplementary context on this profile, not a
-      // hard dependency — if the leaderboard call fails for any reason, the
-      // rest of the profile still renders with coverage: null (UI shows its
-      // existing empty state for this one section), rather than failing the
-      // whole vendedor-360 response.
       coverage = null;
     }
 

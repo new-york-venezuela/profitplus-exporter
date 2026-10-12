@@ -94,3 +94,50 @@ describe('coberturaExportQuery', () => {
     expect(q.get('status')).toBe('never');
   });
 });
+
+describe('filterCobertura: grupo / ruta / visit / inactive in period', () => {
+  const r = (over: Record<string, unknown>) => ({
+    sellerCode: 'V1', status: 'active' as const, groupCode: 'S1', routeNumber: 3,
+    visit: { status: 'ok' }, activeInPeriod: true, ...over,
+  });
+  const rows = [
+    r({ id: 1 }),
+    r({ id: 2, groupCode: 'S2', routeNumber: 4, visit: { status: 'overdue' } }),
+    r({ id: 3, groupCode: null, routeNumber: null, visit: { status: 'no_interval' }, activeInPeriod: false }),
+  ];
+  const ids = (out: object[]) => out.map(x => (x as { id?: unknown }).id);
+  test('grupo and ruta match the current attributes exactly', () => {
+    expect(ids(filterCobertura(rows, { grupo: 'S2' }))).toEqual([2]);
+    expect(ids(filterCobertura(rows, { ruta: 3 }))).toEqual([1]);
+    expect(ids(filterCobertura(rows, { grupo: 'S1', ruta: 4 }))).toEqual([]);
+  });
+  test('visit filter and inactive-in-period filter', () => {
+    expect(ids(filterCobertura(rows, { visit: 'overdue' }))).toEqual([2]);
+    expect(ids(filterCobertura(rows, { visit: 'no_interval' }))).toEqual([3]);
+    expect(ids(filterCobertura(rows, { inactiveInPeriod: true }))).toEqual([3]);
+  });
+  test('a row registered after the period (activeInPeriod null) is not inactive in the period', () => {
+    expect(ids(filterCobertura([...rows, r({ id: 4, activeInPeriod: null })], { inactiveInPeriod: true }))).toEqual([3]);
+  });
+  test('no filters keeps everything; old-shape rows (no new fields) still filter by seller', () => {
+    expect(filterCobertura(rows, {})).toHaveLength(3);
+    expect(filterCobertura([{ sellerCode: 'V9', status: 'never' as const }], { sellerCode: 'V9' })).toHaveLength(1);
+  });
+});
+
+describe('coberturaExportQuery: new params', () => {
+  test('old arguments produce the old query string', () => {
+    expect(coberturaExportQuery({ includeInactive: false, sellerCode: null, status: null })).toBe('format=xlsx&includeInactive=0');
+  });
+  test('new filters are appended only when set', () => {
+    const q = new URLSearchParams(coberturaExportQuery({
+      includeInactive: true, sellerCode: 'V1', status: 'lapsed', dateRange: 'month:2026-10', grupo: 'S1', ruta: 3, visit: 'overdue', inactiveInPeriod: true,
+    }));
+    expect(q.get('dateRange')).toBe('month:2026-10');
+    expect(q.get('grupo')).toBe('S1');
+    expect(q.get('ruta')).toBe('3');
+    expect(q.get('visit')).toBe('overdue');
+    expect(q.get('inactive')).toBe('1');
+    expect(q.get('seller')).toBe('V1');
+  });
+});

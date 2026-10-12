@@ -504,6 +504,45 @@ sent=… failed=…`). Check the latest rows of `pricing_sweep_runs` (`ok`,
 `skipped=disabled` means alerts are turned off in the tab's settings;
 `skipped=no-recipients` means no explicit list and no admin/editor emails.
 
+## Customer mapping (seller, group, route and visit frequency per customer)
+
+Corrects `saCliente.co_ven`, `saCliente.co_seg`, `saCliente.co_zon` (route) and `saCliente.frecu_vist` (visit
+frequency) and the seller on invoices/returns since the mapping's `effectiveFrom` date, driven by a reviewed CSV
+(columns `co_cli, nombre, co_ven, grupo, ruta, frecuencia, effective_from, source_note`). Library: `lib/customer-mapping/`.
+Prerequisites: `bun run migrate:mssql` (adds the `pApi*` procs: 0016, 0017 and 0018) and `bun run migrate:dwh`
+(0040: `Dim_Customer` route/frequency/registration columns, `Dim_Zone`, `Dim_Segment`).
+**Before running `migrate:dwh` with 0040**, count and export `dim.Dim_CustomerMapping` (`SELECT * FROM dim.Dim_CustomerMapping`
+to a CSV): 0040 drops that table without a check, and its `CustomerType` / `ParentCustomerName` values exist nowhere else.
+After the migration, `SELECT CustomerCode FROM dim.Dim_Customer WHERE IsCurrent = 1 GROUP BY CustomerCode HAVING COUNT(*) > 1`
+must return 0 rows (Seguimiento, Productos and Clientes rely on one current row per customer).
+
+1. **Build**: `bun run mapping:build -- --master <2026-bbdd-profit.xlsx> --tracking <10-2026-ventas-seguimiento-por-ruta.xlsx>`
+ writes `data/customer-mapping/2026-03.csv`, `2026-03.conflicts.csv` and `2026-03.routes.csv`. The customer list, group and
+ seller (latest invoice) come from the master workbook; route (`Codigo de Ruta`) and frequency (`Frecuencia de Visita`) come
+ from the sheet `Ventas Asesor - Categoria` of the tracking workbook, matched by exact customer code. Master customers that
+ are not in the tracking workbook are left out (conflict `not_in_tracking`). Each route's owner (the seller with most customers
+ on it) is assigned to all its customers; overrides are recorded in `source_note` and the conflicts file; the routes file lists
+ owner and seller counts per route. A tied route (`route_owner_tie`), a customer without route (`missing_route`) or a tracking code
+ missing from the master (`route_code_not_in_master`) must be resolved by hand in the CSV (blank `frecuencia` means `SEMANAL`).
+ The command refuses to overwrite existing outputs (they may hold hand edits) unless `--force` is given.
+2. **Dry-run (default)**: `bun run mapping:apply -- --file data/customer-mapping/2026-03.csv` only reads the ERP and writes
+ `2026-03.diff.csv` (kinds `crear_segmento`, `crear_zona`, `cliente_segmento`, `cliente_ruta`, `cliente_vendedor`, `doc_*`,
+ `PROBLEMA_*`). With problems it still prints everything and writes the diff but exits with code 1. Resolve every `PROBLEMA_*`
+ row (unknown customer/seller, duplicate row, `missing_route`, `missing_seller`, `seller_not_route_owner`,
+ `route_without_owner`); a plan with problems cannot be applied.
+3. **Apply**: `bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]` (unchanged semantics: run id,
+ ERP target recorded, DWH restate loads afterwards; **then run `bun run dwh:incremental-load`**). Route zones `CCSnnn`
+ are created through `pApiInsertarZona` before customers are moved. DWH-only retry: rerun the same `--apply` command.
+4. **Verify**: `bun run mapping:apply -- --file ... --verify` prints the route/seller coherence exceptions per customer (from the
+ CSV), then compares fact sellers and the current `Dim_Customer` rows (zone, frequency, seller) with the CSV. Exit code 1 on any difference.
+5. **Rollback**: `bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>` reverts the ERP only: customer seller
+ (`pApiRestaurarVendedorCliente`), segment, route zone and the previous `frecu_vist`, which may be NULL or free text
+ (`pApiRestaurarRutaCliente`), and document sellers. Not reverted: segments and zones created by the run, `co_seg` of
+ customers whose previous value was NULL. Afterwards run `bun run dwh:incremental-load`.
+
+The first real run must go against a **non-production** copy of the ERP. `bun run test:mapping-erp` writes to the ERP
+(then restores) — non-production only. The route procs are also covered there.
+
 ## Redeploy Procedure
 
 ```powershell

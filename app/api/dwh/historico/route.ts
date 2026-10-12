@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
+import { HISTORICO_RETURNS_WINDOW, HISTORICO_SALES_WINDOW } from '@/lib/dwh/historico-window';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { buildReturnsDateWhereClause, jsonWithCache, legacyUsdConversionJoin, legacyReturnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, returnRate, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
@@ -12,8 +13,8 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // Reads from fact.Fact_Sales_Legacy/fact.Fact_Returns_Legacy (see
-// migrations/dwh/0034_legacy_2025_schema.sql), a fixed Jan 2025-Feb 2026
-// snapshot imported once from the pre-March-2026-cutover Profit Plus
+// migrations/dwh/0034_legacy_2025_schema.sql), a fixed calendar-2025
+// window of the snapshot imported once from the pre-March-2026-cutover Profit Plus
 // server — never fact.Fact_Sales/fact.Fact_Returns. No dateRange param:
 // the window is fixed and never grows. No entidad/tienda toggle: legacy
 // customers have no Dim_LegalEntity rollup (see the schema migration's
@@ -28,7 +29,7 @@ export const dynamic = 'force-dynamic';
 // conversion (it's an unreliable source: 1 is the ERP's "no conversion"
 // placeholder for BS-denominated documents, not a real rate) — conversion is
 // always via fact.Fact_ExchangeRate.RateSell for the row's own DateKey.
-const DATE_WINDOW = 'AND fsl.DateKey BETWEEN 20250101 AND 20260228';
+const DATE_WINDOW = HISTORICO_SALES_WINDOW;
 // Devoluciones follow the same rule as the rest of Analítica (0036/0037):
 // windowed by the ORIGINAL factura's date (OriginalInvoiceDateKey — never
 // NULL; unlinked lines fall back to the devolución's own date) and converted
@@ -36,7 +37,7 @@ const DATE_WINDOW = 'AND fsl.DateKey BETWEEN 20250101 AND 20260228';
 // netas = ventas brutas − devoluciones por fecha de factura. A devolución
 // issued in the window for a factura from before 2025 is therefore not part
 // of this tab (it restates a period the tab doesn't cover).
-const RETURNS_DATE_WINDOW = 'AND frl.OriginalInvoiceDateKey BETWEEN 20250101 AND 20260228';
+const RETURNS_DATE_WINDOW = HISTORICO_RETURNS_WINDOW;
 
 function monthlyQuery(): string {
   return `

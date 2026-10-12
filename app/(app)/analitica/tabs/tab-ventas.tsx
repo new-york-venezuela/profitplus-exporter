@@ -148,7 +148,7 @@ function ComparisonChart({
 
 // "Por línea" has no alternate grain (unlike cliente's Entidad/Tienda), but
 // GroupedDrilldownTable requires a groupBy/groupByOptions pair — fixed to a
-// single no-op option, same pattern as tab-vendedores.tsx.
+// single no-op option, same pattern the retired Vendedores tab used.
 const LINEA_GROUP_BY_OPTIONS: { value: PivotDimension; label: string }[] = [
   { value: 'producto', label: 'Línea' },
 ];

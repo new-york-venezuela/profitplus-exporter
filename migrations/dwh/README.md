@@ -120,3 +120,7 @@ timing should re-verify against real production volume first.
 Note: SQL Agent jobs for scheduling the incremental load and AR snapshot were removed (see git
 history, "Remove job agents") — loads are triggered externally (`bun run dwh:incremental-load`,
 `bun run dwh:snapshot-load`), not via `msdb` jobs.
+
+## Routes, visit frequency and registration (0040)
+
+`0040_route_frequency_registration.sql` drops `dim.Dim_CustomerMapping` / `dim.vw_Customer_Classified` (added by 0039, replaced by ERP data) and adds to `dim.Dim_Customer`: `RegisteredDate` (from `saCliente.fecha_reg`), `IsMigrationBatch` (registered on the 2026-03-28 cutover date), `VisitFrequency` (`SEMANAL`/`QUINCENAL`/`MENSUAL` from `saCliente.frecu_vist`, NULL when blank or unrecognised), `VisitIntervalDays` (persisted computed 7/15/30) and `ErpSegmentCode` (`co_seg`). `dwh.Load_Dim_Customer` is redefined (previous definition: 0031); `RegisteredDate`, `IsMigrationBatch` and `VisitFrequency` take part in SCD2 change detection. `dim.Dim_Zone` (route zones `CCSnnn` have `IsRoute = 1` and a `RouteNumber`) and `dim.Dim_Segment` are full-refresh mirrors of `saZona` / `saSegmento`, loaded by `dwh.Load_Dim_Zone` / `dwh.Load_Dim_Segment` before the customer load. Routes and frequency are written to the ERP by `bun run mapping:apply`.

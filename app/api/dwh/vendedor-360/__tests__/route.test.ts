@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { GET } from '../route';
 import { NextRequest } from 'next/server';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/vendedores/consignment';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { buildDateWhereClause, dualAmountExpr, usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
 
 describe('GET /api/dwh/vendedor-360', () => {
@@ -19,7 +19,7 @@ describe('GET /api/dwh/vendedor-360', () => {
     // 401, documenting that ordering explicitly rather than asserting 400
     // and being surprised later. A 400-path test would need a mocked session,
     // which this repo's dwh/* route tests don't currently set up (confirmed
-    // against vendedores/cxc/cadencia's own test files, all 401-only).
+    // against the other dwh/* route test files, all 401-only).
     const req = new NextRequest('http://localhost/api/dwh/vendedor-360?salesRepKey=abc');
     const res = await GET(req);
     expect(res.status).toBe(401);
