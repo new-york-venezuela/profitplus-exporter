@@ -3,6 +3,7 @@ import sql from 'mssql';
 import { runDwhMigrations, dwhDatabaseName } from '../../migrate-dwh';
 import { fetchSellerCoverage } from '../../../lib/dwh/seller-coverage';
 import { buildDateWhereClause } from '../../../app/api/dwh/lib/query-builder';
+import { coberturaCustomersQuery } from '../../../lib/clientes/cobertura-sql';
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_consolidation_${Date.now()}`;
 
@@ -111,5 +112,22 @@ describe('consolidation queries (disposable DWH)', () => {
     expect(beto.ownPenetration).toBeCloseTo(0.75, 6);         // (LE2|Pizza, LE2|Panaderia, LE3|Panaderia) / (2 x 2)
     expect(beto.baselinePenetration).toBeCloseTo((1 + 1 / 3) / 2, 6);
     expect(ana.gapVsBaseline).toBeLessThan(beto.gapVsBaseline!);
+  });
+
+  test('coberturaCustomersQuery: current rows only, route/group/frequency from the current row, period activity across SCD2 versions', async () => {
+    const where = buildDateWhereClause('custom:2026-10-01:2026-10-07', 'fs');
+    const result = await pool.request().query(coberturaCustomersQuery(false, where));
+    const by = new Map(result.recordset.map(r => [String(r.CustomerCode).trim(), r]));
+    // Migration 0035 itself seeds one consignment-store customer (J-301420608-24, current, never invoiced here);
+    // only the synthetic codes are asserted. C2's old version is not a row.
+    expect([...by.keys()].filter(k => k !== 'J-301420608-24').sort()).toEqual(['C1', 'C2', 'C3', 'C4', 'C5']);
+    expect(result.recordset).toHaveLength(6);
+    expect(by.get('C1')).toMatchObject({ RouteNumber: 3, GroupCode: 'S1', GroupName: 'Abasto', VisitIntervalDays: 7, InPeriod: 1 });
+    // I3 points at C2's OLD key (S2 / route 4): activity counts for C2, attributes come from the CURRENT row (S1 / route 3).
+    expect(by.get('C2')).toMatchObject({ RouteNumber: 3, GroupCode: 'S1', VisitIntervalDays: null, InPeriod: 1 });
+    // C3's invoices are 09-20 and 10-08: both outside 10-01..10-07, but the last sale is still found.
+    expect(by.get('C3')).toMatchObject({ InPeriod: 0, VisitIntervalDays: 30, LastDateKey: 20261008 });
+    expect(by.get('C4')).toMatchObject({ RouteNumber: null, GroupName: null, RegisteredDate: null, InPeriod: 1 });
+    expect(by.get('C5')).toMatchObject({ InPeriod: 0, LastDateKey: null });
   });
 });

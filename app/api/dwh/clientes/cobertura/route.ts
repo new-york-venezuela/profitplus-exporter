@@ -1,61 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { usdConversionJoin, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, jsonWithCache, rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
+import { COBERTURA_MONTHLY_QUERY, coberturaCustomersQuery } from '@/lib/clientes/cobertura-sql';
 import { buildXlsx } from '@/lib/xlsx';
 import {
   LAPSED_AFTER_DAYS, averageOverInvoicedMonths, classifyCoverage, compareDaysSince, filterCobertura,
   trailingWindowStartKey, type CoberturaStatus,
 } from '@/app/(app)/analitica/lib/cobertura';
+import { KIND_LABEL, enrichCartera, visitLabel } from '@/app/(app)/analitica/lib/cartera';
 import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
-
-// One row per CURRENT customer version. Sales are keyed by CustomerKey, which
-// may point at an older SCD2 version of the same code, so every sales
-// aggregate groups by RTRIM(CustomerCode) across all versions.
-function customersQuery(includeInactive: boolean): string {
-  return `
-    WITH Cur AS (
-      SELECT RTRIM(c.CustomerCode) AS Code, c.CustomerName, RTRIM(c.DefaultSalesRepCode) AS SellerCode, c.LegalEntityKey
-      FROM dim.Dim_Customer c
-      WHERE c.IsCurrent = 1 ${includeInactive ? '' : 'AND c.IsInactive = 0'}
-    ),
-    OwnSales AS (
-      SELECT RTRIM(c.CustomerCode) AS Code, MAX(fs.DateKey) AS LastDateKey
-      FROM fact.Fact_Sales fs
-      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-      WHERE fs.IsVoided = 0
-      GROUP BY RTRIM(c.CustomerCode)
-    ),
-    EntitySales AS (
-      SELECT c.LegalEntityKey, MAX(fs.DateKey) AS LastDateKey
-      FROM fact.Fact_Sales fs
-      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-      WHERE fs.IsVoided = 0 AND c.LegalEntityKey IS NOT NULL
-      GROUP BY c.LegalEntityKey
-    )
-    SELECT cur.Code AS CustomerCode, cur.CustomerName, le.LegalEntityName, cur.SellerCode,
-           r.SalesRepName AS SellerName, o.LastDateKey, e.LastDateKey AS EntityLastDateKey
-    FROM Cur cur
-    LEFT JOIN OwnSales o ON o.Code = cur.Code
-    LEFT JOIN EntitySales e ON e.LegalEntityKey = cur.LegalEntityKey
-    LEFT JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = cur.LegalEntityKey
-    LEFT JOIN dim.Dim_SalesRep r ON RTRIM(r.SalesRepCode) = cur.SellerCode
-  `;
-}
-
-const MONTHLY_QUERY = `
-  SELECT RTRIM(c.CustomerCode) AS Code, d.YearMonth,
-         SUM(fs.QuantitySold) AS Units,
-         SUM(fs.NetAmount / NULLIF(fx.RateSell, 0)) AS Usd
-  FROM fact.Fact_Sales fs
-  JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-  JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-  ${usdConversionJoin('fs')}
-  WHERE fs.IsVoided = 0 AND fs.DateKey >= @windowStartKey
-  GROUP BY RTRIM(c.CustomerCode), d.YearMonth
-`;
 
 function dateKeyOf(d: Date): number {
   return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
@@ -78,6 +34,8 @@ function formatKey(key: number | null): string {
   return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
+const isoOf = (v: unknown): string => new Date(v as string | Date).toISOString().slice(0, 10);
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -86,16 +44,21 @@ export async function GET(request: NextRequest) {
   const includeInactive = searchParams.get('includeInactive') === '1';
   const format = searchParams.get('format');
   const statusParam = searchParams.get('status');
+  const dateRange = searchParams.get('dateRange') ?? '12m';
+  const rutaParam = searchParams.get('ruta');
+  const visitParam = searchParams.get('visit');
 
   try {
     const pool = await getDwhPool();
     const now = new Date();
     const todayKey = dateKeyOf(now);
     const windowStartKey = trailingWindowStartKey(now);
+    const kindYear = Math.floor(rangeEndDateKey(dateRange, now) / 10000);
+    const periodWhere = buildDateWhereClause(dateRange, 'fs');
 
     const [customers, monthly] = await Promise.all([
-      pool.request().query(customersQuery(includeInactive)),
-      pool.request().input('windowStartKey', windowStartKey).query(MONTHLY_QUERY),
+      pool.request().query(coberturaCustomersQuery(includeInactive, periodWhere)),
+      pool.request().input('windowStartKey', windowStartKey).query(COBERTURA_MONTHLY_QUERY),
     ]);
 
     const monthsByCode = new Map<string, { units: number; usd: number | null }[]>();
@@ -106,10 +69,17 @@ export async function GET(request: NextRequest) {
     }
 
     const rows: CoberturaRowView[] = customers.recordset.map(r => {
-      const lastSaleDateKey = r.LastDateKey === null ? null : Number(r.LastDateKey);
-      const entityLastSaleDateKey = r.EntityLastDateKey === null ? null : Number(r.EntityLastDateKey);
+      const lastSaleDateKey = r.LastDateKey === null || r.LastDateKey === undefined ? null : Number(r.LastDateKey);
+      const entityLastSaleDateKey = r.EntityLastDateKey === null || r.EntityLastDateKey === undefined ? null : Number(r.EntityLastDateKey);
       const { status, daysSinceLastSale } = classifyCoverage(lastSaleDateKey, entityLastSaleDateKey, todayKey);
       const avg = averageOverInvoicedMonths(monthsByCode.get(r.CustomerCode) ?? []);
+      const { visit, kind } = enrichCartera({
+        lastSaleDateKey,
+        visitIntervalDays: r.VisitIntervalDays === null || r.VisitIntervalDays === undefined ? null : Number(r.VisitIntervalDays),
+        registeredDate: r.RegisteredDate ? isoOf(r.RegisteredDate) : null,
+        todayKey,
+        kindYear,
+      });
       return {
         customerCode: r.CustomerCode,
         customerName: (r.CustomerName ?? r.CustomerCode).trim(),
@@ -123,6 +93,12 @@ export async function GET(request: NextRequest) {
         avgMonthlyUnits: avg?.avgUnits ?? null,
         monthsWithSales: avg?.months ?? 0,
         status,
+        routeNumber: r.RouteNumber === null || r.RouteNumber === undefined ? null : Number(r.RouteNumber),
+        groupCode: r.GroupCode ? String(r.GroupCode).trim() : null,
+        groupName: r.GroupName ? String(r.GroupName).trim() : null,
+        kind,
+        visit,
+        activeInPeriod: Number(r.InPeriod) === 1,
       };
     });
     rows.sort((a, b) => compareDaysSince(a, b, 'asc'));
@@ -131,27 +107,41 @@ export async function GET(request: NextRequest) {
       const filtered = filterCobertura(rows, {
         sellerCode: searchParams.get('seller'),
         status: isStatus(statusParam) ? statusParam : null,
+        grupo: searchParams.get('grupo'),
+        ruta: rutaParam && /^\d{1,3}$/.test(rutaParam) ? Number(rutaParam) : null,
+        visit: visitParam === 'overdue' || visitParam === 'no_interval' ? visitParam : null,
+        inactiveInPeriod: searchParams.get('inactive') === '1',
       });
       const columns = [
         { key: 'cliente', label: 'Cliente', defaultVisible: true, defaultOrder: 0 },
         { key: 'codigo', label: 'Código', defaultVisible: true, defaultOrder: 1 },
         { key: 'entidad', label: 'Entidad', defaultVisible: true, defaultOrder: 2 },
         { key: 'vendedor', label: 'Vendedor', defaultVisible: true, defaultOrder: 3 },
-        { key: 'ultimaVenta', label: 'Última venta', defaultVisible: true, defaultOrder: 4 },
-        { key: 'dias', label: 'Días sin vender', defaultVisible: true, defaultOrder: 5, type: 'number' as const },
-        { key: 'usdMes', label: 'USD/mes (prom. 12m)', defaultVisible: true, defaultOrder: 6, type: 'number' as const },
-        { key: 'unidadesMes', label: 'Unidades/mes (prom. 12m)', defaultVisible: true, defaultOrder: 7, type: 'number' as const },
-        { key: 'estado', label: 'Estado', defaultVisible: true, defaultOrder: 8 },
+        { key: 'ruta', label: 'Ruta', defaultVisible: true, defaultOrder: 4 },
+        { key: 'grupo', label: 'Grupo', defaultVisible: true, defaultOrder: 5 },
+        { key: 'tipo', label: 'Tipo', defaultVisible: true, defaultOrder: 6 },
+        { key: 'ultimaVenta', label: 'Última venta', defaultVisible: true, defaultOrder: 7 },
+        { key: 'dias', label: 'Días sin vender', defaultVisible: true, defaultOrder: 8, type: 'number' as const },
+        { key: 'visita', label: 'Visita', defaultVisible: true, defaultOrder: 9 },
+        { key: 'periodo', label: 'Compró en el período', defaultVisible: true, defaultOrder: 10 },
+        { key: 'usdMes', label: 'USD/mes (prom. 12m)', defaultVisible: true, defaultOrder: 11, type: 'number' as const },
+        { key: 'unidadesMes', label: 'Unidades/mes (prom. 12m)', defaultVisible: true, defaultOrder: 12, type: 'number' as const },
+        { key: 'estado', label: 'Estado', defaultVisible: true, defaultOrder: 13 },
       ];
       const data = filtered.map(r => ({
         cliente: r.customerName,
         codigo: r.customerCode,
         entidad: r.entityName ?? 'Sin datos',
         vendedor: r.sellerName ?? 'Sin vendedor',
+        ruta: r.routeNumber === null ? 'Sin ruta' : `Ruta ${r.routeNumber}`,
+        grupo: r.groupName ?? 'Sin grupo',
+        tipo: r.kind === null ? 'Sin fecha de registro' : KIND_LABEL[r.kind],
         ultimaVenta: r.lastSaleDateKey === null
           ? (r.status === 'via_matriz' ? `Sin datos (matriz: ${formatKey(r.entityLastSaleDateKey)})` : 'Sin datos')
           : formatKey(r.lastSaleDateKey),
         dias: r.daysSinceLastSale ?? 'Sin datos',
+        visita: visitLabel(r.visit),
+        periodo: r.activeInPeriod ? 'Sí' : 'No',
         usdMes: r.avgMonthlyUsd === null ? 'Sin datos' : Math.round(r.avgMonthlyUsd * 100) / 100,
         unidadesMes: r.avgMonthlyUnits === null ? 'Sin datos' : Math.round(r.avgMonthlyUnits * 100) / 100,
         estado: STATUS_LABEL[r.status],
@@ -166,7 +156,7 @@ export async function GET(request: NextRequest) {
     }
 
     const response: CoberturaResponse = {
-      rows, asOfDateKey: todayKey, windowStartDateKey: windowStartKey, lapsedAfterDays: LAPSED_AFTER_DAYS,
+      rows, asOfDateKey: todayKey, windowStartDateKey: windowStartKey, lapsedAfterDays: LAPSED_AFTER_DAYS, kindYear,
     };
     return jsonWithCache(response);
   } catch {
