@@ -8,6 +8,7 @@ import type { Currency, DateRange } from './types';
 import { allowedGranularities, resolveGranularity } from './lib/granularity';
 import type { Granularity } from './lib/granularity';
 import TabResumen from './tabs/tab-resumen';
+import TabSeguimiento from './tabs/tab-seguimiento';
 import TabVentas from './tabs/tab-ventas';
 import TabDevoluciones from './tabs/tab-devoluciones';
 import TabCxc from './tabs/tab-cxc';
@@ -36,6 +37,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: 'resumen', label: 'Resumen', component: TabResumen },
+  { key: 'seguimiento', label: 'Seguimiento', component: TabSeguimiento },
   { key: 'ventas', label: 'Ventas', component: TabVentas },
   { key: 'devoluciones', label: 'Devoluciones', component: TabDevoluciones },
   { key: 'cxc', label: 'CXC y Cobranzas', component: TabCxc },

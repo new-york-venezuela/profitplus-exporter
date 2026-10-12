@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { moneyLabel } from '../lib/format';
-import { EMPTY_TARGET_ROW, QuotaEditor, type SellerTargetRow } from '../components/quota-editor';
+import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import type { Currency, DateRange, Seller360Response } from '../types';
 
 function pct(n: number | null): string {
@@ -118,23 +118,15 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
     return () => { cancelled = true; };
   }, [salesRepKey, periodMonth, reloadToken]);
 
-  // Always POSTs the full three-field row (see QuotaEditor's comment on why
-  // — the seller-targets route's upsert is delete-then-reinsert, so any
-  // field left out of the body is written back as null).
+  // saveSellerTargetField always POSTs the full three-field row (the
+  // seller-targets route's upsert is delete-then-reinsert, so any field left
+  // out of the body is written back as null).
   async function saveQuotaField(field: keyof SellerTargetRow, newValue: number): Promise<boolean> {
-    try {
-      const res = await fetch('/api/admin/seller-targets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salesRepKey, periodMonth, ...targetRow, [field]: newValue }),
-      });
-      if (!res.ok) return false;
-      setTargetRow(prev => ({ ...prev, [field]: newValue }));
-      setReloadToken(t => t + 1);
-      return true;
-    } catch {
-      return false;
-    }
+    const ok = await saveSellerTargetField({ salesRepKey, periodMonth, current: targetRow, field, value: newValue });
+    if (!ok) return false;
+    setTargetRow(prev => ({ ...prev, [field]: newValue }));
+    setReloadToken(t => t + 1);
+    return true;
   }
 
   useEffect(() => {
