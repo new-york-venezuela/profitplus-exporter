@@ -86,6 +86,9 @@ lib/
   customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
   dwh/cutover.ts           — MIGRATION_CUTOVER_DATE (2026-03-28), customerKindInYear(): patrimonio / nuevo derived from Dim_Customer.RegisteredDate, never stored
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
+  seguimiento/             — pure helpers for the Seguimiento tab: iso-date.ts, month-pace.ts (monthPace/projectToMonth/resolveReferenceMonth),
+                              iso-weeks.ts, visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas,
+                              quotaBarGeometry), category-mix.ts, aggregate.ts (buildSeguimiento), queries.ts (DWH SQL), targets-repo.ts (seller_targets)
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
   app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
@@ -120,6 +123,7 @@ content/help/pricing-*.md    — in-app help pages for the pricing tabs (segment
 
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
+    tabs/tab-seguimiento.tsx + components/seguimiento/ — Seguimiento tab
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
   pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
@@ -130,6 +134,7 @@ app/(app)/
 
 app/api/
   recetas/recipes/            — recipe CRUD + GET .../[id]/cost (live cost computation)
+  dwh/seguimiento/            — Seguimiento API (kind=vendedor|ruta|grupo, sections lines/excluded), gated on 'dwh'
 ```
 
 **No `middleware.ts`** — there is no Edge Runtime request guard in this
@@ -339,6 +344,18 @@ Gap section). Any future change to `computeProductCost`'s return shape or
 the "Sin datos means null, not $0" invariant must be reflected there too —
 the DWH pipeline reuses this exact function and depends on `null` staying
 `null` all the way through to `CostSourceFlag = 'NO_COST_DATA'`.
+
+## Seguimiento (Analítica tab)
+
+A monthly scorecard per seller, route or customer group (`GET /api/dwh/seguimiento`, `lib/seguimiento/`).
+The reference month is the month the selected date range ends in (`resolveReferenceMonth`; "30 días"/"12 meses"
+use the current month), measured up to today. Customers are attributed by the CURRENT `Dim_Customer` row
+(`IsCurrent = 1`) looked up by `CustomerCode`, so old invoices follow the customer; inactive customers are not
+assigned. A customer is active in a week when an assigned customer has an invoice in that ISO week. The month
+projection excludes weekends only (no holidays). Quotas come from `seller_targets`; for route/group roots they are
+summed per distinct seller and flagged `quotaShared` when a seller spans several roots. Consignment-root customer
+codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `VisitIntervalDays` NULL means the
+customer is never overdue ("Sin frecuencia").
 
 ## Auth Flow Summary
 
