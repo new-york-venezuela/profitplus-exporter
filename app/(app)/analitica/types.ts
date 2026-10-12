@@ -602,7 +602,7 @@ export interface CoberturaRowView {
   groupName: string | null;       // Dim_Segment.SegmentName
   kind: CustomerKind | null;      // patrimonio / nuevo in the range's year; null = no registration date
   visit: VisitCompliance;         // as of today
-  activeInPeriod: boolean;        // >= 1 non-voided invoice in the selected range
+  activeInPeriod: boolean | null; // >= 1 non-voided invoice in the selected range; null = registered after the range end (cartera.ts periodActivity)
 }
 
 export interface CoberturaResponse {

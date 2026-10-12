@@ -8,7 +8,7 @@ import {
   LAPSED_AFTER_DAYS, averageOverInvoicedMonths, classifyCoverage, compareDaysSince, filterCobertura,
   trailingWindowStartKey, type CoberturaStatus,
 } from '@/app/(app)/analitica/lib/cobertura';
-import { KIND_LABEL, enrichCartera, visitLabel } from '@/app/(app)/analitica/lib/cartera';
+import { KIND_LABEL, enrichCartera, periodActivity, visitLabel } from '@/app/(app)/analitica/lib/cartera';
 import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const todayKey = dateKeyOf(now);
     const windowStartKey = trailingWindowStartKey(now);
-    const kindYear = Math.floor(rangeEndDateKey(dateRange, now) / 10000);
+    const periodEndKey = rangeEndDateKey(dateRange, now);
+    const kindYear = Math.floor(periodEndKey / 10000);
     const periodWhere = buildDateWhereClause(dateRange, 'fs');
 
     const [customers, monthly] = await Promise.all([
@@ -73,10 +74,11 @@ export async function GET(request: NextRequest) {
       const entityLastSaleDateKey = r.EntityLastDateKey === null || r.EntityLastDateKey === undefined ? null : Number(r.EntityLastDateKey);
       const { status, daysSinceLastSale } = classifyCoverage(lastSaleDateKey, entityLastSaleDateKey, todayKey);
       const avg = averageOverInvoicedMonths(monthsByCode.get(r.CustomerCode) ?? []);
+      const registeredDate = r.RegisteredDate ? isoOf(r.RegisteredDate) : null;
       const { visit, kind } = enrichCartera({
         lastSaleDateKey,
         visitIntervalDays: r.VisitIntervalDays === null || r.VisitIntervalDays === undefined ? null : Number(r.VisitIntervalDays),
-        registeredDate: r.RegisteredDate ? isoOf(r.RegisteredDate) : null,
+        registeredDate,
         todayKey,
         kindYear,
       });
@@ -98,7 +100,7 @@ export async function GET(request: NextRequest) {
         groupName: r.GroupName ? String(r.GroupName).trim() : null,
         kind,
         visit,
-        activeInPeriod: Number(r.InPeriod) === 1,
+        activeInPeriod: periodActivity({ inPeriod: Number(r.InPeriod) === 1, registeredDate, periodEndKey }),
       };
     });
     rows.sort((a, b) => compareDaysSince(a, b, 'asc'));
@@ -141,7 +143,7 @@ export async function GET(request: NextRequest) {
           : formatKey(r.lastSaleDateKey),
         dias: r.daysSinceLastSale ?? 'Sin datos',
         visita: visitLabel(r.visit),
-        periodo: r.activeInPeriod ? 'Sí' : 'No',
+        periodo: r.activeInPeriod === null ? 'No aplica (registrado después)' : r.activeInPeriod ? 'Sí' : 'No',
         usdMes: r.avgMonthlyUsd === null ? 'Sin datos' : Math.round(r.avgMonthlyUsd * 100) / 100,
         unidadesMes: r.avgMonthlyUnits === null ? 'Sin datos' : Math.round(r.avgMonthlyUnits * 100) / 100,
         estado: STATUS_LABEL[r.status],

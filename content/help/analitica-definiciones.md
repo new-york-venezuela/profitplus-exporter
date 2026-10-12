@@ -44,7 +44,7 @@ La última venta y los promedios de la sección "Cobertura de clientes" no depen
 - **Orden por Días sin vender (ascendente):** primero los "Sin datos", luego los de más días sin vender, hasta los más recientes.
 - **Grupo y ruta:** salen de la ficha actual del cliente en Profit Plus (grupo = segmento del cliente; ruta = zona de ruta). Los filtros de arriba de la pestaña aplican a toda la pestaña; en Entidad, las devoluciones se atribuyen a la entidad completa.
 - **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada muestra "Sin frecuencia" y nunca figura como vencido. El cumplimiento es al día ÷ (al día + vencidas).
-- **Sin compras en el período:** clientes asignados (no inactivos) sin ninguna factura, sin anuladas, en el rango de fechas elegido.
+- **Sin compras en el período:** clientes asignados (no inactivos) sin ninguna factura, sin anuladas, en el rango de fechas elegido. Un cliente registrado después del fin del rango no cuenta (todavía no existía).
 - **Tipo:** *Patrimonio* = registrado antes del año del rango o en el lote migrado en la puesta en marcha (28/03/2026); *Nuevo* = registrado en el año del rango, fuera de ese lote. Sin fecha de registro se muestra "—".
 
 ## Ventas por cliente

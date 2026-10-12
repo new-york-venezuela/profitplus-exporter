@@ -55,6 +55,19 @@ describe('GET /api/dwh/clientes/cobertura', () => {
     expect(by.C3.visit.status).toBe('no_invoice');
   });
 
+  test('a customer registered after the range end is not "sin compras en el período" (activeInPeriod null)', async () => {
+    respond = text => (text.includes('PeriodSales') ? [
+      customerRow({ CustomerCode: 'OLD', InPeriod: 0, RegisteredDate: new Date('2026-10-31T00:00:00Z') }),
+      customerRow({ CustomerCode: 'LATE', InPeriod: 0, RegisteredDate: new Date('2026-11-02T00:00:00Z') }),
+      customerRow({ CustomerCode: 'NOREG', InPeriod: 0, RegisteredDate: null }),
+    ] : []);
+    const body = await (await get('dateRange=month:2026-10')).json();
+    const by = Object.fromEntries(body.rows.map((r: { customerCode: string }) => [r.customerCode, r]));
+    expect(by.OLD.activeInPeriod).toBe(false);
+    expect(by.LATE.activeInPeriod).toBeNull();
+    expect(by.NOREG.activeInPeriod).toBe(false);
+  });
+
   test('the period window is built from the validated range and the invalid range cannot inject SQL', async () => {
     await get('dateRange=month:2026-10');
     const customers = queries.find(q => q.sql.includes('PeriodSales'))!;

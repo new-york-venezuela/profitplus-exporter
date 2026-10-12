@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { KIND_LABEL, dateKeyToIso, enrichCartera, summarizeCartera, visitLabel } from '../cartera';
+import { KIND_LABEL, dateKeyToIso, enrichCartera, periodActivity, summarizeCartera, visitLabel } from '../cartera';
 
 const base = { visitIntervalDays: 7, registeredDate: '2025-01-10', todayKey: 20261014, kindYear: 2026 };
 
@@ -43,7 +43,7 @@ describe('visitLabel / KIND_LABEL', () => {
 });
 
 describe('summarizeCartera', () => {
-  const row = (lastSaleDateKey: number | null, visitIntervalDays: number | null, kind: 'nuevo' | 'patrimonio' | null, activeInPeriod: boolean) =>
+  const row = (lastSaleDateKey: number | null, visitIntervalDays: number | null, kind: 'nuevo' | 'patrimonio' | null, activeInPeriod: boolean | null) =>
     ({ visit: enrichCartera({ ...base, lastSaleDateKey, visitIntervalDays }).visit, kind, activeInPeriod });
   test('counts compliance, inactive in period and kinds', () => {
     const s = summarizeCartera([
@@ -62,7 +62,27 @@ describe('summarizeCartera', () => {
     expect(s.compliance.overdue).toBe(0);
     expect(s.compliance.complianceRate).toBeNull();
   });
+  test('a customer registered after the period (activeInPeriod null) is not counted as inactive in the period', () => {
+    expect(summarizeCartera([row(null, 7, 'nuevo', null), row(null, 7, 'patrimonio', false)]).inactiveInPeriod).toBe(1);
+  });
   test('empty list', () => {
     expect(summarizeCartera([])).toMatchObject({ inactiveInPeriod: 0, nuevos: 0, patrimonio: 0 });
+  });
+});
+
+describe('periodActivity', () => {
+  test('bought in the period is true regardless of registration', () => {
+    expect(periodActivity({ inPeriod: true, registeredDate: '2026-11-05', periodEndKey: 20261031 })).toBe(true);
+  });
+  test('no purchase and registered on or before the period end is false (inactive in the period)', () => {
+    expect(periodActivity({ inPeriod: false, registeredDate: '2026-10-31', periodEndKey: 20261031 })).toBe(false);
+    expect(periodActivity({ inPeriod: false, registeredDate: '2020-01-01', periodEndKey: 20261031 })).toBe(false);
+  });
+  test('no purchase but registered after the period end is null (not applicable)', () => {
+    expect(periodActivity({ inPeriod: false, registeredDate: '2026-11-01', periodEndKey: 20261031 })).toBeNull();
+  });
+  test('a missing or malformed registration date keeps the customer in (false)', () => {
+    expect(periodActivity({ inPeriod: false, registeredDate: null, periodEndKey: 20261031 })).toBe(false);
+    expect(periodActivity({ inPeriod: false, registeredDate: '01/11/2026', periodEndKey: 20261031 })).toBe(false);
   });
 });

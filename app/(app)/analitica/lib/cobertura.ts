@@ -81,7 +81,7 @@ interface FilterableRow {
   groupCode?: string | null;
   routeNumber?: number | null;
   visit?: { status: string };
-  activeInPeriod?: boolean;
+  activeInPeriod?: boolean | null;   // null = registered after the range end: never "inactive in the period"
 }
 
 export interface CoberturaFilter {

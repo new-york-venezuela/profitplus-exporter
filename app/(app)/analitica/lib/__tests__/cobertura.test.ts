@@ -116,6 +116,9 @@ describe('filterCobertura: grupo / ruta / visit / inactive in period', () => {
     expect(ids(filterCobertura(rows, { visit: 'no_interval' }))).toEqual([3]);
     expect(ids(filterCobertura(rows, { inactiveInPeriod: true }))).toEqual([3]);
   });
+  test('a row registered after the period (activeInPeriod null) is not inactive in the period', () => {
+    expect(ids(filterCobertura([...rows, r({ id: 4, activeInPeriod: null })], { inactiveInPeriod: true }))).toEqual([3]);
+  });
   test('no filters keeps everything; old-shape rows (no new fields) still filter by seller', () => {
     expect(filterCobertura(rows, {})).toHaveLength(3);
     expect(filterCobertura([{ sellerCode: 'V9', status: 'never' as const }], { sellerCode: 'V9' })).toHaveLength(1);

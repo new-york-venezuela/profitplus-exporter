@@ -30,6 +30,16 @@ export function enrichCartera(input: {
   return { visit, kind };
 }
 
+// Period activity of a customer: true = bought in the selected range; false = registered by the range end
+// (or no/malformed registration date) and did not buy, i.e. "Sin compras en el período"; null = registered
+// after the range end, so it cannot be inactive in a period in which it did not exist yet.
+export function periodActivity(input: { inPeriod: boolean; registeredDate: string | null; periodEndKey: number }): boolean | null {
+  if (input.inPeriod) return true;
+  if (input.registeredDate && ISO.test(input.registeredDate)
+      && Number(input.registeredDate.replace(/-/g, '')) > input.periodEndKey) return null;
+  return false;
+}
+
 export const KIND_LABEL: Record<CustomerKind, string> = {
   patrimonio: 'Patrimonio',
   nuevo: 'Nuevo',
@@ -53,11 +63,11 @@ export interface CarteraSummary {
 }
 
 export function summarizeCartera(
-  rows: readonly { visit: VisitCompliance; kind: CustomerKind | null; activeInPeriod: boolean }[],
+  rows: readonly { visit: VisitCompliance; kind: CustomerKind | null; activeInPeriod: boolean | null }[],
 ): CarteraSummary {
   return {
     compliance: summarizeCompliance(rows.map(r => r.visit)),
-    inactiveInPeriod: rows.filter(r => !r.activeInPeriod).length,
+    inactiveInPeriod: rows.filter(r => r.activeInPeriod === false).length,
     nuevos: rows.filter(r => r.kind === 'nuevo').length,
     patrimonio: rows.filter(r => r.kind === 'patrimonio').length,
   };

@@ -251,7 +251,7 @@ export default function CoberturaClientes({
             value={String(cartera.inactiveInPeriod)}
             tone={cartera.inactiveInPeriod > 0 ? 'warn' : 'default'}
             subtitle={`de ${cartera.compliance.total} clientes asignados`}
-            title="Clientes asignados sin ninguna factura (sin anuladas) en el rango de fechas elegido."
+            title="Clientes asignados sin ninguna factura (sin anuladas) en el rango de fechas elegido. No cuenta a los registrados después del fin del rango."
           />
           <KpiCard
             label="Clientes nuevos"
