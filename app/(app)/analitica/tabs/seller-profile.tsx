@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { moneyLabel } from '../lib/format';
+import { EMPTY_TARGET_ROW, QuotaEditor, type SellerTargetRow } from '../components/quota-editor';
 import type { Currency, DateRange, Seller360Response } from '../types';
 
 function pct(n: number | null): string {
@@ -34,94 +35,6 @@ function resolveLatestPeriodMonth(dateRange: DateRange): string {
   // '12m' (and any other/legacy value) defaults to a trailing-365-day
   // window ending today, same as resolveDateBounds's own fallback.
   return new Date().toISOString().slice(0, 7);
-}
-
-interface SellerTargetRow {
-  salesQuotaUsd: number | null;
-  weeklyVisitQuota: number | null;
-  newCustomerQuota: number | null;
-}
-
-const EMPTY_TARGET_ROW: SellerTargetRow = { salesQuotaUsd: null, weeklyVisitQuota: null, newCustomerQuota: null };
-
-// Inline click-to-edit quota affordance, same pattern as tab-cadencia.tsx's
-// targetGapDays editor: a value/"Definir" link swaps to a number input +
-// "Guardar" button, then calls onSave (SellerProfile's saveQuotaField),
-// which persists the change and triggers a profile refetch so the new quota
-// is reflected immediately.
-//
-// `currentValue` (sourced from the seller_targets row for the profile's
-// latest-in-range
-// periodMonth, fetched once by SellerProfile and shared by all three
-// editors below) is the pre-fill/display source for this editor's OWN
-// field — NOT the parent Seller360Response's `quotaUsd`/`quota` props,
-// which are a SUM across every month in the selected range (see
-// quota-resolution.ts's resolveQuotaSum) and only equal one month's row
-// when the range is itself a single month. This also matters for SAVING:
-// POST /api/admin/seller-targets is a delete-then-reinsert upsert (see
-// app/api/admin/seller-targets/route.ts) — any quota field omitted from the
-// POST body is written back as null, so saving just this one field without
-// the other two current values would silently wipe them. onSave (passed by
-// SellerProfile) always sends the full three-field row, only overriding the
-// one field this editor owns.
-function QuotaEditor({
-  currentValue, field, suffix = '', onSave,
-}: {
-  currentValue: number | null;
-  field: keyof SellerTargetRow;
-  suffix?: string;
-  onSave: (field: keyof SellerTargetRow, newValue: number) => Promise<boolean>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  async function save() {
-    const parsed = Number(inputValue);
-    if (!Number.isFinite(parsed) || parsed < 0) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const ok = await onSave(field, parsed);
-      if (ok) setEditing(false);
-      else setSaveError('No se pudo guardar la meta');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (editing) {
-    return (
-      <span className="inline-flex items-center gap-1 print:hidden">
-        <input
-          type="number"
-          min={0}
-          step="any"
-          autoFocus
-          value={inputValue}
-          onChange={e => setInputValue(e.target.value)}
-          className="border border-gray-200 rounded px-1 py-0.5 w-20 text-right text-xs"
-        />
-        <button disabled={saving} onClick={save} className="text-blue-600 hover:text-blue-800 text-xs">
-          Guardar
-        </button>
-        <button disabled={saving} onClick={() => { setEditing(false); setSaveError(null); }} className="text-gray-400 hover:text-gray-600 text-xs">
-          Cancelar
-        </button>
-        {saveError && <span className="text-red-600 text-xs">{saveError}</span>}
-      </span>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => { setEditing(true); setInputValue(currentValue === null ? '' : String(currentValue)); }}
-      className="text-xs text-blue-600 hover:underline print:hidden"
-    >
-      {currentValue === null ? `Definir meta${suffix ? ` (${suffix})` : ''}` : `Editar meta (${currentValue}${suffix})`}
-    </button>
-  );
 }
 
 function attainmentBadgeClass(actual: number, quota: number | null): string {
@@ -158,11 +71,12 @@ function KpiCard({ label, actual, actualLabel, quota, quotaSuffix = '' }: {
   );
 }
 
-export default function SellerProfile({ salesRepKey, dateRange, currency, onBack }: {
+export default function SellerProfile({ salesRepKey, dateRange, currency, onBack, backLabel = 'Volver a Vendedores' }: {
   salesRepKey: string;
   dateRange: DateRange;
   currency: Currency;
   onBack: () => void;
+  backLabel?: string;
 }) {
   const [data, setData] = useState<Seller360Response | null>(null);
   const [loading, setLoading] = useState(true);
@@ -258,7 +172,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
   if (error) {
     return (
       <div className="p-6">
-        <button onClick={onBack} className="text-sm text-blue-600 hover:underline mb-4 print:hidden">← Volver a Vendedores</button>
+        <button onClick={onBack} className="text-sm text-blue-600 hover:underline mb-4 print:hidden">{`← ${backLabel}`}</button>
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
       </div>
     );
@@ -268,7 +182,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
   return (
     <div className="p-6 max-w-5xl space-y-4">
       <div className="flex items-center justify-between print:hidden">
-        <button onClick={onBack} className="text-sm text-blue-600 hover:underline">← Volver a Vendedores</button>
+        <button onClick={onBack} className="text-sm text-blue-600 hover:underline">{`← ${backLabel}`}</button>
         <button
           onClick={() => window.print()}
           className="text-sm bg-gray-800 text-white px-3 py-1.5 rounded hover:bg-gray-700"
@@ -346,7 +260,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         />
       </div>
       <p className="text-xs text-gray-500 -mt-2">
-        Ventas brutas sin IVA (antes de devoluciones), excluida la facturación de consignación — igual que la pestaña Vendedores.
+        Ventas brutas sin IVA (antes de devoluciones), excluida la facturación de consignación — igual que la pestaña Seguimiento.
       </p>
       {data.cuota.isPartial && (
         <p className="text-xs text-amber-700">Meta parcial: falta la meta de algún mes del rango seleccionado.</p>
