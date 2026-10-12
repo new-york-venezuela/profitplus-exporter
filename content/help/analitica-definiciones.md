@@ -22,7 +22,7 @@ Saldo total pendiente de cobro (todas las facturas con saldo, sin notas de créd
 
 ## Cobertura de clientes
 
-La sección "Cobertura de clientes" de la pestaña Clientes **no depende del período seleccionado**, para no perder datos por un filtro de fechas.
+La última venta y los promedios de la sección "Cobertura de clientes" no dependen del período seleccionado; solo "Sin compras en el período" y "Clientes nuevos" usan el rango de fechas.
 
 - **Última venta:** la fecha de la última factura (sin anuladas) en todo el histórico. "Sin datos" significa que no existe ninguna factura para ese cliente.
 - **USD/mes y Unidades/mes:** promedio de los últimos 12 meses calendario (el mes en curso incluido), calculado **solo sobre los meses en que el cliente tuvo facturas**. Un cliente que compró en enero, marzo y abril se promedia entre 3. Ventas brutas, sin IVA, en USD a la tasa de cada factura.
@@ -31,6 +31,10 @@ La sección "Cobertura de clientes" de la pestaña Clientes **no depende del per
 - **Versiones del cliente:** se muestra solo la versión vigente (nombre y vendedor actuales); las ventas se suman sobre todas las versiones del mismo código.
 - Los clientes inactivos se excluyen salvo que se marque "Incluir inactivos".
 - **Orden por Días sin vender (ascendente):** primero los "Sin datos", luego los de más días sin vender, hasta los más recientes.
+- **Grupo y ruta:** salen de la ficha actual del cliente en Profit Plus (grupo = segmento del cliente; ruta = zona de ruta). Los filtros de arriba de la pestaña aplican a toda la pestaña; en Entidad, las devoluciones se atribuyen a la entidad completa.
+- **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada muestra "Sin frecuencia" y nunca figura como vencido. El cumplimiento es al día ÷ (al día + vencidas).
+- **Sin compras en el período:** clientes asignados (no inactivos) sin ninguna factura, sin anuladas, en el rango de fechas elegido.
+- **Tipo:** *Patrimonio* = registrado antes del año del rango o en el lote migrado en la puesta en marcha (28/03/2026); *Nuevo* = registrado en el año del rango, fuera de ese lote. Sin fecha de registro se muestra "—".
 
 ## Ventas por cliente
 

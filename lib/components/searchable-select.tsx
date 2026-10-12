@@ -65,6 +65,9 @@ export default function SearchableSelect({
         role="textbox"
         value={open ? query : selectedLabel}
         onFocus={() => { setOpen(true); setQuery(''); }}
+        // After picking an option the input keeps focus (the option buttons prevent the mousedown blur), so a
+        // second click would not fire onFocus again -- reopen on click too.
+        onClick={() => { if (!open) { setOpen(true); setQuery(''); } }}
         onChange={e => setQuery(e.target.value)}
         placeholder={placeholder}
         aria-label={ariaLabel}

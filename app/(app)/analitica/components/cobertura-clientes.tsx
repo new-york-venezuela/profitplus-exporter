@@ -5,12 +5,14 @@ import posthog from 'posthog-js';
 import SearchableSelect from '@/lib/components/searchable-select';
 import { KpiCard } from './kpi-card';
 import { KpiGroup } from './kpi-group';
-import type { CoberturaResponse, CoberturaRowView, CoberturaStatus } from '../types';
+import { VisitBadge } from './seguimiento/visuals';
+import type { CoberturaResponse, CoberturaRowView, CoberturaStatus, DateRange } from '../types';
+import { KIND_LABEL, summarizeCartera } from '../lib/cartera';
 import {
   NO_SELLER, compareDaysSince, coberturaExportQuery, filterCobertura, groupBySeller, summarizeCobertura,
 } from '../lib/cobertura';
 
-type SortKey = 'days' | 'customer' | 'seller' | 'usd' | 'units';
+type SortKey = 'days' | 'customer' | 'seller' | 'usd' | 'units' | 'visit';
 type SortDir = 'asc' | 'desc';
 
 const NO_DATA = 'Sin datos';
@@ -75,13 +77,17 @@ const STATUS_FILTER_OPTIONS: { value: '' | CoberturaStatus; label: string }[] = 
   { value: 'active', label: STATUS_LABEL.active },
 ];
 
-export default function CoberturaClientes() {
+export default function CoberturaClientes({
+  dateRange = '12m', grupo = null, ruta = null,
+}: { dateRange?: DateRange; grupo?: string | null; ruta?: number | null } = {}) {
   const [data, setData] = useState<CoberturaResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [includeInactive, setIncludeInactive] = useState<boolean>(false);
   const [sellerFilter, setSellerFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<CoberturaStatus | null>(null);
+  const [visitFilter, setVisitFilter] = useState<'overdue' | 'no_interval' | null>(null);
+  const [inactiveOnly, setInactiveOnly] = useState<boolean>(false);
   const [sortKey, setSortKey] = useState<SortKey>('days');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -91,7 +97,7 @@ export default function CoberturaClientes() {
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/clientes/cobertura?includeInactive=${includeInactive ? 1 : 0}`);
+        const res = await fetch(`/api/dwh/clientes/cobertura?includeInactive=${includeInactive ? 1 : 0}&dateRange=${encodeURIComponent(dateRange)}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -111,9 +117,10 @@ export default function CoberturaClientes() {
     return () => {
       cancelled = true;
     };
-  }, [includeInactive]);
+  }, [includeInactive, dateRange]);
 
-  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const allRows = useMemo(() => data?.rows ?? [], [data]);
+  const rows = useMemo(() => filterCobertura(allRows, { grupo, ruta }), [allRows, grupo, ruta]);
 
   const sellerOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -130,9 +137,10 @@ export default function CoberturaClientes() {
   }, [rows]);
 
   const summary = useMemo(() => summarizeCobertura(rows), [rows]);
+  const cartera = useMemo(() => summarizeCartera(rows), [rows]);
 
   const sorted = useMemo(() => {
-    const filtered = filterCobertura(rows, { sellerCode: sellerFilter, status: statusFilter });
+    const filtered = filterCobertura(rows, { sellerCode: sellerFilter, status: statusFilter, visit: visitFilter, inactiveInPeriod: inactiveOnly });
     const out = [...filtered];
     out.sort((a, b) => {
       switch (sortKey) {
@@ -146,10 +154,12 @@ export default function CoberturaClientes() {
           return compareNullLast(a.avgMonthlyUsd, b.avgMonthlyUsd, sortDir);
         case 'units':
           return compareNullLast(a.avgMonthlyUnits, b.avgMonthlyUnits, sortDir);
+        case 'visit':
+          return compareNullLast(a.visit.daysOverdue, b.visit.daysOverdue, sortDir);
       }
     });
     return out;
-  }, [rows, sellerFilter, statusFilter, sortKey, sortDir]);
+  }, [rows, sellerFilter, statusFilter, visitFilter, inactiveOnly, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -161,7 +171,7 @@ export default function CoberturaClientes() {
 
   function handleExport() {
     posthog.capture('cobertura_export', { seller: sellerFilter, status: statusFilter, rows: sorted.length });
-    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter })}`;
+    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter, dateRange, grupo, ruta, visit: visitFilter, inactiveInPeriod: inactiveOnly })}`;
   }
 
   function handlePrint() {
@@ -197,8 +207,9 @@ export default function CoberturaClientes() {
           <div>
             <h2 className="text-lg font-bold text-gray-900">Cobertura de clientes</h2>
             <p className="text-xs text-gray-500 max-w-2xl">
-              No depende del período seleccionado: la última venta mira todo el histórico; los promedios son de los
-              últimos 12 meses, sobre los meses en que el cliente tuvo facturas. &quot;{NO_DATA}&quot; = no hay facturas.
+              La última venta mira todo el histórico; los promedios son de los últimos 12 meses, sobre los meses en
+              que el cliente tuvo facturas. Solo &quot;Sin compras en el período&quot; y &quot;Clientes nuevos&quot; usan el
+              rango de fechas. &quot;{NO_DATA}&quot; = no hay facturas.
             </p>
           </div>
           <div className="flex gap-2">
@@ -216,6 +227,36 @@ export default function CoberturaClientes() {
           <KpiCard label="Vende vía matriz" value={String(summary.viaMatriz)} title="Sin facturas propias, pero otra tienda de su misma entidad sí tiene ventas." />
           <KpiCard label="Sin ventas 30+ días" value={String(summary.lapsed)} />
           <KpiCard label="Activos" value={String(summary.active)} subtitle={`de ${summary.total} clientes`} />
+        </KpiGroup>
+
+        <KpiGroup title="Visitas y período" tone="customers" columns={4}>
+          <KpiCard
+            label="Visitas vencidas"
+            value={String(cartera.compliance.overdue)}
+            tone={cartera.compliance.overdue > 0 ? 'warn' : 'default'}
+            subtitle={`${cartera.compliance.noInterval} sin frecuencia`}
+            title="Clientes con más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada nunca figura como vencido."
+          />
+          <KpiCard
+            label="Cumplimiento de visitas"
+            value={cartera.compliance.complianceRate === null ? '—' : `${Math.round(cartera.compliance.complianceRate * 100)}%`}
+            subtitle={cartera.compliance.complianceRate === null
+              ? 'Sin frecuencia asignada'
+              : `${cartera.compliance.ok} al día de ${cartera.compliance.ok + cartera.compliance.overdue}`}
+          />
+          <KpiCard
+            label="Sin compras en el período"
+            value={String(cartera.inactiveInPeriod)}
+            tone={cartera.inactiveInPeriod > 0 ? 'warn' : 'default'}
+            subtitle={`de ${cartera.compliance.total} clientes asignados`}
+            title="Clientes asignados sin ninguna factura (sin anuladas) en el rango de fechas elegido."
+          />
+          <KpiCard
+            label="Clientes nuevos"
+            value={String(cartera.nuevos)}
+            subtitle={`${cartera.patrimonio} patrimonio`}
+            title="Nuevo: registrado en el año del rango, sin contar el lote migrado en la puesta en marcha. Patrimonio: registrado antes del año o en ese lote."
+          />
         </KpiGroup>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -239,6 +280,20 @@ export default function CoberturaClientes() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          <select
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+            value={visitFilter ?? ''}
+            onChange={e => setVisitFilter((e.target.value || null) as 'overdue' | 'no_interval' | null)}
+            aria-label="Filtrar por visita"
+          >
+            <option value="">Todas las visitas</option>
+            <option value="overdue">Visita vencida</option>
+            <option value="no_interval">Sin frecuencia</option>
+          </select>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={inactiveOnly} onChange={e => setInactiveOnly(e.target.checked)} />
+            Sin compras en el período
+          </label>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={includeInactive} onChange={e => setIncludeInactive(e.target.checked)} />
             Incluir inactivos
@@ -258,11 +313,15 @@ export default function CoberturaClientes() {
                   {sortHeader('customer', 'Cliente')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Entidad</th>
                   {sortHeader('seller', 'Vendedor')}
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Ruta</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Grupo</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Tipo</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Última venta</th>
                   {sortHeader('days', 'Días sin vender', 'right')}
                   {sortHeader('usd', 'USD/mes', 'right')}
                   {sortHeader('units', 'Unidades/mes', 'right')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Estado</th>
+                  {sortHeader('visit', 'Visita')}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -274,6 +333,9 @@ export default function CoberturaClientes() {
                     </td>
                     <td className="px-3 py-2 text-gray-600">{r.entityName ?? NO_DATA}</td>
                     <td className="px-3 py-2 text-gray-600">{r.sellerName ?? 'Sin vendedor'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.routeNumber === null ? 'Sin ruta' : `Ruta ${r.routeNumber}`}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.groupName ?? 'Sin grupo'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.kind === null ? '—' : KIND_LABEL[r.kind]}</td>
                     <td className="px-3 py-2 text-gray-600">{lastSaleCell(r)}</td>
                     <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{r.daysSinceLastSale ?? NO_DATA}</td>
                     <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{usd(r.avgMonthlyUsd)}</td>
@@ -283,6 +345,7 @@ export default function CoberturaClientes() {
                         {STATUS_LABEL[r.status]}
                       </span>
                     </td>
+                    <td className="px-3 py-2"><VisitBadge visit={r.visit} /></td>
                   </tr>
                 ))}
               </tbody>
