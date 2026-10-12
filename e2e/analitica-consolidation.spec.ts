@@ -170,6 +170,29 @@ test.describe('retired tabs (mocked API)', () => {
     await expectFallsBackToResumen(adminPage, 'cadencia', 'Cadencia');
   });
 
+  test('the retired API endpoints return 404, even for an admin', async ({ adminPage }) => {
+    for (const path of ['/api/dwh/vendedores', '/api/dwh/profundidad-linea', '/api/dwh/matriz-vendedor', '/api/dwh/cadencia', '/api/cadencia-targets']) {
+      const res = await adminPage.request.get(path);
+      expect(res.status(), path).toBe(404);
+    }
+  });
+
+  test('"Mes Anterior" reaches the tabs as month:YYYY-MM (what resolveReferenceMonth reads)', async ({ adminPage }) => {
+    const ranges: string[] = [];
+    await adminPage.route(/\/api\/dwh\//, route => {
+      const r = new URL(route.request().url()).searchParams.get('dateRange');
+      if (r) ranges.push(r);
+      return route.fulfill({ status: 500, json: DWH_ERROR });
+    });
+    await adminPage.goto('/analitica');
+    await adminPage.getByRole('button', { name: 'Mes Anterior', exact: true }).click();
+    const now = new Date();
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const expected = `month:${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    await expect.poll(() => ranges.includes(expected), { timeout: 15_000 }).toBe(true);
+    expect(ranges).not.toContain('month-prev');
+  });
+
   test('the tab bar lists exactly the consolidated tabs, in order', async ({ adminPage }) => {
     await failAllDwh(adminPage);
     await adminPage.goto('/analitica');

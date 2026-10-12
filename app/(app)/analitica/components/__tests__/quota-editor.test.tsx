@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 describe('QuotaEditor', () => {
   test('shows "Definir meta" when empty, edits inline and saves the typed number', async () => {
-    const onSave = mock(async (_f: string, _v: number) => true);
+    const onSave = mock(async () => true);
     render(<QuotaEditor currentValue={null} field="salesQuotaUsd" suffix="USD" onSave={onSave} />);
     await userEvent.click(screen.getByRole('button', { name: 'Definir meta (USD)' }));
     await userEvent.type(screen.getByRole('spinbutton'), '1500');
@@ -30,7 +30,7 @@ describe('QuotaEditor', () => {
     expect(screen.getByRole('spinbutton')).toBeTruthy();
   });
   test('a negative value is never saved', async () => {
-    const onSave = mock(async (_f: string, _v: number) => true);
+    const onSave = mock(async () => true);
     render(<QuotaEditor currentValue={null} field="salesQuotaUsd" onSave={onSave} />);
     await userEvent.click(screen.getByRole('button', { name: 'Definir meta' }));
     await userEvent.type(screen.getByRole('spinbutton'), '-5');

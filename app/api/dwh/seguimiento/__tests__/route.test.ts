@@ -10,11 +10,11 @@ const memoryDb = makeMemoryDb();
 const access = mock(async (): Promise<{ ok: true; session: { sub: string; role: 'admin' } } | { ok: false; response: NextResponse }> =>
   ({ ok: true, session: { sub: '7', role: 'admin' } }));
 const capture = mock((_id: string, _event: string, _props?: unknown) => {});
-const captureEx = mock((_e: unknown, _id: string) => {});
-const fetchCustomers = mock(async (_p: unknown, _asOf: string) => FIXTURE_CUSTOMERS);
-const fetchLineSales = mock(async (_p: unknown, _m: string) => FIXTURE_LINE_SALES);
-const fetchWeekActivity = mock(async (_p: unknown, _f: string, _t: string) => FIXTURE_WEEK_ACTIVITY);
-const fetchCustomerInvoiceLines = mock(async (_p: unknown, _c: string, _m: string) => FIXTURE_INVOICE_LINES);
+const captureEx = mock(() => {});
+const fetchCustomers = mock(async () => FIXTURE_CUSTOMERS);
+const fetchLineSales = mock(async () => FIXTURE_LINE_SALES);
+const fetchWeekActivity = mock(async () => FIXTURE_WEEK_ACTIVITY);
+const fetchCustomerInvoiceLines = mock(async () => FIXTURE_INVOICE_LINES);
 const fetchExcludedInvoices = mock(async (_p: unknown, _m: string, codes: string[]) =>
   codes.length ? [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber: 'F9', invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }] : []);
 const flagged = mock(async (_w: string, _t: number) => FIXTURE_CONSIGNMENT_ROOTS);
