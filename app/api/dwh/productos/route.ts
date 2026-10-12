@@ -4,10 +4,14 @@ import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import { buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
+import { classifyTier, DEFAULT_TIER_THRESHOLDS } from '@/lib/dwh/depth-tier';
+import { buildGroupShareMatrix } from '@/lib/productos/group-share';
+import { fetchCategorias, fetchGroupShare, parseCategoria } from '@/lib/productos/queries';
 import type {
   ProductosResponse, ProductosRow, GroupBy,
   ProfundidadLineaResponse, ProfundidadLineaRow,
   UnitsByLineaResponse, UnitsByLineaMonthRow,
+  ProductosGroupShareResponse, ProductosCategoriasResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -198,17 +202,26 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: 
   `;
 }
 
-async function handleProfundidad(dateWhere: string, returnsDateWhere: string, tiendaWhere: string, tiendaKey: number | null): Promise<NextResponse> {
+function bindFilters(req: { input(name: string, value: unknown): unknown }, tiendaKey: number | null, categoria: string | null): void {
+  if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
+  if (categoria !== null) req.input('categoria', categoria);
+}
+
+async function handleProfundidad(
+  dateWhere: string, returnsDateWhere: string, salesFilterWhere: string, tiendaOnlyWhere: string,
+  tiendaKey: number | null, categoria: string | null,
+): Promise<NextResponse> {
   const pool = await getDwhPool();
   const returnsTiendaWhere = tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : '';
 
   const rowsReq = pool.request();
-  if (tiendaKey !== null) rowsReq.input('tiendaKey', tiendaKey);
-  const rowsResult = await rowsReq.query(profundidadLineaQuery(dateWhere, returnsDateWhere, tiendaWhere, returnsTiendaWhere));
+  bindFilters(rowsReq, tiendaKey, categoria);
+  const rowsResult = await rowsReq.query(profundidadLineaQuery(dateWhere, returnsDateWhere, salesFilterWhere, returnsTiendaWhere));
 
+  // Denominator: all clients/stores active in range (category NOT applied).
   const totalsReq = pool.request();
-  if (tiendaKey !== null) totalsReq.input('tiendaKey', tiendaKey);
-  const totalsResult = await totalsReq.query(activeTotalsQuery(dateWhere, tiendaWhere));
+  bindFilters(totalsReq, tiendaKey, null);
+  const totalsResult = await totalsReq.query(activeTotalsQuery(dateWhere, tiendaOnlyWhere));
   const totalClients = Number(totalsResult.recordset[0]?.TotalClients ?? 0);
   const totalStores = Number(totalsResult.recordset[0]?.TotalStores ?? 0);
 
@@ -220,11 +233,12 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
     const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
     const quantitySold = Number(r.QuantitySold);
     const returnsNetBs = Number(r.ReturnsNetBs);
+    const clientShare = totalClients > 0 ? clientCount / totalClients : null;
 
     return {
       sku: String(r.Sku),
       clientCount,
-      clientShare: totalClients > 0 ? clientCount / totalClients : null,
+      clientShare,
       storeCount,
       storeShare: totalStores > 0 ? storeCount / totalStores : null,
       avgMonthlyPrice: quantitySold > 0
@@ -232,6 +246,7 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
         : { bs: 0, usd: 0 },
       avgMonthlyUnits: quantitySold / monthCount,
       returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
+      tier: classifyTier(clientShare, salesGrossBs > 0, DEFAULT_TIER_THRESHOLDS),
     };
   });
 
@@ -239,17 +254,19 @@ async function handleProfundidad(dateWhere: string, returnsDateWhere: string, ti
   return jsonWithCache(response);
 }
 
-async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaKey: number | null, trend: TrendBucket): Promise<NextResponse> {
+async function handlePorLineaMes(
+  dateWhere: string, salesFilterWhere: string, tiendaKey: number | null, categoria: string | null, trend: TrendBucket,
+): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
-  if (tiendaKey !== null) topReq.input('tiendaKey', tiendaKey);
-  const topResult = await topReq.query(topLineasQuery(dateWhere, tiendaWhere));
+  bindFilters(topReq, tiendaKey, categoria);
+  const topResult = await topReq.query(topLineasQuery(dateWhere, salesFilterWhere));
   const topLineas = new Set(topResult.recordset.map(r => String(r.LineName)));
 
   const monthReq = pool.request();
-  if (tiendaKey !== null) monthReq.input('tiendaKey', tiendaKey);
-  const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, tiendaWhere, trend));
+  bindFilters(monthReq, tiendaKey, categoria);
+  const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, salesFilterWhere, trend));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
   // Tracks whether ANY row contributing to a given salesGross[linea]/totalSalesGross
@@ -318,6 +335,18 @@ async function handlePorLineaMes(dateWhere: string, tiendaWhere: string, tiendaK
   return jsonWithCache(response);
 }
 
+async function handleGrupos(
+  dateRange: string, level: 'linea' | 'sublinea' | 'sku', linea: string | null, sublinea: string | null,
+  tiendaKey: number | null, categoria: string | null,
+): Promise<NextResponse> {
+  const pool = await getDwhPool();
+  const raw = await fetchGroupShare(pool, {
+    dateWhere: buildDateWhereClause(dateRange, 'fs'), level, linea, sublinea, tiendaKey, categoria,
+  });
+  const response: ProductosGroupShareResponse = { ...buildGroupShareMatrix(raw), level };
+  return jsonWithCache(response);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -329,6 +358,7 @@ export async function GET(request: NextRequest) {
   const sublineaParam = searchParams.get('sublinea');
   const tiendaParam = searchParams.get('tienda');
   const tiendaKey = tiendaParam && /^\d+$/.test(tiendaParam) ? Number(tiendaParam) : null;
+  const categoria = parseCategoria(searchParams.get('categoria'));
 
   if (searchParams.get('tiendas') === '1') {
     try {
@@ -342,17 +372,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const section = searchParams.get('section');
-  if (section === 'profundidad' || section === 'porLineaMes') {
+  if (searchParams.get('categorias') === '1') {
     try {
-      const dateWhere = buildDateWhereClause(dateRange, 'fs');
-      // Profundidad's standalone Tasa dev. keeps the devolución-date basis
-      // (labelled in the UI); the drill-down table above uses factura date.
-      const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
-      const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
-      return section === 'profundidad'
-        ? await handleProfundidad(dateWhere, returnsDateWhere, tiendaWhere, tiendaKey)
-        : await handlePorLineaMes(dateWhere, tiendaWhere, tiendaKey, parseTrendBucket(searchParams, dateRange));
+      const pool = await getDwhPool();
+      const response: ProductosCategoriasResponse = { categorias: await fetchCategorias(pool) };
+      return jsonWithCache(response);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -364,34 +388,59 @@ export async function GET(request: NextRequest) {
   if (groupBy === 'sublinea' && !lineaParam) groupBy = 'linea';
   if (groupBy === 'sku' && (!lineaParam || !sublineaParam)) groupBy = 'linea';
 
+  const tiendaOnlyWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
+  const salesFilterWhere = `${tiendaOnlyWhere} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
+
+  const section = searchParams.get('section');
+  if (section === 'profundidad' || section === 'porLineaMes') {
+    try {
+      const dateWhere = buildDateWhereClause(dateRange, 'fs');
+      // Profundidad's standalone Tasa dev. keeps the devolución-date basis
+      // (labelled in the UI); the drill-down table above uses factura date.
+      const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+      return section === 'profundidad'
+        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaKey, categoria)
+        : await handlePorLineaMes(dateWhere, salesFilterWhere, tiendaKey, categoria, parseTrendBucket(searchParams, dateRange));
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
+  if (section === 'grupos') {
+    try {
+      return await handleGrupos(dateRange, groupBy, lineaParam, sublineaParam, tiendaKey, categoria);
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
   try {
     const pool = await getDwhPool();
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
-    const tiendaWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
     const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
-    const returnsTiendaWhere = tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : '';
+    const returnsTiendaWhere = `${tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
 
     if (groupBy === 'sku') {
       const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
-      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(skuQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
+      bindFilters(req, tiendaKey, categoria);
+      const result = await req.query(skuQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
       breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
     } else if (groupBy === 'sublinea') {
       const req = pool.request().input('linea', lineaParam);
-      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(sublineaQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
+      bindFilters(req, tiendaKey, categoria);
+      const result = await req.query(sublineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
     } else {
       const req = pool.request();
-      if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
-      const result = await req.query(lineaQuery(dateWhere, tiendaWhere, drillReturnsDateWhere, returnsTiendaWhere));
+      bindFilters(req, tiendaKey, categoria);
+      const result = await req.query(lineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
     }
 

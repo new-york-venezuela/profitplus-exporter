@@ -5,6 +5,8 @@ import { fetchSellerCoverage } from '../../../lib/dwh/seller-coverage';
 import { buildDateWhereClause } from '../../../app/api/dwh/lib/query-builder';
 import { coberturaCustomersQuery } from '../../../lib/clientes/cobertura-sql';
 import { CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope } from '../../../lib/clientes/scope';
+import { fetchCategorias, fetchGroupShare } from '../../../lib/productos/queries';
+import { buildGroupShareMatrix } from '../../../lib/productos/group-share';
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_consolidation_${Date.now()}`;
 
@@ -157,5 +159,44 @@ describe('consolidation queries (disposable DWH)', () => {
     expect(groups.map(g => [String(g.Code).trim(), g.Name])).toEqual([['S1', 'Abasto'], ['S2', 'Restaurante']]);
     const routes = (await pool.request().query(CLIENTES_ROUTES_QUERY)).recordset;
     expect(routes.map(r => [r.RouteNumber, r.ZoneName])).toEqual([[3, 'Ruta 3'], [4, 'Ruta 4']]);
+  });
+
+  test('fetchGroupShare: current-group attribution through old SCD2 versions, Sin grupo, voided excluded', async () => {
+    const month = buildDateWhereClause('month:2026-10', 'fs');
+    const raw = await fetchGroupShare(pool, { dateWhere: month, level: 'linea', linea: null, sublinea: null, tiendaKey: null, categoria: null });
+    const m = buildGroupShareMatrix(raw);
+    expect(m.rows.map(r => r.label)).toEqual(['Panaderia']);                          // I4 (Pizza) is in September
+    expect(m.columns.map(c => c.name)).toEqual(['Abasto', 'Restaurante', 'Sin grupo']);
+    const cells = m.rows[0].cells;
+    expect(cells.S1.salesBs).toBe(3500);                                              // I1 1000 + I2 500 + I3 2000 (C2's OLD S2 key -> current S1); voided I6 excluded
+    expect(cells.S1.salesUsd).toBe(70);
+    expect(cells.S2.salesBs).toBe(400);                                               // I7
+    expect(cells.__sin_grupo__.salesBs).toBe(300);                                    // I5, C4 has no group
+    expect(cells.S1.share).toBeCloseTo(3500 / 4200, 8);
+  });
+
+  test('fetchGroupShare: category filter, sub-line and product levels, tienda filter', async () => {
+    const month = buildDateWhereClause('month:2026-10', 'fs');
+    const base = { dateWhere: month, linea: null, sublinea: null, tiendaKey: null, categoria: null } as const;
+    const congelado = buildGroupShareMatrix(await fetchGroupShare(pool, { ...base, level: 'linea', categoria: 'Congelado' }));
+    expect(congelado.rows[0].cells.S1.salesBs).toBe(500);                            // only P2
+    expect(Object.keys(congelado.rows[0].cells)).toEqual(['S1']);
+    const subs = buildGroupShareMatrix(await fetchGroupShare(pool, { ...base, level: 'sublinea', linea: 'Panaderia' }));
+    expect(subs.rows.map(r => [r.label, r.totalBs])).toEqual([['Artesanal', 3700], ['Industrial', 500]]);
+    const skus = buildGroupShareMatrix(await fetchGroupShare(pool, { ...base, level: 'sku', linea: 'Panaderia', sublinea: 'Artesanal' }));
+    expect(skus.rows.map(r => r.label)).toEqual(['Pan Baguette']);
+    const c1 = (await pool.request().query(`SELECT CustomerKey FROM dim.Dim_Customer WHERE CustomerCode = 'C1'`)).recordset[0].CustomerKey as number;
+    const tienda = buildGroupShareMatrix(await fetchGroupShare(pool, { ...base, level: 'linea', tiendaKey: c1 }));
+    expect(tienda.rows[0].totalBs).toBe(1500);
+  });
+
+  test('fetchGroupShare: a hostile category is a parameter and simply matches nothing', async () => {
+    const month = buildDateWhereClause('month:2026-10', 'fs');
+    const raw = await fetchGroupShare(pool, { dateWhere: month, level: 'linea', linea: null, sublinea: null, tiendaKey: null, categoria: "Fresco' OR 1=1 --" });
+    expect(raw).toEqual([]);
+  });
+
+  test('fetchCategorias: distinct current categories', async () => {
+    expect(await fetchCategorias(pool)).toEqual(['Congelado', 'Fresco']);
   });
 });

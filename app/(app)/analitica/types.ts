@@ -1,4 +1,6 @@
 import type { BucketMode } from './lib/granularity';
+import type { DepthTier } from '@/lib/dwh/depth-tier';
+import type { GroupShareMatrix } from '@/lib/productos/group-share';
 export type Currency = 'bs' | 'usd';
 // '12m' | '30d' | `month:${YYYY-MM}` | `ytd:${YYYY}` | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
 // range is encoded as a single string (not separate start/end props) so it
@@ -447,11 +449,16 @@ export interface ProfundidadLineaRow {
   avgMonthlyPrice: DualAmount; // avg NetAmount per unit, averaged over months with sales
   avgMonthlyUnits: number; // QuantitySold / distinct months with sales in range
   returnRate: number | null;
+  tier: DepthTier; // primera/segunda/addon from clientShare vs DEFAULT_TIER_THRESHOLDS
 }
 
 export interface ProfundidadLineaResponse {
   rows: ProfundidadLineaRow[];
 }
+
+// Productos tab - product x customer-group share matrix (section=grupos) and the category filter options.
+export interface ProductosGroupShareResponse extends GroupShareMatrix { level: 'linea' | 'sublinea' | 'sku' }
+export interface ProductosCategoriasResponse { categorias: string[] }
 
 // Productos tab — units sold by month, stacked by línea (top lines by
 // volume; the rest bucketed as "Otras" to keep the stack legible).
