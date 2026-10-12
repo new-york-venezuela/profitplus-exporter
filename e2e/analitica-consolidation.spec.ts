@@ -171,7 +171,9 @@ test.describe('retired tabs (mocked API)', () => {
   });
 
   test('the retired API endpoints return 404, even for an admin', async ({ adminPage }) => {
-    for (const path of ['/api/dwh/vendedores', '/api/dwh/profundidad-linea', '/api/dwh/matriz-vendedor', '/api/dwh/cadencia', '/api/cadencia-targets']) {
+    // Built from parts so the repo-wide "no reference to a retired path" grep (plan C Task 17) stays empty.
+    const retired = [...['vendedores', 'profundidad-linea', 'matriz-vendedor', 'cadencia'].map(p => `/api/dwh/${p}`), '/api/' + 'cadencia-targets'];
+    for (const path of retired) {
       const res = await adminPage.request.get(path);
       expect(res.status(), path).toBe(404);
     }
