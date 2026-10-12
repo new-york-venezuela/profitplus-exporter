@@ -86,9 +86,9 @@ Cada línea se convierte a la tasa de venta de **su propia fecha**, no a la tasa
 
 En **Finanzas**, los movimientos anteriores a la primera tasa registrada no tienen tasa histórica. Esos movimientos no se suman en USD, y la pestaña indica el monto que quedó fuera.
 
-## Vendedores y consignación
+## Seguimiento y consignación
 
-La pestaña **Vendedores** y el perfil del vendedor excluyen las facturas emitidas a la raíz de una cadena con patrón de consignación, porque no se puede saber qué vendedor generó esa venta. El monto excluido aparece en su propia columna. **Resumen** y **Matriz Vendedor-Producto** sí incluyen esas facturas, así que sus totales por vendedor son mayores.
+La pestaña **Seguimiento** y el perfil del vendedor excluyen las facturas emitidas a la raíz de una cadena con patrón de consignación, porque no se puede saber qué vendedor generó esa venta. El monto excluido aparece aparte (nota al pie con la lista de facturas). **Resumen** sí incluye esas facturas, así que su total por vendedor es mayor.
 
 ## Cobranza, DSO y tasa de cobranza
 
@@ -118,7 +118,7 @@ La cobranza y el saldo por cobrar incluyen IVA. Por eso la **Tasa cobr.** y el *
 La pestaña **Seguimiento** replica el cuadro de seguimiento por ruta: para un mes muestra, por **vendedor**, **ruta** o **grupo de cliente**, la activación semanal, el avance contra la meta con su proyección, el precio promedio, la mezcla por línea y los clientes nuevos. Haga clic en un vendedor, ruta o grupo para ver sus clientes y en un cliente para ver sus líneas de factura. El botón **Tabla** muestra lo mismo en forma de tabla.
 
 - **Mes de referencia:** el mes en que termina el rango de fechas elegido (con "30 días" o "12 meses", el mes actual). Las ventas y la meta son de ese mes, hasta hoy.
-- **Ventas:** ventas brutas sin IVA, antes de devoluciones, sin la facturación agregada de consignación (que se lista aparte, igual que antes en Vendedores).
+- **Ventas:** ventas brutas sin IVA, antes de devoluciones, sin la facturación agregada de consignación (que se lista aparte, igual que en el perfil del vendedor).
 - **Cliente asignado:** el cliente pertenece al vendedor, ruta o grupo que tiene hoy en su ficha del ERP; las facturas antiguas siguen al cliente. Los clientes inactivos no cuentan.
 - **Cliente activo en una semana:** tuvo al menos una factura esa semana ISO (lunes a domingo, aunque la semana empiece en el mes anterior). Porcentaje = clientes activos ÷ clientes asignados.
 - **Proyección:** ventas del mes ÷ (días laborables transcurridos ÷ días laborables del mes). Solo se excluyen sábados y domingos; los feriados no se consideran.

@@ -71,7 +71,7 @@ function KpiCard({ label, actual, actualLabel, quota, quotaSuffix = '' }: {
   );
 }
 
-export default function SellerProfile({ salesRepKey, dateRange, currency, onBack, backLabel = 'Volver a Vendedores' }: {
+export default function SellerProfile({ salesRepKey, dateRange, currency, onBack, backLabel = 'Volver a Seguimiento' }: {
   salesRepKey: string;
   dateRange: DateRange;
   currency: Currency;

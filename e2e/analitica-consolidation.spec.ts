@@ -144,6 +144,21 @@ test.describe('analitica consolidation (mocked API)', () => {
   });
 });
 
+async function expectFallsBackToResumen(page: Page, key: string, retiredLabel: string) {
+  await failAllDwh(page);
+  await page.goto(`/analitica?tab=${key}`);
+  const tabs = page.getByRole('navigation', { name: 'Tabs' });
+  await expect(tabs.getByRole('button', { name: 'Resumen' })).toHaveClass(/border-blue-600/, { timeout: 15_000 });
+  await expect(tabs.getByRole('button', { name: retiredLabel })).toHaveCount(0);
+  await expect(page.getByText(/Tab not found/)).toHaveCount(0);
+}
+
+test.describe('retired tabs (mocked API)', () => {
+  test('?tab=vendedores opens Resumen and the tab is gone from the bar', async ({ adminPage }) => {
+    await expectFallsBackToResumen(adminPage, 'vendedores', 'Vendedores');
+  });
+});
+
 // @mssql: needs the migrated + loaded DWH (plan A's migration 0040 applied). Excluded from default CI.
 test.describe('analitica consolidation @mssql', () => {
   test('Resumen shows the month pace', async ({ adminPage }) => {

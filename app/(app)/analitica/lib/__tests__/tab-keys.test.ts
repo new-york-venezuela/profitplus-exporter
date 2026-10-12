@@ -24,3 +24,10 @@ describe('tab registry', () => {
     expect(resolveActiveTab('Resumen')).toBe(DEFAULT_TAB);
   });
 });
+
+describe('retired tab: vendedores', () => {
+  test('is no longer a tab and an old link opens the default tab', () => {
+    expect(TAB_KEYS).not.toContain('vendedores' as never);
+    expect(resolveActiveTab('vendedores')).toBe('resumen');
+  });
+});

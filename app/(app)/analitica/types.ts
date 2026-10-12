@@ -334,42 +334,6 @@ export interface CxcResponse {
   agingTrend: AgingTrendRow[];
 }
 
-// Vendedores tab
-export interface VendedoresRow {
-  value: string; // SalesRepKey, stringified — used as parentValue for breakdown fetches
-  name: string;
-  salesGross: DualAmount; // excludes consignment-root invoices (see below)
-  returnsNet: DualAmount; // by original factura date, same exclusion
-  salesNet: DualAmount; // salesGross − returnsNet
-  returnRate: number | null;
-  collectionRate: number | null; // collected / sales WITH IVA (both IVA-inclusive)
-  avgDiscount: number | null;
-  // Amounts excluded from salesGross/collected above because they came from a
-  // root-billed invoice of a chain flagged as a consignment-billing pattern
-  // (see docs/superpowers/specs/2026-09-21-consignment-commission-exclusion-design.md).
-  // Zero for a seller with no flagged exclusions.
-  excludedSalesGross: DualAmount;
-  excludedCollected: DualAmount;
-  excludedInvoiceCount: number;
-}
-
-export interface VendedoresResponse {
-  rows: VendedoresRow[];
-}
-
-// Vendedores tab — audit list behind a seller row's excludedSalesGross figure:
-// the literal invoices pulled out of that seller's reliable totals.
-export interface VendedoresExcludedInvoice {
-  legalEntityName: string;
-  invoiceNumber: string;
-  invoiceDate: string; // ISO date
-  amountNet: DualAmount;
-}
-
-export interface VendedoresExcludedResponse {
-  invoices: VendedoresExcludedInvoice[];
-}
-
 // Clientes tab
 export interface ClientesRow {
   name: string;
@@ -593,7 +557,7 @@ export interface SellerCoverageResponse {
 }
 
 // Seller 360° profile — manager-facing per-seller scorecard reached from the
-// Vendedores tab. See docs/superpowers/specs/
+// Seguimiento tab. See docs/superpowers/specs/
 // 2026-09-27-seller-360-dashboard-design.md.
 
 export interface ActivacionWeekRow {

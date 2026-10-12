@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 
 // Reads the pre-aggregated dim/fact schema of DWH_AlimentosNY plus the app's own SQLite
 // seller_targets. Replaces the Vendedores tab and the Vendedor 360 table (spec section B).
-// Consignment-pattern exclusion is the same rule as app/api/dwh/vendedores/route.ts.
+// Consignment-pattern exclusion: app/api/dwh/lib/consignment.ts (same rule the retired Vendedores tab used).
 const CUSTOMER_CODE_RE = /^[A-Za-z0-9._\- ]{1,16}$/;
 // Every value the analitica shell emits ('12m' | '30d' | month: | ytd: | custom:), plus the legacy
 // '90d' of old bookmarks. The value only feeds resolveReferenceMonth (never SQL), but a malformed

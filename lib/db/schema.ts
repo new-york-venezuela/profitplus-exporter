@@ -89,7 +89,7 @@ export type NewVisitCadenceTarget = typeof visitCadenceTargets.$inferInsert;
 // ── Seller 360° targets ─────────────────────────────────────────────
 // Manual per-seller monthly quotas (sales, weekly visit reach, new
 // customers), used by the Seller 360° profile drill-down (reached from the
-// Vendedores tab). One row per seller per month; all three quota columns
+// Seguimiento tab). One row per seller per month; all three quota columns
 // are independently nullable — a seller can have a sales quota set without
 // a visit quota yet defined. No segment-level default/fallback row (unlike
 // visitCadenceTargets) — the seller list is small and known (Dim_SalesRep),

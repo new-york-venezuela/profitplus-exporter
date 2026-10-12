@@ -317,7 +317,7 @@ export default function TabResumen({
       </div>
 
       {/* Sales rep performance */}
-      <ChartCard title="Desempeño por vendedor" subtitle="Todas las facturas, incluida la facturación de consignación (la pestaña Vendedores la excluye). Devoluciones por fecha de factura.">
+      <ChartCard title="Desempeño por vendedor" subtitle="Todas las facturas, incluida la facturación de consignación (la pestaña Seguimiento la excluye). Devoluciones por fecha de factura.">
         {data.salesReps.length === 0 ? (
           <EmptyState />
         ) : (

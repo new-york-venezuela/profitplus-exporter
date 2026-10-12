@@ -9,7 +9,7 @@ import { test, expect } from './fixtures';
 //
 // These tests exercise the customer legal-entity grouping (Dim_LegalEntity)
 // and the Entidad/Tienda toggle added across the Analítica tabs (Ventas,
-// Devoluciones, Vendedores, Clientes, CxC). The seeded Ncake_a data includes
+// Devoluciones, Clientes, CxC). The seeded Ncake_a data includes
 // real multi-store chains (e.g. a legal entity with 24 store-level
 // customers), so switching from "Entidad" (grouped by legal entity) to
 // "Tienda" (grouped by raw customer) is expected to reveal more rows, not
@@ -83,22 +83,6 @@ test.describe('analitica @mssql', () => {
     await expect(clienteSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test('expanding a Vendedores row loads a product breakdown', async ({ adminPage }) => {
-    await adminPage.goto('/analitica?tab=vendedores');
-    await expect(adminPage.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
-
-    // The expand column only appears once a "Desglosar por" breakdown
-    // dimension is selected (GroupedDrilldownTable's canExpand gate) - the
-    // select defaults to "Sin desglose", so pick "Producto" first.
-    await adminPage.getByLabel('Desglosar por:').selectOption('producto');
-
-    const expandButton = adminPage.locator('table tbody tr').first().locator('button[aria-label="Expandir"]');
-    await expect(expandButton).toBeVisible();
-    await expandButton.click();
-
-    await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
-  });
-
   test('Finanzas tab shows the cash-flow margin card and expense category drilldown', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=finanzas');
 
@@ -145,7 +129,7 @@ test.describe('analitica @mssql', () => {
     expect(chartText).not.toContain('Descuento');
 
     // Expense category breakdown table, below the margin card — same
-    // GroupedDrilldownTable "Desglosar por" + expand pattern as Vendedores.
+    // GroupedDrilldownTable "Desglosar por" + expand pattern as the Ventas tab.
     await adminPage.getByLabel('Desglosar por:').selectOption('producto');
 
     const expandButton = adminPage.locator('table tbody tr').first().locator('button[aria-label="Expandir"]');
@@ -154,8 +138,8 @@ test.describe('analitica @mssql', () => {
 
     // Expanding a category row loads its concept-level breakdown
     // (breakdownBy=concepto&parentValue=<category>) — assert a second row
-    // appears (the expanded concept sub-table), same assertion style as the
-    // Vendedores product-breakdown test above.
+    // appears (the expanded concept sub-table), the usual GroupedDrilldownTable
+    // expand check.
     await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
 
     // Regression guard for the 2026-09-11 bug class: a breakdown row that

@@ -31,7 +31,7 @@ const PROXY_TOOLTIP = 'Utilidad Bruta (proxy) = Ingresos operativos − Compras.
 
 // This table has no top-level groupBy toggle — rows are always one-per-expense-
 // category. GroupedDrilldownTable requires a groupBy/groupByOptions pair, so
-// it's fixed to a single no-op option, same pattern as tab-vendedores.tsx.
+// it's fixed to a single no-op option, same pattern the retired Vendedores tab used.
 // `PivotDimension` has no member that semantically means "category"/"concepto"
 // (it's shared by the Cliente/Producto/Vendedor pivot mechanism) — reusing
 // 'producto' as a sentinel here mirrors the already-shipped línea→producto

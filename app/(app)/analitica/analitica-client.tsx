@@ -13,7 +13,6 @@ import TabSeguimiento from './tabs/tab-seguimiento';
 import TabVentas from './tabs/tab-ventas';
 import TabDevoluciones from './tabs/tab-devoluciones';
 import TabCxc from './tabs/tab-cxc';
-import TabVendedores from './tabs/tab-vendedores';
 import TabClientes from './tabs/tab-clientes';
 import TabProductos from './tabs/tab-productos';
 import TabProfundidad from './tabs/tab-profundidad';
@@ -42,7 +41,6 @@ const TAB_COMPONENTS: Record<TabKey, ComponentType<TabComponentProps>> = {
   ventas: TabVentas,
   devoluciones: TabDevoluciones,
   cxc: TabCxc,
-  vendedores: TabVendedores,
   clientes: TabClientes,
   productos: TabProductos,
   profundidad: TabProfundidad,

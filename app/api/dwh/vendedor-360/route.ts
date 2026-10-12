@@ -41,11 +41,11 @@ function activacionQuery(entityGrain: EntityGrain, dateWhere: string): string {
   `;
 }
 
-// Excludes the same flagged-root-billed invoices vendedores/route.ts's own
-// salesRepQuery excludes from SalesGrossBs/Usd (see app/api/dwh/vendedores/
-// consignment.ts's getFlaggedRootCodes) — otherwise this profile's sales
+// Excludes the same flagged-root-billed invoices the Seguimiento tab
+// excludes from SalesGrossBs/Usd (see app/api/dwh/lib/consignment.ts's
+// getFlaggedRootCodes) — otherwise this profile's sales
 // figure double-counts consignment-pattern root invoices that the
-// Vendedores tab list deliberately excludes as unreliable per-seller
+// Seguimiento tab deliberately excludes as unreliable per-seller
 // attribution, inflating this KPI relative to that list for the same
 // seller/period. Requires a join to Dim_Customer (the base CUOTA query
 // didn't need one before this fix) purely to read CustomerCode for the
@@ -368,8 +368,8 @@ export async function GET(request: NextRequest) {
     const latestMonthRow = targetRows.find(t => t.periodMonth === months[months.length - 1]);
 
     // Section 2: Cuota de ventas mensual — same flagged-root-invoice
-    // exclusion as the Vendedores tab list (see cuotaSalesQuery above), so
-    // this profile's sales figure matches that list exactly for the same
+    // exclusion as the Seguimiento tab (see cuotaSalesQuery above), so
+    // this profile's sales figure matches that tab exactly for the same
     // seller/period.
     const flaggedRootCodes = await getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD);
     const cuotaReq = pool.request().input('salesRepKey', salesRepKey);
