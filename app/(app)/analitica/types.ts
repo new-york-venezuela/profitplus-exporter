@@ -610,51 +610,6 @@ export interface CadenceResponse {
   rows: CadenceRow[];
 }
 
-// Matriz Vendedor-Producto tab — seller x product x store depth-of-line
-// coaching matrix. See docs/superpowers/specs/
-// 2026-09-23-seller-product-store-matrix-design.md.
-export interface SellerSummaryRow {
-  salesRepKey: string;
-  salesRepName: string;
-  salesGross: DualAmount; // all invoices, incl. consignment billing
-  returns: DualAmount; // by original factura date
-  salesNet: DualAmount; // salesGross − returns
-  entitiesServed: number;
-}
-
-export interface SellerSummaryResponse {
-  rows: SellerSummaryRow[];
-}
-
-export interface SellerMatrixProduct {
-  productKey: number;
-  productName: string;
-  lineName: string | null;
-  subLineName: string | null;
-  categoryName: string | null;
-}
-
-export interface SellerMatrixStore {
-  customerKey: number;
-  customerName: string;
-  legalEntityName: string;
-}
-
-export interface SellerMatrixCell {
-  productKey: number;
-  customerKey: number;
-  netSales: DualAmount; // ventas brutas of the cell (sin IVA, antes de devoluciones)
-  units: number;
-  returnRateUsd: number | null; // a RATIO (returns/sales), not a currency amount -- plain number despite the name
-  returnRateUnits: number | null;
-}
-
-export interface SellerMatrixResponse {
-  products: SellerMatrixProduct[];
-  stores: SellerMatrixStore[];
-  cells: SellerMatrixCell[];
-}
-
 // Clientes tab — cobertura de clientes (see lib/cobertura.ts). Independent of the date range.
 export type { CoberturaStatus } from './lib/cobertura';
 import type { CoberturaStatus } from './lib/cobertura';
