@@ -732,6 +732,8 @@ export interface SellerMatrixResponse {
 // Clientes tab — cobertura de clientes (see lib/cobertura.ts). Independent of the date range.
 export type { CoberturaStatus } from './lib/cobertura';
 import type { CoberturaStatus } from './lib/cobertura';
+import type { CustomerKind } from '@/lib/dwh/cutover';
+import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
 
 export interface CoberturaRowView {
   customerCode: string;
@@ -746,6 +748,12 @@ export interface CoberturaRowView {
   avgMonthlyUnits: number | null;
   monthsWithSales: number;
   status: CoberturaStatus;
+  routeNumber: number | null;     // current Dim_Zone.RouteNumber; null = no route
+  groupCode: string | null;       // current ErpSegmentCode (customer group)
+  groupName: string | null;       // Dim_Segment.SegmentName
+  kind: CustomerKind | null;      // patrimonio / nuevo in the range's year; null = no registration date
+  visit: VisitCompliance;         // as of today
+  activeInPeriod: boolean;        // >= 1 non-voided invoice in the selected range
 }
 
 export interface CoberturaResponse {
@@ -753,6 +761,13 @@ export interface CoberturaResponse {
   asOfDateKey: number;
   windowStartDateKey: number;
   lapsedAfterDays: number;
+  kindYear: number;               // the year patrimonio/nuevo were evaluated for (year of the range end)
+}
+
+// Clientes tab group/route filter options (GET /api/dwh/clientes?section=filters).
+export interface ClientesFiltersResponse {
+  groups: { value: string; label: string }[];   // value = ErpSegmentCode, label = SegmentName
+  routes: { value: string; label: string }[];   // value = RouteNumber as text, label = 'Ruta N'
 }
 
 // Devoluciones tab headline KPIs (section=kpis). Same basis as the tab's own

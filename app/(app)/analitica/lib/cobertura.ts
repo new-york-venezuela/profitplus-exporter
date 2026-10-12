@@ -78,18 +78,32 @@ export function compareDaysSince(a: SortableRow, b: SortableRow, dir: 'asc' | 'd
 interface FilterableRow {
   sellerCode: string | null;
   status: CoberturaStatus;
+  groupCode?: string | null;
+  routeNumber?: number | null;
+  visit?: { status: string };
+  activeInPeriod?: boolean;
 }
 
-export function filterCobertura<T extends FilterableRow>(
-  rows: T[],
-  f: { sellerCode?: string | null; status?: CoberturaStatus | null },
-): T[] {
+export interface CoberturaFilter {
+  sellerCode?: string | null;
+  status?: CoberturaStatus | null;
+  grupo?: string | null;
+  ruta?: number | null;
+  visit?: 'overdue' | 'no_interval' | null;
+  inactiveInPeriod?: boolean;
+}
+
+export function filterCobertura<T extends FilterableRow>(rows: T[], f: CoberturaFilter): T[] {
   return rows.filter(r => {
     if (f.sellerCode) {
       const code = r.sellerCode ?? NO_SELLER;
       if (code !== f.sellerCode) return false;
     }
     if (f.status && r.status !== f.status) return false;
+    if (f.grupo && r.groupCode !== f.grupo) return false;
+    if (f.ruta !== null && f.ruta !== undefined && r.routeNumber !== f.ruta) return false;
+    if (f.visit && r.visit?.status !== f.visit) return false;
+    if (f.inactiveInPeriod && r.activeInPeriod !== false) return false;
     return true;
   });
 }
@@ -131,9 +145,19 @@ export function coberturaExportQuery(f: {
   includeInactive: boolean;
   sellerCode: string | null;
   status: CoberturaStatus | null;
+  dateRange?: string;
+  grupo?: string | null;
+  ruta?: number | null;
+  visit?: 'overdue' | 'no_interval' | null;
+  inactiveInPeriod?: boolean;
 }): string {
   const p = new URLSearchParams({ format: 'xlsx', includeInactive: f.includeInactive ? '1' : '0' });
   if (f.sellerCode) p.set('seller', f.sellerCode);
   if (f.status) p.set('status', f.status);
+  if (f.dateRange) p.set('dateRange', f.dateRange);
+  if (f.grupo) p.set('grupo', f.grupo);
+  if (f.ruta !== null && f.ruta !== undefined) p.set('ruta', String(f.ruta));
+  if (f.visit) p.set('visit', f.visit);
+  if (f.inactiveInPeriod) p.set('inactive', '1');
   return p.toString();
 }
