@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
+import { HistoricoBanner } from '../components/historico-banner';
 import { money, moneyLabel, moneyTooltip } from '../lib/format';
 import type {
   BreakdownRow, Currency, PivotDimension, HistoricoResponse, HistoricoRow, HistoricoKpisResponse,
@@ -32,25 +33,6 @@ function KpiCard({ label, value }: { label: string; value: string }) {
     <div className="bg-white border border-gray-200 rounded-lg p-4">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
-    </div>
-  );
-}
-
-function DisclaimerBanner() {
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
-      <p className="font-semibold mb-1">Datos del sistema anterior (enero 2025 – febrero 2026)</p>
-      <p>
-        Estos datos provienen del sistema anterior a la migración de marzo de 2026.
-        Los clientes, productos y vendedores de este período son identidades
-        independientes de los datos actuales — no se pueden cruzar ni sumar con
-        las cifras de 2026 en adelante.
-      </p>
-      <p className="mt-2">
-        Ventas brutas sin IVA y antes de devoluciones. Las devoluciones se restan por <strong>fecha de la factura
-        original</strong>, igual que en el resto de Analítica (una devolución sin factura identificable se
-        cuenta en su propia fecha). Las devoluciones de facturas anteriores a enero 2025 no se incluyen.
-      </p>
     </div>
   );
 }
@@ -88,7 +70,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
   // Four independently-fetched sections, same shape as tab-ventas.tsx: each
   // section keeps its own loading/error/data state so one slow query
   // doesn't block the others from rendering. No dateRange prop — this
-  // tab's window is fixed (Jan 2025-Feb 2026), so none of these effects
+  // tab's window is fixed (calendar 2025), so none of these effects
   // depend on it.
   const [mesData, setMesData] = useState<HistoricoResponse | null>(null);
   const [mesLoading, setMesLoading] = useState<boolean>(true);
@@ -274,7 +256,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
 
   return (
     <div className="p-6 max-w-7xl space-y-8">
-      <DisclaimerBanner />
+      <HistoricoBanner />
 
       {/* KPIs */}
       <section>

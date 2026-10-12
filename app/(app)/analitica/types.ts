@@ -200,7 +200,7 @@ export interface VentasComparisonResponse {
   trendMode: BucketMode;
 }
 
-// Histórico 2025 tab — a fixed, closed Jan 2025-Feb 2026 window imported
+// Histórico 2025 tab — a fixed 2025 window of the imported legacy snapshot
 // from the pre-March-2026-cutover Profit Plus server. No dateRange param
 // (the window never changes), no prev-period comparison (no meaningful
 // "before" this dataset), no entidad/tienda toggle (legacy customers have

@@ -68,7 +68,7 @@ En la pestaña Ventas puede escoger cualquiera de las dos con el selector **Devo
 
 **Ventas netas = Ventas brutas − Devoluciones**, con las devoluciones por fecha de factura (o según el selector de la pestaña Ventas).
 
-La pestaña **Histórico 2025** sigue la misma regla (devoluciones por fecha de la factura original); las devoluciones de facturas anteriores a enero 2025 quedan fuera de esa pestaña.
+La pestaña **Histórico 2025** muestra solo el año 2025 del sistema anterior y sigue la misma regla (devoluciones por fecha de la factura original); las devoluciones de facturas anteriores a enero 2025 quedan fuera de esa pestaña, y enero y febrero de 2026 del sistema anterior no se muestran en ninguna.
 
 ## Tasa de devolución
 
