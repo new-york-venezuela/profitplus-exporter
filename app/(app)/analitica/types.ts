@@ -9,16 +9,6 @@ export type Currency = 'bs' | 'usd';
 export type DateRange = string;
 export type GroupBy = string; // e.g., 'mes', 'cliente', 'salesrep', 'producto', 'linea', 'sublinea', 'sku'
 
-export interface FilterParams {
-  dateRange: DateRange;
-  currency: Currency;
-}
-
-export interface DrillContext {
-  groupBy: GroupBy;
-  parentValue?: string; // e.g., salesRepKey=123 when drilling into products for that rep
-}
-
 export type PivotDimension = 'cliente_entidad' | 'cliente_tienda' | 'producto' | 'vendedor' | 'proveedor';
 
 export interface BreakdownRow {
@@ -88,7 +78,7 @@ export interface NamedAmount {
 
 export interface SalesRepRow {
   name: string;
-  salesGross: DualAmount; // includes consignment-root invoices (see Vendedores)
+  salesGross: DualAmount; // includes consignment-root invoices
   returnsNet: DualAmount;
   salesNet: DualAmount;
   units: number; // SUM(QuantitySold), same invoice scope as salesGross
