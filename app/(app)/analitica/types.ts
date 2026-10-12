@@ -496,53 +496,12 @@ export interface MultimonedaResponse {
   currentRate: number | null;
 }
 
-// Profundidad de Línea tab — segment-penetration matrix, gap drill-down, and
-// first/second-line/addon classification. See
-// docs/superpowers/specs/2026-09-21-profundidad-linea-tab-design.md.
+// Customer segment values of the old CADENA/INDEPENDIENTES split (Dim_Customer.SegmentCode).
 export type CustomerSegment = 'CADENA' | 'INDEPENDIENTES';
 
-export interface DepthMatrixCell {
-  segment: CustomerSegment;
-  entitiesBuying: number;
-  entitiesActive: number;
-  penetration: number | null; // entitiesBuying / entitiesActive; null when entitiesActive is 0
-  salesGross: DualAmount;
-}
-
-export interface DepthMatrixRow {
-  label: string;            // línea, sublínea, or SKU name depending on drill level
-  value: string;             // drill key: the label itself (matches línea/sublínea drill convention in productos/route.ts)
-  cells: DepthMatrixCell[];  // one per segment present for this row
-  totalPenetration: number | null; // pooled across segments — see spec for the sum-of-counts definition
-  totalSalesGross: DualAmount;
-  tier: 'primera' | 'segunda' | 'addon' | 'sin-ventas';
-}
-
-export interface DepthMatrixResponse {
-  rows: DepthMatrixRow[];
-  groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
-  breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-  // Echoes the salesRepKey filter applied, if any — lets the UI label the
-  // matrix clearly ("Mostrando solo clientes de: Juan Pérez") when scoped.
-  // See docs/superpowers/specs/2026-09-21-seller-depth-of-line-coverage-design.md.
-  scopedToSalesRepName: string | null;
-}
-
-export interface DepthGapEntity {
-  legalEntityKey: number;
-  legalEntityName: string;
-  totalSalesGross: DualAmount; // this entity's total sales in range, for sort/context
-}
-
-export interface DepthGapResponse {
-  entities: DepthGapEntity[];
-  segment: CustomerSegment;
-  productLabel: string;
-}
-
-// Seller coverage leaderboard — one row per seller, comparing their own
-// pooled penetration (over entities/products they personally touched)
-// against the company-wide baseline from the unscoped matrix.
+// Seller line-depth coverage (lib/dwh/seller-coverage.ts, shown on the Vendedor 360
+// profile) — a seller's own pooled penetration (over entities/products they personally
+// touched) against the company-wide baseline.
 export interface SellerCoverageRow {
   salesRepKey: string;
   salesRepName: string;
@@ -550,10 +509,6 @@ export interface SellerCoverageRow {
   ownPenetration: number | null;      // this seller's pooled penetration across their own entities
   baselinePenetration: number | null; // company-wide pooled penetration, for comparison
   gapVsBaseline: number | null;       // ownPenetration - baselinePenetration; negative = underperforming
-}
-
-export interface SellerCoverageResponse {
-  rows: SellerCoverageRow[];
 }
 
 // Seller 360° profile — manager-facing per-seller scorecard reached from the

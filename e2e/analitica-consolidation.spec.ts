@@ -157,6 +157,10 @@ test.describe('retired tabs (mocked API)', () => {
   test('?tab=vendedores opens Resumen and the tab is gone from the bar', async ({ adminPage }) => {
     await expectFallsBackToResumen(adminPage, 'vendedores', 'Vendedores');
   });
+
+  test('?tab=profundidad opens Resumen and the tab is gone from the bar', async ({ adminPage }) => {
+    await expectFallsBackToResumen(adminPage, 'profundidad', 'Profundidad de Línea');
+  });
 });
 
 // @mssql: needs the migrated + loaded DWH (plan A's migration 0040 applied). Excluded from default CI.

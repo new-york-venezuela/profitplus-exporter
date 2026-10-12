@@ -4,6 +4,11 @@ import { DEFAULT_TIER_THRESHOLDS, classifyTier } from '../../../lib/dwh/depth-ti
 describe('classifyTier', () => {
   test('no sales at all is sin-ventas regardless of penetration', () => {
     expect(classifyTier(0.9, false)).toBe('sin-ventas');
+    expect(classifyTier(0, false)).toBe('sin-ventas');
+    expect(classifyTier(null, false)).toBe('sin-ventas');
+  });
+  test('zero penetration with sales is addon (ported from the retired Profundidad de Línea tier test)', () => {
+    expect(classifyTier(0, true)).toBe('addon');
   });
   test('boundaries are inclusive: 70% is primera, 30% is segunda', () => {
     expect(classifyTier(0.7, true)).toBe('primera');
@@ -15,7 +20,10 @@ describe('classifyTier', () => {
     expect(classifyTier(null, true)).toBe('addon');
   });
   test('custom thresholds win over the defaults', () => {
-    expect(classifyTier(0.5, true, { firstLineMinPenetration: 0.5, secondLineMinPenetration: 0.1 })).toBe('primera');
+    const custom = { firstLineMinPenetration: 0.5, secondLineMinPenetration: 0.1 };
+    expect(classifyTier(0.5, true, custom)).toBe('primera');
+    expect(classifyTier(0.2, true, custom)).toBe('segunda');
+    expect(classifyTier(0.05, true, custom)).toBe('addon');
     expect(DEFAULT_TIER_THRESHOLDS).toEqual({ firstLineMinPenetration: 0.7, secondLineMinPenetration: 0.3 });
   });
 });

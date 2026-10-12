@@ -6,6 +6,11 @@ describe('computeGapVsBaseline', () => {
     expect(computeGapVsBaseline(0.5, 0.75)).toBeCloseTo(-0.25, 10);
     expect(computeGapVsBaseline(null, 0.5)).toBeNull();
     expect(computeGapVsBaseline(0.5, null)).toBeNull();
+    expect(computeGapVsBaseline(null, null)).toBeNull();
+  });
+  test('positive when the seller beats the baseline, exactly zero when equal', () => {
+    expect(computeGapVsBaseline(0.8, 0.6)).toBeCloseTo(0.2, 10);
+    expect(computeGapVsBaseline(0.5, 0.5)).toBe(0);
   });
 });
 

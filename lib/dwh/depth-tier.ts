@@ -1,4 +1,4 @@
-// Line-depth tiers (moved from app/api/dwh/profundidad-linea/tier.ts so it survives that route).
+// Line-depth tiers (moved out of the retired Profundidad de Línea route's tier module so it outlives that route).
 export type DepthTier = 'primera' | 'segunda' | 'addon' | 'sin-ventas';
 
 export interface TierThresholds {

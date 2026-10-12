@@ -20,11 +20,11 @@ export const dynamic = 'force-dynamic';
 // for seller_targets. See docs/superpowers/specs/
 // 2026-09-27-seller-360-dashboard-design.md.
 //
-// This route reuses existing query SHAPES from vendedores/cxc/clientes/
-// profundidad-linea routes (scoped to one seller here) rather than importing
-// those routes' private functions directly — none of them export a reusable
-// function today, and duplicating the ~10-line query shape is simpler and
-// safer than refactoring four already-shipped, tested routes mid-feature.
+// Most sections reuse query SHAPES from the cxc/clientes routes (scoped to
+// one seller here) rather than importing those routes' private functions.
+// Shared logic lives in modules: consignment exclusion in
+// app/api/dwh/lib/consignment.ts, line-depth coverage in
+// lib/dwh/seller-coverage.ts.
 
 type EntityGrain = 'entity' | 'tienda';
 

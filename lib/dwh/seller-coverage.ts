@@ -3,7 +3,7 @@ import type { SellerCoverageRow } from '@/app/(app)/analitica/types';
 import { classifyTier, DEFAULT_TIER_THRESHOLDS, type TierThresholds } from './depth-tier';
 
 // Seller line-depth coverage, used by Vendedor 360 (app/api/dwh/vendedor-360/route.ts). Moved out of
-// app/api/dwh/profundidad-linea/route.ts (handleLeaderboard) when that tab was removed. Penetration is pooled
+// the retired Profundidad de Línea route (its seller leaderboard) when that tab was removed. Penetration is pooled
 // over ALL active legal entities: the old CADENA/INDEPENDIENTES split (Dim_Customer.SegmentCode) is gone
 // because customer groups replace those values.
 const NO_LINEA = 'Sin línea';

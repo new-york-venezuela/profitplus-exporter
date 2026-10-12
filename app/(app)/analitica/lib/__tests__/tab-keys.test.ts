@@ -31,3 +31,10 @@ describe('retired tab: vendedores', () => {
     expect(resolveActiveTab('vendedores')).toBe('resumen');
   });
 });
+
+describe('retired tab: profundidad', () => {
+  test('is no longer a tab and an old link opens the default tab', () => {
+    expect(TAB_KEYS).not.toContain('profundidad' as never);
+    expect(resolveActiveTab('profundidad')).toBe('resumen');
+  });
+});

@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 // docs/superpowers/specs/2026-09-23-seller-product-store-matrix-design.md.
 //
 // This is a seller-first drill-down, distinct from the existing Profundidad
-// de Línea tab (app/api/dwh/profundidad-linea/route.ts, unchanged by this
+// de Línea tab (since retired; unchanged by this
 // feature): that tab shows product-line-tier penetration by customer
 // segment; this one shows one seller's own product x store matrix.
 
