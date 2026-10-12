@@ -10,7 +10,7 @@ export interface SellerTargetRow {
 
 export const EMPTY_TARGET_ROW: SellerTargetRow = { salesQuotaUsd: null, weeklyVisitQuota: null, newCustomerQuota: null };
 
-// Inline click-to-edit quota affordance, same pattern the retired purchase-gap tab used
+// Inline click-to-edit quota affordance, same pattern the retired Cadencia tab used
 // for its targetGapDays editor: a value/"Definir" link swaps to a number input +
 // "Guardar" button, then calls onSave (SellerProfile's saveQuotaField),
 // which persists the change and triggers a profile refetch so the new quota

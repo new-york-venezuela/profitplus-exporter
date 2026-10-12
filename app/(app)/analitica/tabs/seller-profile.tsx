@@ -140,7 +140,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         // every dwh/* route). Fine on a normal tab load, but this profile
         // also reloads right after a quota edit (see saveQuotaField above),
         // and a same-URL GET within that window would otherwise serve the
-        // pre-save cached response — same pattern the retired purchase-gap tab used
+        // pre-save cached response — same pattern the retired Cadencia tab used
         // for its own fetch.
         const res = await fetch(`/api/dwh/vendedor-360?${params.toString()}`, { cache: 'no-store' });
         if (cancelled) return;

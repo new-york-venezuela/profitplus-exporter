@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     // Upsert semantics via delete-then-insert, same pattern the
-    // retired purchase-gap targets route used — SQLite's ON CONFLICT upsert syntax
+    // retired cadencia-targets route used — SQLite's ON CONFLICT upsert syntax
     // works too, but this matches the existing codebase convention exactly.
     db.delete(sellerTargets)
       .where(and(eq(sellerTargets.salesRepKey, body.salesRepKey), eq(sellerTargets.periodMonth, body.periodMonth)))
