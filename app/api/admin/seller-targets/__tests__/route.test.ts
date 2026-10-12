@@ -25,8 +25,8 @@ describe('POST /api/admin/seller-targets', () => {
     // 401 path without a session cookie — the 400 validation path is
     // exercised once auth is mocked in a later task if the team's test
     // conventions add session mocking; for now this route follows
-    // visit-cadence-targets' exact test depth (401-only), confirmed against
-    // app/api/cadencia-targets/__tests__/route.test.ts.
+    // the exact test depth (401-only) of the retired purchase-gap targets route's
+    // own test.
     const req = new NextRequest('http://localhost/api/admin/seller-targets', {
       method: 'POST',
       body: JSON.stringify({}),

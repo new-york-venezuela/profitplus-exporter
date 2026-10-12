@@ -496,9 +496,6 @@ export interface MultimonedaResponse {
   currentRate: number | null;
 }
 
-// Customer segment values of the old CADENA/INDEPENDIENTES split (Dim_Customer.SegmentCode).
-export type CustomerSegment = 'CADENA' | 'INDEPENDIENTES';
-
 // Seller line-depth coverage (lib/dwh/seller-coverage.ts, shown on the Vendedor 360
 // profile) — a seller's own pooled penetration (over entities/products they personally
 // touched) against the company-wide baseline.
@@ -589,25 +586,6 @@ export interface Seller360Response {
     coverage: SellerCoverageRow | null; // null when the seller served zero entities in range
   };
   usdRate: number | null;
-}
-
-// Cadencia tab — per-customer purchase frequency, with an optional manual
-// target overlay. See docs/superpowers/specs/
-// 2026-09-21-active-customer-visit-cadence-design.md.
-export interface CadenceRow {
-  legalEntityKey: number;
-  legalEntityName: string;
-  purchaseDayCount: number;
-  avgGapDays: number | null;      // null if only one purchase in range (no gap to compute)
-  lastPurchaseDate: string;       // ISO date
-  daysSinceLastPurchase: number;
-  segment: CustomerSegment | null;
-  targetGapDays: number | null;    // resolved: entity override, else segment default, else null
-  isOverdue: boolean | null;       // null when no target resolves for this entity
-}
-
-export interface CadenceResponse {
-  rows: CadenceRow[];
 }
 
 // Clientes tab — cobertura de clientes (see lib/cobertura.ts). Independent of the date range.

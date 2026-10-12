@@ -45,3 +45,21 @@ describe('retired tab: matriz-vendedor', () => {
     expect(resolveActiveTab('matriz-vendedor')).toBe('resumen');
   });
 });
+
+describe('retired tab: cadencia, and the final tab list', () => {
+  test('cadencia is gone and an old link opens the default tab', () => {
+    expect(TAB_KEYS).not.toContain('cadencia' as never);
+    expect(resolveActiveTab('cadencia')).toBe('resumen');
+  });
+  test('the consolidated tab list, in order', () => {
+    expect([...TAB_KEYS]).toEqual([
+      'resumen', 'seguimiento', 'ventas', 'devoluciones', 'cxc', 'clientes', 'productos', 'historico', 'finanzas', 'multimoneda', 'compras',
+    ]);
+    expect(TAB_KEYS.map(k => TAB_LABELS[k])).toEqual([
+      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras',
+    ]);
+  });
+  test('every retired key falls back', () => {
+    for (const k of ['vendedores', 'profundidad', 'matriz-vendedor', 'cadencia']) expect(resolveActiveTab(k)).toBe('resumen');
+  });
+});

@@ -18,7 +18,6 @@ import TabProductos from './tabs/tab-productos';
 import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
-import TabCadencia from './tabs/tab-cadencia';
 import TabHistorico from './tabs/tab-historico';
 
 export interface TabComponentProps {
@@ -41,7 +40,6 @@ const TAB_COMPONENTS: Record<TabKey, ComponentType<TabComponentProps>> = {
   cxc: TabCxc,
   clientes: TabClientes,
   productos: TabProductos,
-  cadencia: TabCadencia,
   historico: TabHistorico,
   finanzas: TabFinanzas,
   multimoneda: TabMultimoneda,

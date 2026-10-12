@@ -66,15 +66,12 @@ export const invoiceReminderLog = sqliteTable('invoice_reminder_log', {
 export type InvoiceReminderLog    = typeof invoiceReminderLog.$inferSelect;
 export type NewInvoiceReminderLog = typeof invoiceReminderLog.$inferInsert;
 
-// ── Visit cadence targets ───────────────────────────────────────────
-// Manual per-customer/segment expected purchase-gap targets, used by the
-// Cadencia tab to flag overdue customers. No cadence/frequency concept
-// exists anywhere in Profit Plus (confirmed during spec design), so this
-// is entered manually — see docs/superpowers/specs/
-// 2026-09-21-active-customer-visit-cadence-design.md. A row with
-// legalEntityKey set overrides any segment-level default for that entity; a
-// row with legalEntityKey NULL and segmentCode set is a fallback for every
-// entity in that segment without its own override.
+// ── Visit cadence targets (DEPRECATED, unused) ──────────────────────
+// Were the manual per-customer/segment expected purchase-gap targets of the Cadencia tab, which was
+// removed (docs/superpowers/specs/2026-10-11-sales-tabs-refactor-design.md): visit compliance now comes from
+// saCliente.frecu_vist (Dim_Customer.VisitIntervalDays). The table is kept ON PURPOSE: it holds manually
+// entered data and dropping it would be irreversible. Nothing reads or writes it; to retire it, export the
+// rows first and add a Drizzle migration that drops `visit_cadence_targets`.
 
 export const visitCadenceTargets = sqliteTable('visit_cadence_targets', {
   id:             integer('id').primaryKey({ autoIncrement: true }),

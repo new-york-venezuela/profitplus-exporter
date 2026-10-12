@@ -19,7 +19,7 @@ describe('GET /api/dwh/vendedor-360', () => {
     // 401, documenting that ordering explicitly rather than asserting 400
     // and being surprised later. A 400-path test would need a mocked session,
     // which this repo's dwh/* route tests don't currently set up (confirmed
-    // against vendedores/cxc/cadencia's own test files, all 401-only).
+    // against the other dwh/* route test files, all 401-only).
     const req = new NextRequest('http://localhost/api/dwh/vendedor-360?salesRepKey=abc');
     const res = await GET(req);
     expect(res.status).toBe(401);

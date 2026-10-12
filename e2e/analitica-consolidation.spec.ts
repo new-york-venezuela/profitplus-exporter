@@ -165,6 +165,21 @@ test.describe('retired tabs (mocked API)', () => {
   test('?tab=matriz-vendedor opens Resumen and the tab is gone from the bar', async ({ adminPage }) => {
     await expectFallsBackToResumen(adminPage, 'matriz-vendedor', 'Matriz Vendedor-Producto');
   });
+
+  test('?tab=cadencia opens Resumen and the tab is gone from the bar', async ({ adminPage }) => {
+    await expectFallsBackToResumen(adminPage, 'cadencia', 'Cadencia');
+  });
+
+  test('the tab bar lists exactly the consolidated tabs, in order', async ({ adminPage }) => {
+    await failAllDwh(adminPage);
+    await adminPage.goto('/analitica');
+    const nav = adminPage.getByRole('navigation', { name: 'Tabs' });
+    await expect(nav.getByRole('button', { name: 'Resumen' })).toBeVisible({ timeout: 15_000 });
+    const labels = (await nav.getByRole('button').allTextContents()).map(t => t.trim());
+    expect(labels).toEqual([
+      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras',
+    ]);
+  });
 });
 
 // @mssql: needs the migrated + loaded DWH (plan A's migration 0040 applied). Excluded from default CI.
