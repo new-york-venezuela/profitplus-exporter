@@ -7,6 +7,7 @@ import posthog from 'posthog-js';
 import type { Currency, DateRange } from './types';
 import { allowedGranularities, resolveGranularity } from './lib/granularity';
 import type { Granularity } from './lib/granularity';
+import { TAB_KEYS, TAB_LABELS, resolveActiveTab, type TabKey } from './lib/tab-keys';
 import TabResumen from './tabs/tab-resumen';
 import TabSeguimiento from './tabs/tab-seguimiento';
 import TabVentas from './tabs/tab-ventas';
@@ -35,25 +36,25 @@ interface TabDef {
   component: ComponentType<TabComponentProps>;
 }
 
-const TABS: TabDef[] = [
-  { key: 'resumen', label: 'Resumen', component: TabResumen },
-  { key: 'seguimiento', label: 'Seguimiento', component: TabSeguimiento },
-  { key: 'ventas', label: 'Ventas', component: TabVentas },
-  { key: 'devoluciones', label: 'Devoluciones', component: TabDevoluciones },
-  { key: 'cxc', label: 'CXC y Cobranzas', component: TabCxc },
-  { key: 'vendedores', label: 'Vendedores', component: TabVendedores },
-  { key: 'clientes', label: 'Clientes', component: TabClientes },
-  { key: 'productos', label: 'Productos', component: TabProductos },
-  { key: 'profundidad', label: 'Profundidad de Línea', component: TabProfundidad },
-  { key: 'matriz-vendedor', label: 'Matriz Vendedor-Producto', component: TabMatrizVendedor },
-  { key: 'cadencia', label: 'Cadencia', component: TabCadencia },
-  { key: 'historico', label: 'Histórico 2025', component: TabHistorico },
-  { key: 'finanzas', label: 'Finanzas', component: TabFinanzas },
-  { key: 'multimoneda', label: 'Multimoneda', component: TabMultimoneda },
-  { key: 'compras', label: 'Compras', component: TabCompras },
-];
+const TAB_COMPONENTS: Record<TabKey, ComponentType<TabComponentProps>> = {
+  resumen: TabResumen,
+  seguimiento: TabSeguimiento,
+  ventas: TabVentas,
+  devoluciones: TabDevoluciones,
+  cxc: TabCxc,
+  vendedores: TabVendedores,
+  clientes: TabClientes,
+  productos: TabProductos,
+  profundidad: TabProfundidad,
+  'matriz-vendedor': TabMatrizVendedor,
+  cadencia: TabCadencia,
+  historico: TabHistorico,
+  finanzas: TabFinanzas,
+  multimoneda: TabMultimoneda,
+  compras: TabCompras,
+};
 
-const DEFAULT_TAB = 'resumen';
+const TABS: TabDef[] = TAB_KEYS.map(key => ({ key, label: TAB_LABELS[key], component: TAB_COMPONENTS[key] }));
 const DEFAULT_DATE_RANGE: DateRange = '30d';
 const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
@@ -129,7 +130,7 @@ function AnaliticaClientInner() {
   const searchParams = useSearchParams();
 
   const tabParam = searchParams.get('tab');
-  const activeTab = TABS.some(t => t.key === tabParam) ? tabParam! : DEFAULT_TAB;
+  const activeTab: string = resolveActiveTab(tabParam);
 
   const dateRangeParam = searchParams.get('dateRange');
   const dateRange: DateRange = isValidDateRange(dateRangeParam) ? dateRangeParam : DEFAULT_DATE_RANGE;
