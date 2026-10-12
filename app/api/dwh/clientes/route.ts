@@ -6,6 +6,9 @@ import {
   jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
 import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
+import {
+  CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope, parseCarteraScope, type CarteraScope,
+} from '@/lib/clientes/scope';
 import type {
   ClientesResponse,
   ClientesRow,
@@ -13,6 +16,7 @@ import type {
   ClientesTrendRow,
   ClientesChurnedResponse,
   ClientesChurnedRow,
+  ClientesFiltersResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -133,7 +137,7 @@ function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): s
 // changed (SCD2) — labelExpr/valueExpr are evaluated against the SAME
 // joined alias the NOT EXISTS lookup correlates on, so this doesn't need a
 // separate "used to be called X" concept.
-function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWhere: string): string {
+function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWhere: string, scopeWhere: string): string {
   const spec = getDimensionSpec(dimension);
   const { innerJoin, condition } = spec.correlate('fs', 'fs2');
   return `
@@ -144,7 +148,7 @@ function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWh
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
-    WHERE fs.IsVoided = 0 ${prevDateWhere}
+    WHERE fs.IsVoided = 0 ${prevDateWhere} ${scopeWhere}
       AND NOT EXISTS (
         SELECT 1 FROM fact.Fact_Sales fs2
         ${innerJoin}
@@ -155,7 +159,7 @@ function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWh
   `;
 }
 
-async function handleChurned(dimension: Dimension, dateRange: string): Promise<NextResponse> {
+async function handleChurned(dimension: Dimension, dateRange: string, scope: CarteraScope): Promise<NextResponse> {
   const prevSalesDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
   if (prevSalesDateWhere === null) {
     const response: ClientesChurnedResponse = { rows: [], available: false };
@@ -169,7 +173,10 @@ async function handleChurned(dimension: Dimension, dateRange: string): Promise<N
   // salesDateWhereFs2 in the main GET handler below.
   const currentSalesDateWhere = buildDateWhereClause(dateRange, 'fs2');
 
-  const churned = await pool.request().query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere));
+  const sc = customerScope(scope, 'c');
+  const req = pool.request();
+  sc.bind(req);
+  const churned = await req.query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere, sc.where));
 
   const rows: ClientesChurnedRow[] = churned.recordset.map(r => ({
     name: r.Name,
@@ -198,7 +205,7 @@ async function handleChurned(dimension: Dimension, dateRange: string): Promise<N
 // new tienda (same LegalEntityKey, new CustomerKey) show up as "no churn,
 // same customer" at the Entidad grain but as a new/incremental customer at
 // the Tienda grain, per the actual business distinction being asked for.
-function trendQuery(dimension: Dimension, widenedDateWhere: string): string {
+function trendQuery(dimension: Dimension, widenedDateWhere: string, scopeWhere: string): string {
   const spec = getDimensionSpec(dimension);
   return `
     WITH CustomerMonth AS (
@@ -206,7 +213,7 @@ function trendQuery(dimension: Dimension, widenedDateWhere: string): string {
       FROM fact.Fact_Sales fs
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
       ${spec.joinClause.replace(/\bf\b/g, 'fs')}
-      WHERE fs.IsVoided = 0 ${widenedDateWhere}
+      WHERE fs.IsVoided = 0 ${widenedDateWhere} ${scopeWhere}
     ),
     MonthList AS (
       SELECT DISTINCT YearMonth FROM CustomerMonth
@@ -241,7 +248,8 @@ function trendQuery(dimension: Dimension, widenedDateWhere: string): string {
   `;
 }
 
-function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDateWhere: string): string {
+// Group/route scope filters the SALES rows by the customer's current attributes; the correlated returns subquery is per entity/tienda and is not scoped (exact at Tienda grain).
+function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDateWhere: string, scopeWhere: string): string {
   const spec = getDimensionSpec(dimension);
   const { innerJoin, condition } = spec.correlate('fs', 'fr2');
   return `
@@ -259,19 +267,19 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     ${spec.joinClause.replace(/\bf\b/g, 'fs')}
-    WHERE fs.IsVoided = 0 ${salesDateWhere}
+    WHERE fs.IsVoided = 0 ${salesDateWhere} ${scopeWhere}
     GROUP BY ${spec.groupByColumn}
     ORDER BY SalesGrossBs DESC
   `;
 }
 
-async function handleTrend(dimension: Dimension, dateRange: string) {
+async function handleTrend(dimension: Dimension, dateRange: string, scope: CarteraScope) {
   const pool = await getDwhPool();
   const minYearMonth = toYearMonth(rangeStart(dateRange));
-  const result = await pool
-    .request()
-    .input('minYearMonth', minYearMonth)
-    .query(trendQuery(dimension, widenedDateWhereClause(dateRange)));
+  const sc = customerScope(scope, 'c');
+  const req = pool.request().input('minYearMonth', minYearMonth);
+  sc.bind(req);
+  const result = await req.query(trendQuery(dimension, widenedDateWhereClause(dateRange), sc.where));
 
   const rows: ClientesTrendRow[] = result.recordset.map(r => {
     const activeCustomersPrevMonth = r.ActiveCustomersPrevMonth === null ? null : Number(r.ActiveCustomersPrevMonth);
@@ -290,6 +298,19 @@ async function handleTrend(dimension: Dimension, dateRange: string) {
   return jsonWithCache(response);
 }
 
+async function handleFilters(): Promise<NextResponse> {
+  const pool = await getDwhPool();
+  const [groups, routes] = await Promise.all([
+    pool.request().query(CLIENTES_GROUPS_QUERY),
+    pool.request().query(CLIENTES_ROUTES_QUERY),
+  ]);
+  const response: ClientesFiltersResponse = {
+    groups: groups.recordset.map(r => ({ value: String(r.Code).trim(), label: String(r.Name).trim() })),
+    routes: routes.recordset.map(r => ({ value: String(r.RouteNumber), label: String(r.ZoneName).trim() })),
+  };
+  return jsonWithCache(response);
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -298,10 +319,19 @@ export async function GET(request: NextRequest) {
   const dateRange = searchParams.get('dateRange') ?? '12m';
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
+  const scope = parseCarteraScope(searchParams);
+
+  if (searchParams.get('section') === 'filters') {
+    try {
+      return await handleFilters();
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
 
   if (searchParams.get('section') === 'trend') {
     try {
-      return await handleTrend(clienteDimension, dateRange);
+      return await handleTrend(clienteDimension, dateRange, scope);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -309,7 +339,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'churned') {
     try {
-      return await handleChurned(clienteDimension, dateRange);
+      return await handleChurned(clienteDimension, dateRange, scope);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -325,7 +355,10 @@ export async function GET(request: NextRequest) {
     // Devoluciones by ORIGINAL factura date (brutas − devoluciones = netas).
     const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2', 'factura');
 
-    const customers = await pool.request().query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere));
+    const sc = customerScope(scope, 'c');
+    const req = pool.request();
+    sc.bind(req);
+    const customers = await req.query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere, sc.where));
 
     // Query already orders by SalesGrossBs DESC, which is the ranking Pareto
     // segmentation needs — walk it once, accumulating cumulative share of

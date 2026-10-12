@@ -4,6 +4,7 @@ import { runDwhMigrations, dwhDatabaseName } from '../../migrate-dwh';
 import { fetchSellerCoverage } from '../../../lib/dwh/seller-coverage';
 import { buildDateWhereClause } from '../../../app/api/dwh/lib/query-builder';
 import { coberturaCustomersQuery } from '../../../lib/clientes/cobertura-sql';
+import { CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope } from '../../../lib/clientes/scope';
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_consolidation_${Date.now()}`;
 
@@ -122,6 +123,8 @@ describe('consolidation queries (disposable DWH)', () => {
     // only the synthetic codes are asserted. C2's old version is not a row.
     expect([...by.keys()].filter(k => k !== 'J-301420608-24').sort()).toEqual(['C1', 'C2', 'C3', 'C4', 'C5']);
     expect(result.recordset).toHaveLength(6);
+    // One row per customer code: a duplicated SCD2 row would collapse inside the Map and hide here.
+    expect(by.size).toBe(result.recordset.length);
     expect(by.get('C1')).toMatchObject({ RouteNumber: 3, GroupCode: 'S1', GroupName: 'Abasto', VisitIntervalDays: 7, InPeriod: 1 });
     // I3 points at C2's OLD key (S2 / route 4): activity counts for C2, attributes come from the CURRENT row (S1 / route 3).
     expect(by.get('C2')).toMatchObject({ RouteNumber: 3, GroupCode: 'S1', VisitIntervalDays: null, InPeriod: 1 });
@@ -129,5 +132,30 @@ describe('consolidation queries (disposable DWH)', () => {
     expect(by.get('C3')).toMatchObject({ InPeriod: 0, VisitIntervalDays: 30, LastDateKey: 20261008 });
     expect(by.get('C4')).toMatchObject({ RouteNumber: null, GroupName: null, RegisteredDate: null, InPeriod: 1 });
     expect(by.get('C5')).toMatchObject({ InPeriod: 0, LastDateKey: null });
+  });
+
+  test('customerScope follows the CURRENT row: an invoice on an old SCD2 version belongs to the current group/route', async () => {
+    const run = async (grupo: string | null, ruta: number | null) => {
+      const scope = customerScope({ grupo, ruta }, 'c');
+      const req = pool.request();
+      scope.bind(req);
+      const r = await req.query(`
+        SELECT RTRIM(c.CustomerCode) AS Code, SUM(fs.NetAmount) AS Bs
+        FROM fact.Fact_Sales fs JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+        WHERE fs.IsVoided = 0 ${scope.where}
+        GROUP BY RTRIM(c.CustomerCode) ORDER BY 1`);
+      return r.recordset.map(x => `${x.Code}:${x.Bs}`);
+    };
+    expect(await run('S1', 3)).toEqual(['C1:1500', 'C2:2000']);   // C2's I3 sits on its old S2/route-4 key but C2 is now S1/route 3
+    expect(await run('S2', null)).toEqual(['C3:1100']);           // not C2: only the current row counts
+    expect(await run(null, 4)).toEqual(['C3:1100']);
+    expect(await run(null, null)).toEqual(['C1:1500', 'C2:2000', 'C3:1100', 'C4:300']);
+  });
+
+  test('filter option queries list only groups/routes with active current customers', async () => {
+    const groups = (await pool.request().query(CLIENTES_GROUPS_QUERY)).recordset;
+    expect(groups.map(g => [String(g.Code).trim(), g.Name])).toEqual([['S1', 'Abasto'], ['S2', 'Restaurante']]);
+    const routes = (await pool.request().query(CLIENTES_ROUTES_QUERY)).recordset;
+    expect(routes.map(r => [r.RouteNumber, r.ZoneName])).toEqual([[3, 'Ruta 3'], [4, 'Ruta 4']]);
   });
 });
