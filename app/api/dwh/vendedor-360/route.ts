@@ -9,7 +9,7 @@ import {
 } from '@/app/api/dwh/lib/query-builder';
 import { resolveQuotaSum } from './quota-resolution';
 import { classifyCustomers, type EntitySaleHistory } from './customer-classification';
-import { GET as getProfundidadLinea } from '@/app/api/dwh/profundidad-linea/route';
+import { fetchSellerCoverage } from '@/lib/dwh/seller-coverage';
 import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import type { ActivacionWeekRow, AgingBucketRow, Seller360Response } from '@/app/(app)/analitica/types';
 
@@ -509,41 +509,18 @@ export async function GET(request: NextRequest) {
       amount: { bs: Number(r.AmountBs), usd: r.AmountUsd === null ? null : Number(r.AmountUsd) },
     }));
 
-    // Section 7: Profundidad — this seller's own SellerCoverageRow, derived
-    // the same way profundidad-linea/route.ts's handleLeaderboard computes
-    // its full leaderboard, but this route only needs one seller's row, so
-    // it queries dim.Dim_SalesRep + a scoped rebuild rather than fetching
-    // every seller. Kept intentionally simple: reruns the unscoped matrix's
-    // tiered-line-set computation (cheap, already the pattern
-    // handleLeaderboard itself uses) and then this one seller's coverage.
+    // Section 7: Profundidad — this seller's own SellerCoverageRow, picked out
+    // of the full leaderboard computed by lib/dwh/seller-coverage.ts
+    // (segment-agnostic: penetration pooled over all active legal entities).
     const sellerNameResult = await pool.request().input('salesRepKey', salesRepKey).query(SELLER_NAME_QUERY);
     const salesRepName = sellerNameResult.recordset[0]?.SalesRepName ? String(sellerNameResult.recordset[0].SalesRepName) : `Vendedor ${salesRepKey}`;
 
-    // profundidad-linea/route.ts's handleLeaderboard is not exported and
-    // returns a NextResponse, not raw data — rather than refactor that
-    // shipped route (out of scope per the spec), this route calls it the
-    // same way any other consumer would: an internal fetch to its own
-    // deployment is unnecessary complexity for a same-process call. Instead,
-    // import and invoke its exported GET handler directly (Next.js Route
-    // Handlers are plain async functions — calling one from another route in
-    // the same process is supported and already how this route imports work).
+    // Coverage is supplementary context on this profile: a failed read must not fail the whole response.
     let coverage: Seller360Response['profundidad']['coverage'] = null;
     try {
-      const leaderboardReq = new NextRequest(
-        `http://localhost/api/dwh/profundidad-linea?section=leaderboard&dateRange=${encodeURIComponent(dateRange)}`,
-        { headers: request.headers },
-      );
-      const leaderboardRes = await getProfundidadLinea(leaderboardReq);
-      if (leaderboardRes.ok) {
-        const leaderboardBody = await leaderboardRes.json() as { rows: Array<Seller360Response['profundidad']['coverage']> };
-        coverage = leaderboardBody.rows.find(r => r?.salesRepKey === salesRepKeyParam) ?? null;
-      }
+      const rows = await fetchSellerCoverage(pool, buildDateWhereClause(dateRange, 'fs'));
+      coverage = rows.find(r => r.salesRepKey === salesRepKeyParam) ?? null;
     } catch {
-      // Profundidad coverage is supplementary context on this profile, not a
-      // hard dependency — if the leaderboard call fails for any reason, the
-      // rest of the profile still renders with coverage: null (UI shows its
-      // existing empty state for this one section), rather than failing the
-      // whole vendedor-360 response.
       coverage = null;
     }
 
