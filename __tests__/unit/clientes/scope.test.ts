@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { customerScope, parseCarteraScope } from '../../../lib/clientes/scope';
+import { customerScope, parseCarteraScope, parseGrupo, parseRuta } from '../../../lib/clientes/scope';
 
 const sp = (q: string) => new URLSearchParams(q);
 
@@ -12,6 +12,27 @@ describe('parseCarteraScope', () => {
     expect(parseCarteraScope(sp("grupo=S1' OR '1'='1&ruta=3;DROP"))).toEqual({ grupo: null, ruta: null });
     expect(parseCarteraScope(sp('grupo=TOOLONGCODE&ruta=12345'))).toEqual({ grupo: null, ruta: null });
     expect(parseCarteraScope(sp('ruta=0'))).toEqual({ grupo: null, ruta: 0 });
+  });
+});
+
+describe('parseGrupo / parseRuta (shared by /api/dwh/clientes and /api/dwh/clientes/cobertura)', () => {
+  test('group: trimmed; letters, digits, _ and - up to 6 chars; anything else is no filter (null)', () => {
+    expect(parseGrupo(' S1 ')).toBe('S1');
+    expect(parseGrupo('AB_-9z')).toBe('AB_-9z');
+    expect(parseGrupo('')).toBeNull();
+    expect(parseGrupo(null)).toBeNull();
+    expect(parseGrupo('TOOLONG')).toBeNull();
+    expect(parseGrupo("S1'--")).toBeNull();
+    expect(parseGrupo('S 1')).toBeNull();
+  });
+  test('route: 1-3 digits, else null', () => {
+    expect(parseRuta('3')).toBe(3);
+    expect(parseRuta(' 3 ')).toBe(3);
+    expect(parseRuta('1234')).toBeNull();
+    expect(parseRuta(null)).toBeNull();
+  });
+  test('parseCarteraScope trims a padded group', () => {
+    expect(parseCarteraScope(sp('grupo=%20S1%20'))).toEqual({ grupo: 'S1', ruta: null });
   });
 });
 

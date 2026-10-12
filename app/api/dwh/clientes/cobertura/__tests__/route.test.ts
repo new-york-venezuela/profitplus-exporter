@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { NextRequest } from 'next/server';
+import * as XLSX from 'xlsx';
 
 interface Captured { sql: string; inputs: Record<string, unknown> }
 const queries: Captured[] = [];
@@ -91,6 +92,19 @@ describe('GET /api/dwh/clientes/cobertura', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toContain('spreadsheetml');
     expect(res.headers.get('Content-Disposition')).toContain('cobertura-clientes-');
+  });
+
+  test('xlsx grupo uses the shared parser: trimmed, and an invalid code means no group filter', async () => {
+    const codes = async (qs: string) => {
+      const res = await get(`format=xlsx&dateRange=month:2026-10&${qs}`);
+      const wb = XLSX.read(new Uint8Array(await res.arrayBuffer()), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
+      return rows.map(r => r['Código']).sort();
+    };
+    expect(await codes('grupo=%20S2%20')).toEqual(['C2']);
+    expect(await codes("grupo=S2'%20OR%20'1'='1")).toEqual(['C1', 'C2', 'C3']);
+    expect(await codes('grupo=TOOLONGCODE')).toEqual(['C1', 'C2', 'C3']);
+    expect(await codes('ruta=%204%20')).toEqual(['C2']);
   });
 
   test('a database error is a 500 with the standard error shape', async () => {

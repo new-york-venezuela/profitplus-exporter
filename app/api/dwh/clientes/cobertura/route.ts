@@ -3,6 +3,7 @@ import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { buildDateWhereClause, jsonWithCache, rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
 import { COBERTURA_MONTHLY_QUERY, coberturaCustomersQuery } from '@/lib/clientes/cobertura-sql';
+import { parseCarteraScope } from '@/lib/clientes/scope';
 import { buildXlsx } from '@/lib/xlsx';
 import {
   LAPSED_AFTER_DAYS, averageOverInvoicedMonths, classifyCoverage, compareDaysSince, filterCobertura,
@@ -45,7 +46,6 @@ export async function GET(request: NextRequest) {
   const format = searchParams.get('format');
   const statusParam = searchParams.get('status');
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const rutaParam = searchParams.get('ruta');
   const visitParam = searchParams.get('visit');
 
   try {
@@ -109,8 +109,8 @@ export async function GET(request: NextRequest) {
       const filtered = filterCobertura(rows, {
         sellerCode: searchParams.get('seller'),
         status: isStatus(statusParam) ? statusParam : null,
-        grupo: searchParams.get('grupo'),
-        ruta: rutaParam && /^\d{1,3}$/.test(rutaParam) ? Number(rutaParam) : null,
+        // Same grupo/ruta parser as /api/dwh/clientes: trimmed, malformed = no filter.
+        ...parseCarteraScope(searchParams),
         visit: visitParam === 'overdue' || visitParam === 'no_interval' ? visitParam : null,
         inactiveInPeriod: searchParams.get('inactive') === '1',
       });

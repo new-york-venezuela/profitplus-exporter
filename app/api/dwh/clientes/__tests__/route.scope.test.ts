@@ -31,6 +31,10 @@ describe('GET /api/dwh/clientes scope', () => {
     expect(q.sql).toContain('@scopeRuta');
     expect(q.inputs).toMatchObject({ scopeGrupo: 'S1', scopeRuta: 3 });
   });
+  test('a padded group code is trimmed by the shared parser', async () => {
+    await get('dateRange=month:2026-10&grupo=%20S1%20');
+    expect(queries[0].inputs).toMatchObject({ scopeGrupo: 'S1' });
+  });
   test('no scope params: the SQL is unchanged', async () => {
     await get('dateRange=month:2026-10');
     expect(queries[0].sql).not.toContain('cur_s');

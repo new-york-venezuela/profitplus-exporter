@@ -7,10 +7,22 @@ const GRUPO_RE = /^[A-Za-z0-9_-]{1,6}$/;
 const RUTA_RE = /^\d{1,3}$/;
 const ALIAS_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
 
+// The ONE parser for the `grupo` / `ruta` query params, shared by /api/dwh/clientes (SQL scope) and
+// /api/dwh/clientes/cobertura (in-memory filter + xlsx). Behaviour: the value is trimmed; a group code is
+// 1-6 letters, digits, '_' or '-' (saSegmento.co_seg / Dim_Segment.ErpSegmentCode, compared RTRIMmed); a
+// route is 1-3 digits. Anything missing or malformed means "no filter" (null), never an error.
+export function parseGrupo(raw: string | null | undefined): string | null {
+  const g = (raw ?? '').trim();
+  return GRUPO_RE.test(g) ? g : null;
+}
+
+export function parseRuta(raw: string | null | undefined): number | null {
+  const r = (raw ?? '').trim();
+  return RUTA_RE.test(r) ? Number(r) : null;
+}
+
 export function parseCarteraScope(sp: URLSearchParams): CarteraScope {
-  const g = (sp.get('grupo') ?? '').trim();
-  const r = sp.get('ruta') ?? '';
-  return { grupo: GRUPO_RE.test(g) ? g : null, ruta: RUTA_RE.test(r) ? Number(r) : null };
+  return { grupo: parseGrupo(sp.get('grupo')), ruta: parseRuta(sp.get('ruta')) };
 }
 
 export interface CustomerScopeSql {
