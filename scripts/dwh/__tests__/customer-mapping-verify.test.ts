@@ -21,9 +21,7 @@ function testConfig(database: string): sql.config {
 }
 
 const row = (coCli: string, coVen: string): MappingRow => ({
-  coCli, nombre: 'X', coVen, grupo: 'G', ruta: 5, frecuencia: 'SEMANAL',
-  effectiveFrom: '2026-03-01', sourceNote: '',
-});
+  coCli, nombre: 'X', coVen, grupo: 'G', ruta: 5, frecuencia: 'SEMANAL' });
 
 describe('findSellerMismatches', () => {
   let pool: sql.ConnectionPool;

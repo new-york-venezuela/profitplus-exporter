@@ -5,19 +5,21 @@ import { getPool } from '@/lib/db/mssql';
 import { getDb } from '@/lib/db/sqlite';
 import { applyPlan, rollbackRun } from '@/lib/customer-mapping/apply';
 import { csvToMapping } from '@/lib/customer-mapping/csv';
-import { assertConfirmedDb, deriveSince, diffCsv } from '@/lib/customer-mapping/diff-csv';
-import { checkCoherence } from '@/lib/customer-mapping/route-owners';
+import { assertConfirmedDb, diffCsv } from '@/lib/customer-mapping/diff-csv';
 import { findRouteMismatches, findSellerMismatches, runDwhRestateLoads } from '@/lib/customer-mapping/dwh';
 import { mssqlGateway } from '@/lib/customer-mapping/erp';
 import { buildPlan } from '@/lib/customer-mapping/plan';
 import { sqliteRunStore } from '@/lib/customer-mapping/runs-repo';
+import { MAPPING_SINCE } from '@/lib/customer-mapping/types';
 import { buildConfig, dwhDatabaseName } from './migrate-dwh';
 
-const USAGE = `Uso:
-  bun run mapping:apply -- --file data/customer-mapping/2026-03.csv                       # simulación (por defecto)
-  bun run mapping:apply -- --file ... --apply --confirm-db <DB_NAME> [--no-dwh]           # aplica
-  bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>                       # revierte
-  bun run mapping:apply -- --file ... --verify                                             # compara el CSV (coherencia) y el DWH (hechos y Dim_Customer)`;
+const DEFAULT_FILE = 'data/customer-mapping/2026-03.csv';
+
+const USAGE = `Uso (el mapeo es el archivo versionado ${DEFAULT_FILE}; --file lo reemplaza):
+  bun run mapping:apply                                          # simulación (por defecto)
+  bun run mapping:apply -- --apply --confirm-db <DB_NAME> [--no-dwh]   # aplica
+  bun run mapping:apply -- --rollback <runId> --confirm-db <DB_NAME>   # revierte
+  bun run mapping:apply -- --verify                              # compara el mapeo con el DWH (hechos y Dim_Customer)`;
 
 async function main() {
   const { values } = parseArgs({
@@ -25,10 +27,11 @@ async function main() {
       file: { type: 'string' }, apply: { type: 'boolean', default: false },
       rollback: { type: 'string' }, 'confirm-db': { type: 'string' },
       'no-dwh': { type: 'boolean', default: false }, verify: { type: 'boolean', default: false },
+      help: { type: 'boolean', default: false },
     },
   });
+  if (values.help) { console.log(USAGE); return; }
   if (values.apply || values.rollback) assertConfirmedDb(values['confirm-db'], process.env.DB_NAME);
-  if (!values.rollback && !values.file) throw new Error(USAGE);
 
   const erpPool = await getPool();
   let dwhPool: sql.ConnectionPool | undefined;
@@ -47,18 +50,12 @@ async function main() {
       return;
     }
 
-    const file = values.file as string;
+    const file = values.file ?? DEFAULT_FILE;
     const { rows, errors } = csvToMapping(await readFile(file, 'utf8'));
     if (errors.length) throw new Error(`CSV inválido:\n${errors.join('\n')}`);
-    const since = deriveSince(rows);
+    const since = MAPPING_SINCE;
 
     if (values.verify) {
-      const incoherent = checkCoherence(rows);
-      console.log(incoherent.length
-        ? `${incoherent.length} excepciones de coherencia ruta/vendedor en el CSV:`
-        : 'Ruta y vendedor coherentes en el CSV.');
-      for (const i of incoherent) console.log(`  ✗ [${i.kind}] ${i.coCli}: ${i.detail}`);
-
       const dwh = await getDwh();
       const sinceKey = Number(since.replaceAll('-', ''));
       const bad = await findSellerMismatches(dwh, rows, sinceKey);
@@ -67,7 +64,7 @@ async function main() {
       const badDim = await findRouteMismatches(dwh, rows);
       console.log(badDim.length ? `${badDim.length} diferencias de ruta/frecuencia/vendedor en Dim_Customer:` : 'Dim_Customer coincide con el mapeo.');
       console.table(badDim.slice(0, 30));
-      process.exitCode = incoherent.length || bad.length || badDim.length ? 1 : 0;
+      process.exitCode = bad.length || badDim.length ? 1 : 0;
       return;
     }
 
@@ -95,7 +92,7 @@ async function main() {
     if (!values['no-dwh']) {
       const dwh = await getDwh();
       await runDwhRestateLoads(dwh);
-      console.log('DWH actualizado. Verifique con: bun run mapping:apply -- --file ' + file + ' --verify');
+      console.log('DWH actualizado. Verifique con: bun run mapping:apply -- --verify');
     }
   } finally {
     await dwhPool?.close();

@@ -3,7 +3,7 @@ import { compareRouteDim, type DimRouteRow } from '../../../lib/customer-mapping
 import type { MappingRow } from '../../../lib/customer-mapping/types';
 
 const row = (o: Partial<MappingRow>): MappingRow => ({
-  coCli: 'J1', nombre: 'x', coVen: '7', grupo: 'G', ruta: 5, frecuencia: 'SEMANAL', effectiveFrom: '2026-03-01', sourceNote: '', ...o,
+  coCli: 'J1', nombre: 'x', coVen: '7', grupo: 'G', ruta: 5, frecuencia: 'SEMANAL', ...o,
 });
 const dim = (o: Partial<DimRouteRow>): DimRouteRow => ({ coCli: 'J1', zone: 'CCS005', frequency: 'SEMANAL', rep: '000007', ...o });
 

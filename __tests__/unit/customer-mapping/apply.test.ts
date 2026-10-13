@@ -52,9 +52,7 @@ function fakeStore(): RunStore & { all: Map<string, RunRecord> } {
 const T = 'srv/DB1';
 
 const rows: MappingRow[] = [{
-  coCli: 'J1', nombre: 'Uno', coVen: '15', grupo: 'Abasto', ruta: 5, frecuencia: 'QUINCENAL',
-  effectiveFrom: '2026-03-01', sourceNote: '',
-}];
+  coCli: 'J1', nombre: 'Uno', coVen: '15', grupo: 'Abasto', ruta: 5, frecuencia: 'QUINCENAL' }];
 
 async function planFrom(erp: ErpGateway) {
   return buildPlan({

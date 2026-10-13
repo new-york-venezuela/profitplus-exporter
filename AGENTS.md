@@ -79,8 +79,8 @@ lib/
   pricing/promo-status.ts, timeline.ts, dates.ts — promotion status, timeline data, date-only helpers (YYYY-MM-DD)
   pricing/health.ts, health-loader.ts, health-repo.ts — pure expiry checks, live report loader, sweep heartbeat + alert settings/log
   pricing/digest.ts       — composeDigest()/sendDigest(): daily expiry email (template pricing-expiry-digest)
-  customer-mapping/types, codes, csv, build, workbook — mapping rows (co_cli, nombre, co_ven, grupo, ruta, frecuencia, ...), code normalization, CSV/xlsx I/O for the master AND the tracking workbook (`mapping:build`)
-  customer-mapping/frequency.ts, route-zones.ts, route-owners.ts — visit-frequency enum, route zone codes (CCSnnn), route-owner derivation and coherence check (pure; shared by build, plan, verify)
+  customer-mapping/types, codes, csv — mapping row (co_cli, nombre, co_ven, grupo, ruta, frecuencia), `MAPPING_SINCE`, code normalization, reader for the committed `data/customer-mapping/2026-03.csv`
+  customer-mapping/frequency.ts, route-zones.ts — visit-frequency enum, route zone codes (CCSnnn)
   customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`, zones to create, route/frequency changes
   customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots; route procs pApiInsertarZona / pApiActualizarRutaCliente / pApiRestaurarRutaCliente
   customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
@@ -435,7 +435,7 @@ one active customer; inactive ones, flagged `inactive`, are excluded).
 
 ## Routes and visit frequency
 
-A route is a `saZona` row coded `CCSnnn` (nnn = the route number in the business's tracking workbook; `char(6)`, so no hyphen — legacy `CCS-NN` zones are never reused). A customer's route is `saCliente.co_zon`, its visit frequency `saCliente.frecu_vist` (`SEMANAL`/`QUINCENAL`/`MENSUAL`). There is no seller x route table: a route's owner is the seller with most of its customers (`deriveRouteOwners`); `mapping:build` assigns it to every customer on the route, and `mapping:apply` refuses a customer without route or seller, or whose seller is not the route owner. In the DWH read the CURRENT `dim.Dim_Customer` row by `CustomerCode` for route/frequency/seller (a change versions the row). "Patrimonio" vs "new customer" is derived from `Dim_Customer.RegisteredDate` / `IsMigrationBatch` (`lib/dwh/cutover.ts`), never stored.
+A route is a `saZona` row coded `CCSnnn` (nnn = the route number in `data/customer-mapping/2026-03.csv`; `char(6)`, so no hyphen — legacy `CCS-NN` zones are never reused). A customer's route is `saCliente.co_zon`, its visit frequency `saCliente.frecu_vist` (`SEMANAL`/`QUINCENAL`/`MENSUAL`). There is no seller x route table and no seller/route coherence rule: `mapping:apply` gives each customer the seller, group and route written in its own row of the committed CSV (a blank seller or route leaves that field alone). In the DWH read the CURRENT `dim.Dim_Customer` row by `CustomerCode` for route/frequency/seller (a change versions the row). "Patrimonio" vs "new customer" is derived from `Dim_Customer.RegisteredDate` / `IsMigrationBatch` (`lib/dwh/cutover.ts`), never stored.
 
 ## Pricing (`/pricing`)
 

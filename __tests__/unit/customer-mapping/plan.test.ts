@@ -4,8 +4,7 @@ import type { ErpCustomerState } from '../../../lib/customer-mapping/erp';
 import type { MappingRow } from '../../../lib/customer-mapping/types';
 
 const row = (o: Partial<MappingRow> = {}): MappingRow => ({
-  coCli: 'J1', nombre: 'Uno', coVen: '15', grupo: 'Abasto', ruta: 5, frecuencia: 'SEMANAL',
-  effectiveFrom: '2026-03-01', sourceNote: '', ...o,
+  coCli: 'J1', nombre: 'Uno', coVen: '15', grupo: 'Abasto', ruta: 5, frecuencia: 'SEMANAL', ...o,
 });
 const state = (o: Partial<ErpCustomerState> = {}): ErpCustomerState =>
   ({ coCli: 'J1', coVen: '7', coSeg: '0001', coZon: 'CCS', frecuVist: null, ...o });
@@ -58,9 +57,12 @@ describe('buildPlan', () => {
     const p = buildPlan(input({ rows: [row({ coVen: '99' })] }));
     expect(p.problems.map(x => x.kind)).toContain('unknown_seller');
   });
-  test('a blank seller is a missing_seller problem (apply refuses it)', () => {
+  test('a blank seller leaves the customer and its documents alone but still sets group and route', () => {
     const p = buildPlan(input({ rows: [row({ coVen: '' })] }));
-    expect(p.problems.map(x => x.kind)).toContain('missing_seller');
+    expect(p.problems).toEqual([]);
+    expect(p.customerSeller).toEqual([]);
+    expect(p.docSeller).toEqual([]);
+    expect(p.customerRoute).toHaveLength(1);
   });
   test('missing group is created with a generated code and used for the customer', () => {
     const p = buildPlan(input({ rows: [row({ grupo: 'Tienda Online' })] }));
@@ -124,20 +126,18 @@ describe('buildPlan', () => {
     expect(p.zonesToCreate).toEqual([{ coZon: 'CCS011', zonDes: 'Ruta 11' }]);
     expect(p.customerRoute[0].toZon).toBe('CCS011');
   });
-  test('coherence problems block the plan: no route, seller not route owner, tied route', () => {
-    const noRoute = buildPlan(input({ rows: [row({ ruta: null })] }));
-    expect(noRoute.problems.map(x => x.kind)).toContain('missing_route');
-    expect(noRoute.customerRoute).toEqual([]);
-
-    const rows = [row({ coCli: 'J1', coVen: '15' }), row({ coCli: 'J2', coVen: '15' }), row({ coCli: 'J3', coVen: '7' })];
-    const customers = new Map(rows.map(r => [r.coCli, state({ coCli: r.coCli })]));
-    const stray = buildPlan(input({ rows, customers, docs: [] }));
-    expect(stray.problems).toEqual([
-      { kind: 'seller_not_route_owner', coCli: 'J3', detail: expect.stringContaining('ruta 5') },
-    ]);
-
-    const tie = buildPlan(input({ rows: rows.slice(1).map((r, i) => ({ ...r, coVen: i === 0 ? '15' : '7' })), customers, docs: [] }));
-    expect(tie.problems.map(x => x.kind)).toEqual(['route_without_owner', 'route_without_owner']);
+  test('a blank route leaves the zone alone', () => {
+    const p = buildPlan(input({ rows: [row({ ruta: null })] }));
+    expect(p.problems).toEqual([]);
+    expect(p.customerRoute).toEqual([]);
+    expect(p.zonesToCreate).toEqual([]);
+  });
+  test('sellers need not match the route owner: each customer takes its own seller', () => {
+    const rows = [row({ coCli: 'J1', coVen: '15' }), row({ coCli: 'J2', coVen: '7' })];
+    const customers = new Map(rows.map(r => [r.coCli, state({ coCli: r.coCli, coVen: '99' })]));
+    const p = buildPlan(input({ rows, customers, docs: [] }));
+    expect(p.problems).toEqual([]);
+    expect(p.customerSeller.map(c => [c.coCli, c.to])).toEqual([['J1', '000015'], ['J2', '7']]);
   });
 });
 

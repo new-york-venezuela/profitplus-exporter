@@ -1,7 +1,6 @@
 import { looseCustomerKey, resolveSeller } from './codes';
 import type { DocKind, ErpCustomerState, SellerDoc } from './erp';
 import type { VisitFrequency } from './frequency';
-import { checkCoherence, type CoherenceKind } from './route-owners';
 import { routeZoneCode, routeZoneName } from './route-zones';
 import type { MappingRow } from './types';
 
@@ -16,7 +15,7 @@ export interface PlanInput {
 }
 
 export interface PlanProblem {
-  kind: 'unknown_customer' | 'unknown_seller' | 'duplicate_mapping_row' | CoherenceKind;
+  kind: 'unknown_customer' | 'unknown_seller' | 'duplicate_mapping_row';
   coCli: string;
   detail: string;
 }
@@ -58,12 +57,8 @@ export function buildPlan(input: PlanInput): Plan {
     docsByCustomer.set(d.coCli, list);
   }
 
-  // Coherence runs over the first row of each customer (later duplicates are reported separately).
   const unique = new Map<string, MappingRow>();
   for (const r of input.rows) if (!unique.has(r.coCli)) unique.set(r.coCli, r);
-  for (const i of checkCoherence([...unique.values()])) {
-    plan.problems.push({ kind: i.kind, coCli: i.coCli, detail: i.detail });
-  }
   const routes = [...new Set([...unique.values()].filter(r => r.ruta != null).map(r => r.ruta!))].sort((a, b) => a - b);
   for (const n of routes) {
     const coZon = routeZoneCode(n);
