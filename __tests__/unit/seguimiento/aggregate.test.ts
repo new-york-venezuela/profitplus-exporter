@@ -88,6 +88,9 @@ describe('buildSeguimiento: vendedor roots', () => {
     expect(out.total.customerCount).toBe(3);
     expect(out.total.sales).toEqual({ bs: 3900, usd: 78 });
     expect(out.total.excludedSales).toEqual({ bs: 9000, usd: 180 });
+    // (3900 + 9000) Bs and (78 + 180) USD projected at 22 working days / 10 elapsed; attainment still ignores consignment.
+    expect(out.total.projectedWithConsignment!.bs).toBeCloseTo(12900 * 2.2, 6);
+    expect(out.total.projectedWithConsignment!.usd).toBeCloseTo(258 * 2.2, 6);
     expect(out.total.salesQuotaUsd).toBe(150);
     expect(out.total.weeks[1]).toMatchObject({ active: 2, assigned: 3 });
     expect(out.total.newCustomers).toEqual({ count: 1, quota: 1, partial: true });

@@ -5,10 +5,10 @@ import posthog from 'posthog-js';
 import type { RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { KpiCard } from '../components/kpi-card';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
-import { monthLabel, pct } from '../components/seguimiento/fmt';
+import { addDuals, monthLabel, pct } from '../components/seguimiento/fmt';
 import { CustomerList, overdueLabel, RootCard, RootTable } from '../components/seguimiento/root-views';
 import { MonthPaceStrip } from '../components/seguimiento/visuals';
-import { moneyLabel, usdLabel } from '../lib/format';
+import { moneyLabel, priceLabel, usdLabel } from '../lib/format';
 import type { Currency, DateRange } from '../types';
 import SellerProfile from './seller-profile';
 
@@ -228,7 +228,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         <div>
           <h2 className="text-lg font-bold text-gray-900">Seguimiento de ventas</h2>
           <p className="text-xs text-gray-500">
-            {monthLabel(data.month)} · al {data.asOf}. Ventas brutas sin IVA, sin consignación a nivel de cadena; meta y proyección del mes.
+            {monthLabel(data.month)} · al {data.asOf}. Ventas brutas sin IVA; la consignación a nivel de cadena (varios vendedores) se muestra aparte; meta y proyección del mes.
           </p>
           <div className="mt-1"><MonthPaceStrip pace={data.pace} /></div>
         </div>
@@ -236,7 +236,14 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiCard label="Ventas brutas" value={moneyLabel(total.sales, currency)} subtitle={total.avgPrice ? `Precio prom. ${moneyLabel(total.avgPrice, currency)}` : undefined} />
+        <KpiCard
+          label="Ventas brutas"
+          value={moneyLabel(total.sales, currency)}
+          subtitle={[
+            total.avgPrice ? `Precio prom. ${priceLabel(total.avgPrice, currency)}` : null,
+            rootsWithExcluded.length > 0 ? `Con consignación: ${moneyLabel(addDuals(total.sales, total.excludedSales), currency)}` : null,
+          ].filter(Boolean).join(' · ') || undefined}
+        />
         <KpiCard
           label="Meta de ventas (USD)"
           value={total.salesQuotaUsd === null ? 'Sin meta' : usdLabel(total.salesQuotaUsd)}
@@ -246,7 +253,10 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         <KpiCard
           label="Proyección al cierre"
           value={total.projected ? moneyLabel(total.projected, currency) : '—'}
-          subtitle={total.projectedAttainment === null ? undefined : `${pct(total.projectedAttainment)} de la meta`}
+          subtitle={[
+            total.projectedAttainment === null ? null : `${pct(total.projectedAttainment)} de la meta`,
+            total.projectedWithConsignment && rootsWithExcluded.length > 0 ? `Con consignación: ${moneyLabel(total.projectedWithConsignment, currency)}` : null,
+          ].filter(Boolean).join(' · ') || undefined}
         />
         <KpiCard
           label="Clientes activos (semana actual)"
@@ -306,7 +316,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
           <h3 className="text-sm font-bold text-gray-900 mb-1">Facturas excluidas — patrón de consignación</h3>
           <p className="text-xs text-gray-500 mb-3">
             Facturas emitidas de forma agregada a nivel de cadena (no por tienda): no es posible atribuir de forma confiable qué
-            vendedor generó la venta. Se excluyen de las ventas, la meta y la activación de arriba en vez de estimarse.
+            vendedor generó la venta. No se suman a las ventas por vendedor, la meta ni la activación de arriba en vez de estimarse; se muestran como «Con consignación» en Ventas brutas y en la proyección.
           </p>
           <ul className="space-y-2">
             {rootsWithExcluded.map(root => (

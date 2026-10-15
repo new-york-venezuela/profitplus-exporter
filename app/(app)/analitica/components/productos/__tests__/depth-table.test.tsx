@@ -20,7 +20,7 @@ describe('DepthTable', () => {
     expect(first[1]).toContain('8');
     expect(first[1]).toContain('80.0%');
     expect(first[3]).toBe('Primera línea');
-    expect(first[4]).toBe('$1');
+    expect(first[4]).toBe('$1.00');
     const second = within(rows[1]).getAllByRole('cell').map(c => c.textContent);
     expect(second[3]).toBe('Addon');
     expect(second[6]).toBe('—');                                 // null return rate

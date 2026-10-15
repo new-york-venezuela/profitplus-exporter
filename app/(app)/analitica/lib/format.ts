@@ -15,6 +15,14 @@ export function moneyLabel(amount: DualAmount, currency: Currency): string {
   return `${currency === 'usd' ? '$' : 'Bs. '}${money(amount, currency)}`;
 }
 
+// Unit and average prices need cents: money() rounds to whole units, which hides real differences between products.
+export function priceLabel(amount: DualAmount, currency: Currency): string {
+  const n = currency === 'usd' ? amount.usd : amount.bs;
+  if (n === null) return '—';
+  const format = new Intl.NumberFormat(currency === 'usd' ? 'en-US' : 'es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${currency === 'usd' ? '$' : 'Bs. '}${format.format(n)}`;
+}
+
 // Recharts already hands this a single already-selected number (the chart's
 // data-mapping step picks .bs/.usd before the chart renders — see every
 // tab's chartData useMemo) — this formats that bare number/array, it does

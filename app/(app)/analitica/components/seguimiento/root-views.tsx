@@ -4,7 +4,7 @@ import { Fragment, type ReactNode } from 'react';
 import type {
   RootMetrics, SeguimientoCustomer, SeguimientoInvoiceLine, SeguimientoRoot, WeekHeader,
 } from '@/lib/seguimiento/types';
-import { moneyLabel, usdLabel } from '../../lib/format';
+import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { num, pct } from './fmt';
 import { MixBar, NewCustomersChip, QuotaBar, VisitBadge, WeekDots, WeekStrip } from './visuals';
@@ -63,7 +63,7 @@ export function RootCard({
         </div>
         <div className="space-y-1">
           <div className="text-xs text-gray-600">
-            Precio prom.: <span className="font-medium text-gray-900">{metrics.avgPrice ? moneyLabel(metrics.avgPrice, currency) : '—'}</span>
+            Precio prom.: <span className="font-medium text-gray-900">{metrics.avgPrice ? priceLabel(metrics.avgPrice, currency) : '—'}</span>
           </div>
           <div className="text-xs text-gray-600">Visitas: <span className="font-medium text-gray-900">{overdueLabel(metrics)}</span></div>
         </div>
@@ -101,7 +101,7 @@ export function InvoiceLines({ lines, currency }: { lines: SeguimientoInvoiceLin
                 <td className="pr-3 py-0.5">{l.productName}</td>
                 <td className="pr-3 py-0.5">{l.lineName ?? '—'}</td>
                 <td className="text-right pr-3 py-0.5">{num(l.quantity)}</td>
-                <td className="text-right pr-3 py-0.5">{l.unitPrice ? moneyLabel(l.unitPrice, currency) : '—'}</td>
+                <td className="text-right pr-3 py-0.5">{l.unitPrice ? priceLabel(l.unitPrice, currency) : '—'}</td>
                 <td className="text-right py-0.5">{moneyLabel(l.amount, currency)}</td>
               </tr>
             ))}
@@ -180,7 +180,7 @@ export function RootTable({
       <td className="px-3 py-2 text-right">{m.salesQuotaUsd === null ? '—' : usdLabel(m.salesQuotaUsd)}</td>
       <td className="px-3 py-2 text-right">{pct(m.attainment)}</td>
       <td className="px-3 py-2 text-right">{m.projected ? moneyLabel(m.projected, currency) : '—'}</td>
-      <td className="px-3 py-2 text-right">{m.avgPrice ? moneyLabel(m.avgPrice, currency) : '—'}</td>
+      <td className="px-3 py-2 text-right">{m.avgPrice ? priceLabel(m.avgPrice, currency) : '—'}</td>
       {m.weeks.map(w => <td key={w.yearWeek} className="px-3 py-2 text-right">{pct(w.pct)}</td>)}
       <td className="px-3 py-2 text-right">{m.newCustomers.count}{m.newCustomers.quota === null ? '' : ` / ${m.newCustomers.quota}`}</td>
       <td className="px-3 py-2 text-right">{overdueLabel(m)}</td>

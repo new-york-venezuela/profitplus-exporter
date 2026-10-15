@@ -28,6 +28,8 @@ export interface RootMetrics {
   attainment: number | null;
   projected: Dual | null;
   projectedAttainment: number | null;
+  /** Same linear projection over sales + consignment; no attainment, the quota does not cover consignment. */
+  projectedWithConsignment: Dual | null;
   weeklyVisitQuota: number | null;
   weeks: WeekCell[];
   mix: MixSegment[];

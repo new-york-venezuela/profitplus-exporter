@@ -1,6 +1,6 @@
 'use client';
 
-import { moneyLabel } from '../../lib/format';
+import { priceLabel } from '../../lib/format';
 import type { Currency, ProfundidadLineaRow } from '../../types';
 import type { DepthTier } from '@/lib/dwh/depth-tier';
 
@@ -59,7 +59,7 @@ export function DepthTable({ rows, currency, hideTier = false }: { rows: Profund
                   ? <span className="text-gray-400" title="Sin clasificación con una tienda seleccionada">—</span>
                   : <span className={`inline-block px-2 py-0.5 rounded text-xs ${TIER_CLASS[row.tier]}`}>{TIER_LABEL[row.tier]}</span>}
               </td>
-              <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.avgMonthlyPrice, currency)}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{priceLabel(row.avgMonthlyPrice, currency)}</td>
               <td className="px-3 py-2 text-right text-gray-600">{qty(row.avgMonthlyUnits)}</td>
               <td className="px-3 py-2 text-right text-gray-600">{pct(row.returnRate)}</td>
             </tr>

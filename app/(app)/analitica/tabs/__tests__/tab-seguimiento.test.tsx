@@ -138,6 +138,13 @@ describe('TabSeguimiento', () => {
     expect(urls().some(u => u.includes('section=excluded') && u.includes('rootValue=2'))).toBe(true);
   });
 
+  test('Ventas brutas shows the total including consignment in its subtitle', async () => {
+    await loaded();
+    const card = screen.getByText('Ventas brutas').parentElement!;
+    expect(within(card).getByText(/Con consignación:/)).toBeTruthy();
+    expect(screen.queryByText('Consignación (varios vendedores)')).toBeNull();
+  });
+
   test('Bs currency shows Bs sales, but every figure compared with the USD goal stays in USD', async () => {
     await loaded('bs');
     expect(screen.getAllByText(/^Bs\. /).length).toBeGreaterThan(0);             // KPI "Ventas brutas"
