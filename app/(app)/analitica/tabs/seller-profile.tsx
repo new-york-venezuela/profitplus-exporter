@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { addDuals, monthLabel, pct } from '../components/seguimiento/fmt';
+import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt';
 import { moneyLabel, usdLabel } from '../lib/format';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { CustomerList, overdueLabel } from '../components/seguimiento/root-views';
@@ -276,7 +276,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <VerdictCard
               label="Ventas del mes"
               value={moneyLabel(root.sales, currency)}
@@ -293,6 +293,20 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
               status={ratioStatus(root.projectedAttainment)}
               chip={root.projectedAttainment === null ? 'Sin meta' : `${pct(root.projectedAttainment)} de la meta`}
               subtitle={hasConsignment && root.projectedWithConsignment ? `Con consignación: ${moneyLabel(root.projectedWithConsignment, currency)}` : undefined}
+            />
+            <VerdictCard
+              label="Unidades vendidas"
+              value={units(root.units)}
+              status="none"
+              chip="Sin meta"
+              subtitle={hasConsignment && root.unitsWithConsignment != null ? `Con consignación: ${units(root.unitsWithConsignment)}` : undefined}
+            />
+            <VerdictCard
+              label="Proyección de unidades"
+              value={units(root.projectedUnits)}
+              status="none"
+              chip="Sin meta"
+              subtitle={hasConsignment && root.projectedUnitsWithConsignment != null ? `Con consignación: ${units(root.projectedUnitsWithConsignment)}` : undefined}
             />
             <VerdictCard
               label="Clientes activos (semana actual)"

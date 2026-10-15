@@ -44,6 +44,7 @@ describe('buildSeguimiento: vendedor roots', () => {
     expect(ana.attainment).toBeCloseTo(0.7, 10);
     expect(ana.projected!.usd).toBeCloseTo(154, 10);
     expect(ana.projectedAttainment).toBeCloseTo(1.54, 10);
+    expect(ana.projectedUnits).toBeCloseTo(35 * 2.2, 10);               // 35 units at 22 working days / 10 elapsed
     expect(ana.quotaShared).toBe(false);
     expect(ana.salesRepKey).toBe('1');
     expect(ana.targets).toEqual({ salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 });
@@ -91,6 +92,9 @@ describe('buildSeguimiento: vendedor roots', () => {
     // (3900 + 9000) Bs and (78 + 180) USD projected at 22 working days / 10 elapsed; attainment still ignores consignment.
     expect(out.total.projectedWithConsignment!.bs).toBeCloseTo(12900 * 2.2, 6);
     expect(out.total.projectedWithConsignment!.usd).toBeCloseTo(258 * 2.2, 6);
+    expect(out.total.unitsWithConsignment).toBe(139);
+    expect(out.total.projectedUnits).toBeCloseTo(39 * 2.2, 6);                   // sellers only (35 + 4)
+    expect(out.total.projectedUnitsWithConsignment).toBeCloseTo(139 * 2.2, 6);   // + 100 consignment units
     expect(out.total.salesQuotaUsd).toBe(150);
     expect(out.total.weeks[1]).toMatchObject({ active: 2, assigned: 3 });
     expect(out.total.newCustomers).toEqual({ count: 1, quota: 1, partial: true });

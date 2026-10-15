@@ -115,6 +115,7 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
   const projectedBs = projectToMonth(sales.bs, ctx.pace);
   const projected: Dual | null = projectedBs === null ? null : { bs: projectedBs, usd: projectToMonth(sales.usd, ctx.pace) };
   const allSales = sumDuals(rows.map(r => r.sales));
+  const allUnits = rows.reduce((s, r) => s + r.units, 0);
   const allProjectedBs = projectToMonth(allSales.bs, ctx.pace);
   const projectedWithConsignment: Dual | null = allProjectedBs === null ? null : { bs: allProjectedBs, usd: projectToMonth(allSales.usd, ctx.pace) };
   return {
@@ -128,6 +129,9 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
     quotaShared: shared,
     attainment: hasGoal && sales.usd !== null ? sales.usd / quotaUsd : null,
     projected, projectedWithConsignment,
+    unitsWithConsignment: allUnits,
+    projectedUnits: projectToMonth(units, ctx.pace),
+    projectedUnitsWithConsignment: projectToMonth(allUnits, ctx.pace),
     projectedAttainment: hasGoal && projected?.usd != null ? projected.usd / quotaUsd : null,
     weeklyVisitQuota: quota.weeklyVisitQuota,
     weeks: ctx.headers.map(h => {

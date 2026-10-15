@@ -5,7 +5,7 @@ import posthog from 'posthog-js';
 import type { RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { KpiCard } from '../components/kpi-card';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
-import { addDuals, monthLabel, pct } from '../components/seguimiento/fmt';
+import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt';
 import { CustomerList, overdueLabel, RootCard, RootTable } from '../components/seguimiento/root-views';
 import { MonthPaceStrip } from '../components/seguimiento/visuals';
 import { moneyLabel, priceLabel, usdLabel } from '../lib/format';
@@ -235,7 +235,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         {toggles}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           label="Ventas brutas"
           value={moneyLabel(total.sales, currency)}
@@ -243,6 +243,16 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
             total.avgPrice ? `Precio prom. ${priceLabel(total.avgPrice, currency)}` : null,
             rootsWithExcluded.length > 0 ? `Con consignación: ${moneyLabel(addDuals(total.sales, total.excludedSales), currency)}` : null,
           ].filter(Boolean).join(' · ') || undefined}
+        />
+        <KpiCard
+          label="Unidades vendidas"
+          value={units(total.units)}
+          subtitle={rootsWithExcluded.length > 0 && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : undefined}
+        />
+        <KpiCard
+          label="Proyección de unidades"
+          value={units(total.projectedUnits)}
+          subtitle={rootsWithExcluded.length > 0 && total.projectedUnitsWithConsignment != null ? `Con consignación: ${units(total.projectedUnitsWithConsignment)}` : undefined}
         />
         <KpiCard
           label="Meta de ventas (USD)"

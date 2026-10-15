@@ -7,6 +7,12 @@ export function num(n: number): string {
   return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(n);
 }
 
+// Tolerates a missing field: a response cached by the browser before this metric existed has it undefined.
+export function units(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 0 }).format(n);
+}
+
 export function monthLabel(month: string): string {
   const [y, m] = month.split('-').map(Number);
   return new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, 1)));

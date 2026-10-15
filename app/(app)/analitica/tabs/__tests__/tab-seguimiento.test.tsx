@@ -138,6 +138,29 @@ describe('TabSeguimiento', () => {
     expect(urls().some(u => u.includes('section=excluded') && u.includes('rootValue=2'))).toBe(true);
   });
 
+  test('units sold and projected units are their own KPIs, each with the consignment figure', async () => {
+    await loaded();
+    const sold = screen.getByText('Unidades vendidas').parentElement!;
+    expect(within(sold).getByText('39')).toBeTruthy();
+    expect(within(sold).getByText('Con consignación: 139')).toBeTruthy();
+    const proj = screen.getByText('Proyección de unidades').parentElement!;
+    expect(within(proj).getByText('86')).toBeTruthy();
+    expect(within(proj).getByText('Con consignación: 306')).toBeTruthy();
+  });
+
+  test('a response without the units fields (cached before they existed) renders a dash, never NaN', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const res = await defaultFetch(url, init);
+      if (!url.includes('/api/dwh/seguimiento') || url.includes('section=')) return res;
+      const body = await res.json();
+      for (const k of ['projectedUnits', 'projectedUnitsWithConsignment', 'unitsWithConsignment']) delete body.total[k];
+      return json(body);
+    });
+    await loaded();
+    expect(document.body.textContent).not.toContain('NaN');
+    expect(within(screen.getByText('Proyección de unidades').parentElement!).getByText('—')).toBeTruthy();
+  });
+
   test('Ventas brutas shows the total including consignment in its subtitle', async () => {
     await loaded();
     const card = screen.getByText('Ventas brutas').parentElement!;

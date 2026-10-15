@@ -61,6 +61,8 @@ describe('SellerProfile scorecard', () => {
     expect(within(card('Ventas del mes')).getByText('$70')).toBeTruthy();       // same as the Seguimiento root sales
     expect(within(card('Ventas del mes')).getByText('70.0% de la meta')).toBeTruthy();
     expect(within(card('Proyección al cierre')).getByText('154.0% de la meta')).toBeTruthy();
+    expect(within(card('Unidades vendidas')).getByText('35')).toBeTruthy();
+    expect(within(card('Proyección de unidades')).getByText('77')).toBeTruthy();   // 35 units x 22 / 10 working days
     expect(within(card('Clientes activos (semana actual)')).getByText('1 de 2')).toBeTruthy();
     expect(within(card('Nuevos clientes')).getByText('1 / 1')).toBeTruthy();
     expect(within(card('Cobranza vencida')).getByText('40.0%')).toBeTruthy();    // (400 of 1000) outside the Current bucket
