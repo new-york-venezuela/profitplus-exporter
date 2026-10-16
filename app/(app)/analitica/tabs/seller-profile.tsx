@@ -6,6 +6,7 @@ import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt'
 import { moneyLabel, usdLabel } from '../lib/format';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { CustomerList, overdueLabel } from '../components/seguimiento/root-views';
+import { CustomersPrintTable } from '../components/seguimiento/customers-print-table';
 import { UnbilledSection } from '../components/seguimiento/unbilled-section';
 import { MixBar, MonthPaceStrip, WeekStrip } from '../components/seguimiento/visuals';
 import {
@@ -386,15 +387,18 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
           </Section>
 
           <Section title="Clientes" summary={`${root.customerCount} activos`} defaultOpen>
-            <CustomerList
-              customers={root.customers}
-              headers={seg.weeks}
-              visibleLines={seg.visibleLines}
-              currency={currency}
-              openCustomer={openCustomer}
-              onOpenCustomer={openCustomerLines}
-              linesFor={code => linesByCustomer[code] ?? { loading: true, error: null, lines: [] }}
-            />
+            <div className="print:hidden">
+              <CustomerList
+                customers={root.customers}
+                headers={seg.weeks}
+                visibleLines={seg.visibleLines}
+                currency={currency}
+                openCustomer={openCustomer}
+                onOpenCustomer={openCustomerLines}
+                linesFor={code => linesByCustomer[code] ?? { loading: true, error: null, lines: [] }}
+              />
+            </div>
+            <CustomersPrintTable customers={root.customers} headers={seg.weeks} currency={currency} />
           </Section>
         </>
       )}

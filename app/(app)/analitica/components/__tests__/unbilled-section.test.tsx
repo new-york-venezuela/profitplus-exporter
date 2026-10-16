@@ -48,3 +48,22 @@ describe('UnbilledSection', () => {
     expect(screen.getByRole('status').textContent).toContain('Todos los clientes con frecuencia facturaron');
   });
 });
+
+describe('CustomersPrintTable', () => {
+  test('one row per customer with visit status text and active weeks', async () => {
+    const { CustomersPrintTable } = await import('../seguimiento/customers-print-table');
+    const c = { ...cust('Mucho', '2026-09-01', 7), activeWeeks: ['2026-W40', '2026-W41'], isNew: true };
+    const headers = [
+      { yearWeek: '2026-W40', weekStart: '', weekEnd: '', label: '', isFuture: false },
+      { yearWeek: '2026-W41', weekStart: '', weekEnd: '', label: '', isFuture: false },
+      { yearWeek: '2026-W42', weekStart: '', weekEnd: '', label: '', isFuture: true },
+    ];
+    render(<CustomersPrintTable customers={[c, cust('Ok', '2026-10-14', 7)]} headers={headers} currency="usd" />);
+    const rows = screen.getAllByRole('row', { hidden: true }).slice(1).map(r => r.textContent ?? '');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain('Mucho (nuevo)');
+    expect(rows[0]).toContain('2/2');
+    expect(rows[0]).toContain('Vencida +37 d');
+    expect(rows[1]).toContain('Al día');
+  });
+});
