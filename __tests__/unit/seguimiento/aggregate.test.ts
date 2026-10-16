@@ -113,19 +113,23 @@ describe('buildSeguimiento: route and group roots', () => {
     expect(out.roots[1].excludedSales).toEqual({ bs: 9000, usd: 180 });
   });
 
-  test('a seller serving two routes marks both route quotas as shared', () => {
+  test('route and group roots carry no goals (a seller goal covers their whole portfolio); the total keeps them', () => {
     const extra = { ...FIXTURE_CUSTOMERS[0], customerCode: 'C6', customerName: 'Otro', zoneCode: 'CCS004', routeNumber: 4, registeredDate: '2020-01-01' };
     const input = fixtureInput('ruta');
     const out = buildSeguimiento({ ...input, customers: [...input.customers, extra] });
-    expect(out.roots.map(r => r.quotaShared)).toEqual([true, true]);
-    expect(out.roots[1].salesQuotaUsd).toBe(150);           // sellers 2 and 1
-    expect(out.total.salesQuotaUsd).toBe(150);              // total never double counts
+    for (const r of out.roots) {
+      expect(r).toMatchObject({ salesQuotaUsd: null, unitsQuota: null, weeklyVisitQuota: null, attainment: null, projectedAttainment: null, unitsAttainment: null, quotaShared: false });
+      expect(r.newCustomers.quota).toBeNull();
+    }
+    expect(out.roots[1].sales.usd).toBeGreaterThan(0);      // sales and projection are still reported
+    expect(out.total.salesQuotaUsd).toBe(150);              // total sums each seller once
+    expect(out.total.unitsQuota).toBe(100);
   });
 
   test('group roots use the ERP segment', () => {
     const out = buildSeguimiento(fixtureInput('grupo'));
     expect(out.roots.map(r => [r.label, r.customerCount])).toEqual([['Abasto', 2], ['Restaurante', 1]]);
-    expect(out.roots[0].salesQuotaUsd).toBe(100);
+    expect(out.roots[0].salesQuotaUsd).toBeNull();
   });
 });
 

@@ -357,8 +357,7 @@ The reference month is the month the selected date range ends in (`resolveRefere
 use the current month), measured up to today. Customers are attributed by the CURRENT `Dim_Customer` row
 (`IsCurrent = 1`) looked up by `CustomerCode`, so old invoices follow the customer; inactive customers are not
 assigned. A customer is active in a week when an assigned customer has an invoice in that ISO week. The month
-projection excludes weekends only (no holidays). Quotas come from `seller_targets`; for route/group roots they are
-summed per distinct seller and flagged `quotaShared` when a seller spans several roots. Consignment-root customer
+projection excludes weekends only (no holidays). Goals (sales USD, units, weekly visits, new customers) come from `seller_targets` and exist per seller and in the Total row only; route/group roots carry no goals (a seller's goal covers their whole portfolio), they show sales, units and projections. The KPI row is two goal cards (Ventas brutas, Unidades vendidas: value + bar with goal marker and projection + consignment notes) and three activity cards. Consignment-root customer
 codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `VisitIntervalDays` NULL means the
 customer is never overdue ("Sin frecuencia").
 

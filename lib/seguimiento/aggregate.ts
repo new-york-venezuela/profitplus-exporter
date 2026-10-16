@@ -104,12 +104,19 @@ function toLineAmounts(rows: readonly Row[]): LineAmount[] {
   return rows.flatMap(r => r.lines.map(l => ({ line: l.line, sales: l.sales })));
 }
 
-function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: Ctx): RootMetrics {
+// Route/group roots carry no goals: a seller's goal covers their whole portfolio, so summing it over the sellers who
+// happen to appear in a route would compare part of the sales against full goals. Goals exist per seller and in the total.
+const NO_QUOTA: ReturnType<typeof rollUpQuotas> = {
+  salesQuotaUsd: null, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: null, sellersTotal: 0,
+  partial: { sales: false, weeklyVisits: false, newCustomers: false, units: false },
+};
+
+function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: Ctx, withGoals = true): RootMetrics {
   const counted = rows.filter(r => !r.consignment);
   const assigned = counted.filter(r => r.assigned);
   const sales = sumDuals(counted.map(r => r.sales));
   const units = counted.reduce((s, r) => s + r.units, 0);
-  const quota = rollUpQuotas(sellerKeys, ctx.targets);
+  const quota = withGoals ? rollUpQuotas(sellerKeys, ctx.targets) : NO_QUOTA;
   const quotaUsd = quota.salesQuotaUsd;
   const hasGoal = quotaUsd !== null && quotaUsd > 0;
   const projectedBs = projectToMonth(sales.bs, ctx.pace);
@@ -128,7 +135,7 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
     excludedSales: sumDuals(rows.filter(r => r.consignment).map(r => r.sales)),
     salesQuotaUsd: quotaUsd,
     quotaPartial: quota.partial.sales,
-    quotaShared: shared,
+    quotaShared: withGoals && shared,
     attainment: hasGoal && sales.usd !== null ? sales.usd / quotaUsd : null,
     projected, projectedWithConsignment,
     unitsWithConsignment: allUnits,
@@ -231,7 +238,7 @@ export function buildSeguimiento(
     const shared = input.kind !== 'vendedor' && sellerKeys.some(k => (sellerRootCount.get(k) ?? 0) > 1);
     const realSeller = input.kind === 'vendedor' && value !== NO_SELLER ? value : null;
     return {
-      ...buildMetrics(g.rows, sellerKeys, shared, ctx),
+      ...buildMetrics(g.rows, sellerKeys, shared, ctx, input.kind === 'vendedor'),
       value, label: g.label,
       salesRepKey: realSeller,
       targets: realSeller ? (input.targets.get(realSeller) ?? null) : null,

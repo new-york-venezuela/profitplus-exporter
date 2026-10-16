@@ -16,7 +16,7 @@ export function overdueLabel(m: RootMetrics): string {
 }
 
 export function RootCard({
-  title, subtitle, metrics, headers, visibleLines, currency, expanded, onToggle, actions, footer, children,
+  title, subtitle, metrics, headers, visibleLines, currency, expanded, onToggle, actions, footer, children, goalsNote,
 }: {
   title: string;
   subtitle?: string;
@@ -29,6 +29,7 @@ export function RootCard({
   actions?: ReactNode;
   footer?: ReactNode;      // always rendered (e.g. the inline quota editors); `children` only when expanded
   children?: ReactNode;
+  goalsNote?: string;      // when set, the root has no goals of its own (route/group): bars show only the figures
 }) {
   return (
     <article aria-label={title} className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
@@ -56,15 +57,30 @@ export function RootCard({
         </div>
         <div className="md:col-span-2">
           <div className="text-[11px] font-semibold uppercase text-gray-500 mb-1">Ventas vs meta del mes</div>
-          <QuotaBar
-            actual={metrics.sales} quotaUsd={metrics.salesQuotaUsd} projected={metrics.projected}
-            currency={currency} shared={metrics.quotaShared} partial={metrics.quotaPartial}
-          />
+          {goalsNote ? (
+            <div className="text-xs text-gray-600">
+              <span className="font-medium text-gray-900">{moneyLabel(metrics.sales, currency)}</span>
+              <span> · Proy. {metrics.projected ? moneyLabel(metrics.projected, currency) : '—'}</span>
+              <div className="text-gray-400">{goalsNote}</div>
+            </div>
+          ) : (
+            <QuotaBar
+              actual={metrics.sales} quotaUsd={metrics.salesQuotaUsd} projected={metrics.projected}
+              currency={currency} shared={metrics.quotaShared} partial={metrics.quotaPartial}
+            />
+          )}
           <div className="text-[11px] font-semibold uppercase text-gray-500 mt-3 mb-1">Unidades vs meta del mes</div>
-          <UnitsBar
-            actual={metrics.units} quota={metrics.unitsQuota ?? null} projected={metrics.projectedUnits ?? null}
-            shared={metrics.quotaShared} partial={metrics.unitsQuotaPartial ?? false}
-          />
+          {goalsNote ? (
+            <div className="text-xs text-gray-600">
+              <span className="font-medium text-gray-900">{units(metrics.units)} uds</span>
+              <span> · Proy. {metrics.projectedUnits == null ? '—' : units(metrics.projectedUnits)}</span>
+            </div>
+          ) : (
+            <UnitsBar
+              actual={metrics.units} quota={metrics.unitsQuota ?? null} projected={metrics.projectedUnits ?? null}
+              shared={metrics.quotaShared} partial={metrics.unitsQuotaPartial ?? false}
+            />
+          )}
         </div>
         <div className="space-y-1">
           <div className="text-xs text-gray-600">

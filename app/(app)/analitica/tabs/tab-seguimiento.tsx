@@ -7,8 +7,9 @@ import { KpiCard } from '../components/kpi-card';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt';
 import { CustomerList, overdueLabel, RootCard, RootTable } from '../components/seguimiento/root-views';
-import { MonthPaceStrip } from '../components/seguimiento/visuals';
-import { moneyLabel, priceLabel, usdLabel } from '../lib/format';
+import { GoalKpiCard } from '../components/seguimiento/goal-kpi-card';
+import { MonthPaceStrip, QuotaBar, UnitsBar } from '../components/seguimiento/visuals';
+import { moneyLabel, priceLabel } from '../lib/format';
 import type { Currency, DateRange } from '../types';
 import SellerProfile from './seller-profile';
 
@@ -191,6 +192,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   const currentWeek = currentWeekIdx >= 0 ? data.total.weeks[currentWeekIdx] : null;
   const total = data.total;
   const rootsWithExcluded = data.roots.filter(r => r.excludedSales.bs > 0);
+  const hasConsignment = rootsWithExcluded.length > 0;
 
   const targetsKey = (root: SeguimientoRoot) => `${data.month}:${root.salesRepKey}`;
   const targetsOf = (root: SeguimientoRoot): SellerTargetRow => savedTargets[targetsKey(root)] ?? root.targets ?? EMPTY_TARGET_ROW;
@@ -235,46 +237,29 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         {toggles}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <GoalKpiCard
           label="Ventas brutas"
           value={moneyLabel(total.sales, currency)}
-          subtitle={[
+          bar={<QuotaBar actual={total.sales} quotaUsd={total.salesQuotaUsd} projected={total.projected} currency={currency} partial={total.quotaPartial} />}
+          notes={[
             total.avgPrice ? `Precio prom. ${priceLabel(total.avgPrice, currency)}` : null,
-            rootsWithExcluded.length > 0 ? `Con consignación: ${moneyLabel(addDuals(total.sales, total.excludedSales), currency)}` : null,
-          ].filter(Boolean).join(' · ') || undefined}
+            hasConsignment ? `Con consignación: ${moneyLabel(addDuals(total.sales, total.excludedSales), currency)}` : null,
+            hasConsignment && total.projectedWithConsignment ? `Proyección con consignación: ${moneyLabel(total.projectedWithConsignment, currency)}` : null,
+          ]}
         />
-        <KpiCard
+        <GoalKpiCard
           label="Unidades vendidas"
           value={units(total.units)}
-          subtitle={[
-            total.unitsQuota ? `${pct(total.unitsAttainment)} de la meta (${units(total.unitsQuota)})` : null,
-            rootsWithExcluded.length > 0 && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : null,
-          ].filter(Boolean).join(' · ') || undefined}
-          tone={total.unitsAttainment !== null && total.unitsAttainment < 0.8 ? 'warn' : 'default'}
+          bar={<UnitsBar actual={total.units} quota={total.unitsQuota ?? null} projected={total.projectedUnits ?? null} partial={total.unitsQuotaPartial ?? false} />}
+          notes={[
+            hasConsignment && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : null,
+            hasConsignment && total.projectedUnitsWithConsignment != null ? `Proyección con consignación: ${units(total.projectedUnitsWithConsignment)}` : null,
+          ]}
         />
-        <KpiCard
-          label="Proyección de unidades"
-          value={units(total.projectedUnits)}
-          subtitle={[
-            total.projectedUnitsAttainment == null ? null : `${pct(total.projectedUnitsAttainment)} de la meta`,
-            rootsWithExcluded.length > 0 && total.projectedUnitsWithConsignment != null ? `Con consignación: ${units(total.projectedUnitsWithConsignment)}` : null,
-          ].filter(Boolean).join(' · ') || undefined}
-        />
-        <KpiCard
-          label="Meta de ventas (USD)"
-          value={total.salesQuotaUsd === null ? 'Sin meta' : usdLabel(total.salesQuotaUsd)}
-          subtitle={total.attainment === null ? undefined : `${pct(total.attainment)} de la meta`}
-          tone={total.attainment !== null && total.attainment < 0.8 ? 'warn' : 'default'}
-        />
-        <KpiCard
-          label="Proyección al cierre"
-          value={total.projected ? moneyLabel(total.projected, currency) : '—'}
-          subtitle={[
-            total.projectedAttainment === null ? null : `${pct(total.projectedAttainment)} de la meta`,
-            total.projectedWithConsignment && rootsWithExcluded.length > 0 ? `Con consignación: ${moneyLabel(total.projectedWithConsignment, currency)}` : null,
-          ].filter(Boolean).join(' · ') || undefined}
-        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiCard
           label="Clientes activos (semana actual)"
           value={currentWeek && currentWeek.pct !== null ? pct(currentWeek.pct) : '—'}
@@ -283,6 +268,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         <KpiCard
           label="Nuevos clientes"
           value={`${total.newCustomers.count}${total.newCustomers.quota === null ? '' : ` / ${total.newCustomers.quota}`}`}
+          subtitle={total.newCustomers.quota === null ? 'Sin meta' : `${pct(total.newCustomers.quota > 0 ? total.newCustomers.count / total.newCustomers.quota : null)} de la meta`}
         />
         <KpiCard label="Visitas vencidas" value={overdueLabel(total)} />
       </div>
@@ -303,6 +289,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
               title={root.label}
               subtitle={kind === 'vendedor' ? undefined : root.sellerKeys.length > 1 ? `${root.sellerKeys.length} vendedores` : undefined}
               metrics={root}
+              goalsNote={kind === 'vendedor' ? undefined : 'Las metas se definen por vendedor'}
               headers={data.weeks}
               visibleLines={data.visibleLines}
               currency={currency}

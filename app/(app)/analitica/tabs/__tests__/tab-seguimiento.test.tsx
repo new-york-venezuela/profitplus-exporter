@@ -44,8 +44,12 @@ describe('TabSeguimiento', () => {
     expect(screen.getByRole('article', { name: 'Ana' })).toBeTruthy();
     expect(screen.getByRole('article', { name: 'Beto' })).toBeTruthy();
     expect(screen.getByText(/Día laborable 10 de 22/)).toBeTruthy();
-    expect(screen.getByText('Ventas brutas')).toBeTruthy();
-    expect(screen.getByText('Meta de ventas (USD)')).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Ventas brutas' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Unidades vendidas' })).toBeTruthy();
+    // goals and projections live inside their metric's card, not in cards of their own
+    expect(screen.queryByText('Meta de ventas (USD)')).toBeNull();
+    expect(screen.queryByText('Proyección al cierre')).toBeNull();
+    expect(screen.queryByText('Proyección de unidades')).toBeNull();
     expect(screen.getByText('Visitas vencidas')).toBeTruthy();
     expect(screen.queryByRole('table')).toBeNull();                      // cards are the default view
   });
@@ -159,14 +163,16 @@ describe('TabSeguimiento', () => {
     expect(urls().some(u => u.includes('section=excluded') && u.includes('rootValue=2'))).toBe(true);
   });
 
-  test('units sold and projected units are their own KPIs, each with the consignment figure', async () => {
+  test('sales and units share one card anatomy: value, goal bar with projection, consignment notes', async () => {
     await loaded();
-    const sold = screen.getByText('Unidades vendidas').parentElement!;
-    expect(within(sold).getByText('39')).toBeTruthy();
-    expect(within(sold).getByText('39.0% de la meta (100) · Con consignación: 139')).toBeTruthy();  // goal comes from Ana's 100-unit quota
-    const proj = screen.getByText('Proyección de unidades').parentElement!;
-    expect(within(proj).getByText('86')).toBeTruthy();
-    expect(within(proj).getByText('85.8% de la meta · Con consignación: 306')).toBeTruthy();
+    const sales = screen.getByRole('region', { name: 'Ventas brutas' });
+    expect(within(sales).getByRole('img', { name: 'Ventas $78, meta $150, proyección $172' })).toBeTruthy();
+    expect(within(sales).getByText('Con consignación: $258')).toBeTruthy();
+    expect(within(sales).getByText('Proyección con consignación: $568')).toBeTruthy();
+    const sold = screen.getByRole('region', { name: 'Unidades vendidas' });
+    expect(within(sold).getByRole('img', { name: 'Unidades 39, meta 100, proyección 86' })).toBeTruthy();
+    expect(within(sold).getByText('Con consignación: 139')).toBeTruthy();
+    expect(within(sold).getByText('Proyección con consignación: 306')).toBeTruthy();   // goal = Ana's 100-unit quota
   });
 
   test('a response without the units fields (cached before they existed) renders a dash, never NaN', async () => {
@@ -179,14 +185,16 @@ describe('TabSeguimiento', () => {
     });
     await loaded();
     expect(document.body.textContent).not.toContain('NaN');
-    expect(within(screen.getByText('Proyección de unidades').parentElement!).getByText('—')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Unidades vendidas' })).getByText('Proy. —')).toBeTruthy();
   });
 
-  test('Ventas brutas shows the total including consignment in its subtitle', async () => {
+  test('route roots show no goals: sales and projection stay, the card says goals are per seller', async () => {
     await loaded();
-    const card = screen.getByText('Ventas brutas').parentElement!;
-    expect(within(card).getByText(/Con consignación:/)).toBeTruthy();
-    expect(screen.queryByText('Consignación (varios vendedores)')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
+    const card = await screen.findByRole('article', { name: 'Ruta 3' });
+    expect(within(card).getByText(/Las metas se definen por vendedor/)).toBeTruthy();
+    expect(within(card).queryByText(/Meta \$/)).toBeNull();
+    expect(screen.getByRole('region', { name: 'Ventas brutas' })).toBeTruthy();     // the total keeps its goal
   });
 
   test('Bs currency shows Bs sales, but every figure compared with the USD goal stays in USD', async () => {
