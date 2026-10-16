@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import posthog from 'posthog-js';
+import { localIsoDate } from '@/lib/local-date';
 import type { Currency, DateRange } from './types';
 import { allowedGranularities, resolveGranularity } from './lib/granularity';
 import type { Granularity } from './lib/granularity';
@@ -102,7 +103,7 @@ function formatMonthLabel(monthKey: string): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localIsoDate();
 }
 
 function isValidCurrency(value: string | null): value is Currency {

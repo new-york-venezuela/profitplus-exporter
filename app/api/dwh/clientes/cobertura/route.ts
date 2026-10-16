@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { localDateKey } from '@/lib/local-date';
 import { buildDateWhereClause, buildPrevPeriodDateWhereClause, jsonWithCache, rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
 import { COBERTURA_MONTHLY_QUERY, COBERTURA_RECENT_DAYS_QUERY, coberturaCustomersQuery } from '@/lib/clientes/cobertura-sql';
 import { parseCarteraScope } from '@/lib/clientes/scope';
@@ -16,7 +17,7 @@ import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/
 export const dynamic = 'force-dynamic';
 
 function dateKeyOf(d: Date): number {
-  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  return localDateKey(d);   // host calendar day, not UTC: days-since-last-sale and the visit windows must not run a day ahead at night
 }
 
 const STATUS_LABEL: Record<CoberturaStatus, string> = {

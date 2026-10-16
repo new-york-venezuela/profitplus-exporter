@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { localIsoDate } from '@/lib/local-date';
 import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt';
 import { moneyLabel, usdLabel } from '../lib/format';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
@@ -30,13 +31,13 @@ function resolveLatestPeriodMonth(dateRange: DateRange): string {
   if (ytdMatch) {
     const currentYear = new Date().getUTCFullYear();
     return ytdMatch[1] === String(currentYear)
-      ? new Date().toISOString().slice(0, 7)
+      ? localIsoDate().slice(0, 7)
       : `${ytdMatch[1]}-12`;
   }
 
   // '12m' (and any other/legacy value) defaults to a trailing-365-day
   // window ending today, same as resolveDateBounds's own fallback.
-  return new Date().toISOString().slice(0, 7);
+  return localIsoDate().slice(0, 7);
 }
 
 const STATUS_CHIP: Record<Status, string> = {
@@ -267,7 +268,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         <h1 className="text-lg font-bold text-gray-900">{name}</h1>
         <p className="text-xs text-gray-500">
           Resumen de {monthLabel(seg.month)} · al {seg.asOf}. Ventas brutas sin IVA por el vendedor actual del cliente (igual que Seguimiento).
-          <span className="hidden print:inline"> Generado: {new Date().toISOString().slice(0, 10)}</span>
+          <span className="hidden print:inline"> Generado: {localIsoDate()}</span>
         </p>
         <div className="mt-1"><MonthPaceStrip pace={seg.pace} /></div>
       </div>

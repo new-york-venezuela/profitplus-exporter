@@ -3,6 +3,7 @@ import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { getDb } from '@/lib/db/sqlite';
 import { captureEvent, captureException } from '@/lib/analytics/posthog';
+import { localIsoDate } from '@/lib/local-date';
 import { buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { buildSeguimiento, rootOf } from '@/lib/seguimiento/aggregate';
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
   if (!DATE_RANGE_RE.test(dateRange)) {
     return NextResponse.json({ error: 'dateRange inválido' }, { status: 400 });
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIsoDate();
   const ref = resolveReferenceMonth(dateRange, today);
 
   const customerCode = (searchParams.get('customerCode') ?? '').trim();
