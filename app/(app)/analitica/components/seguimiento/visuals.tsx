@@ -14,12 +14,12 @@ export function WeekStrip({ weeks, headers }: { weeks: WeekCell[]; headers: Week
   const labelOf = (i: number) => headers[i]?.label ?? weeks[i].yearWeek;
   const summary = weeks.map((w, i) => `${labelOf(i)}: ${w.pct === null ? 'sin datos' : pct(w.pct)}`).join(', ');
   return (
-    <div role="img" aria-label={`Activación semanal. ${summary}`} className="flex items-end gap-1 h-12">
+    <div role="img" aria-label={`Activación semanal. ${summary}`} className="flex items-end gap-1 h-12 print:h-16">
       {weeks.map((w, i) => {
         const future = headers[i]?.isFuture ?? false;
         const height = future || w.pct === null ? 20 : Math.max(8, Math.round(w.pct * 100));
         return (
-          <div key={w.yearWeek} className="flex flex-col items-center justify-end h-full w-6">
+          <div key={w.yearWeek} className="flex flex-col items-center justify-end h-full w-6 print:w-10">
             <div
               data-testid={`week-bar-${w.yearWeek}`}
               data-pct={w.pct === null ? '' : String(w.pct)}
@@ -28,6 +28,7 @@ export function WeekStrip({ weeks, headers }: { weeks: WeekCell[]; headers: Week
               style={{ height: `${height}%` }}
             />
             <span className="text-[10px] text-gray-500 leading-none mt-0.5">{labelOf(i)}</span>
+            <span className="hidden print:block text-[9pt] text-gray-900 leading-none mt-0.5">{future || w.pct === null ? '—' : pct(w.pct)}</span>
           </div>
         );
       })}

@@ -4,3 +4,11 @@
   *, *::before, *::after { box-sizing: border-box; }
   body { -webkit-font-smoothing: antialiased; }
 }
+
+/* Paper keeps backgrounds (bars, status chips); browsers drop them by default. */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
