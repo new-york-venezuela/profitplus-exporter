@@ -82,6 +82,9 @@ interface FilterableRow {
   routeNumber?: number | null;
   visit?: { status: string };
   activeInPeriod?: boolean | null;   // null = registered after the range end: never "inactive in the period"
+  kind?: string | null;
+  boughtPrev?: boolean | null;
+  stickiness?: string;
 }
 
 export interface CoberturaFilter {
@@ -91,6 +94,9 @@ export interface CoberturaFilter {
   ruta?: number | null;
   visit?: 'overdue' | 'no_interval' | null;
   inactiveInPeriod?: boolean;
+  kind?: 'patrimonio' | 'nuevo' | null;
+  cooled?: boolean;                  // bought in the previous period, not in this one
+  stickiness?: string | null;
 }
 
 export function filterCobertura<T extends FilterableRow>(rows: T[], f: CoberturaFilter): T[] {
@@ -104,6 +110,9 @@ export function filterCobertura<T extends FilterableRow>(rows: T[], f: Cobertura
     if (f.ruta !== null && f.ruta !== undefined && r.routeNumber !== f.ruta) return false;
     if (f.visit && r.visit?.status !== f.visit) return false;
     if (f.inactiveInPeriod && r.activeInPeriod !== false) return false;
+    if (f.kind && r.kind !== f.kind) return false;
+    if (f.cooled && !(r.boughtPrev === true && r.activeInPeriod === false)) return false;
+    if (f.stickiness && r.stickiness !== f.stickiness) return false;
     return true;
   });
 }
@@ -150,6 +159,9 @@ export function coberturaExportQuery(f: {
   ruta?: number | null;
   visit?: 'overdue' | 'no_interval' | null;
   inactiveInPeriod?: boolean;
+  kind?: 'patrimonio' | 'nuevo' | null;
+  cooled?: boolean;
+  stickiness?: string | null;
 }): string {
   const p = new URLSearchParams({ format: 'xlsx', includeInactive: f.includeInactive ? '1' : '0' });
   if (f.sellerCode) p.set('seller', f.sellerCode);
@@ -159,5 +171,8 @@ export function coberturaExportQuery(f: {
   if (f.ruta !== null && f.ruta !== undefined) p.set('ruta', String(f.ruta));
   if (f.visit) p.set('visit', f.visit);
   if (f.inactiveInPeriod) p.set('inactive', '1');
+  if (f.kind) p.set('kind', f.kind);
+  if (f.cooled) p.set('cooled', '1');
+  if (f.stickiness) p.set('stickiness', f.stickiness);
   return p.toString();
 }

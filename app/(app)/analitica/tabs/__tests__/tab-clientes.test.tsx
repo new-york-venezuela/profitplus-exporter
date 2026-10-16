@@ -16,6 +16,7 @@ const base: CoberturaRowView = {
   lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: null, visit: noVisit, activeInPeriod: true,
+  registeredDate: null, firstSaleDateKey: null, daysToFirstSale: null, salesPeriod: { bs: 0, usd: 0 }, salesPrev: null, boughtPrev: null, stickiness: 'sin_frecuencia',
 };
 const cobertura: CoberturaResponse = {
   rows: [
@@ -23,7 +24,7 @@ const cobertura: CoberturaResponse = {
     { ...base, customerCode: 'C2', customerName: 'Dos Abasto', groupCode: 'S1', groupName: 'Abasto', status: 'active', lastSaleDateKey: 20261001, daysSinceLastSale: 3 },
     { ...base, customerCode: 'C3', customerName: 'Tres Resto', groupCode: 'S2', groupName: 'Restaurante', status: 'lapsed', lastSaleDateKey: 20260601, daysSinceLastSale: 120 },
   ],
-  asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026,
+  asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026, prevPeriodAvailable: true,
 };
 const filters: ClientesFiltersResponse = {
   groups: [{ value: 'S1', label: 'Abasto' }, { value: 'S2', label: 'Restaurante' }],

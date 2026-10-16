@@ -32,7 +32,7 @@ patrimonio is holding, show whether new customers stick, and make the kind a fir
 `GET /api/dwh/clientes/cobertura` rows gain: `registeredDate`, `firstSaleDateKey`, `daysToFirstSale`, `salesPeriod` (Bs/USD),
 `salesPrev` (null when no previous window), `boughtPrev`, `stickiness`. Response gains `prevPeriodAvailable`. Queries: first sale
 (MIN DateKey) in OwnSales, period/previous-period sales sums in PeriodSales, and one extra query with each customer's distinct invoice
-days of the last 90 days (3 x the longest interval). All classification/summary maths live in `lib/clientes/kind-kpis.ts` (pure).
+days of the last 90 days (3 x the longest interval). All classification/summary maths live in `app/(app)/analitica/lib/kind-kpis.ts` (pure).
 
 ## Testing
 Unit: stickiness windows (boundaries at N-1/N days, observacion, sin_frecuencia), summaries (denominators, deltas, funnel, median),

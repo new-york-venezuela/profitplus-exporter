@@ -277,7 +277,7 @@ export default function TabClientes({
   const shell = (body: React.ReactNode) => (
     <div className="p-6 max-w-7xl space-y-6">
       <CarteraFilterBar grupo={grupo} ruta={ruta} onGrupo={setGrupo} onRuta={setRuta} />
-      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} />
+      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} currency={currency} />
       {body}
     </div>
   );

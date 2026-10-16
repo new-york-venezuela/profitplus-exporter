@@ -583,6 +583,7 @@ export type { CoberturaStatus } from './lib/cobertura';
 import type { CoberturaStatus } from './lib/cobertura';
 import type { CustomerKind } from '@/lib/dwh/cutover';
 import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
+import type { Stickiness } from './lib/kind-kpis';
 
 export interface CoberturaRowView {
   customerCode: string;
@@ -603,6 +604,13 @@ export interface CoberturaRowView {
   kind: CustomerKind | null;      // patrimonio / nuevo in the range's year; null = no registration date
   visit: VisitCompliance;         // as of today
   activeInPeriod: boolean | null; // >= 1 non-voided invoice in the selected range; null = registered after the range end (cartera.ts periodActivity)
+  registeredDate: string | null;  // ISO date of saCliente.fecha_reg
+  firstSaleDateKey: number | null;
+  daysToFirstSale: number | null; // registration -> first invoice, >= 0; null = never bought or no registration date
+  salesPeriod: DualAmount;        // ventas brutas sin IVA in the selected range
+  salesPrev: DualAmount | null;   // same for the previous equal period; null = there is no previous window
+  boughtPrev: boolean | null;     // bought in the previous period; null = no previous window
+  stickiness: Stickiness;         // 'constancia': last 3 visit windows met (kind-kpis.ts)
 }
 
 export interface CoberturaResponse {
@@ -611,6 +619,7 @@ export interface CoberturaResponse {
   windowStartDateKey: number;
   lapsedAfterDays: number;
   kindYear: number;               // the year patrimonio/nuevo were evaluated for (year of the range end)
+  prevPeriodAvailable: boolean;   // false = no previous equal window (e.g. a closed past YTD year): comparisons are hidden
 }
 
 // Clientes tab group/route filter options (GET /api/dwh/clientes?section=filters).

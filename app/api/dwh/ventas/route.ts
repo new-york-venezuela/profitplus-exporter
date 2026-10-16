@@ -4,7 +4,7 @@ import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, bucketFilterClause, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import { bucketLabels, bucketTitle } from '@/app/(app)/analitica/lib/granularity';
 import {
-  buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact,
+  buildDateWhereClause, buildPrevPeriodDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, isDimension, isDimensionForFact,
   isClienteDimension, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr,
   parseReturnsBasis, returnsDateColumn, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
@@ -166,68 +166,6 @@ function formatYearMonth(ym: string): string {
   const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const idx = parseInt(m, 10) - 1;
   return names[idx] ? `${names[idx]} ${y.slice(2)}` : ym;
-}
-
-const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
-const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
-const YTD_RANGE_RE = /^ytd:(\d{4})$/;
-
-function toDateKey(d: Date): number {
-  return parseInt(`${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`);
-}
-
-function dateKeyToDate(key: number): Date {
-  const s = String(key);
-  return new Date(Date.UTC(parseInt(s.slice(0, 4)), parseInt(s.slice(4, 6)) - 1, parseInt(s.slice(6, 8))));
-}
-
-// Same-length period immediately preceding `dateRange`, for the KPI row's
-// period-over-period Δ% — deliberately NOT year-over-year (no prior-year
-// data exists yet, per product decision). month:/ytd: shift by exactly one
-// calendar unit (a real previous month or previous year-to-date), while
-// custom:/the trailing-365-day default shift by the range's own day count,
-// so a partial YTD range compares against the same number of elapsed days
-// last year rather than a full prior year.
-function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string, column: string = 'DateKey'): string | null {
-  const monthMatch = MONTH_RANGE_RE.exec(dateRange);
-  if (monthMatch) {
-    const [, yearStr, monthStr] = monthMatch;
-    const year = parseInt(yearStr);
-    const month = parseInt(monthStr); // 1-indexed
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const prevYear = month === 1 ? year - 1 : year;
-    const startKey = toDateKey(new Date(Date.UTC(prevYear, prevMonth - 1, 1)));
-    const endKey = toDateKey(new Date(Date.UTC(prevYear, prevMonth, 0)));
-    return `AND ${tableName}.${column} >= ${startKey} AND ${tableName}.${column} <= ${endKey}`;
-  }
-
-  const ytdMatch = YTD_RANGE_RE.exec(dateRange);
-  if (ytdMatch) {
-    const year = parseInt(ytdMatch[1]) - 1;
-    const startKey = year * 10000 + 101;
-    const currentYear = new Date().getUTCFullYear();
-    const currentMonthDay = parseInt(new Date().toISOString().slice(5, 10).replace('-', ''));
-    const endKey = year * 10000 + currentMonthDay;
-    if (ytdMatch[1] !== String(currentYear)) return null; // a past, already-closed YTD year has no well-defined "same elapsed days" prior year
-    return `AND ${tableName}.${column} >= ${startKey} AND ${tableName}.${column} <= ${endKey}`;
-  }
-
-  const customMatch = CUSTOM_RANGE_RE.exec(dateRange);
-  if (customMatch) {
-    const [, start, end] = customMatch;
-    const startDate = new Date(`${start}T00:00:00Z`);
-    const endDate = new Date(`${end}T00:00:00Z`);
-    const days = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
-    const prevEndKey = toDateKey(new Date(startDate.getTime() - 86_400_000));
-    const prevStartKey = toDateKey(new Date(dateKeyToDate(prevEndKey).getTime() - (days - 1) * 86_400_000));
-    return `AND ${tableName}.${column} >= ${prevStartKey} AND ${tableName}.${column} <= ${prevEndKey}`;
-  }
-
-  if (dateRange === '30d') return buildPrevThirtyDayWhereClause(tableName, column);
-
-  // Trailing-365-day default (buildDateWhereClause's own fallback): the
-  // previous period is the 365 days immediately before that window.
-  return `AND ${tableName}.${column} >= CONVERT(INT, FORMAT(DATEADD(DAY, -730, GETDATE()), 'yyyyMMdd')) AND ${tableName}.${column} < CONVERT(INT, FORMAT(DATEADD(DAY, -365, GETDATE()), 'yyyyMMdd'))`;
 }
 
 // KPI row: totals for the current range, plus the same-length immediately-

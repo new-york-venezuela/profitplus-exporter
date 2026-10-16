@@ -114,3 +114,49 @@ describe('GET /api/dwh/clientes/cobertura', () => {
     expect(await res.json()).toEqual({ error: 'Error al consultar el Data Warehouse' });
   });
 });
+
+describe('GET /api/dwh/clientes/cobertura: nuevos vs patrimonio fields', () => {
+  test('maps sales, previous period, first purchase and constancia per customer', async () => {
+    respond = text => {
+      if (text.includes('PeriodSales')) {
+        return [
+          customerRow({ CustomerCode: 'A', RegisteredDate: new Date('2026-05-01T00:00:00Z'), FirstDateKey: 20260510, PeriodBs: 700, PeriodUsd: 14, PrevBs: 350, PrevUsd: 7, InPrev: 1 }),
+          customerRow({ CustomerCode: 'B', InPeriod: 0, PeriodBs: null, PeriodUsd: null, PrevBs: null, PrevUsd: null, InPrev: 0 }),
+        ];
+      }
+      if (text.includes('@recentStartKey')) return [3, 10, 17].map(n => ({ Code: 'A', DateKey: daysAgoKey(n) }));
+      return [];
+    };
+    const body = await (await get('dateRange=month:2026-10')).json();
+    const by = Object.fromEntries(body.rows.map((r: { customerCode: string }) => [r.customerCode, r]));
+    expect(body.prevPeriodAvailable).toBe(true);
+    expect(by.A).toMatchObject({
+      registeredDate: '2026-05-01', firstSaleDateKey: 20260510, daysToFirstSale: 9,
+      salesPeriod: { bs: 700, usd: 14 }, salesPrev: { bs: 350, usd: 7 }, boughtPrev: true, stickiness: 'constante',   // weekly: sales 3, 10 and 17 days ago
+    });
+    expect(by.B).toMatchObject({ salesPeriod: { bs: 0, usd: 0 }, boughtPrev: false, daysToFirstSale: null, stickiness: 'perdido' });
+    const customers = queries.find(q => q.sql.includes('PeriodSales'))!;
+    expect(customers.sql).toContain('PrevSales');
+    expect(customers.sql).toContain('fs.DateKey >= 20260901');                          // previous month window
+  });
+
+  test('a closed past YTD year has no previous window: comparisons are null and the query stays empty', async () => {
+    respond = text => (text.includes('PeriodSales') ? [customerRow({ CustomerCode: 'A', PeriodBs: 10, PeriodUsd: 1 })] : []);
+    const body = await (await get('dateRange=ytd:2024')).json();
+    expect(body.prevPeriodAvailable).toBe(false);
+    expect(body.rows[0]).toMatchObject({ salesPrev: null, boughtPrev: null });
+    expect(queries.find(q => q.sql.includes('PeriodSales'))!.sql).toContain('AND 1 = 0');
+  });
+
+  test('the export honours kind, cooled and constancia and adds the new columns', async () => {
+    respond = text => (text.includes('PeriodSales') ? [
+      customerRow({ CustomerCode: 'P', RegisteredDate: new Date('2024-01-01T00:00:00Z'), InPeriod: 0, InPrev: 1, PrevBs: 5, PrevUsd: 1 }),
+      customerRow({ CustomerCode: 'N', RegisteredDate: new Date('2026-05-01T00:00:00Z') }),
+    ] : []);
+    const res = await get('format=xlsx&dateRange=month:2026-10&kind=patrimonio&cooled=1');
+    const wb = XLSX.read(new Uint8Array(await res.arrayBuffer()), { type: 'array' });
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
+    expect(rows.map(r => r['Código'])).toEqual(['P']);
+    expect(Object.keys(rows[0])).toEqual(expect.arrayContaining(['Registro', 'Ventas del período (USD)', 'Constancia (últimas 3 visitas)']));
+  });
+});

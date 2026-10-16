@@ -5,14 +5,17 @@ import posthog from 'posthog-js';
 import SearchableSelect from '@/lib/components/searchable-select';
 import { KpiCard } from './kpi-card';
 import { KpiGroup } from './kpi-group';
+import { KindBadge, KindComparisonPanel, KindSwitch, NewFunnelPanel, PatrimonioHoldingPanel, StickinessBadge } from './kind-panels';
 import { VisitBadge } from './seguimiento/visuals';
-import type { CoberturaResponse, CoberturaRowView, CoberturaStatus, DateRange } from '../types';
-import { KIND_LABEL, summarizeCartera } from '../lib/cartera';
+import type { CoberturaResponse, CoberturaRowView, CoberturaStatus, Currency, DateRange } from '../types';
+import { summarizeCartera } from '../lib/cartera';
+import { STICKINESS_LABEL, STICKINESS_ORDER, type KindFilter, type Stickiness } from '../lib/kind-kpis';
+import { moneyLabel } from '../lib/format';
 import {
   NO_SELLER, compareDaysSince, coberturaExportQuery, filterCobertura, groupBySeller, summarizeCobertura,
 } from '../lib/cobertura';
 
-type SortKey = 'days' | 'customer' | 'seller' | 'usd' | 'units' | 'visit';
+type SortKey = 'days' | 'customer' | 'seller' | 'usd' | 'units' | 'visit' | 'sales' | 'registered';
 type SortDir = 'asc' | 'desc';
 
 const NO_DATA = 'Sin datos';
@@ -77,9 +80,11 @@ const STATUS_FILTER_OPTIONS: { value: '' | CoberturaStatus; label: string }[] = 
   { value: 'active', label: STATUS_LABEL.active },
 ];
 
+const isoToDisplay = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : NO_DATA);
+
 export default function CoberturaClientes({
-  dateRange = '12m', grupo = null, ruta = null,
-}: { dateRange?: DateRange; grupo?: string | null; ruta?: number | null } = {}) {
+  dateRange = '12m', grupo = null, ruta = null, currency = 'usd',
+}: { dateRange?: DateRange; grupo?: string | null; ruta?: number | null; currency?: Currency } = {}) {
   const [data, setData] = useState<CoberturaResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +93,9 @@ export default function CoberturaClientes({
   const [statusFilter, setStatusFilter] = useState<CoberturaStatus | null>(null);
   const [visitFilter, setVisitFilter] = useState<'overdue' | 'no_interval' | null>(null);
   const [inactiveOnly, setInactiveOnly] = useState<boolean>(false);
+  const [kindFilter, setKindFilter] = useState<KindFilter>('todos');
+  const [cooledOnly, setCooledOnly] = useState<boolean>(false);
+  const [stickinessFilter, setStickinessFilter] = useState<Stickiness | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('days');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -136,11 +144,13 @@ export default function CoberturaClientes({
     return opts;
   }, [rows]);
 
-  const summary = useMemo(() => summarizeCobertura(rows), [rows]);
-  const cartera = useMemo(() => summarizeCartera(rows), [rows]);
+  // The switch scopes the portfolio KPIs and the table; the comparison panel keeps looking at both kinds.
+  const scoped = useMemo(() => (kindFilter === 'todos' ? rows : rows.filter(r => r.kind === kindFilter)), [rows, kindFilter]);
+  const summary = useMemo(() => summarizeCobertura(scoped), [scoped]);
+  const cartera = useMemo(() => summarizeCartera(scoped), [scoped]);
 
   const sorted = useMemo(() => {
-    const filtered = filterCobertura(rows, { sellerCode: sellerFilter, status: statusFilter, visit: visitFilter, inactiveInPeriod: inactiveOnly });
+    const filtered = filterCobertura(scoped, { sellerCode: sellerFilter, status: statusFilter, visit: visitFilter, inactiveInPeriod: inactiveOnly, cooled: cooledOnly, stickiness: stickinessFilter });
     const out = [...filtered];
     out.sort((a, b) => {
       switch (sortKey) {
@@ -154,6 +164,10 @@ export default function CoberturaClientes({
           return compareNullLast(a.avgMonthlyUsd, b.avgMonthlyUsd, sortDir);
         case 'units':
           return compareNullLast(a.avgMonthlyUnits, b.avgMonthlyUnits, sortDir);
+        case 'sales':
+          return compareNullLast(currency === 'usd' ? a.salesPeriod.usd : a.salesPeriod.bs, currency === 'usd' ? b.salesPeriod.usd : b.salesPeriod.bs, sortDir);
+        case 'registered':
+          return (sortDir === 'asc' ? 1 : -1) * (a.registeredDate ?? '9999').localeCompare(b.registeredDate ?? '9999');
         case 'visit':
           // Customers without days overdue (no frequency / no invoice) all tie: order them by name.
           return compareNullLast(a.visit.daysOverdue, b.visit.daysOverdue, sortDir)
@@ -161,19 +175,19 @@ export default function CoberturaClientes({
       }
     });
     return out;
-  }, [rows, sellerFilter, statusFilter, visitFilter, inactiveOnly, sortKey, sortDir]);
+  }, [scoped, sellerFilter, statusFilter, visitFilter, inactiveOnly, cooledOnly, stickinessFilter, currency, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
     else {
       setSortKey(key);
-      setSortDir(key === 'customer' || key === 'seller' || key === 'days' ? 'asc' : 'desc');
+      setSortDir(key === 'customer' || key === 'seller' || key === 'days' || key === 'registered' ? 'asc' : 'desc');
     }
   }
 
   function handleExport() {
     posthog.capture('cobertura_export', { seller: sellerFilter, status: statusFilter, rows: sorted.length });
-    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter, dateRange, grupo, ruta, visit: visitFilter, inactiveInPeriod: inactiveOnly })}`;
+    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter, dateRange, grupo, ruta, visit: visitFilter, inactiveInPeriod: inactiveOnly, kind: kindFilter === 'todos' ? null : kindFilter, cooled: cooledOnly, stickiness: stickinessFilter })}`;
   }
 
   function handlePrint() {
@@ -222,6 +236,26 @@ export default function CoberturaClientes({
               Exportar Excel
             </button>
           </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <KindSwitch value={kindFilter} onChange={k => { setKindFilter(k); setCooledOnly(false); }} rows={rows} />
+          <span className="text-xs text-gray-500">
+            Patrimonio: registrado antes de {data.kindYear} o en el lote migrado. Nuevo: registrado en {data.kindYear}.
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <KindComparisonPanel rows={rows} currency={currency} />
+          {kindFilter !== 'nuevo' && (
+            <PatrimonioHoldingPanel
+              rows={rows}
+              prevPeriodAvailable={data.prevPeriodAvailable}
+              currency={currency}
+              onShowCooled={() => { setKindFilter('patrimonio'); setCooledOnly(true); }}
+            />
+          )}
+          {kindFilter !== 'patrimonio' && <NewFunnelPanel rows={rows} />}
         </div>
 
         <KpiGroup title="Cobertura" tone="customers" columns={4}>
@@ -292,6 +326,20 @@ export default function CoberturaClientes({
             <option value="overdue">Visita vencida</option>
             <option value="no_interval">Sin frecuencia</option>
           </select>
+          <select
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+            value={stickinessFilter ?? ''}
+            onChange={e => setStickinessFilter((e.target.value || null) as Stickiness | null)}
+            aria-label="Filtrar por constancia"
+          >
+            <option value="">Toda constancia</option>
+            {STICKINESS_ORDER.map(k => <option key={k} value={k}>{STICKINESS_LABEL[k]}</option>)}
+          </select>
+          {cooledOnly && (
+            <button type="button" onClick={() => setCooledOnly(false)} className="px-2 py-1 text-xs rounded bg-red-100 text-red-800">
+              Solo los que se enfriaron ✕
+            </button>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={inactiveOnly} onChange={e => setInactiveOnly(e.target.checked)} />
             Sin compras en el período
@@ -318,12 +366,15 @@ export default function CoberturaClientes({
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Ruta</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Grupo</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Tipo</th>
+                  {sortHeader('registered', 'Registro')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Última venta</th>
                   {sortHeader('days', 'Días sin vender', 'right')}
                   {sortHeader('usd', 'USD/mes', 'right')}
                   {sortHeader('units', 'Unidades/mes', 'right')}
+                  {sortHeader('sales', 'Ventas del período', 'right')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Estado</th>
                   {sortHeader('visit', 'Visita')}
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase" title="Compras en cada una de las últimas 3 ventanas de su frecuencia de visita">Constancia</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -337,17 +388,20 @@ export default function CoberturaClientes({
                     <td className="px-3 py-2 text-gray-600">{r.sellerName ?? 'Sin vendedor'}</td>
                     <td className="px-3 py-2 text-gray-600">{r.routeNumber === null ? 'Sin ruta' : `Ruta ${r.routeNumber}`}</td>
                     <td className="px-3 py-2 text-gray-600">{r.groupName ?? 'Sin grupo'}</td>
-                    <td className="px-3 py-2 text-gray-600">{r.kind === null ? '—' : KIND_LABEL[r.kind]}</td>
+                    <td className="px-3 py-2"><KindBadge kind={r.kind} /></td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{isoToDisplay(r.registeredDate)}</td>
                     <td className="px-3 py-2 text-gray-600">{lastSaleCell(r)}</td>
                     <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{r.daysSinceLastSale ?? NO_DATA}</td>
                     <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{usd(r.avgMonthlyUsd)}</td>
                     <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{units(r.avgMonthlyUnits)}</td>
+                    <td className="px-3 py-2 text-right text-gray-900 whitespace-nowrap">{moneyLabel(r.salesPeriod, currency)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${STATUS_CLASS[r.status]}`}>
                         {STATUS_LABEL[r.status]}
                       </span>
                     </td>
                     <td className="px-3 py-2"><VisitBadge visit={r.visit} /></td>
+                    <td className="px-3 py-2"><StickinessBadge value={r.stickiness} /></td>
                   </tr>
                 ))}
               </tbody>

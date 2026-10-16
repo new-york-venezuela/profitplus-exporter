@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, jsonWithCache, rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
-import { COBERTURA_MONTHLY_QUERY, coberturaCustomersQuery } from '@/lib/clientes/cobertura-sql';
+import { buildDateWhereClause, buildPrevPeriodDateWhereClause, jsonWithCache, rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
+import { COBERTURA_MONTHLY_QUERY, COBERTURA_RECENT_DAYS_QUERY, coberturaCustomersQuery } from '@/lib/clientes/cobertura-sql';
 import { parseCarteraScope } from '@/lib/clientes/scope';
 import { buildXlsx } from '@/lib/xlsx';
 import {
-  LAPSED_AFTER_DAYS, averageOverInvoicedMonths, classifyCoverage, compareDaysSince, filterCobertura,
+  LAPSED_AFTER_DAYS, averageOverInvoicedMonths, classifyCoverage, compareDaysSince, daysBetweenKeys, filterCobertura,
   trailingWindowStartKey, type CoberturaStatus,
 } from '@/app/(app)/analitica/lib/cobertura';
 import { KIND_LABEL, enrichCartera, periodActivity, visitLabel } from '@/app/(app)/analitica/lib/cartera';
+import { STICKINESS_LABEL, STICKINESS_ORDER, classifyStickiness, type Stickiness } from '@/app/(app)/analitica/lib/kind-kpis';
 import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -57,10 +58,21 @@ export async function GET(request: NextRequest) {
     const kindYear = Math.floor(periodEndKey / 10000);
     const periodWhere = buildDateWhereClause(dateRange, 'fs');
 
-    const [customers, monthly] = await Promise.all([
-      pool.request().query(coberturaCustomersQuery(includeInactive, periodWhere)),
+    const prevWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
+    const recentStartKey = dateKeyOf(new Date(now.getTime() - 90 * 86_400_000));
+
+    const [customers, monthly, recent] = await Promise.all([
+      pool.request().query(coberturaCustomersQuery(includeInactive, periodWhere, prevWhere)),
       pool.request().input('windowStartKey', windowStartKey).query(COBERTURA_MONTHLY_QUERY),
+      pool.request().input('recentStartKey', recentStartKey).query(COBERTURA_RECENT_DAYS_QUERY),
     ]);
+
+    const recentByCode = new Map<string, number[]>();
+    for (const x of recent.recordset) {
+      const list = recentByCode.get(x.Code) ?? [];
+      list.push(Number(x.DateKey));
+      recentByCode.set(x.Code, list);
+    }
 
     const monthsByCode = new Map<string, { units: number; usd: number | null }[]>();
     for (const m of monthly.recordset) {
@@ -82,6 +94,14 @@ export async function GET(request: NextRequest) {
         todayKey,
         kindYear,
       });
+      const intervalDays = r.VisitIntervalDays === null || r.VisitIntervalDays === undefined ? null : Number(r.VisitIntervalDays);
+      const firstSaleDateKey = r.FirstDateKey === null || r.FirstDateKey === undefined ? null : Number(r.FirstDateKey);
+      const daysToFirstSale = firstSaleDateKey !== null && registeredDate
+        ? Math.max(0, daysBetweenKeys(Number(registeredDate.replace(/-/g, '')), firstSaleDateKey))
+        : null;
+      const dual = (bs: unknown, usd: unknown) => (bs === null || bs === undefined
+        ? { bs: 0, usd: 0 }
+        : { bs: Number(bs), usd: usd === null || usd === undefined ? null : Number(usd) });
       return {
         customerCode: r.CustomerCode,
         customerName: (r.CustomerName ?? r.CustomerCode).trim(),
@@ -101,6 +121,13 @@ export async function GET(request: NextRequest) {
         kind,
         visit,
         activeInPeriod: periodActivity({ inPeriod: Number(r.InPeriod) === 1, registeredDate, periodEndKey }),
+        registeredDate,
+        firstSaleDateKey,
+        daysToFirstSale,
+        salesPeriod: dual(r.PeriodBs, r.PeriodUsd),
+        salesPrev: prevWhere ? dual(r.PrevBs, r.PrevUsd) : null,
+        boughtPrev: prevWhere ? Number(r.InPrev) === 1 : null,
+        stickiness: classifyStickiness({ intervalDays, registeredDate, recentSaleDateKeys: recentByCode.get(r.CustomerCode) ?? [], todayKey }),
       };
     });
     rows.sort((a, b) => compareDaysSince(a, b, 'asc'));
@@ -113,6 +140,9 @@ export async function GET(request: NextRequest) {
         ...parseCarteraScope(searchParams),
         visit: visitParam === 'overdue' || visitParam === 'no_interval' ? visitParam : null,
         inactiveInPeriod: searchParams.get('inactive') === '1',
+        kind: searchParams.get('kind') === 'patrimonio' || searchParams.get('kind') === 'nuevo' ? (searchParams.get('kind') as 'patrimonio' | 'nuevo') : null,
+        cooled: searchParams.get('cooled') === '1',
+        stickiness: STICKINESS_ORDER.includes(searchParams.get('stickiness') as Stickiness) ? searchParams.get('stickiness') : null,
       });
       const columns = [
         { key: 'cliente', label: 'Cliente', defaultVisible: true, defaultOrder: 0 },
@@ -129,6 +159,9 @@ export async function GET(request: NextRequest) {
         { key: 'usdMes', label: 'USD/mes (prom. 12m)', defaultVisible: true, defaultOrder: 11, type: 'number' as const },
         { key: 'unidadesMes', label: 'Unidades/mes (prom. 12m)', defaultVisible: true, defaultOrder: 12, type: 'number' as const },
         { key: 'estado', label: 'Estado', defaultVisible: true, defaultOrder: 13 },
+        { key: 'registro', label: 'Registro', defaultVisible: true, defaultOrder: 14 },
+        { key: 'ventasPeriodo', label: 'Ventas del período (USD)', defaultVisible: true, defaultOrder: 15, type: 'number' as const },
+        { key: 'constancia', label: 'Constancia (últimas 3 visitas)', defaultVisible: true, defaultOrder: 16 },
       ];
       const data = filtered.map(r => ({
         cliente: r.customerName,
@@ -147,6 +180,9 @@ export async function GET(request: NextRequest) {
         usdMes: r.avgMonthlyUsd === null ? 'Sin datos' : Math.round(r.avgMonthlyUsd * 100) / 100,
         unidadesMes: r.avgMonthlyUnits === null ? 'Sin datos' : Math.round(r.avgMonthlyUnits * 100) / 100,
         estado: STATUS_LABEL[r.status],
+        registro: r.registeredDate ?? 'Sin datos',
+        ventasPeriodo: r.salesPeriod.usd === null ? 'Sin datos' : Math.round(r.salesPeriod.usd * 100) / 100,
+        constancia: STICKINESS_LABEL[r.stickiness],
       }));
       const buffer = buildXlsx(columns, data);
       return new NextResponse(new Uint8Array(buffer), {
@@ -159,6 +195,7 @@ export async function GET(request: NextRequest) {
 
     const response: CoberturaResponse = {
       rows, asOfDateKey: todayKey, windowStartDateKey: windowStartKey, lapsedAfterDays: LAPSED_AFTER_DAYS, kindYear,
+      prevPeriodAvailable: prevWhere !== null,
     };
     return jsonWithCache(response);
   } catch {
