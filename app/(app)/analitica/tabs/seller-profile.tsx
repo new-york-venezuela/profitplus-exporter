@@ -6,6 +6,7 @@ import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt'
 import { moneyLabel, usdLabel } from '../lib/format';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { CustomerList, overdueLabel } from '../components/seguimiento/root-views';
+import { UnbilledSection } from '../components/seguimiento/unbilled-section';
 import { MixBar, MonthPaceStrip, WeekStrip } from '../components/seguimiento/visuals';
 import {
   agingStatus, buildFindings, overdueStatus, ratioStatus, type Status,
@@ -356,6 +357,8 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
               </ul>
             )}
           </div>
+
+          <UnbilledSection customers={root.customers} asOf={seg.asOf} />
 
           <div className="print:hidden">
             <button onClick={() => setEditingMetas(e => !e)} className="text-xs text-blue-600 hover:underline">
