@@ -6,6 +6,7 @@ import { addDuals, monthLabel, pct, units } from '../components/seguimiento/fmt'
 import { moneyLabel, usdLabel } from '../lib/format';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { CustomerList, overdueLabel } from '../components/seguimiento/root-views';
+import { NewCustomersTable } from '../components/seguimiento/new-customers-section';
 import { CustomersPrintTable } from '../components/seguimiento/customers-print-table';
 import { UnbilledSection } from '../components/seguimiento/unbilled-section';
 import { MixBar, MonthPaceStrip, WeekStrip } from '../components/seguimiento/visuals';
@@ -399,6 +400,10 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
               />
             </div>
             <CustomersPrintTable customers={root.customers} headers={seg.weeks} currency={currency} />
+          </Section>
+
+          <Section title="Clientes nuevos" summary={`${root.newCustomers.count}${root.newCustomers.quota === null ? '' : ` de ${root.newCustomers.quota}`}`}>
+            <NewCustomersTable customers={root.customers} currency={currency} monthLabel={monthLabel(seg.month)} />
           </Section>
         </>
       )}

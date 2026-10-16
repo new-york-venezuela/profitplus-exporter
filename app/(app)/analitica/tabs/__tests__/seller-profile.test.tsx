@@ -166,3 +166,13 @@ describe('SellerProfile quota editing', () => {
     expect(fetchMock.mock.calls.length).toBe(callsBefore + 1); // only the POST
   });
 });
+
+describe('SellerProfile clientes nuevos', () => {
+  test('lists the customers behind the Nuevos clientes card', async () => {
+    renderProfile();
+    await screen.findByRole('heading', { level: 1, name: 'Ana' });
+    const section = screen.getByRole('region', { name: 'Clientes nuevos' });
+    const rows = within(section).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(1);                                   // the card says 1 / 1
+  });
+});

@@ -177,6 +177,7 @@ function toCustomer(r: Row, ctx: Ctx): SeguimientoCustomer {
     activeWeeks: ctx.headers.map(h => h.yearWeek).filter(w => r.active.has(w)),
     mix: bucketCategoryMix(toLineAmounts([r]), ctx.visible),
     isNew: isNew(r.fact, ctx),
+    registeredDate: r.fact.registeredDate,
     lastInvoiceDate: r.fact.lastInvoiceDate,
     visit: visitCompliance({ lastInvoiceDate: r.fact.lastInvoiceDate, intervalDays: r.fact.visitIntervalDays, asOf: ctx.asOf }),
   };

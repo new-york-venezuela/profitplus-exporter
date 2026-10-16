@@ -60,6 +60,7 @@ export interface SeguimientoCustomer {
   activeWeeks: string[];
   mix: MixSegment[];
   isNew: boolean;
+  registeredDate: string | null;
   lastInvoiceDate: string | null;
   visit: VisitCompliance;
 }
