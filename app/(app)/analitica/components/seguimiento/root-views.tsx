@@ -6,8 +6,8 @@ import type {
 } from '@/lib/seguimiento/types';
 import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
-import { num, pct } from './fmt';
-import { MixBar, NewCustomersChip, QuotaBar, VisitBadge, WeekDots, WeekStrip } from './visuals';
+import { num, pct, units } from './fmt';
+import { MixBar, NewCustomersChip, QuotaBar, UnitsBar, VisitBadge, WeekDots, WeekStrip } from './visuals';
 
 export function overdueLabel(m: RootMetrics): string {
   const c = m.compliance;
@@ -59,6 +59,11 @@ export function RootCard({
           <QuotaBar
             actual={metrics.sales} quotaUsd={metrics.salesQuotaUsd} projected={metrics.projected}
             currency={currency} shared={metrics.quotaShared} partial={metrics.quotaPartial}
+          />
+          <div className="text-[11px] font-semibold uppercase text-gray-500 mt-3 mb-1">Unidades vs meta del mes</div>
+          <UnitsBar
+            actual={metrics.units} quota={metrics.unitsQuota ?? null} projected={metrics.projectedUnits ?? null}
+            shared={metrics.quotaShared} partial={metrics.unitsQuotaPartial ?? false}
           />
         </div>
         <div className="space-y-1">
@@ -180,6 +185,10 @@ export function RootTable({
       <td className="px-3 py-2 text-right">{m.salesQuotaUsd === null ? '—' : usdLabel(m.salesQuotaUsd)}</td>
       <td className="px-3 py-2 text-right">{pct(m.attainment)}</td>
       <td className="px-3 py-2 text-right">{m.projected ? moneyLabel(m.projected, currency) : '—'}</td>
+      <td className="px-3 py-2 text-right">{units(m.units)}</td>
+      <td className="px-3 py-2 text-right">{m.unitsQuota ? units(m.unitsQuota) : '—'}</td>
+      <td className="px-3 py-2 text-right">{m.unitsQuota ? pct(m.unitsAttainment ?? null) : '—'}</td>
+      <td className="px-3 py-2 text-right">{m.projectedUnits == null ? '—' : units(m.projectedUnits)}</td>
       <td className="px-3 py-2 text-right">{m.avgPrice ? priceLabel(m.avgPrice, currency) : '—'}</td>
       {m.weeks.map(w => <td key={w.yearWeek} className="px-3 py-2 text-right">{pct(w.pct)}</td>)}
       <td className="px-3 py-2 text-right">{m.newCustomers.count}{m.newCustomers.quota === null ? '' : ` / ${m.newCustomers.quota}`}</td>
@@ -197,6 +206,10 @@ export function RootTable({
             <th className="px-3 py-2 text-right">Meta (USD)</th>
             <th className="px-3 py-2 text-right">Avance</th>
             <th className="px-3 py-2 text-right">Proyección</th>
+            <th className="px-3 py-2 text-right">Unidades</th>
+            <th className="px-3 py-2 text-right">Meta uds.</th>
+            <th className="px-3 py-2 text-right">Avance uds.</th>
+            <th className="px-3 py-2 text-right">Proy. uds.</th>
             <th className="px-3 py-2 text-right">Precio prom.</th>
             {headers.map(h => <th key={h.yearWeek} className="px-3 py-2 text-right">{h.label}</th>)}
             <th className="px-3 py-2 text-right">Nuevos</th>
@@ -214,7 +227,7 @@ export function RootTable({
                 r, r.value,
               )}
               {expandedValue === r.value && (
-                <tr><td colSpan={9 + headers.length} className="px-3 py-2 bg-gray-50">{renderExpanded(r)}</td></tr>
+                <tr><td colSpan={13 + headers.length} className="px-3 py-2 bg-gray-50">{renderExpanded(r)}</td></tr>
               )}
             </Fragment>
           ))}

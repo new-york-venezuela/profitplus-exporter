@@ -8,7 +8,7 @@ import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
 import { moneyLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { lineColor } from './colors';
-import { pct } from './fmt';
+import { pct, units } from './fmt';
 
 export function WeekStrip({ weeks, headers }: { weeks: WeekCell[]; headers: WeekHeader[] }) {
   const labelOf = (i: number) => headers[i]?.label ?? weeks[i].yearWeek;
@@ -124,6 +124,46 @@ export function QuotaBar({
       {(shared || partial) && (
         <div className="text-amber-700">{shared ? 'Meta compartida' : 'Meta parcial'}</div>
       )}
+    </div>
+  );
+}
+
+// Same bar as QuotaBar, for units sold vs the unit goal (units are currency-free).
+export function UnitsBar({ actual, quota, projected, shared = false, partial = false }: {
+  actual: number;
+  quota: number | null;
+  projected: number | null;
+  shared?: boolean;
+  partial?: boolean;
+}) {
+  const geometry = quotaBarGeometry(actual, quota, projected);
+  if (!geometry || quota === null) {
+    return (
+      <div className="text-xs text-gray-500">
+        <span className="font-medium text-gray-900">{units(actual)}</span> uds · <span className="text-gray-400">Sin meta de unidades</span>
+      </div>
+    );
+  }
+  const ratio = projected !== null ? projected / quota : actual / quota;
+  return (
+    <div className="text-xs text-gray-600">
+      <div
+        role="img"
+        aria-label={`Unidades ${units(actual)}, meta ${units(quota)}, proyección ${projected === null ? 'sin datos' : units(projected)}`}
+        className="relative h-3 rounded bg-gray-100 overflow-visible"
+      >
+        <div data-testid="units-bar-fill" data-pct={geometry.fillPct} className={`absolute inset-y-0 left-0 rounded ${barTone(ratio, shared)}`} style={{ width: `${geometry.fillPct}%` }} />
+        <div data-testid="units-bar-target" data-pct={geometry.targetPct} title="Meta de unidades" className="absolute -top-1 -bottom-1 w-0.5 bg-gray-800" style={{ left: `${geometry.targetPct}%` }} />
+        {geometry.projectionPct !== null && (
+          <div title="Proyección al cierre del mes" className="absolute -top-2 text-[10px] leading-none text-blue-700 -translate-x-1/2" style={{ left: `${geometry.projectionPct}%` }}>▼</div>
+        )}
+      </div>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-2">
+        <span className="font-medium text-gray-900">{units(actual)} uds</span>
+        <span>Meta {units(quota)}</span>
+        <span>Proy. {projected === null ? '—' : units(projected)}</span>
+      </div>
+      {(shared || partial) && <div className="text-amber-700">{shared ? 'Meta compartida' : 'Meta parcial'}</div>}
     </div>
   );
 }

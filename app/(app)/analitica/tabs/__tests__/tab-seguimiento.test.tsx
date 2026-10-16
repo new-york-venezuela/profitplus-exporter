@@ -61,6 +61,27 @@ describe('TabSeguimiento', () => {
     expect(within(ana).getByText(/Precio prom\./)).toBeTruthy();
   });
 
+  test('each card shows units vs the unit goal, with the projection marker, or says there is no unit goal', async () => {
+    await loaded();
+    const ana = screen.getByRole('article', { name: 'Ana' });
+    expect(within(ana).getByRole('img', { name: 'Unidades 35, meta 100, proyección 77' })).toBeTruthy();
+    expect(within(ana).getByTestId('units-bar-target')).toBeTruthy();
+    const beto = screen.getByRole('article', { name: 'Beto' });
+    expect(within(beto).getByText('Sin meta de unidades')).toBeTruthy();
+  });
+
+  test('table view lists units, unit goal, attainment and projected units per root', async () => {
+    await loaded();
+    await userEvent.click(screen.getByRole('button', { name: 'Tabla' }));
+    const table = await screen.findByRole('table');
+    for (const name of ['Unidades', 'Meta uds.', 'Avance uds.', 'Proy. uds.']) {
+      expect(within(table).getByRole('columnheader', { name })).toBeTruthy();
+    }
+    const row = within(table).getByRole('button', { name: 'Ana' }).closest('tr')!;
+    expect(within(row).getByText('35.0%')).toBeTruthy();   // 35 of 100 units
+    expect(within(row).getByText('77')).toBeTruthy();       // projected units
+  });
+
   test('Beto has a goal but no frequency: no overdue count is shown as a number', async () => {
     await loaded();
     const beto = screen.getByRole('article', { name: 'Beto' });
