@@ -66,6 +66,17 @@ describe('GET /api/dwh/seguimiento: main response', () => {
     expect(body.total.excludedSales).toEqual({ bs: 9000, usd: 180 });
   });
 
+  test('in the evening (22:10 on Thursday the 15th, already Friday in UTC) the as-of day and the pace are still the 15th', async () => {
+    setSystemTime(new Date(2026, 9, 15, 22, 10));            // host-local constructor: the host calendar day is Oct 15 in any TZ
+    try {
+      const body = await (await call('?kind=vendedor&dateRange=30d')).json();
+      expect(body.asOf).toBe('2026-10-15');
+      expect(body.pace).toMatchObject({ workingDaysElapsed: 11, workingDaysInMonth: 22 });
+    } finally {
+      setSystemTime(new Date('2026-10-14T15:00:00Z'));
+    }
+  });
+
   test('queries get the reference month, as-of day and the full ISO-week window', async () => {
     await call('?dateRange=30d');
     expect(fetchCustomers).toHaveBeenCalledWith(pool, '2026-10-14');
