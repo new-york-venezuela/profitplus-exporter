@@ -127,6 +127,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
             salesQuotaUsd: typeof row?.salesQuotaUsd === 'number' ? row.salesQuotaUsd : null,
             weeklyVisitQuota: typeof row?.weeklyVisitQuota === 'number' ? row.weeklyVisitQuota : null,
             newCustomerQuota: typeof row?.newCustomerQuota === 'number' ? row.newCustomerQuota : null,
+            unitsQuota: typeof row?.unitsQuota === 'number' ? row.unitsQuota : null,
           });
         }
       } catch {
@@ -175,13 +176,14 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
     return () => { cancelled = true; };
   }, [dateRange, reloadToken]);
 
-  // Detail sections (cobranza, devoluciones, recuperados, profundidad) over the full selected range.
+  // Detail sections (devoluciones, recuperados, profundidad) cover the SAME month as the scorecard, never the raw range
+  // (cobranza is always the latest balance snapshot).
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setDetailError(null);
       try {
-        const params = new URLSearchParams({ salesRepKey, dateRange });
+        const params = new URLSearchParams({ salesRepKey, dateRange: `month:${periodMonth}` });
         const res = await fetch(`/api/dwh/vendedor-360?${params.toString()}`, { cache: 'no-store' });
         if (cancelled) return;
         if (!res.ok) {
@@ -196,7 +198,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
     }
     load();
     return () => { cancelled = true; };
-  }, [salesRepKey, dateRange]);
+  }, [salesRepKey, periodMonth]);
 
   async function openCustomerLines(code: string) {
     if (openCustomer === code) { setOpenCustomer(null); return; }
@@ -265,7 +267,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
         <h1 className="text-lg font-bold text-gray-900">{name}</h1>
         <p className="text-xs text-gray-500">
           Resumen de {monthLabel(seg.month)} · al {seg.asOf}. Ventas brutas sin IVA por el vendedor actual del cliente (igual que Seguimiento).
-          <span className="hidden print:inline"> Período: {dateRange} — Generado: {new Date().toISOString().slice(0, 10)}</span>
+          <span className="hidden print:inline"> Generado: {new Date().toISOString().slice(0, 10)}</span>
         </p>
         <div className="mt-1"><MonthPaceStrip pace={seg.pace} /></div>
       </div>
@@ -297,15 +299,18 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
             <VerdictCard
               label="Unidades vendidas"
               value={units(root.units)}
-              status="none"
-              chip="Sin meta"
-              subtitle={hasConsignment && root.unitsWithConsignment != null ? `Con consignación: ${units(root.unitsWithConsignment)}` : undefined}
+              status={ratioStatus(root.unitsAttainment ?? null)}
+              chip={root.unitsQuota ? `${pct(root.unitsAttainment ?? null)} de la meta` : 'Sin meta'}
+              subtitle={[
+                root.unitsQuota ? `Meta ${units(root.unitsQuota)}` : null,
+                hasConsignment && root.unitsWithConsignment != null ? `Con consignación: ${units(root.unitsWithConsignment)}` : null,
+              ].filter(Boolean).join(' · ') || undefined}
             />
             <VerdictCard
               label="Proyección de unidades"
               value={units(root.projectedUnits)}
-              status="none"
-              chip="Sin meta"
+              status={ratioStatus(root.projectedUnitsAttainment ?? null)}
+              chip={root.unitsQuota ? `${pct(root.projectedUnitsAttainment ?? null)} de la meta` : 'Sin meta'}
               subtitle={hasConsignment && root.projectedUnitsWithConsignment != null ? `Con consignación: ${units(root.projectedUnitsWithConsignment)}` : undefined}
             />
             <VerdictCard
@@ -360,6 +365,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
                 <span>Ventas: <QuotaEditor currentValue={targetRow.salesQuotaUsd} field="salesQuotaUsd" suffix="USD" onSave={saveQuotaField} /></span>
                 <span>Visitas por semana: <QuotaEditor currentValue={targetRow.weeklyVisitQuota} field="weeklyVisitQuota" onSave={saveQuotaField} /></span>
                 <span>Clientes nuevos: <QuotaEditor currentValue={targetRow.newCustomerQuota} field="newCustomerQuota" onSave={saveQuotaField} /></span>
+                <span>Unidades: <QuotaEditor currentValue={targetRow.unitsQuota} field="unitsQuota" onSave={saveQuotaField} /></span>
               </div>
             )}
           </div>
@@ -397,7 +403,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
       {detail && (
         <>
-          <Section title="Cobranza (antigüedad de saldos)" summary={pastDueShare === null ? undefined : `${pct(pastDueShare)} vencido`}>
+          <Section title="Cobranza (saldo actual por antigüedad)" summary={pastDueShare === null ? undefined : `${pct(pastDueShare)} vencido`}>
             {detail.cobranza.buckets.length === 0 ? (
               <div className="text-sm text-gray-400 py-2">Sin datos de antigüedad disponibles.</div>
             ) : (
@@ -426,7 +432,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
           </Section>
 
           <Section title="Devoluciones" summary={`${detail.devoluciones.byProduct.length} productos · ${detail.devoluciones.byTienda.length} tiendas`}>
-            <p className="text-xs text-gray-500 mb-2">Por fecha de devolución, sobre el período seleccionado.</p>
+            <p className="text-xs text-gray-500 mb-2">Por fecha de devolución, en {monthLabel(seg.month)}.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {([['Por producto', detail.devoluciones.byProduct], ['Por tienda', detail.devoluciones.byTienda]] as const).map(([title, rows]) => (
                 <div key={title}>
@@ -453,7 +459,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
           <Section title="Clientes recuperados" summary={`${detail.clientesRecuperados.rows.length}`}>
             {detail.clientesRecuperados.rows.length === 0 ? (
-              <div className="text-sm text-gray-400 py-2">Sin clientes recuperados en el período.</div>
+              <div className="text-sm text-gray-400 py-2">Sin clientes recuperados en {monthLabel(seg.month)}.</div>
             ) : (
               <table className="min-w-full text-sm">
                 <thead>
@@ -482,7 +488,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
 
           <Section title="Profundidad de línea" summary={detail.profundidad.coverage ? pct(detail.profundidad.coverage.ownPenetration) : undefined}>
             {detail.profundidad.coverage === null ? (
-              <div className="text-sm text-gray-400 py-2">Sin datos de cobertura para este vendedor en el período.</div>
+              <div className="text-sm text-gray-400 py-2">Sin datos de cobertura para este vendedor en {monthLabel(seg.month)}.</div>
             ) : (
               <div className="text-sm">
                 <div>Cobertura propia: <strong>{pct(detail.profundidad.coverage.ownPenetration)}</strong></div>

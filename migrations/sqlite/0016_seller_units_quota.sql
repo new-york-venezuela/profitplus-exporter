@@ -1,0 +1,1 @@
+ALTER TABLE `seller_targets` ADD `units_quota` real;

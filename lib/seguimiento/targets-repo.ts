@@ -8,6 +8,6 @@ import type { SellerTargets } from './quotas';
 export function readTargetsForMonth(db: AppDb, month: string): Map<string, SellerTargets> {
   const rows = db.select().from(sellerTargets).where(eq(sellerTargets.periodMonth, month)).all();
   return new Map(rows.map(r => [r.salesRepKey, {
-    salesQuotaUsd: r.salesQuotaUsd, weeklyVisitQuota: r.weeklyVisitQuota, newCustomerQuota: r.newCustomerQuota,
+    salesQuotaUsd: r.salesQuotaUsd, weeklyVisitQuota: r.weeklyVisitQuota, newCustomerQuota: r.newCustomerQuota, unitsQuota: r.unitsQuota,
   }]));
 }

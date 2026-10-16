@@ -113,6 +113,13 @@
       "when": 1791747622771,
       "tag": "0015_glossy_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792113146980,
+      "tag": "0016_seller_units_quota",
+      "breakpoints": true
     }
   ]
 }

@@ -91,7 +91,7 @@ test.describe('seguimiento (mocked API)', () => {
     await ana.getByRole('spinbutton').fill('120');
     await ana.getByRole('button', { name: 'Guardar' }).click();
     await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0]).toEqual({ salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 2, newCustomerQuota: 1 });
+    expect(posts[0]).toEqual({ salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 });
   });
 
   test('consignment footnote lists the excluded invoices', async ({ adminPage }) => {

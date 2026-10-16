@@ -47,7 +47,10 @@ describe('buildSeguimiento: vendedor roots', () => {
     expect(ana.projectedUnits).toBeCloseTo(35 * 2.2, 10);               // 35 units at 22 working days / 10 elapsed
     expect(ana.quotaShared).toBe(false);
     expect(ana.salesRepKey).toBe('1');
-    expect(ana.targets).toEqual({ salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 });
+    expect(ana.targets).toEqual({ salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 });
+    expect(ana.unitsQuota).toBe(100);
+    expect(ana.unitsAttainment).toBeCloseTo(0.35, 10);                   // 35 of 100 units
+    expect(ana.projectedUnitsAttainment).toBeCloseTo(0.77, 10);          // 77 projected of 100
   });
 
   test('Ana: weekly activation counts customers with an invoice that ISO week; future weeks have no pct', () => {
@@ -147,7 +150,7 @@ describe('buildSeguimiento: degenerate input', () => {
 
   test('a zero quota is treated as no goal (no division by zero)', () => {
     const input = fixtureInput('vendedor');
-    const targets = new Map(input.targets).set('1', { salesQuotaUsd: 0, weeklyVisitQuota: null, newCustomerQuota: null });
+    const targets = new Map(input.targets).set('1', { salesQuotaUsd: 0, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: 0 });
     const ana = buildSeguimiento({ ...input, targets }).roots.find(r => r.label === 'Ana')!;
     expect(ana.salesQuotaUsd).toBe(0);
     expect(ana.attainment).toBeNull();

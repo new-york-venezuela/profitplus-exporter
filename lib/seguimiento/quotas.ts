@@ -4,14 +4,16 @@ export interface SellerTargets {
   salesQuotaUsd: number | null;
   weeklyVisitQuota: number | null;
   newCustomerQuota: number | null;
+  unitsQuota: number | null;
 }
 
 export interface RolledQuota {
   salesQuotaUsd: number | null;
   weeklyVisitQuota: number | null;
   newCustomerQuota: number | null;
+  unitsQuota: number | null;
   sellersTotal: number;
-  partial: { sales: boolean; weeklyVisits: boolean; newCustomers: boolean };
+  partial: { sales: boolean; weeklyVisits: boolean; newCustomers: boolean; units: boolean };
 }
 
 function sum(
@@ -35,10 +37,11 @@ export function rollUpQuotas(sellerKeys: readonly string[], targets: ReadonlyMap
   const sales = sum(keys, targets, t => t.salesQuotaUsd);
   const weekly = sum(keys, targets, t => t.weeklyVisitQuota);
   const fresh = sum(keys, targets, t => t.newCustomerQuota);
+  const units = sum(keys, targets, t => t.unitsQuota);
   return {
-    salesQuotaUsd: sales.total, weeklyVisitQuota: weekly.total, newCustomerQuota: fresh.total,
+    salesQuotaUsd: sales.total, weeklyVisitQuota: weekly.total, newCustomerQuota: fresh.total, unitsQuota: units.total,
     sellersTotal: keys.length,
-    partial: { sales: sales.partial, weeklyVisits: weekly.partial, newCustomers: fresh.partial },
+    partial: { sales: sales.partial, weeklyVisits: weekly.partial, newCustomers: fresh.partial, units: units.partial },
   };
 }
 

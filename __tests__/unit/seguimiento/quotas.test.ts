@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { quotaBarGeometry, rollUpQuotas, type SellerTargets } from '../../../lib/seguimiento/quotas';
 
-const t = (s: number | null, w: number | null, n: number | null): SellerTargets =>
-  ({ salesQuotaUsd: s, weeklyVisitQuota: w, newCustomerQuota: n });
+const t = (s: number | null, w: number | null, n: number | null, u: number | null = null): SellerTargets =>
+  ({ salesQuotaUsd: s, weeklyVisitQuota: w, newCustomerQuota: n, unitsQuota: u });
 
 describe('rollUpQuotas', () => {
   const targets = new Map<string, SellerTargets>([['1', t(100, 2, 1)], ['2', t(50, null, null)], ['3', t(null, null, null)]]);
@@ -25,7 +25,7 @@ describe('rollUpQuotas', () => {
     expect(r.salesQuotaUsd).toBeNull();
     expect(r.weeklyVisitQuota).toBeNull();
     expect(r.newCustomerQuota).toBeNull();
-    expect(r.partial).toEqual({ sales: false, weeklyVisits: false, newCustomers: false });
+    expect(r.partial).toEqual({ sales: false, weeklyVisits: false, newCustomers: false, units: false });
   });
   test('an explicit 0 quota is a real value', () => {
     expect(rollUpQuotas(['z'], new Map([['z', t(0, null, null)]])).salesQuotaUsd).toBe(0);

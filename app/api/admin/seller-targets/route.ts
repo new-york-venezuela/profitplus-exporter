@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     const salesQuotaUsd = typeof body.salesQuotaUsd === 'number' ? body.salesQuotaUsd : null;
     const weeklyVisitQuota = typeof body.weeklyVisitQuota === 'number' ? body.weeklyVisitQuota : null;
     const newCustomerQuota = typeof body.newCustomerQuota === 'number' ? body.newCustomerQuota : null;
+    const unitsQuota = typeof body.unitsQuota === 'number' ? body.unitsQuota : null;
 
     const db = getDb();
     // Upsert semantics via delete-then-insert, same pattern the
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
       .run();
     const result = db
       .insert(sellerTargets)
-      .values({ salesRepKey: body.salesRepKey, periodMonth: body.periodMonth, salesQuotaUsd, weeklyVisitQuota, newCustomerQuota })
+      .values({ salesRepKey: body.salesRepKey, periodMonth: body.periodMonth, salesQuotaUsd, weeklyVisitQuota, newCustomerQuota, unitsQuota })
       .returning({ id: sellerTargets.id })
       .get();
 

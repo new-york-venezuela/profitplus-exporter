@@ -100,6 +100,7 @@ export const sellerTargets = sqliteTable('seller_targets', {
   salesQuotaUsd:    real('sales_quota_usd'),
   weeklyVisitQuota: integer('weekly_visit_quota'),
   newCustomerQuota: integer('new_customer_quota'),
+  unitsQuota:       real('units_quota'),
 }, (t) => ({
   uniq: unique('seller_targets_rep_month_unique').on(t.salesRepKey, t.periodMonth),
 }));

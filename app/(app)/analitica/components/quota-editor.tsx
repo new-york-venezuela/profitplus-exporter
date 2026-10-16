@@ -6,9 +6,10 @@ export interface SellerTargetRow {
   salesQuotaUsd: number | null;
   weeklyVisitQuota: number | null;
   newCustomerQuota: number | null;
+  unitsQuota: number | null;
 }
 
-export const EMPTY_TARGET_ROW: SellerTargetRow = { salesQuotaUsd: null, weeklyVisitQuota: null, newCustomerQuota: null };
+export const EMPTY_TARGET_ROW: SellerTargetRow = { salesQuotaUsd: null, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: null };
 
 // Inline click-to-edit quota affordance, same pattern the retired Cadencia tab used
 // for its targetGapDays editor: a value/"Definir" link swaps to a number input +
@@ -28,7 +29,7 @@ export const EMPTY_TARGET_ROW: SellerTargetRow = { salesQuotaUsd: null, weeklyVi
 // app/api/admin/seller-targets/route.ts) — any quota field omitted from the
 // POST body is written back as null, so saving just this one field without
 // the other two current values would silently wipe them. onSave (passed by
-// SellerProfile) always sends the full three-field row, only overriding the
+// SellerProfile) always sends the full four-field row, only overriding the
 // one field this editor owns.
 export function QuotaEditor({
   currentValue, field, suffix = '', onSave,

@@ -36,7 +36,7 @@ const profile: Seller360Response = {
 const json = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 500, json: async () => body }) as unknown as Response;
 const defaultFetch = async (url: string, init?: RequestInit): Promise<Response> => {
   if (url === '/api/admin/seller-targets' && init?.method === 'POST') return json({ ok: true });
-  if (url.startsWith('/api/admin/seller-targets')) return json({ salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 });
+  if (url.startsWith('/api/admin/seller-targets')) return json({ salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 });
   if (url.startsWith('/api/dwh/seguimiento')) return json(fixtureResponse('vendedor'));
   return json(profile);
 };
@@ -67,6 +67,25 @@ describe('SellerProfile scorecard', () => {
     expect(within(card('Nuevos clientes')).getByText('1 / 1')).toBeTruthy();
     expect(within(card('Cobranza vencida')).getByText('40.0%')).toBeTruthy();    // (400 of 1000) outside the Current bucket
     expect(calls('/api/dwh/seguimiento')[0][0]).toContain('kind=vendedor');
+  });
+
+  test('unit cards compare against the unit goal, and show "Sin meta" for a seller without one', async () => {
+    renderProfile('1');
+    await screen.findByRole('heading', { level: 1, name: 'Ana' });
+    expect(within(card('Unidades vendidas')).getByText('35.0% de la meta')).toBeTruthy();       // 35 of 100
+    expect(within(card('Proyección de unidades')).getByText('77.0% de la meta')).toBeTruthy();  // 77 projected of 100
+    cleanup();
+    renderProfile('2');
+    await screen.findByRole('heading', { level: 1, name: 'Beto' });
+    expect(within(card('Unidades vendidas')).getByText('Sin meta')).toBeTruthy();
+  });
+
+  test('detail sections are requested for the scorecard month, not the whole selected range', async () => {
+    render(<SellerProfile salesRepKey="1" dateRange="custom:2026-08-01:2026-10-14" currency="usd" onBack={() => {}} />);
+    await screen.findByRole('heading', { level: 1, name: 'Ana' });
+    const detailUrl = String(calls('/api/dwh/vendedor-360')[0][0]);
+    expect(decodeURIComponent(detailUrl)).toContain('dateRange=month:2026-10');
+    expect(decodeURIComponent(String(calls('/api/dwh/seguimiento')[0][0]))).toContain('dateRange=custom:2026-08-01:2026-10-14');
   });
 
   test('"Con consignación" appears only for a seller whose chains bill at the root', async () => {
@@ -125,7 +144,7 @@ describe('SellerProfile quota editing', () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     expect(saveSpy.mock.calls[0][0]).toEqual({
       salesRepKey: '1', periodMonth: '2026-10',
-      current: { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 },
+      current: { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 },
       field: 'salesQuotaUsd', value: 150,
     });
     await waitFor(() => expect(calls('/api/dwh/seguimiento').length).toBeGreaterThan(before));

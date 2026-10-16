@@ -34,6 +34,12 @@ export interface RootMetrics {
   /** Units sold including consignment roots (`units` excludes them). */
   unitsWithConsignment: number;
   projectedUnits: number | null;
+  unitsQuota: number | null;
+  unitsQuotaPartial: boolean;
+  /** Units sold (sellers only) / unitsQuota. */
+  unitsAttainment: number | null;
+  /** Projected units (sellers only) / unitsQuota. */
+  projectedUnitsAttainment: number | null;
   projectedUnitsWithConsignment: number | null;
   weeklyVisitQuota: number | null;
   weeks: WeekCell[];

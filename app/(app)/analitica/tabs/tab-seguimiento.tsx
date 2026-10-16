@@ -247,12 +247,19 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         <KpiCard
           label="Unidades vendidas"
           value={units(total.units)}
-          subtitle={rootsWithExcluded.length > 0 && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : undefined}
+          subtitle={[
+            total.unitsQuota ? `${pct(total.unitsAttainment)} de la meta (${units(total.unitsQuota)})` : null,
+            rootsWithExcluded.length > 0 && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : null,
+          ].filter(Boolean).join(' · ') || undefined}
+          tone={total.unitsAttainment !== null && total.unitsAttainment < 0.8 ? 'warn' : 'default'}
         />
         <KpiCard
           label="Proyección de unidades"
           value={units(total.projectedUnits)}
-          subtitle={rootsWithExcluded.length > 0 && total.projectedUnitsWithConsignment != null ? `Con consignación: ${units(total.projectedUnitsWithConsignment)}` : undefined}
+          subtitle={[
+            total.projectedUnitsAttainment == null ? null : `${pct(total.projectedUnitsAttainment)} de la meta`,
+            rootsWithExcluded.length > 0 && total.projectedUnitsWithConsignment != null ? `Con consignación: ${units(total.projectedUnitsWithConsignment)}` : null,
+          ].filter(Boolean).join(' · ') || undefined}
         />
         <KpiCard
           label="Meta de ventas (USD)"
@@ -312,6 +319,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
                   <span>Ventas: <QuotaEditor currentValue={targetsOf(root).salesQuotaUsd} field="salesQuotaUsd" suffix="USD" onSave={(f, v) => saveField(root, f, v)} /></span>
                   <span>Visitas por semana: <QuotaEditor currentValue={targetsOf(root).weeklyVisitQuota} field="weeklyVisitQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
                   <span>Clientes nuevos: <QuotaEditor currentValue={targetsOf(root).newCustomerQuota} field="newCustomerQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
+                  <span>Unidades: <QuotaEditor currentValue={targetsOf(root).unitsQuota} field="unitsQuota" onSave={(f, v) => saveField(root, f, v)} /></span>
                 </div>
               ) : undefined}
             >

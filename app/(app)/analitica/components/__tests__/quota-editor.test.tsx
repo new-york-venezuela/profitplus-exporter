@@ -44,10 +44,10 @@ describe('saveSellerTargetField', () => {
   const fetchMock = mock(async (_url: string, _init?: RequestInit) => ({ ok: true }) as Response);
   beforeEach(() => { fetchMock.mockClear(); globalThis.fetch = fetchMock as unknown as typeof fetch; });
 
-  test('always POSTs the full three-field row so the upsert never nulls the other quotas', async () => {
+  test('always POSTs the full four-field row so the upsert never nulls the other quotas', async () => {
     const ok = await saveSellerTargetField({
       salesRepKey: '12', periodMonth: '2026-10',
-      current: { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: null },
+      current: { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: null, unitsQuota: null },
       field: 'newCustomerQuota', value: 4,
     });
     expect(ok).toBe(true);
@@ -55,7 +55,7 @@ describe('saveSellerTargetField', () => {
     expect(url).toBe('/api/admin/seller-targets');
     expect(init?.method).toBe('POST');
     expect(JSON.parse(String(init?.body))).toEqual({
-      salesRepKey: '12', periodMonth: '2026-10', salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 4,
+      salesRepKey: '12', periodMonth: '2026-10', salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 4, unitsQuota: null,
     });
   });
   test('false on a non-ok response and on a network error', async () => {

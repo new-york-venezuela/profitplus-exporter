@@ -42,3 +42,7 @@ Seller absent from the Seguimiento roots -> empty state. A failed 360 request ke
 Unit: seller-verdict boundaries (79/80/99/100%), no-goal, 3-week decline vs <3 weeks, findings order. Component: cards and chips,
 profile sales equal the Seguimiento root sales, consignment subtitle only with consignment, Editar metas saves + refetches,
 360 failure keeps scorecard, empty seller. Existing seller-profile tests updated.
+
+## Addendum (2026-10-15, after review)
+- Detail sections use the scorecard's month (`month:YYYY-MM`) instead of the raw range; Cobranza stays the latest balance snapshot ("saldo actual").
+- Unit KPIs: "Unidades vendidas" and "Proyección de unidades" (sellers only, with the consignment figure in the subtitle). A fourth goal, `seller_targets.units_quota`, gives them a status chip / % of goal; without it they show "Sin meta".

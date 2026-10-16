@@ -123,7 +123,7 @@ describe('TabSeguimiento', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/admin/seller-targets')).toBe(true));
     const post = fetchMock.mock.calls.find(c => String(c[0]) === '/api/admin/seller-targets')!;
     expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
-      salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 2, newCustomerQuota: 1,
+      salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100,
     });
     await waitFor(() => expect(fetchMock.mock.calls.filter(c => String(c[0]).includes('/api/dwh/seguimiento')).length).toBeGreaterThan(0));
     const refetch = fetchMock.mock.calls.find(c => String(c[0]).includes('/api/dwh/seguimiento'))!;
@@ -142,10 +142,10 @@ describe('TabSeguimiento', () => {
     await loaded();
     const sold = screen.getByText('Unidades vendidas').parentElement!;
     expect(within(sold).getByText('39')).toBeTruthy();
-    expect(within(sold).getByText('Con consignación: 139')).toBeTruthy();
+    expect(within(sold).getByText('39.0% de la meta (100) · Con consignación: 139')).toBeTruthy();  // goal comes from Ana's 100-unit quota
     const proj = screen.getByText('Proyección de unidades').parentElement!;
     expect(within(proj).getByText('86')).toBeTruthy();
-    expect(within(proj).getByText('Con consignación: 306')).toBeTruthy();
+    expect(within(proj).getByText('85.8% de la meta · Con consignación: 306')).toBeTruthy();
   });
 
   test('a response without the units fields (cached before they existed) renders a dash, never NaN', async () => {
@@ -235,7 +235,7 @@ describe('TabSeguimiento review fixes', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(c => String(c[0]) === '/api/admin/seller-targets').length).toBe(2));
     const second = fetchMock.mock.calls.filter(c => String(c[0]) === '/api/admin/seller-targets')[1];
     expect(JSON.parse(String((second[1] as RequestInit).body))).toEqual({
-      salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 5, newCustomerQuota: 1,
+      salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 120, weeklyVisitQuota: 5, newCustomerQuota: 1, unitsQuota: 100,
     });
     expect(within(ana).getByRole('button', { name: 'Editar meta (120USD)' })).toBeTruthy();
   });

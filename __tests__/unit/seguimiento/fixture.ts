@@ -41,8 +41,8 @@ export const FIXTURE_WEEK_ACTIVITY: CustomerWeekActivity[] = [
 ];
 
 export const FIXTURE_TARGETS = new Map<string, SellerTargets>([
-  ['1', { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 }],
-  ['2', { salesQuotaUsd: 50, weeklyVisitQuota: null, newCustomerQuota: null }],
+  ['1', { salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 }],
+  ['2', { salesQuotaUsd: 50, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: null }],
 ]);
 
 export const FIXTURE_CONSIGNMENT_ROOTS = ['C4'];

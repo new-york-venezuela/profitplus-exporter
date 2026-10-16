@@ -36,9 +36,9 @@ beforeEach(() => {
   access.mockImplementation(async () => ({ ok: true, session: { sub: '7', role: 'admin' } }));
   memoryDb.delete(sellerTargets).run();
   memoryDb.insert(sellerTargets).values([
-    { salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1 },
-    { salesRepKey: '2', periodMonth: '2026-10', salesQuotaUsd: 50, weeklyVisitQuota: null, newCustomerQuota: null },
-    { salesRepKey: '1', periodMonth: '2026-09', salesQuotaUsd: 7, weeklyVisitQuota: null, newCustomerQuota: null },
+    { salesRepKey: '1', periodMonth: '2026-10', salesQuotaUsd: 100, weeklyVisitQuota: 2, newCustomerQuota: 1, unitsQuota: 100 },
+    { salesRepKey: '2', periodMonth: '2026-10', salesQuotaUsd: 50, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: null },
+    { salesRepKey: '1', periodMonth: '2026-09', salesQuotaUsd: 7, weeklyVisitQuota: null, newCustomerQuota: null, unitsQuota: null },
   ]).run();
 });
 
