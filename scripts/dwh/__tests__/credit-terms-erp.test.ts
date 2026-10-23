@@ -106,4 +106,21 @@ describe('credit-terms pApi procs', () => {
     await pool.request().input('c', coCli).input('p', before.plazPag)
       .query(`UPDATE saCliente SET cond_pag = '000001', plaz_pag = @p WHERE co_cli = @c`);
   });
+
+  test('invoice restore skips an invoice edited after the run', async () => {
+    await gw.setCustomerTerm(runId, coCli, '000002', 7);
+    const changed = await gw.fixInvoices(runId, coCli);
+    expect(changed.length).toBeGreaterThan(1);
+    const edited = changed[0].nroDoc;
+    await pool.request().input('d', edited).query(
+      `UPDATE saDocumentoVenta SET fec_venc = DATEADD(day, 1, fec_venc) WHERE RTRIM(nro_doc) = @d AND co_tipo_doc = 'FACT'`);
+    const r = await gw.restoreInvoices(runId);
+    expect(r.skipped.map(x => x.key)).toEqual([edited]);
+    expect(r.restored).toBe(changed.length - 1);
+    // put the edited invoice back to its original (contado) state and the customer too
+    await pool.request().input('d', edited).query(
+      `UPDATE saDocumentoVenta SET fec_venc = fec_emis WHERE RTRIM(nro_doc) = @d AND co_tipo_doc = 'FACT';
+       UPDATE saFacturaVenta SET fec_venc = fec_emis, co_cond = '000001' WHERE RTRIM(doc_num) = @d`);
+    await gw.restoreCustomers(runId);
+  });
 });
