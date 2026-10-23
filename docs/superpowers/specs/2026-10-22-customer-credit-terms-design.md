@@ -122,8 +122,10 @@ Follows `scripts/mapping-apply.ts` conventions (`parseArgs`, `--confirm-db`):
 2. Customers already correct are not written. Invoices of those customers are still
    recomputed if their `fec_venc` disagrees with the term.
 3. Inactive customers: none exist in the prod export; the script treats one as an error.
-4. The 4 customers present in prod but absent from the mock (`J411057444`,
-   `J502346473`, `J5055663682`, `J508477782`) are not in Ops either; `skip`.
+4. Four customers exist in prod but not in the mock (`J411057444`, `J502346473`, `J5055663682`,
+   `J508477782`). Ops lists `J502346473` (Santorini Express) and `J5055663682` (Automercado Avila) at 7 days,
+   so they are `exact`/7 (already on 7 days: only their invoices are recomputed); the other two are `skip`.
+   Because the mock lacks them, the first write for these two happens in production: review them in the prod dry-run.
 
 ## Testing and rollout
 

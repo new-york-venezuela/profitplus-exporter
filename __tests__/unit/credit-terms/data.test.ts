@@ -43,4 +43,11 @@ describe('data/credit-terms/2026-10.csv', () => {
       expect([r.source, r.diasCred]).toEqual(['skip', null]);
     }
   });
+
+  test('prod-only customers listed by Ops are exact 7; the two not in Ops are skipped', () => {
+    for (const code of ['J502346473', 'J5055663682']) {
+      const r = rows.find(x => x.coCli === code)!;
+      expect([r.diasCred, r.source]).toEqual([7, 'exact']);
+    }
+  });
 });

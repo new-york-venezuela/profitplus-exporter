@@ -34,6 +34,11 @@ async function main() {
     if (values.rollback) {
       const r = await rollbackRun(gateway, values.rollback);
       console.log(`Facturas restauradas: ${r.invoices.restored} | clientes restaurados: ${r.customers.restored}`);
+      if (r.invoices.restored + r.customers.restored + r.invoices.skipped.length + r.customers.skipped.length === 0) {
+        console.log(`⚠ La corrida ${values.rollback} no tiene cambios registrados en ${process.env.DB_SERVER}/${process.env.DB_NAME}; revise el runId.`);
+        process.exitCode = 1;
+        return;
+      }
       const skipped = [...r.invoices.skipped, ...r.customers.skipped];
       for (const s of skipped.slice(0, 30)) console.log(`  ⚠ ${s.key}: ${s.reason}`);
       process.exitCode = skipped.length ? 1 : 0;
@@ -53,11 +58,13 @@ async function main() {
       `omitidos: ${plan.skipped.length}`);
     console.log(`Clientes a escribir: ${s.customerWrites} | facturas a corregir: ${s.invoices} | saldo afectado: ${s.saldo}`);
     for (const p of plan.problems.slice(0, 30)) console.log(`  ✗ ${p}`);
+    if (plan.skipped.length) console.log(`Omitidos: ${plan.skipped.map(r => r.coCli).join(', ')}`);
     console.log(`Diff de facturas: ${outPath}`);
     if (plan.problems.length) { process.exitCode = 1; if (values.apply) return; }
 
     if (!values.apply) { console.log('Simulación: no se escribió nada. Use --apply --confirm-db para aplicar.'); return; }
 
+    console.log(`Aplicando en ${process.env.DB_SERVER}/${process.env.DB_NAME}...`);
     const res = await applyPlan({ gateway, log: console.log, newRunId: () => crypto.randomUUID() }, plan);
     console.log(`\nCorrida ${res.runId} (${process.env.DB_SERVER}/${process.env.DB_NAME}): ` +
       `${res.customersWritten} clientes, ${res.invoicesFixed} facturas${res.failures.length ? `, ${res.failures.length} fallos` : ''}`);

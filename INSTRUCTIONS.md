@@ -550,7 +550,7 @@ recomputes `fec_venc = fec_emis + dias_cred` on that customer's **unpaid** FACT 
  `tmp/credit-terms-dry-run.csv` (`--out` overrides). Any problem (unknown/inactive customer, `review` row) exits 1 and blocks `--apply`.
 3. **Apply**: `bun run credit-terms:apply -- --apply --confirm-db <DB_NAME>`; it prints the run id. Safe to re-run (a second run changes nothing).
  **Then run `bun run dwh:snapshot-load`** so the CxC tab recalculates.
-4. **Rollback**: `bun run credit-terms:apply -- --rollback <runId> --confirm-db <DB_NAME>`; rows edited since the run are skipped and listed.
+4. **Rollback**: `bun run credit-terms:apply -- --rollback <runId> --confirm-db <DB_NAME>`; rows edited since the run are skipped and listed. An unknown `runId` exits 1. If `--apply` was re-run after a failure it prints a new run id: roll back every id printed.
 
 Review the production dry-run CSV before applying. `bun run test:credit-terms-erp` writes to the ERP (then restores): non-production only.
 
