@@ -67,3 +67,6 @@ data/qr-logos/
 
 # customer mapping dry-run output
 data/customer-mapping/*.diff.csv
+
+# credit-terms dry-run output
+/tmp/credit-terms-*.csv
