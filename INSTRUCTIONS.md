@@ -535,6 +535,25 @@ must return 0 rows (Seguimiento, Productos and Clientes rely on one current row 
 The first real run must go against a **non-production** copy of the ERP. `bun run test:mapping-erp` writes to the ERP
 (then restores) — non-production only. The route procs are also covered there.
 
+## Customer credit terms (cond_pag and due dates of unpaid invoices)
+
+Invoice due dates (`fec_venc`, which CxC aging and "% vencido" read) come from the customer's `saCliente.cond_pag`
+(`saCondicionPago.dias_cred`); `plaz_pag` alone changes nothing, so a customer with `cond_pag = 000001` (Contado) and
+`plaz_pag = 7` is billed with a 0-day term. `bun run credit-terms:apply` sets `cond_pag` + `plaz_pag` per customer from the
+committed `data/credit-terms/2026-10.csv` (columns `co_cli, nombre, dias_cred, source, note`; `source` skip = leave alone) and
+recomputes `fec_venc = fec_emis + dias_cred` on that customer's **unpaid** FACT invoices (`saDocumentoVenta` and
+`saFacturaVenta`, plus `saFacturaVenta.co_cond`). Paid, voided and non-FACT documents are never touched. Library:
+`lib/credit-terms/`; migration `0019` adds the 35-day term (`000015`) and the procs.
+
+1. `bun run migrate:mssql` (0019).
+2. **Dry-run (default)**: `bun run credit-terms:apply` prints customers per term and invoices to change, and writes
+ `tmp/credit-terms-dry-run.csv` (`--out` overrides). Any problem (unknown/inactive customer, `review` row) exits 1 and blocks `--apply`.
+3. **Apply**: `bun run credit-terms:apply -- --apply --confirm-db <DB_NAME>`; it prints the run id. Safe to re-run (a second run changes nothing).
+ **Then run `bun run dwh:snapshot-load`** so the CxC tab recalculates.
+4. **Rollback**: `bun run credit-terms:apply -- --rollback <runId> --confirm-db <DB_NAME>`; rows edited since the run are skipped and listed. An unknown `runId` exits 1. If `--apply` was re-run after a failure it prints a new run id: roll back every id printed.
+
+Review the production dry-run CSV before applying. `bun run test:credit-terms-erp` writes to the ERP (then restores): non-production only.
+
 ## Redeploy Procedure
 
 ```powershell

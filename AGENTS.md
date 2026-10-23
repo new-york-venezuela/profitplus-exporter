@@ -84,6 +84,7 @@ lib/
   customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`, zones to create, route/frequency changes
   customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots; route procs pApiInsertarZona / pApiActualizarRutaCliente / pApiRestaurarRutaCliente
   customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
+  credit-terms/            — csv.ts (reader of data/credit-terms/2026-10.csv), plan.ts (pure), erp.ts (pApi* gateway), apply.ts (apply/rollback), report.ts; see "Credit terms"
   dwh/cutover.ts           — MIGRATION_CUTOVER_DATE (2026-03-28), customerKindInYear(): patrimonio / nuevo derived from Dim_Customer.RegisteredDate, never stored
   clientes/scope.ts, cobertura-sql.ts — Clientes tab: group/route scope (decided by the CURRENT Dim_Customer row) and the cobertura query (last invoice, period activity, route, group, visit frequency)
   productos/group-share.ts, queries.ts — Productos tab: product x customer-group share matrix (pure builder + SQL), category list
@@ -108,6 +109,8 @@ migrations/mssql/0017      — supersedes pApiCorregirVendedorDocumento (FACT mi
                               and adds pApiRestaurarVendedorCliente (restore customer seller on rollback, accepts inactive sellers)
 migrations/mssql/0018      — route procs: pApiInsertarZona (CCSnnn zone, idempotent), pApiActualizarRutaCliente (co_zon + frecu_vist, enum-checked),
                               pApiRestaurarRutaCliente (rollback only: accepts NULL/free-text frecu_vist)
+migrations/mssql/0019      — credit terms: 35-day term (000015), pApiActualizarCondicionPagoCliente, pApiCorregirVencimientosFacturasCliente,
+                              pApiRestaurar* (audit tables __exporter_credit_term_*_fixes keyed by run_id)
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
@@ -436,6 +439,15 @@ one active customer; inactive ones, flagged `inactive`, are excluded).
 ## Routes and visit frequency
 
 A route is a `saZona` row coded `CCSnnn` (nnn = the route number in `data/customer-mapping/2026-03.csv`; `char(6)`, so no hyphen — legacy `CCS-NN` zones are never reused). A customer's route is `saCliente.co_zon`, its visit frequency `saCliente.frecu_vist` (`SEMANAL`/`QUINCENAL`/`MENSUAL`). There is no seller x route table and no seller/route coherence rule: `mapping:apply` gives each customer the seller, group and route written in its own row of the committed CSV (a blank seller or route leaves that field alone). In the DWH read the CURRENT `dim.Dim_Customer` row by `CustomerCode` for route/frequency/seller (a change versions the row). "Patrimonio" vs "new customer" is derived from `Dim_Customer.RegisteredDate` / `IsMigrationBatch` (`lib/dwh/cutover.ts`), never stored.
+
+## Credit terms
+
+An invoice's due date comes from the customer's `saCliente.cond_pag` (`saCondicionPago.dias_cred`); `plaz_pag` alone does nothing, and
+`cond_pag = '000001'` (Contado, 0 days) makes every invoice overdue the next day in CxC. `bun run credit-terms:apply` (dry-run by default)
+fixes `cond_pag`/`plaz_pag` from `data/credit-terms/2026-10.csv` and the `fec_venc` of **unpaid** FACT invoices only. It writes only through
+`pApi*` procs (0019), logs every change under a `run_id`, and is idempotent and reversible (`--rollback <runId>`). Allowed terms: 7, 15, 21, 35
+(`CO_COND_BY_DAYS` in `lib/credit-terms/types.ts`). Never hand-edit `fec_venc`; change the CSV and re-run. Spec:
+`docs/superpowers/specs/2026-10-22-customer-credit-terms-design.md`.
 
 ## Pricing (`/pricing`)
 
