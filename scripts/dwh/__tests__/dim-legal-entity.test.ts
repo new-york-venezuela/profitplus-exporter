@@ -82,7 +82,12 @@ describe('Dim_LegalEntity', () => {
       `);
     expect(entity.recordset.length).toBe(1);
     // StoreCount = parent (1) + all children
-    expect(entity.recordset[0].StoreCount).toBe(1 + Number(chain.childCount));
+    // Stores seeded by migration 0035 under this parent have no saCliente row, so count them from the DWH.
+    const seeded = await pool.request().input('rootCode', sql.Char(16), chain.parentCode).query(`
+      SELECT COUNT(*) AS total FROM dim.Dim_Customer
+      WHERE IsCurrent = 1 AND RTRIM(MatrizCode) = RTRIM(@rootCode) AND RTRIM(CustomerCode) = 'J-301420608-24'`);
+    const expectedChildren = Number(chain.childCount) + Number(seeded.recordset[0].total);
+    expect(entity.recordset[0].StoreCount).toBe(1 + expectedChildren);
 
     // All child rows resolve to that same LegalEntityKey
     const childrenResolved = await pool.request()
@@ -93,7 +98,7 @@ describe('Dim_LegalEntity', () => {
         FROM dim.Dim_Customer c
         WHERE c.IsCurrent = 1 AND RTRIM(c.MatrizCode) = @rootCode AND c.LegalEntityKey = @legalEntityKey
       `);
-    expect(childrenResolved.recordset[0].total).toBe(Number(chain.childCount));
+    expect(childrenResolved.recordset[0].total).toBe(expectedChildren);
   });
 
   test('a standalone customer (no matriz, not referenced as matriz) is its own entity of size 1', async () => {

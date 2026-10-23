@@ -62,15 +62,14 @@ describe('Dim_SalesRep, Dim_Warehouse, Dim_DocumentType', () => {
     expect(dwhCount.recordset[0].total).toBe(erpCount.recordset[0].total);
   });
 
-  test('Load_Dim_Warehouse flags HasRealStock correctly, matching only warehouses 13/14 per documented finding', async () => {
+  test('Load_Dim_Warehouse flags HasRealStock for exactly the warehouses with positive stock in the ERP', async () => {
     await pool.request().execute('dwh.Load_Dim_Warehouse');
 
-    const realStockWarehouses = await pool.request().query(`
-      SELECT WarehouseCode FROM dim.Dim_Warehouse WHERE HasRealStock = 1
-    `);
-    const codes = realStockWarehouses.recordset.map(r => r.WarehouseCode.trim());
+    const flagged = await pool.request().query(`SELECT RTRIM(WarehouseCode) AS code FROM dim.Dim_Warehouse WHERE HasRealStock = 1`);
+    const expected = await erpPool.request().query(`
+      SELECT RTRIM(co_alma) AS code FROM saStockAlmacen GROUP BY RTRIM(co_alma) HAVING SUM(stock) > 0`);
+    const codes = flagged.recordset.map((r: { code: string }) => r.code).sort();
     expect(codes.length).toBeGreaterThan(0);
-    // per erp-knowledge-base/docs/tables/saAlmacen.md, only 13 and 14 carry real stock today
-    expect(codes.every(c => ['13', '14'].includes(c))).toBe(true);
+    expect(codes).toEqual(expected.recordset.map((r: { code: string }) => r.code).sort());
   });
 });

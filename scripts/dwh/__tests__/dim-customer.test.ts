@@ -49,9 +49,15 @@ describe('Dim_Customer', () => {
   test('initial load creates one current row per ERP customer', async () => {
     await pool.request().execute('dwh.Load_Dim_Customer');
 
-    const erpCount = await erpPool.request().query(`SELECT COUNT(*) AS total FROM saCliente`);
-    const dwhCount = await pool.request().query(`SELECT COUNT(*) AS total FROM dim.Dim_Customer WHERE IsCurrent = 1`);
-    expect(dwhCount.recordset[0].total).toBe(erpCount.recordset[0].total);
+    const erp = await erpPool.request().query(`SELECT RTRIM(co_cli) AS code FROM saCliente`);
+    const dwh = await pool.request().query(`SELECT RTRIM(CustomerCode) AS code FROM dim.Dim_Customer WHERE IsCurrent = 1`);
+    const erpCodes = new Set<string>(erp.recordset.map((r: { code: string }) => r.code));
+    const dwhCodes: string[] = dwh.recordset.map((r: { code: string }) => r.code);
+
+    // Exactly one current row per ERP customer...
+    expect(dwhCodes.filter(c => erpCodes.has(c)).sort()).toEqual([...erpCodes].sort());
+    // ...plus only the store seeded by migration 0035 (Gama La Joya), which has no saCliente row yet.
+    expect(dwhCodes.filter(c => !erpCodes.has(c))).toEqual(['J-301420608-24']);
   });
 
   test('a known active customer loads with trimmed natural key and correct attributes', async () => {

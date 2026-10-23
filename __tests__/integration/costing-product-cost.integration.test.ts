@@ -21,6 +21,19 @@ function buildMssqlConfig(): sql.config {
 
 let pool: sql.ConnectionPool;
 
+// The article is picked from live data: a hard-coded code stops having open cost layers once its stock is consumed.
+async function findArticleWithOpenLayers(pool: sql.ConnectionPool): Promise<string> {
+  const r = await pool.request().query(`
+    SELECT TOP 1 RTRIM(A.co_art) AS coArt
+    FROM saCostoHistoricoEntrada CHE
+    JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
+    WHERE (CHE.cantidad - CHE.cantidad_usada) > 0 AND CHE.costo > 0
+    GROUP BY A.co_art
+    ORDER BY SUM(CHE.cantidad - CHE.cantidad_usada) DESC`);
+  if (r.recordset.length === 0) throw new Error('No article with open cost layers in this ERP database');
+  return r.recordset[0].coArt;
+}
+
 beforeAll(async () => {
   pool = await new sql.ConnectionPool(buildMssqlConfig()).connect();
 });
@@ -33,16 +46,17 @@ describe('computeProductCost', () => {
   test('combines an erp_article line and a manual line into a USD total, matching an independently hand-computed expectation', async () => {
     const asOf = new Date();
     const quantity = 0.5;
+    const coArt = await findArticleWithOpenLayers(pool);
 
     const lines: RecipeLineInput[] = [
-      { lineType: 'erp_article', coArt: '0000083', quantity, manualUnitCostUsd: null },
+      { lineType: 'erp_article', coArt, quantity, manualUnitCostUsd: null },
       { lineType: 'manual', coArt: null, quantity: 1, manualUnitCostUsd: 0.10 },
     ];
 
     const result = await computeProductCost(pool, lines, asOf);
 
     // Hand-compute the expected erp_article line from the same primitives, independently of computeProductCost's internals.
-    const layers = await getCostLayers(pool, '0000083');
+    const layers = await getCostLayers(pool, coArt);
     const fifo = computeFifoCost(layers, quantity);
     const rate = await getUsdRateAsOf(pool, asOf);
     const expectedErpLineUsd = convertBsdToUsd(fifo.costBsd, rate!.rate);

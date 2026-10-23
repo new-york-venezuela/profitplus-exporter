@@ -18,6 +18,19 @@ function buildMssqlConfig(): sql.config {
 
 let pool: sql.ConnectionPool;
 
+// The article is picked from live data: a hard-coded code stops having open cost layers once its stock is consumed.
+async function findArticleWithOpenLayers(pool: sql.ConnectionPool): Promise<string> {
+  const r = await pool.request().query(`
+    SELECT TOP 1 RTRIM(A.co_art) AS coArt
+    FROM saCostoHistoricoEntrada CHE
+    JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
+    WHERE (CHE.cantidad - CHE.cantidad_usada) > 0 AND CHE.costo > 0
+    GROUP BY A.co_art
+    ORDER BY SUM(CHE.cantidad - CHE.cantidad_usada) DESC`);
+  if (r.recordset.length === 0) throw new Error('No article with open cost layers in this ERP database');
+  return r.recordset[0].coArt;
+}
+
 beforeAll(async () => {
   pool = await new sql.ConnectionPool(buildMssqlConfig()).connect();
 });
@@ -28,7 +41,8 @@ afterAll(async () => {
 
 describe('getCostLayers', () => {
   test('returns layers for a real article, oldest first, with positive remaining only', async () => {
-    const layers = await getCostLayers(pool, '0000083');
+    const coArt = await findArticleWithOpenLayers(pool);
+    const layers = await getCostLayers(pool, coArt);
     expect(layers.length).toBeGreaterThan(0);
     for (const layer of layers) {
       expect(layer.remaining).toBeGreaterThan(0);
@@ -36,7 +50,7 @@ describe('getCostLayers', () => {
     }
 
     // independently fetch raw rows to confirm oldest-first ordering matches fecha_emision
-    const raw = await pool.request().input('coArt', sql.Char(30), '0000083').query(`
+    const raw = await pool.request().input('coArt', sql.Char(30), coArt).query(`
       SELECT CHE.cantidad, CHE.cantidad_usada, CHE.costo, CHE.fecha_emision
       FROM saCostoHistoricoEntrada CHE
       JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
