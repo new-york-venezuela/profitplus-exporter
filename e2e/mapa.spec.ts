@@ -9,7 +9,7 @@ import { formatCoordinates } from '../lib/geo/coordinates';
 test.describe('mapa access', () => {
   test('a user without the geo grant is redirected away from /mapa', async ({ userPage }) => {
     await userPage.goto('/mapa');
-    await expect(userPage).toHaveURL(/\/reports\/ventas/);
+    await expect(userPage).toHaveURL(/\/inicio/);
   });
 
   test('a user without the geo grant gets 403 from the API', async ({ userPage }) => {
@@ -18,7 +18,8 @@ test.describe('mapa access', () => {
   });
 
   test('admin sees the Mapa de Clientes link', async ({ adminPage }) => {
-    await expect(adminPage.getByRole('link', { name: 'Mapa de Clientes' })).toBeVisible();
+    // the link appears in the sidebar and on the /inicio quick-link cards
+    await expect(adminPage.getByRole('link', { name: 'Mapa de Clientes' }).first()).toBeVisible();
   });
 });
 

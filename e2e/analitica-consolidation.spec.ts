@@ -16,7 +16,9 @@ const row = (over: Record<string, unknown>) => ({
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: 'V1', sellerName: 'Ana',
   lastSaleDateKey: 20261012, entityLastSaleDateKey: null, daysSinceLastSale: 3, avgMonthlyUsd: 100, avgMonthlyUnits: 10,
   monthsWithSales: 3, status: 'active', routeNumber: 3, groupCode: 'S1', groupName: 'Abasto', kind: 'patrimonio',
-  visit: noVisit, activeInPeriod: true, ...over,
+  visit: noVisit, activeInPeriod: true,
+  salesPeriod: { bs: 1000, usd: 20 }, salesPrev: { bs: 900, usd: 18 }, boughtPrev: true,
+  stickiness: 'constante', daysToFirstSale: null, ...over,
 });
 const COBERTURA = {
   rows: [
