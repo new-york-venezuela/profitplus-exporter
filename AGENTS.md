@@ -84,6 +84,7 @@ lib/
   customer-mapping/plan.ts, diff-csv.ts — pure plan (segments, co_ven, co_seg, doc sellers, problems) and diff CSV + `assertConfirmedDb`, zones to create, route/frequency changes
   customer-mapping/erp.ts, apply.ts, runs-repo.ts — ERP gateway (pApi* writes), apply/rollback orchestration, SQLite run snapshots; route procs pApiInsertarZona / pApiActualizarRutaCliente / pApiRestaurarRutaCliente
   customer-mapping/dwh.ts  — restate loads (runs the full `INCREMENTAL_LOAD` batch from lib/dwh/incremental-load-sql.ts, same as `dwh:incremental-load` minus recipe-cost snapshots), seller and route/frequency verification against the DWH
+  statements/              — AR statement PDF: types.ts, build-statement.ts (pure: sign mapping, USD rate, aging), repo.ts (ERP reads, read-only), render-pdf.ts (pdfkit), generate.ts, batch.ts (CLI loop), access.ts (hasStatementsAccess/requireStatementsAccess); see "Estados de cuenta"
   credit-terms/            — csv.ts (reader of data/credit-terms/2026-10.csv), plan.ts (pure), erp.ts (pApi* gateway), apply.ts (apply/rollback), report.ts; see "Credit terms"
   dwh/cutover.ts           — MIGRATION_CUTOVER_DATE (2026-03-28), customerKindInYear(): patrimonio / nuevo derived from Dim_Customer.RegisteredDate, never stored
   clientes/scope.ts, cobertura-sql.ts — Clientes tab: group/route scope (decided by the CURRENT Dim_Customer row) and the cobertura query (last invoice, period activity, route, group, visit frequency)
@@ -97,6 +98,9 @@ lib/
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
   app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
+
+app/api/statements/        — AR statement API: customers (picker list), [co_cli] (PDF download), gated on 'statements'
+scripts/export-statements.ts — bun run statements:export --out <folder>, one PDF per customer with net BSD balance > 0
 
 app/api/pricing/           — pricing API (segments, customers, assignments, price-lists, lists/[coPrecio]/rates|export,
                               articles, promotions, health, alert-settings), gated per route (see Pricing below)
@@ -135,6 +139,7 @@ app/(app)/
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
   pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
+  estados-de-cuenta/         — customer picker + PDF download, gated on the 'statements' module
   recetas/                   — recipe management + live FIFO product costing, gated on the 'recipes' module
   admin/users/                — user + per-user module-grant management (admin only)
   admin/config-inventario/    — inventory module settings (admin only)
@@ -156,7 +161,7 @@ Server Components use `getSession()`; API Route Handlers use
 Beyond `role` (`'user' | 'admin'`), individual features are gated by a
 **module grant** stored in the `user_modules` SQLite table
 (`lib/db/schema.ts`): one row per `(userId, module)` pair. Modules today: `'inventory'`, `'dwh'`
-(gates `/analitica`), `'recipes'` (gates `/recetas`), `'geo'` (gates `/mapa`; `lib/geo/access.ts` exports
+(gates `/analitica`), `'recipes'` (gates `/recetas`), `'statements'` (gates `/estados-de-cuenta`; `lib/statements/access.ts`), `'geo'` (gates `/mapa`; `lib/geo/access.ts` exports
 `hasGeoAccess`, `requireGeoAccess`), plus `'pricing_view'`/`'pricing_edit'`
 (see `lib/pricing/access.ts`). Pricing semantics: `pricing_view` is enough for GETs, `pricing_edit` is
 required for every write (edit implies view, admins have both); the email alert settings are admin-only.
@@ -448,6 +453,21 @@ fixes `cond_pag`/`plaz_pag` from `data/credit-terms/2026-10.csv` and the `fec_ve
 `pApi*` procs (0019), logs every change under a `run_id`, and is idempotent and reversible (`--rollback <runId>`). Allowed terms: 7, 15, 21, 35
 (`CO_COND_BY_DAYS` in `lib/credit-terms/types.ts`). Never hand-edit `fec_venc`; change the CSV and re-run. Spec:
 `docs/superpowers/specs/2026-10-22-customer-credit-terms-design.md`.
+
+## Estados de cuenta (`/estados-de-cuenta`)
+
+Per-customer AR statement PDF (open `saDocumentoVenta` documents with `saldo <> 0`, not `anulado`), gated on the `'statements'` module
+(page redirects; `GET /api/statements/customers` and `GET /api/statements/[co_cli]` return 401/403 themselves; `'statements'` is in
+`VALID_MODULES`). Read-only against the ERP. Pure logic in `lib/statements/build-statement.ts`.
+
+- **USD = open BSD amount ÷ saTasa USD `tasa_v` on the document's issue date (latest rate on or before `fec_emis`), never the row's `tasa`/`co_mone`.**
+- Signs: `FACT`, `N/DB` are debt (+); `N/CR`, `NCR`, `ADEL` and any unknown type reduce (-, unknown logged and flagged). `saldo` is always stored positive; the builder applies the sign.
+- Aging by days past `fec_venc` (as of today): por vencer (<= 0 or no due date), 1-30, 31-60, 61-90, 90+. Credits/anticipos are a separate line, not aged.
+- No rate for an issue date = "Sin tasa": `amountUsd` is `null`, never 0, and the statement is `incomplete` (flagged in the PDF and logged by the CLI). Same invariant as the recipe cost module.
+- CLI `bun run statements:export --out <folder>` writes one PDF per customer whose net BSD total is > 0 (net <= 0 skipped), atomically (`.tmp` then rename), loads rates once, one failure never stops the batch; exit 1 if any failed, 2 on bad args. Scripts read `.env.local` from the cwd: run from the repo root.
+- PDF library: `pdfkit` is loaded with a lazy bare `require('pdfkit')` inside `render-pdf.ts` (resolved from the module, never the cwd; the ESM entry breaks under `next start` on Bun) and is listed in `serverExternalPackages` in `next.config.ts`. A subprocess test in `render-pdf.test.ts` (`bun --no-install`) pins cwd-independent loading; keep it passing.
+- Optional logo: `public/statement-logo.png`, used when present.
+- Integration test (`bun run test:statements-erp`, reads the live ERP, excluded from `test`/`test:unit`).
 
 ## Pricing (`/pricing`)
 

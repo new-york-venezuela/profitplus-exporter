@@ -120,7 +120,7 @@ table without a `validador` rowversion column (`saFacturaVentaReng` and
 friends — see that file's "Incremental watermark strategy" section before
 assuming `validador` exists on a new source table).
 
-## Granting Module Access (Inventory / Analítica / Recetas)
+## Granting Module Access (Inventory / Analítica / Recetas / Estados de cuenta)
 
 The inventory module (`/inventario/*`), the analytics dashboard
 (`/analitica`), and recipe/product-costing (`/recetas`) are each gated
@@ -130,8 +130,10 @@ always have access to all three; regular users need an explicit grant from
 
 ```
 PUT /api/admin/users/:id/modules
-Body: { "modules": ["inventory", "dwh", "recipes"] }
+Body: { "modules": ["inventory", "dwh", "recipes", "statements"] }
 ```
+
+The `statements` module gates `/estados-de-cuenta` (customer AR statement PDFs).
 
 See `AGENTS.md` → "Module-Based Permissions" for how this is enforced at
 both the page and API layer.
@@ -142,6 +144,7 @@ both the page and API layer.
 bun test                 # unit tests, excludes e2e/ and the MSSQL integration test
 bun run test:unit        # same, plus excludes compras-export.integration.test.ts
 bun run test:mssql       # the one integration test that needs a live/mock ERP connection
+bun run test:statements-erp  # statements repo queries against the ERP (read-only, excluded from test/test:unit)
 ```
 
 **DWH tests** (`scripts/dwh/__tests__/`) need `DW_NAME` pointed at a
@@ -553,6 +556,21 @@ recomputes `fec_venc = fec_emis + dias_cred` on that customer's **unpaid** FACT 
 4. **Rollback**: `bun run credit-terms:apply -- --rollback <runId> --confirm-db <DB_NAME>`; rows edited since the run are skipped and listed. An unknown `runId` exits 1. If `--apply` was re-run after a failure it prints a new run id: roll back every id printed.
 
 Review the production dry-run CSV before applying. `bun run test:credit-terms-erp` writes to the ERP (then restores): non-production only.
+
+## Customer account statements (estados de cuenta)
+
+Users with the `statements` module (or admins) download a customer's PDF from `/estados-de-cuenta`. USD amounts use the saTasa USD rate
+(`tasa_v`) on each document's issue date; documents with no rate show "Sin tasa" and mark the statement incomplete.
+
+**Batch export** (one PDF per customer with a net positive BSD balance), run from the repo root (it loads `.env.local` from the cwd):
+
+```bash
+bun run statements:export --out <folder>     # e.g. --out C:\estados-de-cuenta
+```
+
+PDFs are written to `<folder>` (created if missing) as `<co_cli>-<name>.pdf`; the last line prints `written/skipped/failed` and the exit
+code is 1 if any customer failed. **Logo (optional):** put a PNG at `public/statement-logo.png` (copy it to the server too; no rebuild
+needed). Without it the header shows the company name only.
 
 ## Redeploy Procedure
 
