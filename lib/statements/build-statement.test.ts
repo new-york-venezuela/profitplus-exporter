@@ -108,7 +108,7 @@ describe('buildStatement', () => {
     [5, 'porVencer', -5],
   ] as [number, string, number][])('fecVenc asOf%+d -> %s', (off, bucket, days) => {
     const r = bucketOf(addDays(ASOF, off));
-    expect(r.name).toBe(bucket);
+    expect(r.name as string).toBe(bucket);
     expect(r.days).toBe(days);
   });
   test('null fecVenc -> porVencer, daysOverdue null', () => {
