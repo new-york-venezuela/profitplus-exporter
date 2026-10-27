@@ -106,7 +106,7 @@ describe('buildStatement', () => {
     [-90, 'd61_90', 90],
     [-91, 'd90plus', 91],
     [5, 'porVencer', -5],
-  ])('fecVenc asOf%+d -> %s', (off, bucket, days) => {
+  ] as [number, string, number][])('fecVenc asOf%+d -> %s', (off, bucket, days) => {
     const r = bucketOf(addDays(ASOF, off));
     expect(r.name).toBe(bucket);
     expect(r.days).toBe(days);
