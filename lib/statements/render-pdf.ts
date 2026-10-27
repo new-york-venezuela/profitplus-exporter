@@ -27,7 +27,6 @@ const COLS = [
   { key: 'usd', label: 'Monto USD', w: 67, align: 'right' },
 ] as const;
 
-
 /** es-VE style: thousands '.', decimal ','. Manual so it does not depend on ICU data. */
 function fmtAmount(n: number): string {
   const rounded = Math.round(Math.abs(n) * 100) / 100;
@@ -53,9 +52,13 @@ export function statementFileName(coCli: string, name: string): string {
       .replace(/[\/\\:*?"<>|]/g, '')
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
-  const base = `${clean(coCli)}-${clean(name)}`.replace(/^-+|-+$/g, '');
+  const trim = (x: string) => x.replace(/^[-.]+|[-.]+$/g, '');
+  const c = trim(clean(coCli));
+  const n = trim(clean(name));
+  const base = [c, n].filter(Boolean).join('-');
+  if (!base) return 'estado-de-cuenta.pdf';
   const max = 80 - '.pdf'.length;
-  return `${base.slice(0, max).replace(/-+$/, '')}.pdf`;
+  return `${trim(base.slice(0, max)) || 'estado-de-cuenta'}.pdf`;
 }
 
 export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer> {
@@ -149,6 +152,29 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
         r.amountUsd === null ? '-' : fmtAmount(r.amountUsd),
       ];
 
+      // Aging summary at the top, before the table
+      const line = (label: string, v: Money, bold = false) => {
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#000');
+        doc.text(label, MARGIN + 2, y, { width: 200, lineBreak: false });
+        doc.text(`Bs ${fmtAmount(v.bsd)}`, MARGIN + 200, y, { width: 120, align: 'right', lineBreak: false });
+        doc.text(`USD ${fmtAmount(v.usd)}`, MARGIN + 330, y, { width: 120, align: 'right', lineBreak: false });
+        y += 14;
+      };
+      doc.font('Helvetica-Bold').fontSize(10).text('Resumen de antigüedad', MARGIN, y, { lineBreak: false });
+      y += 16;
+      const a = statement.aging;
+      line('Por vencer', a.porVencer);
+      line('1 a 30 días', a.d1_30);
+      line('31 a 60 días', a.d31_60);
+      line('61 a 90 días', a.d61_90);
+      line('Más de 90 días', a.d90plus);
+      line('Créditos y anticipos', statement.credits);
+      y += 8;
+
+      if (y + ROW_H * 3 > BOTTOM) {
+        doc.addPage();
+        y = MARGIN;
+      }
       y = drawTableHeader(y);
       doc.font('Helvetica').fontSize(8);
       statement.rows.forEach((r, i) => {
@@ -172,29 +198,13 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
         y += ROW_H;
       }
 
-      // Totals block (needs ~150pt)
-      const need = 170 + (statement.rows.some((r) => r.unknownType) ? 14 : 0);
+      // Grand total + notes at the end (reserve space so they stay together)
+      const need = 40 + (statement.incomplete ? 18 : 0) + (statement.rows.some((r) => r.unknownType) ? 14 : 0);
       if (y + need > BOTTOM) {
         doc.addPage();
         y = MARGIN;
       }
-      y += 10;
-      const line = (label: string, v: Money, bold = false) => {
-        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-        doc.text(label, MARGIN + 2, y, { width: 200, lineBreak: false });
-        doc.text(`Bs ${fmtAmount(v.bsd)}`, MARGIN + 200, y, { width: 120, align: 'right', lineBreak: false });
-        doc.text(`USD ${fmtAmount(v.usd)}`, MARGIN + 330, y, { width: 120, align: 'right', lineBreak: false });
-        y += 14;
-      };
-      doc.font('Helvetica-Bold').fontSize(10).text('Resumen de antigüedad', MARGIN, y, { lineBreak: false });
-      y += 16;
-      const a = statement.aging;
-      line('Por vencer', a.porVencer);
-      line('1 a 30 días', a.d1_30);
-      line('31 a 60 días', a.d31_60);
-      line('61 a 90 días', a.d61_90);
-      line('Más de 90 días', a.d90plus);
-      line('Créditos y anticipos', statement.credits);
+      y += 6;
       doc.moveTo(MARGIN, y).lineTo(MARGIN + CONTENT_W, y).lineWidth(0.5).stroke('#000');
       y += 4;
       line('Total', statement.total, true);
