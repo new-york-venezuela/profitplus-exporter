@@ -7,6 +7,7 @@ const none: NavAccess = {
   dwh: false,
   geo: false,
   recipes: false,
+  statements: false,
   pricing: 'none',
 };
 
@@ -27,6 +28,7 @@ describe('visibleNavSections', () => {
     expect(hrefs({ ...none, dwh: true })).toContain('/analitica');
     expect(hrefs({ ...none, dwh: true })).not.toContain('/mapa');
     expect(hrefs({ ...none, geo: true })).toContain('/mapa');
+    expect(hrefs({ ...none, statements: true })).toContain('/estados-de-cuenta');
     expect(hrefs({ ...none, inventory: true })).toEqual(
       expect.arrayContaining(['/inventario/dashboard', '/inventario/articulos', '/inventario/ajustes']),
     );

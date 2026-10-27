@@ -6,6 +6,7 @@ import { hasInventoryAccess } from '@/lib/inventory/access';
 import { hasDwhAccess } from '@/lib/dwh/access';
 import { hasGeoAccess } from '@/lib/geo/access';
 import { hasRecipesAccess } from '@/lib/recipes/access';
+import { hasStatementsAccess } from '@/lib/statements/access';
 import { getPricingAccessLevel } from '@/lib/pricing/access';
 import { visibleNavSections } from '@/lib/nav';
 
@@ -20,6 +21,7 @@ export default async function InicioPage() {
     dwh: await hasDwhAccess(db, session.sub, session.role),
     geo: await hasGeoAccess(db, session.sub, session.role),
     recipes: await hasRecipesAccess(db, session.sub, session.role),
+    statements: await hasStatementsAccess(db, session.sub, session.role),
     pricing: await getPricingAccessLevel(db, session.sub, session.role),
   });
 
