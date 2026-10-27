@@ -127,15 +127,12 @@ describe.skipIf(!hasPdftotext)('rendered content (needs pdftotext; skipped if ab
 });
 
 describe('renderStatementPdf cwd independence', () => {
-  test('renders when cwd is not the project root', async () => {
-    const prev = process.cwd();
-    process.chdir(tmpdir());
-    try {
-      const pdf = await renderStatementPdf({ company: 'X', logoPath: null, customer, statement: statement([row(1)]) });
-      expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
-    } finally {
-      process.chdir(prev);
-    }
+  test('imports and renders in a fresh process whose cwd is not the project root', () => {
+    const fixture = join(import.meta.dir, '__fixtures__', 'render-cwd.ts');
+    const r = spawnSync(process.execPath, ['--no-install', 'run', fixture], { cwd: tmpdir(), encoding: 'utf8' });
+    expect(r.stderr).not.toMatch(/Cannot find module/);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('%PDF-');
   });
 });
 
