@@ -147,6 +147,7 @@ test.describe.serial('mapa with seeded coordinates @mssql', () => {
   let seeded: Seeded[] = [];
   let sellerName = '';
   let expectedUnlocated = 0;
+  let preLocated = 0;
   const areaName = `E2E Zona Pines ${Date.now()}`;
   const PERIOD = 'custom:2000-01-01:2099-12-31';   // whatever sales the mock holds, regardless of today's date
 
@@ -178,7 +179,14 @@ test.describe.serial('mapa with seeded coordinates @mssql', () => {
       await dwh.close();
     }
 
-    const origins: [number, number][] = [[10.46, -66.93], [10.51, -66.93], [10.46, -66.88], [10.51, -66.88]];   // ~0.05° box in Caracas
+    // The mock ERP now ships ~158 customers that already carry coordinates (all within
+    // lat 10.3-10.7, around Caracas / north-central Venezuela). Seed into an empty pocket
+    // of southern Venezuela, ~2° apart so the pins neither overlap each other nor sit
+    // within the drawing padding of any pre-existing pin; the area drawn around the
+    // seeded pins then contains exactly those 4 customers.
+    const origins: [number, number][] = [[5.0, -64.0], [7.0, -64.0], [5.0, -62.0], [7.0, -62.0]];
+    const pre = await erp.request().query(`SELECT COUNT(*) AS n FROM saCliente WHERE inactivo = 0 AND campo1 LIKE 'Coordenadas:%'`);
+    preLocated = pre.recordset[0].n;
     for (const [i, c] of seeded.entries()) {
       await updateCustomerLocation(erp, { coCli: c.coCli, campo1: formatCoordinates({ lat: origins[i][0], lng: origins[i][1] }) });
     }
@@ -206,9 +214,18 @@ test.describe.serial('mapa with seeded coordinates @mssql', () => {
     const map = adminPage.getByTestId('customer-map');
     await expect(map).toBeVisible({ timeout: 20_000 });
 
-    // Pins appear and the unlocated count dropped by exactly the seeded customers.
-    const pins = adminPage.locator('.leaflet-marker-icon');
-    await expect(pins).toHaveCount(4, { timeout: 20_000 });
+    // Pins appear (the already-located customers plus exactly the 4 seeded ones) and the
+    // unlocated count dropped by exactly the seeded customers.
+    await expect(adminPage.locator('.leaflet-marker-icon')).toHaveCount(preLocated + 4, { timeout: 20_000 });
+    const pins = adminPage.locator('.leaflet-marker-icon').and(
+      adminPage.locator(seeded.map(c => `[title="${c.name}"]`).join(', ')),
+    );
+    await expect(pins).toHaveCount(4);
+
+    // The map opens on Caracas; refit so the seeded pins (southern pocket) are in view.
+    await adminPage.getByRole('button', { name: 'Ajustar al resultado' }).click();
+    await expect(pins.first()).toBeInViewport();
+    for (const c of seeded) await expect(adminPage.locator(`.leaflet-marker-icon[title="${c.name}"]`)).toBeInViewport();
     await expect(adminPage.getByRole('tab', { name: `Sin ubicación (${expectedUnlocated})` })).toBeVisible();
 
     // Popup shows name, segment and revenue.
@@ -242,7 +259,9 @@ test.describe.serial('mapa with seeded coordinates @mssql', () => {
 
     // Discrepancias: customers whose seller differs from the area's seller.
     const mismatched = seeded.filter(c => c.coVen !== seeded[0].coVen);
-    await adminPage.getByRole('tab', { name: new RegExp(`Discrepancias \\(${mismatched.length}\\)`) }).click();
+    // The tab count also includes located customers outside every area; all the
+    // pre-existing located customers lie outside the new area.
+    await adminPage.getByRole('tab', { name: `Discrepancias (${mismatched.length + preLocated})` }).click();
     const mismatchList = adminPage.getByRole('list', { name: 'Clientes con vendedor distinto al de la zona' });
     await expect(mismatchList.locator('li')).toHaveCount(mismatched.length);
     for (const c of mismatched) await expect(mismatchList.getByText(c.name, { exact: true })).toBeVisible();

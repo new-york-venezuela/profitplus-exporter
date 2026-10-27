@@ -48,22 +48,25 @@ test.describe('analitica @mssql', () => {
     // whose text contains "por línea", making the loose match ambiguous.
     await expect(adminPage.getByRole('heading', { name: 'Por línea', exact: true })).toBeVisible();
 
-    // The cliente section's own "Agrupar por" <select> (GroupedDrilldownTable)
-    // still toggles Entidad/Tienda grain, same underlying mechanism as before
-    // flattening — just no longer gated behind a separate view-selector click.
-    // With all three sections rendered at once, "Por línea" has its own
-    // "Agrupar por" select too, so scope to the cliente section specifically.
+    // The cliente section is an Entidad > Tienda > Producto tree
+    // (EntidadTreeTable): top-level rows are legal entities (header
+    // "Entidad"); expanding one lazy-loads its stores, expanding a store
+    // loads its products. This replaced the old "Agrupar por:" Entidad/Tienda
+    // select, so the Entidad->Tienda grain change is now an expand.
     const clienteSection = adminPage.locator('section', { has: adminPage.getByRole('heading', { name: 'Por cliente' }) });
-    const groupBySelect = clienteSection.getByLabel('Agrupar por:');
-    await expect(groupBySelect).toBeVisible();
-    await expect(groupBySelect).toHaveValue('cliente_entidad');
-    await expect(clienteSection.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
-    const entidadRowCount = await clienteSection.locator('table tbody tr').count();
+    await expect(clienteSection.getByRole('columnheader', { name: 'Entidad', exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(clienteSection.getByLabel('Agrupar por:')).toHaveCount(0);
+    const entidadRows = clienteSection.locator('table > tbody > tr');
+    await expect(entidadRows.first()).toBeVisible({ timeout: 15_000 });
+    const entidadRowCount = await entidadRows.count();
 
-    await groupBySelect.selectOption('cliente_tienda');
-    await expect(clienteSection.locator('table tbody tr')).not.toHaveCount(0);
-    const tiendaRowCount = await clienteSection.locator('table tbody tr').count();
-    expect(tiendaRowCount).toBeGreaterThanOrEqual(entidadRowCount);
+    // Expanding the first entidad reveals at least one tienda row, so the
+    // table grows (Tienda grain shows >= as many rows as Entidad).
+    await clienteSection.getByRole('button', { name: 'Ver tiendas' }).first().click();
+    await expect(clienteSection.getByRole('button', { name: 'Ver productos' }).first()).toBeVisible({ timeout: 15_000 });
+    const tiendaRowCount = await entidadRows.count();
+    expect(tiendaRowCount).toBeGreaterThan(entidadRowCount);
+    await expect(clienteSection.getByRole('button', { name: 'Ocultar tiendas' }).first()).toBeVisible();
   });
 
   test('Devoluciones tab renders all three sections at once and the cliente section supports Entidad grain', async ({ adminPage }) => {
@@ -136,31 +139,41 @@ test.describe('analitica @mssql', () => {
     await expect(expandButton).toBeVisible();
     await expandButton.click();
 
-    // Expanding a category row loads its concept-level breakdown
-    // (breakdownBy=concepto&parentValue=<category>) — assert a second row
-    // appears (the expanded concept sub-table), the usual GroupedDrilldownTable
-    // expand check.
-    await expect(adminPage.locator('table tbody tr').nth(1)).toBeVisible();
+    // Expanding a category row loads its breakdown (breakdownBy=concepto&
+    // parentValue=<category>). The row right after the category shows a
+    // "Cargando desglose…" placeholder first, so wait for the nested
+    // sub-table's row (a <tr> inside a <tr>'s own nested <table>), not just
+    // "a second row" — otherwise the loading placeholder satisfies the check.
+    const categoryRow = adminPage.locator('table').first().locator(':scope > tbody > tr').first();
+    const breakdownRow = categoryRow.locator('xpath=following-sibling::tr[1]');
+    const conceptRow = breakdownRow.locator('table tbody tr').first();
+    await expect(conceptRow).toBeVisible({ timeout: 15_000 });
 
     // Regression guard for the 2026-09-11 bug class: a breakdown row that
     // renders its metric via generic toLocaleString instead of the parent's
     // moneyLabel/currency conversion, so a currency toggle has no effect on
-    // expanded rows. Capture the expanded concept row's amount in Bs., then
-    // toggle to USD and assert it changed (both the parent category row and
-    // the still-expanded concept row must convert).
-    const parentAmountBs = await adminPage.locator('table tbody tr').first().locator('td').last().textContent();
-    const conceptAmountBs = await adminPage.locator('table tbody tr').nth(1).locator('td').last().textContent();
+    // expanded rows. Capture the amounts in Bs., then toggle to USD and
+    // assert both the parent category row and the concept row changed.
+    const parentAmountBs = await categoryRow.locator('td').last().textContent();
+    const conceptAmountBs = await conceptRow.locator('td').last().textContent();
 
     await adminPage.getByRole('button', { name: 'USD' }).click();
 
-    await expect(adminPage.locator('table tbody tr').first().locator('td').last()).not.toHaveText(parentAmountBs ?? '');
-    await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).not.toHaveText(conceptAmountBs ?? '');
-    await expect(adminPage.locator('table tbody tr').first().locator('td').last()).toContainText('$');
-    await expect(adminPage.locator('table tbody tr').nth(1).locator('td').last()).toContainText('$');
+    // Changing currency refetches and remounts the table, collapsing the
+    // expanded row — assert the parent converted, then re-expand.
+    await expect(categoryRow.locator('td').last()).not.toHaveText(parentAmountBs ?? '');
+    await expect(categoryRow.locator('td').last()).toContainText('$');
+    await categoryRow.locator('button[aria-label="Expandir"]').click();
+    const conceptRowUsd = categoryRow.locator('xpath=following-sibling::tr[1]').locator('table tbody tr').first();
+    await expect(conceptRowUsd).toBeVisible({ timeout: 15_000 });
+    await expect(conceptRowUsd.locator('td').last()).not.toHaveText(conceptAmountBs ?? '');
+    await expect(conceptRowUsd.locator('td').last()).toContainText('$');
   });
 
   test('Finanzas tab shows the Nomina cost-center split, including unclassified concepts', async ({ adminPage }) => {
-    await adminPage.goto('/analitica?tab=finanzas');
+    // The default '12m' range holds no Nomina rows in this seed dataset (only
+    // Compras) — use the same wide custom range as the Comisiones test below.
+    await adminPage.goto('/analitica?tab=finanzas&dateRange=custom:2024-01-01:2026-12-31');
 
     // Expand the "Nomina" category row specifically (not "the first row" —
     // Nomina isn't necessarily the highest-amount category) and confirm its
@@ -300,9 +313,13 @@ test.describe('analitica @mssql', () => {
     await expect(adminPage).toHaveURL(/dateRange=ytd%3A\d{4}/);
     await expect(prevMonthArrow).not.toBeVisible();
 
-    // "30 días"/"90 días" no longer exist as options anywhere on the page.
-    await expect(adminPage.getByRole('button', { name: '30 días' })).toHaveCount(0);
+    // "90 días" is not a preset. "30 días" was reinstated as a preset (it is
+    // the default range, see DATE_RANGE_OPTIONS) — selecting it encodes
+    // dateRange=30d and, like the YTD range, shows no month paging arrows.
     await expect(adminPage.getByRole('button', { name: '90 días' })).toHaveCount(0);
+    await adminPage.getByRole('button', { name: '30 días' }).click();
+    await expect(adminPage).toHaveURL(/dateRange=30d/);
+    await expect(prevMonthArrow).not.toBeVisible();
   });
 
   test('Compras tab renders all three sections at once, month-click filters proveedores, and a línea breakdown expands', async ({ adminPage }) => {
@@ -363,16 +380,10 @@ test.describe('analitica @mssql', () => {
     await expect(parentMoneyCell).not.toHaveText(parentAmountBs ?? '');
     await expect(parentMoneyCell).toContainText('$');
 
-    // Toggling currency remounts each section's GroupedDrilldownTable while
-    // its own fetch is in flight (same effect-dependency-on-currency pattern
-    // as every other tab), collapsing the expanded row — re-expand before
-    // reading its fresh money cell.
-    const expandButtonAfterToggle = outerRows.first().locator('button[aria-label="Expandir"]');
-    await expect(expandButtonAfterToggle).toBeVisible({ timeout: 15_000 });
-    await expandButtonAfterToggle.click();
-
-    const breakdownRowsAfterToggle = outerRows.first().locator('xpath=following-sibling::tr[1]').locator('table tbody tr');
-    const productoMoneyCellAfterToggle = breakdownRowsAfterToggle.first().locator('td').last();
+    // The expanded row stays expanded across the currency toggle and its
+    // breakdown is re-fetched in the new currency — the concept row's money
+    // cell must change to a USD figure too (not only the parent row).
+    const productoMoneyCellAfterToggle = firstOuterRow.locator('xpath=following-sibling::tr[1]').locator('table tbody tr').first().locator('td').last();
     await expect(productoMoneyCellAfterToggle).toBeVisible({ timeout: 15_000 });
 
     await expect(productoMoneyCellAfterToggle).not.toHaveText(productoAmountBs ?? '');

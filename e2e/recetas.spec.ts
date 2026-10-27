@@ -6,31 +6,39 @@ import { test, expect } from './fixtures';
 // docker/README.md). Uses adminPage since role === 'admin' bypasses every
 // module gate — no need to seed a 'recipes' grant for this test.
 //
-// Real article codes confirmed present in the restored backup, each chosen
-// because it has the specific data shape this suite needs:
-// '0000005' (Baguette 4 Granos 220gr) / '0000001' (Cheese Cake Plain 1500gr)
-//   — distinct finished-good (tipo='V') articles, each with a real
-//   saStockAlmacen row (required to appear in /api/inventory/items's
-//   ITEMS_QUERY_BASE, which inner-joins saStockAlmacen) — kept as two
-//   different articles so the two tests below can run in parallel without
+// Real article codes confirmed present in the local restored Ncake_a copy
+// (re-verified 2026-10-26 with read-only queries; the local ERP data drifts,
+// so re-check these if the picker stops finding them), each chosen because it
+// has the specific data shape this suite needs:
+// '0000003' (Baguette Blanco 225gr) / '0000011' (Pan Molido 300gr) /
+// '0000001' (Cheese Cake Plain 1500gr)
+//   — three distinct finished-good (tipo='V') articles, one per test, each with
+//   a real saStockAlmacen row (required to appear in /api/inventory/items's
+//   ITEMS_QUERY_BASE, which inner-joins saStockAlmacen). One recipe exists per
+//   article, so distinct articles let the tests run in parallel without
 //   colliding on the same recipe.
-// '0000083' (Harina Panadera 45Kg Atlas) — has real saCostoHistoricoEntrada
-//   layers, for the "real FIFO cost" path.
-// '0000167' (Cebolla en Hojuela) — has a saStockAlmacen row but zero
-//   saCostoHistoricoEntrada rows, for the "no purchase history" path. Note
-//   this is NOT the same as '0000080' (Harina de trigo para pizzas 1 kg),
-//   which also has zero cost layers but has no saStockAlmacen row at all —
-//   that fails a level earlier (never appears in the ingredient picker).
+// '0000100' (Queso Crema, tipo 'M') — has a saStockAlmacen row and real
+//   saCostoHistoricoEntrada layers with remaining quantity (12 open layers),
+//   for the "real FIFO cost" path.
+// '0000187' (acido sorbico GMP standard, tipo 'M') — has a saStockAlmacen
+//   row but zero saCostoHistoricoEntrada rows of any kind, for the "no
+//   purchase history" path. Not to be confused with articles like '0000083'
+//   (Harina Panadera 45Kg Atlas), which has a stock row but only fully
+//   consumed layers, nor '0000080' / '0000005' / '0000167', which have no
+//   saStockAlmacen row at all (or are services) and so never appear in the
+//   pickers — that fails a level earlier.
 
 type Page = import('@playwright/test').Page;
 
 // SearchableSelect is a text input + <li> list (not a native <select>), so pick
-// an option by typing the code and clicking the matching list item.
+// an option by typing the code and clicking the matching list item. Match only
+// leaf <li>s: an ingredient line is itself an <li> wrapping the picker's <ul>, and
+// clicking that wrapper (whose text also contains the code) misses the option.
 async function pickFromSearchable(page: Page, inputSelector: string, coArt: string) {
   const input = page.locator(inputSelector);
   await input.click();
   await input.fill(coArt);
-  await page.locator('ul li', { hasText: coArt }).first().click();
+  await page.locator('ul li:not(:has(ul))', { hasText: coArt }).first().click();
 }
 
 // Open the recipe for coArt, creating it first if a previous run didn't leave one.
@@ -56,11 +64,11 @@ async function deleteRecipe(page: Page) {
 
 test.describe('recetas @mssql', () => {
   test('creates a recipe, saves ERP + manual lines, and sees a live FIFO cost', async ({ adminPage }) => {
-    await openOrCreateRecipe(adminPage, '0000005');
+    await openOrCreateRecipe(adminPage, '0000003');
 
     // Add an ERP-article line using a real raw material with known FIFO layers.
     await adminPage.getByRole('button', { name: '+ Insumo de Profit Plus' }).click();
-    await pickFromSearchable(adminPage, '#line-0-item', '0000083');
+    await pickFromSearchable(adminPage, '#line-0-item', '0000100');
     await adminPage.locator('#line-0-qty').fill('0.2');
 
     // Add a manual line for a non-ERP ingredient (e.g. water).
@@ -75,13 +83,15 @@ test.describe('recetas @mssql', () => {
     // Assert the live cost panel renders a computed USD total.
     await expect(adminPage.getByText('Costo de Fabricación (en vivo)')).toBeVisible();
     await expect(adminPage.getByTestId('cost-total')).toHaveText(/^\$\d+\.\d{4}$/, { timeout: 10_000 });
+    // The ERP line has real FIFO layers, so the total must be a real, non-zero cost.
+    await expect(adminPage.getByTestId('cost-total')).not.toHaveText('$0.0000');
 
     // Clean up: delete the recipe so subsequent runs hit the "create" branch again.
     await deleteRecipe(adminPage);
   });
 
   test('blocks saving an invalid line and points at the field', async ({ adminPage }) => {
-    await openOrCreateRecipe(adminPage, '0000005');
+    await openOrCreateRecipe(adminPage, '0000011');
 
     await adminPage.getByRole('button', { name: '+ Insumo manual' }).click();
     await adminPage.getByRole('button', { name: 'Guardar Receta' }).click();
@@ -99,7 +109,7 @@ test.describe('recetas @mssql', () => {
     await openOrCreateRecipe(adminPage, '0000001');
 
     await adminPage.getByRole('button', { name: '+ Insumo de Profit Plus' }).click();
-    await pickFromSearchable(adminPage, '#line-0-item', '0000167');
+    await pickFromSearchable(adminPage, '#line-0-item', '0000187');
     await adminPage.locator('#line-0-qty').fill('1');
     await adminPage.getByRole('button', { name: 'Guardar Receta' }).click();
 
