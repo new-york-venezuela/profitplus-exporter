@@ -108,7 +108,7 @@ describe.skipIf(!hasPdftotext && !process.env.CI)('rendered content (needs pdfto
     const line = t1.split('\n').find((l) => l.includes('Sin tasa'))!;
     expect(line.match(/Sin tasa/g)).toHaveLength(2);
     expect(t1).toContain('excluyen documentos sin tasa');
-    expect(t1).toMatch(/USD [\d.,-]+\*/);
+    expect(t1).toMatch(/USD [\d.,-]+\s*\*/);
     expect(t1).toContain('Estado de cuenta incompleto');
     const t2 = text(await render([row(1)]));
     expect(t2).not.toContain('Sin tasa');

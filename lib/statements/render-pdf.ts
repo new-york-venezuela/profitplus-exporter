@@ -166,7 +166,9 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#000');
         doc.text(label, MARGIN + 2, y, { width: 200, lineBreak: false });
         doc.text(`Bs ${fmtAmount(v.bsd)}`, MARGIN + 200, y, { width: 120, align: 'right', lineBreak: false });
-        doc.text(`USD ${fmtAmount(v.usd)}${star}`, MARGIN + 330, y, { width: 120, align: 'right', lineBreak: false });
+        doc.text(`USD ${fmtAmount(v.usd)}`, MARGIN + 330, y, { width: 110, align: 'right', lineBreak: false });
+        // The star sits in its own slot so incomplete statements keep the USD figures aligned
+        if (star) doc.text(star, MARGIN + 442, y, { width: 8, lineBreak: false });
         y += 14;
       };
       doc.font('Helvetica-Bold').fontSize(10).text('Resumen de antigüedad', MARGIN, y, { lineBreak: false });

@@ -11,6 +11,8 @@ export function EstadosDeCuentaClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,8 +36,33 @@ export function EstadosDeCuentaClient() {
     [customers],
   );
 
-  function handleDownload() {
-    if (selected) posthog.capture('statement_download_clicked', { co_cli: selected });
+  // Fetch then save the blob (instead of a plain <a download>) so a 404/500 shows its
+  // { error } message instead of saving the JSON body as a "PDF".
+  async function handleDownload() {
+    if (!selected || downloading) return;
+    posthog.capture('statement_download_clicked', { co_cli: selected });
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await fetch(`/api/statements/${encodeURIComponent(selected)}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'No se pudo generar el estado de cuenta');
+      }
+      const fileName = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `${selected}.pdf`;
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'No se pudo generar el estado de cuenta');
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -52,20 +79,15 @@ export function EstadosDeCuentaClient() {
             placeholder="Buscar cliente..."
             ariaLabel="Cliente"
           />
-          {selected ? (
-            <a
-              href={`/api/statements/${encodeURIComponent(selected)}`}
-              download
-              onClick={handleDownload}
-              className="inline-block rounded bg-blue-600 px-4 py-2 text-sm text-white"
-            >
-              Descargar PDF
-            </a>
-          ) : (
-            <button type="button" disabled className="rounded bg-blue-600 px-4 py-2 text-sm text-white opacity-50">
-              Descargar PDF
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!selected || downloading}
+            onClick={handleDownload}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {downloading ? 'Generando...' : 'Descargar PDF'}
+          </button>
+          {downloadError && <p role="alert" className="text-sm text-red-600">{downloadError}</p>}
         </div>
       )}
     </div>
