@@ -1,6 +1,13 @@
 import { existsSync } from 'node:fs';
-import PDFDocument from 'pdfkit';
+import nodeModule from 'node:module';
+import path from 'node:path';
+import type PDFDocumentType from 'pdfkit';
 import type { Money, Statement, StatementRow } from './types';
+
+// Load pdfkit's CommonJS build through createRequire anchored at the project root. Under `next start`
+// running on Bun, the ESM build (pdfkit.node.mjs) calls createRequire(import.meta.url) with an empty URL and
+// then fails to resolve its '#standard-fonts/*' imports; the CJS build anchors on __filename and works.
+const PDFDocument = nodeModule.createRequire(path.join(process.cwd(), 'package.json'))('pdfkit') as typeof PDFDocumentType;
 
 export interface RenderStatementInput {
   company: string;
