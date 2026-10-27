@@ -6,6 +6,7 @@ export interface NavAccess {
   dwh: boolean;
   geo: boolean;
   recipes: boolean;
+  statements: boolean;
   pricing: PricingAccessLevel;
 }
 
@@ -72,6 +73,13 @@ const NAV_SECTIONS: NavSectionDef[] = [
     visible: a => a.recipes,
     links: [
       { href: '/recetas', label: 'Recetas', description: 'Recetas y costo de producto FIFO en USD.' },
+    ],
+  },
+  {
+    title: 'Estados de cuenta',
+    visible: a => a.statements,
+    links: [
+      { href: '/estados-de-cuenta', label: 'Estados de cuenta', description: 'Estado de cuenta de clientes en PDF.' },
     ],
   },
   {

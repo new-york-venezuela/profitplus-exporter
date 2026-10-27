@@ -5,7 +5,7 @@ const config: NextConfig = {
   // doesn't need test/e2e libraries. Editor/tests keep using tsconfig.json.
   typescript: { tsconfigPath: 'tsconfig.build.json' },
   // Prevent Next.js from bundling native modules — they must be required at runtime
-  serverExternalPackages: ['mssql', 'bcrypt'],
+  serverExternalPackages: ['mssql', 'bcrypt', 'pdfkit'],
   experimental: {
     // WORKAROUND: Turbopack regression in Next.js 16.2.10-16.2.11
     // The auto-generated _global-error boundary fails during static prerendering

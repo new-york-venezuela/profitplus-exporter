@@ -75,7 +75,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
     finally  { setSubmitting(false); }
   }
 
-  async function handleToggleModule(user: UserRow, moduleName: 'inventory' | 'dwh' | 'geo' | 'recipes') {
+  async function handleToggleModule(user: UserRow, moduleName: 'inventory' | 'dwh' | 'geo' | 'recipes' | 'statements') {
     const hasIt = user.modules.includes(moduleName);
     const nextModules = hasIt
       ? user.modules.filter(m => m !== moduleName)
@@ -147,7 +147,7 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50">
-              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Mapa', 'Precios', 'Recetas', 'Creado', 'Acciones'].map(h => (
+              {['Nombre', 'Email', 'Rol', 'Inventario', 'Analítica', 'Mapa', 'Precios', 'Recetas', 'Estados de cuenta', 'Creado', 'Acciones'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold
                                        text-gray-600 uppercase tracking-wider">
                   {h}
@@ -243,6 +243,18 @@ export function UsersClient({ initialUsers, currentUserId }: Props) {
                       className="rounded border-gray-300"
                     />
                     {user.role === 'admin' ? 'Incluido (admin)' : 'Recetas'}
+                  </label>
+                </td>
+                <td className="px-4 py-3">
+                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={user.modules.includes('statements')}
+                      onChange={() => handleToggleModule(user, 'statements')}
+                      disabled={user.role === 'admin'}
+                      className="rounded border-gray-300"
+                    />
+                    {user.role === 'admin' ? 'Incluido (admin)' : 'Estados de cuenta'}
                   </label>
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">

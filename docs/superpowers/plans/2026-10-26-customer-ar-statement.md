@@ -170,3 +170,19 @@
 - [ ] **Step 1:** Write the AGENTS.md section and the INSTRUCTIONS.md entry, with the "USD via `saTasa` on the issue date, never the row's `tasa`" rule in bold.
 - [ ] **Step 2:** `bun run lint && bun run test:unit` pass.
 - [ ] **Step 3: Commit** `docs(statements): agent notes and usage`.
+
+---
+
+### Task 8: End-to-end tests
+
+**Files:**
+- Create: `e2e/estados-de-cuenta.spec.ts`
+- Modify: `e2e/admin-users.spec.ts` (assert the new "Estados de cuenta" module checkbox toggles) and `scripts/e2e-seed.ts` only if a non-admin user with the grant is needed
+
+**Interfaces:**
+- Consumes: Tasks 1, 5, 6. Follows `e2e/recetas.spec.ts` conventions (`./fixtures`, `adminPage`/`userPage`, `@mssql` tag in the `describe` title for tests that read the ERP mock).
+
+- [ ] **Step 1: Write the specs:** (a) a user without the grant is redirected from `/estados-de-cuenta` to `/reports/ventas` and `GET /api/statements/customers` returns 403; (b) admin opens the page, picks a customer in the `SearchableSelect`, clicks "Descargar PDF" and receives a download whose bytes start with `%PDF` and whose filename matches `^\S+-.+\.pdf$` (`@mssql`, use a customer code with open `FACT` rows in the restored `Ncake_a`); (c) unknown `co_cli` on `/api/statements/ZZZZ` returns 404 `{ error }` (`@mssql`); (d) the admin users page toggles the module checkbox.
+- [ ] **Step 2: Run** `bun run e2e -- e2e/estados-de-cuenta.spec.ts e2e/admin-users.spec.ts` and `bun run e2e:mssql -- e2e/estados-de-cuenta.spec.ts` if the docker ERP mock is available; fix until green.
+- [ ] **Step 3: Run the whole `bun run e2e`** to confirm no regression (nav changes, admin users).
+- [ ] **Step 4: Commit** `test(statements): e2e coverage`.

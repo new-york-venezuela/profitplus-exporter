@@ -81,6 +81,28 @@ test.describe('admin user management', () => {
     await expect(adminPage.getByRole('row', { name: /Module Grant Target/ }).getByRole('checkbox', { name: 'Inventario' })).not.toBeChecked();
   });
 
+  test('admin can grant and revoke the statements module for a user', async ({ adminPage }) => {
+    await adminPage.goto('/admin/users');
+    await adminPage.getByRole('button', { name: '+ Crear usuario' }).click();
+    await adminPage.getByLabel('Nombre').fill('Statements Grant Target');
+    await adminPage.getByLabel('Email').fill('statements-grant-target@e2e.test');
+    await adminPage.getByLabel('Contraseña').fill('StatementsGrantPass123!');
+    await adminPage.getByLabel('Rol').selectOption('user');
+    await adminPage.getByRole('button', { name: 'Crear', exact: true }).click();
+    await expect(adminPage.getByRole('cell', { name: 'Statements Grant Target' })).toBeVisible();
+
+    const checkbox = () => adminPage.getByRole('row', { name: /Statements Grant Target/ }).getByRole('checkbox', { name: 'Estados de cuenta' });
+    await expect(checkbox()).not.toBeChecked();
+    await checkbox().click();
+    await expect(checkbox()).toBeChecked();
+    await adminPage.reload();
+    await expect(checkbox()).toBeChecked();
+    await checkbox().click();
+    await expect(checkbox()).not.toBeChecked();
+    await adminPage.reload();
+    await expect(checkbox()).not.toBeChecked();
+  });
+
   test('admin can reset another user\'s password', async ({ adminPage }) => {
     await adminPage.goto('/admin/users');
     await adminPage.getByRole('button', { name: '+ Crear usuario' }).click();
