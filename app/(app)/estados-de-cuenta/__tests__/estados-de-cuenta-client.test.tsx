@@ -23,8 +23,17 @@ describe('EstadosDeCuentaClient', () => {
     fireEvent.click(await screen.findByText('C 1 - Alfa'));
     const link = screen.getByText('Descargar PDF') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/api/statements/C%201');
+    link.addEventListener('click', e => e.preventDefault());
     fireEvent.click(link);
-    expect(capture).toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith('statement_download_clicked', { co_cli: 'C 1' });
+  });
+  test('shows a loading state until customers arrive', async () => {
+    let release: (r: Response) => void = () => {};
+    globalThis.fetch = mock(() => new Promise<Response>(r => { release = r; })) as never;
+    render(<EstadosDeCuentaClient />);
+    expect(screen.getByText('Cargando clientes...')).toBeTruthy();
+    release(new Response(JSON.stringify({ customers: [] })));
+    await waitFor(() => expect(screen.queryByText('Cargando clientes...')).toBeNull());
   });
   test('shows an error in Spanish when loading fails', async () => {
     globalThis.fetch = mock(async () => new Response(JSON.stringify({ error: 'Prohibido' }), { status: 403 })) as never;

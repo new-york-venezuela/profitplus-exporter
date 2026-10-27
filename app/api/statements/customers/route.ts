@@ -4,6 +4,7 @@ import { getPool } from '@/lib/db/mssql';
 import { listCustomersForPicker } from '@/lib/statements/repo';
 import { captureException } from '@/lib/analytics/posthog';
 
+// Response depends on the session; never prerender it statically at build time.
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {

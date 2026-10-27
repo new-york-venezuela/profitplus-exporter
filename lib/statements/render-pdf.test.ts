@@ -126,7 +126,24 @@ describe.skipIf(!hasPdftotext)('rendered content (needs pdftotext; skipped if ab
   });
 });
 
+describe('renderStatementPdf cwd independence', () => {
+  test('renders when cwd is not the project root', async () => {
+    const prev = process.cwd();
+    process.chdir(tmpdir());
+    try {
+      const pdf = await renderStatementPdf({ company: 'X', logoPath: null, customer, statement: statement([row(1)]) });
+      expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    } finally {
+      process.chdir(prev);
+    }
+  });
+});
+
 describe('statementFileName', () => {
+  test('never emits quotes, CR or LF', () => {
+    const n = statementFileName('C"1\r\n', 'a"b\r\nX: y');
+    expect(n).not.toMatch(/["\r\n]/);
+  });
   test('safe and stable', () => {
     const n = statementFileName('C001', 'Ñandú / Distribuidora: "El Sol"');
     expect(n).toBe(statementFileName('C001', 'Ñandú / Distribuidora: "El Sol"'));

@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
-import nodeModule from 'node:module';
-import path from 'node:path';
 import type PDFDocumentType from 'pdfkit';
 import type { Money, Statement, StatementRow } from './types';
 
-// Load pdfkit's CommonJS build through createRequire anchored at the project root. Under `next start`
-// running on Bun, the ESM build (pdfkit.node.mjs) calls createRequire(import.meta.url) with an empty URL and
-// then fails to resolve its '#standard-fonts/*' imports; the CJS build anchors on __filename and works.
-const PDFDocument = nodeModule.createRequire(path.join(process.cwd(), 'package.json'))('pdfkit') as typeof PDFDocumentType;
+// Lazy CommonJS require of pdfkit (resolved from this module, never from cwd). The ESM build
+// (pdfkit.node.mjs) fails under `next start` on Bun ('#standard-fonts/*' resolved from an empty URL);
+// the "require" export condition picks the CJS build, which anchors on __filename.
+function loadPdfKit(): typeof PDFDocumentType {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('pdfkit') as typeof PDFDocumentType;
+}
 
 export interface RenderStatementInput {
   company: string;
@@ -71,7 +72,7 @@ export function statementFileName(coCli: string, name: string): string {
 export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer> {
   const { company, logoPath, customer, statement } = input;
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({
+    const doc = new (loadPdfKit())({
       size: 'A4',
       margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       bufferPages: true,

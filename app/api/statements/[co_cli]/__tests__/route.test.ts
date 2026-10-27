@@ -34,6 +34,12 @@ describe('GET /api/statements/[co_cli]', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Cliente no encontrado' });
   });
+  test('literal % in the code is looked up as-is (no 500)', async () => {
+    generate.mockImplementationOnce(async () => null);
+    const res = await call('50%');
+    expect(res.status).toBe(404);
+    expect(generate.mock.calls.at(-1)![1]).toBe('50%');
+  });
   test('400 for over-long code', async () => {
     expect((await call('x'.repeat(31))).status).toBe(400);
   });

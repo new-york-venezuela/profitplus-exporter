@@ -8,7 +8,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const access = await requireStatementsAccess(request);
   if (!access.ok) return access.response;
   try {
-    const coCli = decodeURIComponent((await params).co_cli).trim();
+    const coCli = (await params).co_cli.trim();
     if (!coCli || coCli.length > 30) {
       return NextResponse.json({ error: 'Código de cliente inválido' }, { status: 400 });
     }
