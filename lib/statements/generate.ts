@@ -33,7 +33,7 @@ export interface GeneratedStatement {
 export async function generateStatementPdf(
   pool: sql.ConnectionPool,
   coCli: string,
-  opts: { rates?: UsdRate[]; asOf?: Date; deps?: Partial<Deps> } = {},
+  opts: { rates?: UsdRate[]; company?: string; asOf?: Date; deps?: Partial<Deps> } = {},
 ): Promise<GeneratedStatement | null> {
   const d: Deps = { ...defaultDeps, ...opts.deps };
   const header = await d.fetchCustomerHeader(pool, coCli);
@@ -41,7 +41,7 @@ export async function generateStatementPdf(
   const [docs, rates, company] = await Promise.all([
     d.fetchOpenDocs(pool, coCli),
     opts.rates ? Promise.resolve(opts.rates) : d.fetchUsdRates(pool),
-    d.fetchCompanyName(pool),
+    opts.company !== undefined ? Promise.resolve(opts.company) : d.fetchCompanyName(pool),
   ]);
   const statement = buildStatement(docs, rates, opts.asOf ?? new Date());
   for (const row of statement.rows) {

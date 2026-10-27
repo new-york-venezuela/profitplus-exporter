@@ -32,6 +32,12 @@ describe('mapDocRow', () => {
 });
 
 describe('mapRateRows', () => {
+  test('keeps the time of day (local Date from UTC components)', () => {
+    const out = mapRateRows([{ fecha: new Date(Date.UTC(2026, 0, 2, 15, 30, 5, 123)), tasa_v: 41 }]);
+    const f = out[0].fecha;
+    expect([f.getFullYear(), f.getMonth(), f.getDate()]).toEqual([2026, 0, 2]);
+    expect([f.getHours(), f.getMinutes(), f.getSeconds(), f.getMilliseconds()]).toEqual([15, 30, 5, 123]);
+  });
   test('drops null/zero/negative rates and converts dates', () => {
     const d = new Date(Date.UTC(2026, 0, 2));
     const out = mapRateRows([

@@ -157,15 +157,16 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
         r.daysOverdue === null ? '-' : String(r.daysOverdue),
         fmtAmount(r.amountBsd),
         r.rate === null ? 'Sin tasa' : fmtAmount(r.rate),
-        r.amountUsd === null ? '-' : fmtAmount(r.amountUsd),
+        r.amountUsd === null ? 'Sin tasa' : fmtAmount(r.amountUsd),
       ];
 
       // Aging summary at the top, before the table
+      const star = statement.incomplete ? '*' : '';
       const line = (label: string, v: Money, bold = false) => {
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#000');
         doc.text(label, MARGIN + 2, y, { width: 200, lineBreak: false });
         doc.text(`Bs ${fmtAmount(v.bsd)}`, MARGIN + 200, y, { width: 120, align: 'right', lineBreak: false });
-        doc.text(`USD ${fmtAmount(v.usd)}`, MARGIN + 330, y, { width: 120, align: 'right', lineBreak: false });
+        doc.text(`USD ${fmtAmount(v.usd)}${star}`, MARGIN + 330, y, { width: 120, align: 'right', lineBreak: false });
         y += 14;
       };
       doc.font('Helvetica-Bold').fontSize(10).text('Resumen de antigüedad', MARGIN, y, { lineBreak: false });
@@ -207,7 +208,7 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
       }
 
       // Grand total + notes at the end (reserve space so they stay together)
-      const need = 40 + (statement.incomplete ? 18 : 0) + (statement.rows.some((r) => r.unknownType) ? 14 : 0);
+      const need = 40 + (statement.incomplete ? 30 : 0) + (statement.rows.some((r) => r.unknownType) ? 14 : 0);
       if (y + need > BOTTOM) {
         doc.addPage();
         y = MARGIN;
@@ -221,6 +222,12 @@ export function renderStatementPdf(input: RenderStatementInput): Promise<Buffer>
         y += 4;
         doc.font('Helvetica-Bold').fontSize(9).fillColor('#a00000');
         doc.text('Estado de cuenta incompleto: faltan tasas de cambio', MARGIN + 2, y, {
+          width: CONTENT_W,
+          lineBreak: false,
+        });
+        y += 12;
+        doc.font('Helvetica').fontSize(8);
+        doc.text('* Las cifras en USD excluyen documentos sin tasa', MARGIN + 2, y, {
           width: CONTENT_W,
           lineBreak: false,
         });

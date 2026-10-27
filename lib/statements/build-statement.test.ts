@@ -34,6 +34,12 @@ describe('resolveUsdRate', () => {
   test('rate dated 14:00 same day counts', () => {
     expect(resolveUsdRate(rs, d('2026-03-12', 0))).toBe(45);
   });
+  test('two rates the same day: the latest time wins, any input order', () => {
+    const a: UsdRate = { fecha: d('2026-04-05', 9), tasaV: 40 };
+    const b: UsdRate = { fecha: d('2026-04-05', 15), tasaV: 41 };
+    expect(resolveUsdRate([a, b], d('2026-04-05'))).toBe(41);
+    expect(resolveUsdRate([b, a], d('2026-04-05'))).toBe(41);
+  });
   test('null before first rate', () => {
     expect(resolveUsdRate(rs, d('2026-02-28'))).toBeNull();
   });
@@ -47,6 +53,14 @@ describe('buildStatement', () => {
     expect(r.rate).toBe(50);
     expect(r.amountUsd).toBe(20);
     expect(s.total).toEqual({ bsd: 1000, usd: 20 });
+  });
+  test('rows with null fecVenc sort stably next to dated ones', () => {
+    const s = build([
+      doc({ nroDoc: 'N1', fecVenc: null }),
+      doc({ nroDoc: 'D1', fecVenc: d('2026-10-05') }),
+      doc({ nroDoc: 'N2', fecVenc: null }),
+    ]);
+    expect(s.rows.map((r) => r.nroDoc)).toEqual(['D1', 'N1', 'N2']);
   });
   test('N/CR reduces', () => {
     const s = build([doc({}), doc({ coTipoDoc: 'N/CR', nroDoc: '2', saldoBsd: 500 })]);

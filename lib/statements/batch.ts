@@ -21,7 +21,13 @@ export async function exportStatements(deps: BatchDeps): Promise<BatchSummary> {
   for (const coCli of candidates) {
     try {
       const generated = await deps.generate(coCli);
-      if (!generated || !(generated.statement.total.bsd > 0)) {
+      if (!generated) {
+        deps.log(`[export-statements] ${coCli}: tiene documentos abiertos pero no existe en saCliente; omitido`);
+        summary.skipped++;
+        continue;
+      }
+      // Cent rounding absorbs float residue (e.g. 1000.10 - 600.05 - 400.05 = 5.7e-14).
+      if (Math.round(generated.statement.total.bsd * 100) <= 0) {
         summary.skipped++;
         continue;
       }

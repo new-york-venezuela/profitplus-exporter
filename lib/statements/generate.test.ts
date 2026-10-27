@@ -22,6 +22,16 @@ describe('generateStatementPdf', () => {
     expect(r!.fileName).toEndWith('.pdf');
     expect(r!.customerName).toBe('Cliente Uno');
   });
+  test('reuses provided company without fetching it', async () => {
+    const fetchCompany = mock(async () => 'Otra');
+    const render = mock(async () => Buffer.from('%PDF-'));
+    await generateStatementPdf(pool, 'C1', {
+      company: 'Pasada',
+      deps: { ...base, fetchCompanyName: fetchCompany, fetchCustomerHeader: async () => header, renderStatementPdf: render as never },
+    });
+    expect(fetchCompany).not.toHaveBeenCalled();
+    expect((render.mock.calls[0] as unknown as [{ company: string }])[0].company).toBe('Pasada');
+  });
   test('reuses provided rates and warns on unknown types', async () => {
     const fetchRates = mock(async () => rates);
     const warn = mock(() => {});

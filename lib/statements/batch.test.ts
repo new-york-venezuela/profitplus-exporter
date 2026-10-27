@@ -39,6 +39,22 @@ describe('exportStatements', () => {
     expect(h.writes).toEqual(['A.pdf']);
   });
 
+  test('float residue and sub-cent balances are skipped, one cent is written', async () => {
+    const h = harness({
+      R: { fileName: 'R.pdf', statement: stmt(5.684341886080802e-14) },
+      S: { fileName: 'S.pdf', statement: stmt(0.004) },
+      T: { fileName: 'T.pdf', statement: stmt(0.01) },
+    });
+    expect(await exportStatements(h.deps)).toEqual({ written: 1, skipped: 2, failed: 0 });
+    expect(h.writes).toEqual(['T.pdf']);
+  });
+
+  test('null generate (open docs, no customer row) logs a warning with the code', async () => {
+    const h = harness({ ORPHAN: null });
+    expect(await exportStatements(h.deps)).toEqual({ written: 0, skipped: 1, failed: 0 });
+    expect(h.logs.some(l => l.includes('ORPHAN'))).toBe(true);
+  });
+
   test('a throwing customer is failed and logged, next still written', async () => {
     const h = harness({
       A: new Error('boom'),

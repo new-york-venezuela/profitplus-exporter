@@ -88,7 +88,8 @@ const text = (b: Buffer): string => {
 const render = (rows: StatementRow[], incomplete = false) =>
   renderStatementPdf({ company: 'Co', logoPath: null, customer, statement: statement(rows, incomplete) });
 
-describe.skipIf(!hasPdftotext)('rendered content (needs pdftotext; skipped if absent)', () => {
+// Skipped locally when pdftotext is absent; in CI (CI env set) it must exist, so a missing binary fails.
+describe.skipIf(!hasPdftotext && !process.env.CI)('rendered content (needs pdftotext)', () => {
   test('aging summary precedes the table; total and note at the end', async () => {
     const t = text(await render([row(777)], true));
     const sum = t.indexOf('Resumen de antigüedad');
@@ -104,6 +105,10 @@ describe.skipIf(!hasPdftotext)('rendered content (needs pdftotext; skipped if ab
   test('Sin tasa and incomplete note only when applicable', async () => {
     const t1 = text(await render([row(1, { rate: null, amountUsd: null })], true));
     expect(t1).toContain('Sin tasa');
+    const line = t1.split('\n').find((l) => l.includes('Sin tasa'))!;
+    expect(line.match(/Sin tasa/g)).toHaveLength(2);
+    expect(t1).toContain('excluyen documentos sin tasa');
+    expect(t1).toMatch(/USD [\d.,-]+\*/);
     expect(t1).toContain('Estado de cuenta incompleto');
     const t2 = text(await render([row(1)]));
     expect(t2).not.toContain('Sin tasa');

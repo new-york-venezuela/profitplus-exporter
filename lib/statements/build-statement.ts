@@ -80,7 +80,8 @@ export function buildStatement(docs: StatementDoc[], rates: UsdRate[], asOf: Dat
   const venc = (r: StatementRow) => (r.fecVenc ? r.fecVenc.getTime() : Infinity);
   rows.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'debt' ? -1 : 1;
-    return venc(a) - venc(b);
+    const va = venc(a), vb = venc(b);
+    return va === vb ? 0 : va < vb ? -1 : 1;
   });
 
   return { asOf, rows, aging, credits, total, incomplete };
