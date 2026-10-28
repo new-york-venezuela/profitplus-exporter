@@ -58,20 +58,20 @@ describe('GET /api/dwh/seguimiento: main response', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('private, max-age=900');
     const body = await res.json();
-    expect(body).toMatchObject({ kind: 'vendedor', month: '2026-10', asOf: '2026-10-14' });
-    expect(body.pace).toMatchObject({ workingDaysInMonth: 22, workingDaysElapsed: 10 });
+    expect(body).toMatchObject({ kind: 'vendedor', month: '2026-10', asOf: '2026-10-13' });
+    expect(body.pace).toMatchObject({ workingDaysInMonth: 22, workingDaysElapsed: 9 });
     expect(body.roots.map((r: { label: string }) => r.label)).toEqual(['Ana', 'Beto']);
     expect(body.roots[0]).toMatchObject({ salesRepKey: '1', salesQuotaUsd: 100, targets: { salesQuotaUsd: 100 } });
     expect(body.total.salesQuotaUsd).toBe(150);            // the September row (7) is not used
     expect(body.total.excludedSales).toEqual({ bs: 9000, usd: 180 });
   });
 
-  test('in the evening (22:10 on Thursday the 15th, already Friday in UTC) the as-of day and the pace are still the 15th', async () => {
+  test('in the evening (22:10 on Thursday the 15th, already Friday in UTC) the as-of day and the pace are still through the 14th', async () => {
     setSystemTime(new Date(2026, 9, 15, 22, 10));            // host-local constructor: the host calendar day is Oct 15 in any TZ
     try {
       const body = await (await call('?kind=vendedor&dateRange=30d')).json();
-      expect(body.asOf).toBe('2026-10-15');
-      expect(body.pace).toMatchObject({ workingDaysElapsed: 11, workingDaysInMonth: 22 });
+      expect(body.asOf).toBe('2026-10-14');
+      expect(body.pace).toMatchObject({ workingDaysElapsed: 10, workingDaysInMonth: 22 });
     } finally {
       setSystemTime(new Date('2026-10-14T15:00:00Z'));
     }
@@ -79,7 +79,7 @@ describe('GET /api/dwh/seguimiento: main response', () => {
 
   test('queries get the reference month, as-of day and the full ISO-week window', async () => {
     await call('?dateRange=30d');
-    expect(fetchCustomers).toHaveBeenCalledWith(pool, '2026-10-14');
+    expect(fetchCustomers).toHaveBeenCalledWith(pool, '2026-10-13');
     expect(fetchLineSales).toHaveBeenCalledWith(pool, '2026-10');
     expect(fetchWeekActivity).toHaveBeenCalledWith(pool, '2026-09-28', '2026-11-01');
     expect(flagged.mock.calls[0][0]).toContain('DateKey');

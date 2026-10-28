@@ -69,9 +69,12 @@ const YTD_RANGE = /^ytd:(\d{4})$/;
 // Seguimiento is a monthly scorecard (monthly quotas, ISO weeks, month projection). The shell's
 // dateRange is mapped to ONE reference month: the month the range ends in, and "as of" the
 // earliest of today, the range end and the month end.
+// Tracking stops at the day before `today`: that day's invoices are not loaded yet, so counting it
+// would understate progress and projections. On the 1st the month is the new one, with 0 days elapsed.
 export function resolveReferenceMonth(dateRange: string, today: string): ReferenceMonth {
+  const lastLoaded = addDays(today, -1);
   let month = today.slice(0, 7);
-  let rangeEnd = today;
+  let rangeEnd = lastLoaded;
   const custom = CUSTOM_END.exec(dateRange);
   const monthRange = MONTH_RANGE.exec(dateRange);
   const ytd = YTD_RANGE.exec(dateRange);
@@ -80,16 +83,16 @@ export function resolveReferenceMonth(dateRange: string, today: string): Referen
     rangeEnd = custom[1];
   } else if (monthRange) {
     month = monthRange[1];
-    rangeEnd = isValidMonth(month) ? monthBounds(month).end : today;
+    rangeEnd = isValidMonth(month) ? monthBounds(month).end : lastLoaded;
   } else if (ytd && ytd[1] !== today.slice(0, 4)) {
     month = `${ytd[1]}-12`;
     rangeEnd = `${ytd[1]}-12-31`;
   }
   if (!isValidMonth(month)) {
     month = today.slice(0, 7);
-    rangeEnd = today;
+    rangeEnd = lastLoaded;
   }
   const { start, end } = monthBounds(month);
-  const asOf = [today, rangeEnd, end].reduce((a, b) => (a < b ? a : b));
+  const asOf = [lastLoaded, rangeEnd, end].reduce((a, b) => (a < b ? a : b));
   return { month, monthStart: start, monthEnd: end, asOf };
 }

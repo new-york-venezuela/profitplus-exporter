@@ -78,12 +78,12 @@ describe('resolveReferenceMonth', () => {
       month: '2026-09', monthStart: '2026-09-01', monthEnd: '2026-09-30', asOf: '2026-09-30',
     });
   });
-  test('month:YYYY-MM current month is as of today', () => {
-    expect(resolveReferenceMonth('month:2026-10', today).asOf).toBe('2026-10-11');
+  test('month:YYYY-MM current month is as of yesterday', () => {
+    expect(resolveReferenceMonth('month:2026-10', today).asOf).toBe('2026-10-10');
   });
   test('trailing windows and unknown values use the current month', () => {
     for (const r of ['30d', '12m', 'weird']) {
-      expect(resolveReferenceMonth(r, today)).toMatchObject({ month: '2026-10', asOf: '2026-10-11' });
+      expect(resolveReferenceMonth(r, today)).toMatchObject({ month: '2026-10', asOf: '2026-10-10' });
     }
   });
   test('custom range uses the month and day of its end', () => {
@@ -98,7 +98,7 @@ describe('resolveReferenceMonth', () => {
   });
   test('a future month is not elapsed at all', () => {
     const ref = resolveReferenceMonth('month:2027-01', today);
-    expect(ref.asOf).toBe(today);
+    expect(ref.asOf).toBe('2026-10-10');
     expect(monthPace(ref.month, ref.asOf).workingDaysElapsed).toBe(0);
   });
 });
