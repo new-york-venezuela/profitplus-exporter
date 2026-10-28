@@ -70,3 +70,8 @@ data/customer-mapping/*.diff.csv
 
 # credit-terms dry-run output
 /tmp/credit-terms-*.csv
+
+# Everything in data/ (already-tracked files stay tracked)
+data/*
+!data/**/*.md
+!data/.gitkeep
