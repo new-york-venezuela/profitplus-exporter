@@ -489,6 +489,10 @@ ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
   non-zero on any failed move, sweep error, health-read error or failed send. The Vencimientos tab
   (`/api/pricing/health`) surfaces the same checks live.
 
+## Bulk pricing tools
+
+`data/pricing-lists/README.md` is the user guide. `bun run pricing:import-lists` (lists + regular prices from `lists.csv`/`prices.csv`, wide format, via `createList`/`applyRates`), `pricing:import-promotions` (overlay promotions from `promotions.csv` via `createPromotion`) and `tipo-cliente:apply` (bulk `saCliente.tip_cli` from the `tipo-cliente:export` CSV, via `SegmentErp.moveCustomer`, rollback from `data/tipo-cliente/runs/*.jsonl`) are dry-run by default; `--apply` needs `--confirm-db <DB_NAME>`. They contain no ERP logic of their own: pure CSV/plan modules in `lib/pricing/{list-import,promo-import,tipo-cliente-apply}/`, writes only through the existing services.
+
 ## Product Analytics (PostHog)
 
 `lib/analytics/posthog.ts` exports `captureEvent(distinctId, event, properties?)`
