@@ -40,7 +40,8 @@ test.describe('seguimiento (mocked API)', () => {
     // The page defaults to Bs.; the amounts below are USD.
     await adminPage.goto('/analitica?tab=seguimiento&currency=usd');
     await expect(adminPage.getByRole('heading', { name: 'Seguimiento de ventas' })).toBeVisible({ timeout: 15_000 });
-    const ana = grid(adminPage).getByRole('row').filter({ has: rootButton(adminPage, 'Ana') });
+    // `has` is resolved relative to each row, so the inner locator must not start from the table.
+    const ana = grid(adminPage).getByRole('row').filter({ has: adminPage.getByRole('button', { name: /^Ana/ }) });
     await expect(ana.getByTestId('grid-status').first()).toContainText('En meta');
     await expect(ana.getByText('35 / 100')).toBeVisible();
     await expect(adminPage.getByText(/Día laborable 10 de 22/)).toBeVisible();
