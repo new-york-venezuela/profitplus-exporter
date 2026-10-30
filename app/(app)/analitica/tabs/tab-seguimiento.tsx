@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import posthog from 'posthog-js';
-import type { RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
+import type { HistoryPoint, RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { ExcludedSection, type ExcludedState } from '../components/seguimiento/excluded-section';
 import { monthLabel } from '../components/seguimiento/fmt';
+import { HistoryChart } from '../components/seguimiento/history-chart';
 import { NewCustomersTable } from '../components/seguimiento/new-customers-section';
 import { CustomerList } from '../components/seguimiento/root-views';
 import { SellerGrid } from '../components/seguimiento/seller-grid';
@@ -20,6 +21,7 @@ const KIND_OPTIONS: { value: RootKind; label: string }[] = [
   { value: 'grupo', label: 'Grupo de cliente' },
 ];
 
+interface HistoryState { loading: boolean; error: string | null; points: HistoryPoint[] }
 interface LinesState { loading: boolean; error: string | null; lines: SeguimientoInvoiceLine[] }
 
 function ToggleGroup<T extends string>({ label, value, options, onChange }: {
@@ -62,6 +64,8 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   const savedTargetsRef = useRef<Record<string, SellerTargetRow>>({});
   // Bumped whenever the main load starts; a drill-down response from an older generation
   // (previous kind / date range / reload) is dropped instead of written into fresh state.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryState>({ loading: false, error: null, points: [] });
   const generationRef = useRef(0);
   // Only the latest excluded-invoices request may write its result.
   const excludedRequestRef = useRef(0);
@@ -89,6 +93,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         if (cancelled) return;
         const sameGrouping = loadedKeyRef.current === key;
         loadedKeyRef.current = key;
+        setLoadedKey(key);
         setData(body);
         setSelected(prev => (sameGrouping && prev !== null && body.roots.some(r => r.value === prev) ? prev : null));
         if (!sameGrouping) setEditingMetas(null);
@@ -108,6 +113,29 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
     load();
     return () => { cancelled = true; };
   }, [kind, dateRange, reloadToken]);
+
+  // Month-to-month history for the selected root (or the total). Waits for the grouping's own
+  // response so a stale selection is never paired with a new kind; `cancelled` drops stale replies.
+  const historyMonth = data?.month ?? null;
+  const historyReady = loadedKey === `${kind}|${dateRange}`;
+  useEffect(() => {
+    if (!historyReady || historyMonth === null) return;
+    let cancelled = false;
+    setHistory(prev => ({ ...prev, loading: true, error: null }));
+    (async () => {
+      try {
+        const params = new URLSearchParams({ section: 'history', kind, dateRange });
+        if (selected !== null) params.set('rootValue', selected);
+        const res = await fetch(`/api/dwh/seguimiento?${params.toString()}`);
+        if (!res.ok) throw new Error('history');
+        const body: { points?: HistoryPoint[] } = await res.json();
+        if (!cancelled) setHistory({ loading: false, error: null, points: body.points ?? [] });
+      } catch {
+        if (!cancelled) setHistory({ loading: false, error: 'No se pudo cargar el historial mes a mes', points: [] });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [historyReady, historyMonth, kind, dateRange, selected]);
 
   const changeKind = (next: RootKind) => {
     posthog.capture('seguimiento_root_changed', { kind: next });
@@ -281,6 +309,19 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
             />
           </div>
         </section>
+      )}
+
+      {history.error ? (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{history.error}</p>
+      ) : history.loading ? (
+        <div className="text-sm text-gray-500 bg-white border border-gray-200 rounded-lg p-4">Cargando historial…</div>
+      ) : (
+        <HistoryChart
+          points={history.points}
+          currency={currency}
+          endMonth={data.month}
+          partialMonth={data.asOf < data.monthEnd ? data.month : ''}
+        />
       )}
     </div>
   );

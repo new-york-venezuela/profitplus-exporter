@@ -15,6 +15,7 @@ const { default: TabSeguimiento } = await import('../tab-seguimiento');
 const json = (body: unknown, ok = true, status = 200) => ({ ok, status, json: async () => body }) as unknown as Response;
 const defaultFetch = async (url: string, _init?: RequestInit): Promise<Response> => {
   if (url.includes('section=lines')) return json({ lines: FIXTURE_INVOICE_LINES });
+  if (url.includes('section=history')) return json({ points: [{ month: '2026-09', sales: { bs: 5000, usd: 100 }, units: 10, returns: { bs: 0, usd: 0 }, returnUnits: 0 }] });
   if (url.includes('section=excluded')) {
     return json({ invoices: [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber: 'F9', invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }] });
   }
@@ -313,5 +314,25 @@ describe('TabSeguimiento review fixes', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
     expect(await within(grid()).findByRole('button', { name: /^Ruta 3/ })).toBeTruthy();
     expect(screen.queryByText('Error al consultar el Data Warehouse')).toBeNull();
+  });
+
+  test('history is requested for the total (no rootValue) and then for the selected root', async () => {
+    await loaded();
+    await screen.findByRole('region', { name: 'Historial mes a mes' });
+    const first = urls().find(u => u.includes('section=history'))!;
+    expect(first).toContain('kind=vendedor');
+    expect(first).not.toContain('rootValue');
+    await select('Ana');
+    await waitFor(() => expect(urls().some(u => u.includes('section=history') && u.includes('rootValue=1'))).toBe(true));
+  });
+
+  test('a history error shows a message while the grid still renders', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('section=history')) return json({ error: 'boom' }, false, 500);
+      return defaultFetch(url);
+    });
+    await loaded();
+    expect(await screen.findByText('No se pudo cargar el historial mes a mes')).toBeTruthy();
+    expect(within(grid()).getByRole('button', { name: /^Ana/ })).toBeTruthy();
   });
 });
