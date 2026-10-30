@@ -62,4 +62,13 @@ describe('TabResumen', () => {
     expect(screen.queryByText(/Mayor concentración/)).toBeNull();
     expect(screen.queryByText('Deudor SA')).toBeNull();
   });
+
+  test('does not render Top 10 clientes, Top 10 productos or Desempeño por vendedor', async () => {
+    globalThis.fetch = mock(async () => json(response)) as unknown as typeof fetch;
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    await screen.findByRole('heading', { name: 'Ventas del período' });
+    expect(screen.queryByText('Top 10 clientes')).toBeNull();
+    expect(screen.queryByText('Top 10 productos')).toBeNull();
+    expect(screen.queryByText('Desempeño por vendedor')).toBeNull();
+  });
 });
