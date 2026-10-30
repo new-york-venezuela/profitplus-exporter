@@ -30,6 +30,10 @@ export type RootableCustomer = Pick<CustomerFact, 'salesRepKey' | 'salesRepName'
 
 export interface CustomerLineSales { customerCode: string; line: string | null; units: number; sales: Dual }
 export interface CustomerWeekActivity { customerCode: string; yearWeek: string }
+export interface CustomerLineReturns { customerCode: string; line: string | null; units: number; returns: Dual }
+export interface CustomerWeekAmounts {
+  customerCode: string; yearWeek: string; units: number; sales: Dual; returnUnits: number; returns: Dual;
+}
 
 export interface SeguimientoInput {
   kind: RootKind;
@@ -38,6 +42,8 @@ export interface SeguimientoInput {
   customers: CustomerFact[];
   lineSales: CustomerLineSales[];
   weekActivity: CustomerWeekActivity[];
+  lineReturns: CustomerLineReturns[];
+  weekAmounts: CustomerWeekAmounts[];
   consignmentRootCodes: string[];
   targets: ReadonlyMap<string, SellerTargets>;
 }
@@ -70,6 +76,11 @@ function sumDuals(items: readonly Dual[]): Dual {
   };
 }
 
+// usd is null iff sales.usd is null; missing returns USD counts as 0.
+export function netOf(sales: Dual, returns: Dual): Dual {
+  return { bs: sales.bs - returns.bs, usd: sales.usd === null ? null : sales.usd - (returns.usd ?? 0) };
+}
+
 function avgPriceOf(sales: Dual, units: number): Dual | null {
   if (!(units > 0)) return null;
   return { bs: sales.bs / units, usd: sales.usd === null ? null : sales.usd / units };
@@ -83,6 +94,9 @@ interface Row {
   active: Set<string>;
   sales: Dual;
   units: number;
+  returns: Dual;
+  returnUnits: number;
+  weekAmounts: Map<string, CustomerWeekAmounts>;
 }
 
 interface Ctx {
@@ -116,6 +130,9 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
   const assigned = counted.filter(r => r.assigned);
   const sales = sumDuals(counted.map(r => r.sales));
   const units = counted.reduce((s, r) => s + r.units, 0);
+  const returns = sumDuals(counted.map(r => r.returns));
+  const returnUnits = counted.reduce((s, r) => s + r.returnUnits, 0);
+  const routeNumbers = [...new Set(counted.map(r => r.fact.routeNumber).filter((n): n is number => n !== null))].sort((a, b) => a - b);
   const quota = withGoals ? rollUpQuotas(sellerKeys, ctx.targets) : NO_QUOTA;
   const quotaUsd = quota.salesQuotaUsd;
   const hasGoal = quotaUsd !== null && quotaUsd > 0;
@@ -131,6 +148,11 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
     customerCount: assigned.length,
     sellerKeys,
     sales, units,
+    returns, returnUnits,
+    net: netOf(sales, returns),
+    netUnits: units - returnUnits,
+    returnRate: sales.bs > 0 ? returns.bs / sales.bs : null,
+    routeLabels: routeNumbers.map(n => `Ruta ${n}`),
     avgPrice: avgPriceOf(sales, units),
     excludedSales: sumDuals(rows.filter(r => r.consignment).map(r => r.sales)),
     salesQuotaUsd: quotaUsd,
@@ -149,9 +171,17 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
     weeklyVisitQuota: quota.weeklyVisitQuota,
     weeks: ctx.headers.map(h => {
       const active = h.isFuture ? 0 : assigned.filter(r => r.active.has(h.yearWeek)).length;
+      const cells = h.isFuture ? [] : counted.map(r => r.weekAmounts.get(h.yearWeek)).filter((c): c is CustomerWeekAmounts => c !== undefined);
+      const wSales = sumDuals(cells.map(c => c.sales));
+      const wReturns = sumDuals(cells.map(c => c.returns));
+      const wUnits = cells.reduce((s, c) => s + c.units, 0);
       return {
         yearWeek: h.yearWeek, active, assigned: assigned.length,
         pct: h.isFuture || assigned.length === 0 ? null : active / assigned.length,
+        sales: wSales, units: wUnits,
+        returns: wReturns, returnUnits: cells.reduce((s, c) => s + c.returnUnits, 0),
+        net: netOf(wSales, wReturns),
+        avgPrice: avgPriceOf(wSales, wUnits),
       };
     }),
     mix: bucketCategoryMix(toLineAmounts(counted), ctx.visible),
@@ -174,6 +204,7 @@ function toCustomer(r: Row, ctx: Ctx): SeguimientoCustomer {
     routeLabel: r.fact.routeNumber != null ? `Ruta ${r.fact.routeNumber}` : null,
     groupLabel: r.fact.segmentName,
     sales: r.sales, units: r.units, avgPrice: avgPriceOf(r.sales, r.units),
+    returns: r.returns, returnUnits: r.returnUnits, net: netOf(r.sales, r.returns),
     activeWeeks: ctx.headers.map(h => h.yearWeek).filter(w => r.active.has(w)),
     mix: bucketCategoryMix(toLineAmounts([r]), ctx.visible),
     isNew: isNew(r.fact, ctx),
@@ -204,6 +235,19 @@ export function buildSeguimiento(
     activeBy.set(a.customerCode, set);
   }
 
+  const returnsBy = new Map<string, CustomerLineReturns[]>();
+  for (const l of input.lineReturns) returnsBy.set(l.customerCode, [...(returnsBy.get(l.customerCode) ?? []), l]);
+  const amountsBy = new Map<string, Map<string, CustomerWeekAmounts>>();
+  for (const w of input.weekAmounts) {
+    const m = amountsBy.get(w.customerCode) ?? new Map<string, CustomerWeekAmounts>();
+    const prev = m.get(w.yearWeek);
+    m.set(w.yearWeek, prev ? {
+      ...prev, units: prev.units + w.units, sales: sumDuals([prev.sales, w.sales]),
+      returnUnits: prev.returnUnits + w.returnUnits, returns: sumDuals([prev.returns, w.returns]),
+    } : w);
+    amountsBy.set(w.customerCode, m);
+  }
+
   const allRows: Row[] = input.customers.map(fact => {
     const lines = linesBy.get(fact.customerCode) ?? [];
     const consignment = flagged.has(fact.customerCode);
@@ -215,6 +259,9 @@ export function buildSeguimiento(
       active: activeBy.get(fact.customerCode) ?? new Set<string>(),
       sales: sumDuals(lines.map(l => l.sales)),
       units: lines.reduce((s, l) => s + l.units, 0),
+      returns: sumDuals((returnsBy.get(fact.customerCode) ?? []).map(l => l.returns)),
+      returnUnits: (returnsBy.get(fact.customerCode) ?? []).reduce((s, l) => s + l.units, 0),
+      weekAmounts: amountsBy.get(fact.customerCode) ?? new Map<string, CustomerWeekAmounts>(),
     };
   });
   // Irrelevant rows: inactive customers (or consignment roots) with no sales this month.

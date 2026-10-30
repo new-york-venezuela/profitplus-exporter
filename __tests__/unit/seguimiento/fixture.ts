@@ -51,6 +51,7 @@ export function fixtureInput(kind: RootKind): SeguimientoInput {
   return {
     kind, month: FIXTURE_MONTH, asOf: FIXTURE_AS_OF,
     customers: FIXTURE_CUSTOMERS, lineSales: FIXTURE_LINE_SALES, weekActivity: FIXTURE_WEEK_ACTIVITY,
+    lineReturns: [], weekAmounts: [],
     consignmentRootCodes: FIXTURE_CONSIGNMENT_ROOTS, targets: FIXTURE_TARGETS,
   };
 }

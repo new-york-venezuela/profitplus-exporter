@@ -12,7 +12,11 @@ export function parseRootKind(v: string | null): RootKind {
 }
 
 export interface WeekHeader { yearWeek: string; weekStart: string; weekEnd: string; label: string; isFuture: boolean }
-export interface WeekCell { yearWeek: string; active: number; assigned: number; pct: number | null }
+export interface WeekCell {
+  yearWeek: string; active: number; assigned: number; pct: number | null;
+  /** Amounts clipped to the month, non-consignment customers only. Zero for future weeks. */
+  sales: Dual; units: number; returns: Dual; returnUnits: number; net: Dual; avgPrice: Dual | null;
+}
 export interface NewCustomersInfo { count: number; quota: number | null; partial: boolean }
 
 export interface RootMetrics {
@@ -20,6 +24,14 @@ export interface RootMetrics {
   sellerKeys: string[];
   sales: Dual;
   units: number;
+  returns: Dual;
+  returnUnits: number;
+  net: Dual;
+  netUnits: number;
+  /** returns.bs / sales.bs; null when sales.bs is 0. */
+  returnRate: number | null;
+  /** Distinct "Ruta N" labels of the root's customers, natural order. */
+  routeLabels: string[];
   avgPrice: Dual | null;
   excludedSales: Dual;
   salesQuotaUsd: number | null;
@@ -56,6 +68,9 @@ export interface SeguimientoCustomer {
   groupLabel: string | null;
   sales: Dual;
   units: number;
+  returns: Dual;
+  returnUnits: number;
+  net: Dual;
   avgPrice: Dual | null;
   activeWeeks: string[];
   mix: MixSegment[];

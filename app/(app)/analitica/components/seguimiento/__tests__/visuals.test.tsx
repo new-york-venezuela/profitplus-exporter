@@ -15,10 +15,12 @@ const headers: WeekHeader[] = [
   { yearWeek: '2026-W42', weekStart: '2026-10-12', weekEnd: '2026-10-18', label: 'S42', isFuture: false },
   { yearWeek: '2026-W43', weekStart: '2026-10-19', weekEnd: '2026-10-25', label: 'S43', isFuture: true },
 ];
+const Z = { bs: 0, usd: 0 };
+const amt = { sales: Z, units: 0, returns: Z, returnUnits: 0, net: Z, avgPrice: null };
 const cells: WeekCell[] = [
-  { yearWeek: '2026-W41', active: 2, assigned: 2, pct: 1 },
-  { yearWeek: '2026-W42', active: 1, assigned: 2, pct: 0.5 },
-  { yearWeek: '2026-W43', active: 0, assigned: 2, pct: null },
+  { yearWeek: '2026-W41', active: 2, assigned: 2, pct: 1, ...amt },
+  { yearWeek: '2026-W42', active: 1, assigned: 2, pct: 0.5, ...amt },
+  { yearWeek: '2026-W43', active: 0, assigned: 2, pct: null, ...amt },
 ];
 
 describe('WeekStrip', () => {

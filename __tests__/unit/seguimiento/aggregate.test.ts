@@ -54,7 +54,7 @@ describe('buildSeguimiento: vendedor roots', () => {
   });
 
   test('Ana: weekly activation counts customers with an invoice that ISO week; future weeks have no pct', () => {
-    expect(ana.weeks).toEqual([
+    expect(ana.weeks).toMatchObject([
       { yearWeek: '2026-W40', active: 0, assigned: 2, pct: 0 },
       { yearWeek: '2026-W41', active: 2, assigned: 2, pct: 1 },
       { yearWeek: '2026-W42', active: 1, assigned: 2, pct: 0.5 },
@@ -179,7 +179,7 @@ describe('buildSeguimiento: weekly activation keys (review carry-forward)', () =
     const input = fixtureInput('vendedor');
     const weekActivity = [...input.weekActivity, { customerCode: 'C2', yearWeek: '2026-W40' }];
     const ana = buildSeguimiento({ ...input, weekActivity }).roots.find(r => r.label === 'Ana')!;
-    expect(ana.weeks[0]).toEqual({ yearWeek: '2026-W40', active: 1, assigned: 2, pct: 0.5 });
+    expect(ana.weeks[0]).toMatchObject({ yearWeek: '2026-W40', active: 1, assigned: 2, pct: 0.5 });
   });
 
   test('activity in weeks outside the month, or from unknown/inactive customers, is ignored', () => {
@@ -208,7 +208,7 @@ describe('buildSeguimiento: registration date vs the reference month', () => {
     const out = buildSeguimiento({ ...input, customers });
     const ana = out.roots.find(r => r.label === 'Ana')!;
     expect(ana.customerCount).toBe(3);                                    // C1, C2, C7 (not C6)
-    expect(ana.weeks[1]).toEqual({ yearWeek: '2026-W41', active: 2, assigned: 3, pct: 2 / 3 });
+    expect(ana.weeks[1]).toMatchObject({ yearWeek: '2026-W41', active: 2, assigned: 3, pct: 2 / 3 });
     expect(ana.customers.map(c => c.customerCode)).not.toContain('C6');
     expect(ana.customers.map(c => c.customerCode)).toContain('C7');
     expect(out.total.customerCount).toBe(buildSeguimiento(input).total.customerCount + 1);

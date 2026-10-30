@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     const response: SeguimientoResponse = {
       kind, month: ref.month, monthStart: ref.monthStart, monthEnd: ref.monthEnd, asOf: ref.asOf,
-      ...buildSeguimiento({ kind, month: ref.month, asOf: ref.asOf, customers, lineSales, weekActivity, consignmentRootCodes: flaggedCodes, targets }),
+      ...buildSeguimiento({ kind, month: ref.month, asOf: ref.asOf, customers, lineSales, weekActivity, lineReturns: [], weekAmounts: [], consignmentRootCodes: flaggedCodes, targets }),
     };
     captureEvent(auth.session.sub, 'seguimiento_viewed', { kind, month: ref.month, roots: response.roots.length });
     return jsonWithCache(response);

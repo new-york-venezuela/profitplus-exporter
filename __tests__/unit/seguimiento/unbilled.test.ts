@@ -7,7 +7,7 @@ const asOf = '2026-10-15';
 function cust(name: string, lastInvoiceDate: string | null, intervalDays: number | null): SeguimientoCustomer {
   return {
     customerCode: name, customerName: name, salesRepName: null, routeLabel: null, groupLabel: null,
-    sales: { bs: 0, usd: 0 }, units: 0, avgPrice: null, activeWeeks: [], mix: [], isNew: false, registeredDate: null,
+    sales: { bs: 0, usd: 0 }, units: 0, returns: { bs: 0, usd: 0 }, returnUnits: 0, net: { bs: 0, usd: 0 }, avgPrice: null, activeWeeks: [], mix: [], isNew: false, registeredDate: null,
     lastInvoiceDate, visit: visitCompliance({ lastInvoiceDate, intervalDays, asOf }),
   };
 }
