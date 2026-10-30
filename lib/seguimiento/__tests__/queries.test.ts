@@ -73,6 +73,46 @@ describe('fetchHistory', () => {
     expect(out.map(p => p.month)).toEqual(['2026-08', '2026-09']);
     expect(out[0]).toMatchObject({ units: 0, returnUnits: 1, returns: { bs: 5, usd: 1 } });
   });
+  test('sales are grouped by month AND product line (bound inputs, current customer); the month total is the sum of its lines', async () => {
+    const { pool, queries } = fakePool([
+      [
+        { Month: '2026-09', LineName: 'Pizza ', Units: 3, SalesBs: 300, SalesUsd: 6 },
+        { Month: '2026-09', LineName: 'Pan', Units: 2, SalesBs: 100, SalesUsd: null },
+        { Month: '2026-09', LineName: null, Units: 1, SalesBs: 50, SalesUsd: 1 },
+        { Month: '2026-09', LineName: '  ', Units: 1, SalesBs: 25, SalesUsd: 0.5 },
+        { Month: '2026-10', LineName: 'Pan', Units: 4, SalesBs: 200, SalesUsd: null },
+      ],
+      [{ Month: '2026-09', Units: 1, ReturnsBs: 10, ReturnsUsd: 0.2 }],
+    ]);
+    const out = await fetchHistory(pool, { kind: 'grupo', value: 'G01' }, '2026-10', ['CODEX1']);
+    const salesSql = queries[0].text;
+    expect(salesSql).toContain('JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey');
+    expect(salesSql).toContain('GROUP BY d.YearMonth, p.LineName');
+    expect(salesSql).toContain('cur.IsCurrent = 1');
+    expect(salesSql).toContain('NOT IN (@code0)');
+    expect(salesSql).not.toContain('G01');
+    expect(queries[0].inputs).toMatchObject({ rootValue: 'G01', code0: 'CODEX1' });
+    // Returns stay month-level.
+    expect(queries[1].text).toContain('GROUP BY d.YearMonth');
+    expect(queries[1].text).not.toContain('LineName');
+
+    const sep = out.find(p => p.month === '2026-09')!;
+    expect(sep.byLine).toEqual([
+      { line: 'Pizza', units: 3, sales: { bs: 300, usd: 6 } },
+      { line: 'Pan', units: 2, sales: { bs: 100, usd: null } },
+      { line: null, units: 2, sales: { bs: 75, usd: 1.5 } },
+    ]);
+    expect(sep.sales).toEqual({ bs: 475, usd: 7.5 });
+    expect(sep.units).toBe(7);
+    expect(sep.returns).toEqual({ bs: 10, usd: 0.2 });
+    const oct = out.find(p => p.month === '2026-10')!;
+    expect(oct.sales).toEqual({ bs: 200, usd: null });
+  });
+  test('a month with returns only has an empty byLine and zero sales', async () => {
+    const { pool } = fakePool([[], [{ Month: '2026-08', Units: 1, ReturnsBs: 5, ReturnsUsd: 1 }]]);
+    const out = await fetchHistory(pool, { kind: 'total' }, '2026-10', []);
+    expect(out[0]).toMatchObject({ month: '2026-08', byLine: [], units: 0 });
+  });
   test('total scope binds no root value and no exclusion clause when none flagged', async () => {
     const { pool, queries } = fakePool();
     await fetchHistory(pool, { kind: 'total' }, '2026-01', []);

@@ -126,5 +126,13 @@ export interface SeguimientoExcludedInvoice {
 export interface SeguimientoExcludedResponse { invoices: SeguimientoExcludedInvoice[] }
 
 export type HistoryScope = { kind: 'total' } | { kind: RootKind; value: string };
-export interface HistoryPoint { month: string; sales: Dual; units: number; returns: Dual; returnUnits: number }
+export interface HistoryPoint {
+  month: string; sales: Dual; units: number; returns: Dual; returnUnits: number;
+  /**
+   * Brutas per product line (Dim_Product.LineName, null = no line) for the month; `sales`/`units` are
+   * their sum. Always set by fetchHistory; optional only so an older cached response still renders.
+   * Returns are month-level only (no per-line returns).
+   */
+  byLine?: { line: string | null; sales: Dual; units: number }[];
+}
 export interface SeguimientoHistoryResponse { points: HistoryPoint[] }

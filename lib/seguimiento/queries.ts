@@ -3,6 +3,7 @@ import {
   buildDateWhereClause, buildReturnsDateWhereClause, dualAmountExpr, returnsUsdConversionJoin, usdConversionJoin,
 } from '@/app/api/dwh/lib/query-builder';
 import type { CustomerFact, CustomerLineReturns, CustomerLineSales, CustomerWeekActivity, CustomerWeekAmounts } from './aggregate';
+import { sumHistoryLines } from './history-stack';
 import type { Dual, HistoryPoint, HistoryScope, SeguimientoExcludedInvoice, SeguimientoInvoiceLine } from './types';
 
 // Reads only the pre-aggregated dim/fact schema of DWH_AlimentosNY (no ERP tables, no collation
@@ -269,7 +270,8 @@ function shiftMonth(month: string, delta: number): string {
   return `${Math.floor(n / 12)}-${String((n % 12) + 1).padStart(2, '0')}`;
 }
 
-// Twelve months ending endMonth. The scope filter uses the CURRENT customer row (cur / z / r joined
+// Twelve months ending endMonth, sales per month x product line (Dim_Product.LineName, for the stacked
+// bars) and returns per month only. The scope filter uses the CURRENT customer row (cur / z / r joined
 // below); the root value and every excluded consignment code are bound with .input(). Months with no
 // rows are simply absent from the result.
 export async function fetchHistory(
@@ -311,13 +313,15 @@ export async function fetchHistory(
   bind(returnsReq);
   const [sales, returns] = await Promise.all([
     salesReq.query(`
-      SELECT d.YearMonth AS Month, SUM(fs.QuantitySold) AS Units, ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')}
+      SELECT d.YearMonth AS Month, p.LineName AS LineName,
+        SUM(fs.QuantitySold) AS Units, ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')}
       FROM fact.Fact_Sales fs
       ${usdConversionJoin('fs')}
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
       ${TO_CURRENT_CUSTOMER}${SCOPE_JOINS}
       WHERE fs.IsVoided = 0 ${salesWhere}${scopeSql}
-      GROUP BY d.YearMonth
+      GROUP BY d.YearMonth, p.LineName
     `),
     returnsReq.query(`
       SELECT d.YearMonth AS Month, SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
@@ -333,15 +337,31 @@ export async function fetchHistory(
   const point = (month: string): HistoryPoint => {
     let p = out.get(month);
     if (!p) {
-      p = { month, sales: { bs: 0, usd: 0 }, units: 0, returns: { bs: 0, usd: 0 }, returnUnits: 0 };
+      p = { month, sales: { bs: 0, usd: 0 }, units: 0, returns: { bs: 0, usd: 0 }, returnUnits: 0, byLine: [] };
       out.set(month, p);
     }
     return p;
   };
   for (const r of sales.recordset) {
     const p = point(String(r.Month).trim());
-    p.units = Number(r.Units ?? 0);
-    p.sales = dualOf(r.SalesBs, r.SalesUsd);
+    // NULL and blank line names are one "no line" bucket (null), as in fetchLineSales.
+    const line = r.LineName === null || r.LineName === undefined ? null : String(r.LineName).trim() || null;
+    const row = { line, units: Number(r.Units ?? 0), sales: dualOf(r.SalesBs, r.SalesUsd) };
+    const same = p.byLine!.find(l => l.line === line);
+    if (same) {
+      const merged = sumHistoryLines([same, row]);
+      same.units = merged.units;
+      same.sales = merged.sales;
+    } else {
+      p.byLine!.push(row);
+    }
+  }
+  // The month's brutas are the sum of its lines, so the stacked segments always add up to the bar.
+  for (const p of out.values()) {
+    if (p.byLine!.length === 0) continue;
+    const t = sumHistoryLines(p.byLine!);
+    p.sales = t.sales;
+    p.units = t.units;
   }
   for (const r of returns.recordset) {
     const p = point(String(r.Month).trim());

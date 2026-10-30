@@ -19,7 +19,10 @@ const fetchExcludedInvoices = mock(async (_p: unknown, _m: string, codes: string
   codes.length ? [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber: 'F9', invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }] : []);
 const fetchLineReturns = mock(async () => []);
 const fetchWeekAmounts = mock(async () => []);
-const fetchHistory = mock(async (..._a: unknown[]) => [{ month: '2026-10', sales: { bs: 1, usd: 1 }, units: 1, returns: { bs: 0, usd: 0 }, returnUnits: 0 }]);
+const fetchHistory = mock(async (..._a: unknown[]) => [{
+  month: '2026-10', sales: { bs: 1, usd: 1 }, units: 1, returns: { bs: 0, usd: 0 }, returnUnits: 0,
+  byLine: [{ line: 'Pizza', sales: { bs: 1, usd: 1 }, units: 1 }],
+}]);
 const flagged = mock(async (_w: string, _t: number) => FIXTURE_CONSIGNMENT_ROOTS);
 
 mock.module('@/lib/dwh/access', () => ({ requireDwhAccess: access }));
@@ -183,7 +186,10 @@ describe('GET /api/dwh/seguimiento: history', () => {
   test('returns points for a scope, binds the reference month and flagged codes', async () => {
     const res = await call('?section=history&kind=ruta&rootValue=CCS003&dateRange=month:2026-09');
     expect(res.status).toBe(200);
-    expect((await res.json()).points).toHaveLength(1);
+    const body = await res.json();
+    expect(body.points).toHaveLength(1);
+    expect(body.points[0].byLine).toEqual([{ line: 'Pizza', sales: { bs: 1, usd: 1 }, units: 1 }]);
+    expect(body.points[0]).toMatchObject({ month: '2026-10', sales: { bs: 1, usd: 1 }, units: 1, returns: { bs: 0, usd: 0 }, returnUnits: 0 });
     expect(fetchHistory).toHaveBeenCalledWith(pool, { kind: 'ruta', value: 'CCS003' }, '2026-09', FIXTURE_CONSIGNMENT_ROOTS.map(c => c.trim()));
   });
 
