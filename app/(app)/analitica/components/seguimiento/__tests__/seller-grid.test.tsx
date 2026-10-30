@@ -125,4 +125,23 @@ describe('SellerGrid', () => {
     expect(within(total).queryByRole('button')).toBeNull();
     expect(within(total).getAllByTestId('grid-status').length).toBeGreaterThan(0);
   });
+
+  test('a partial or shared goal is flagged beside its status', () => {
+    const total = { ...vendedor.total, quotaPartial: true, unitsQuotaPartial: false, quotaShared: false };
+    render(<SellerGrid roots={[luis]} total={total} kind="vendedor" currency="usd" selected={null} onSelect={() => {}} />);
+    const totalRow = screen.getByRole('rowheader', { name: 'Total' }).closest('tr')!;
+    const [brutas, , , unidades] = within(totalRow).getAllByRole('cell');
+    expect(within(brutas).getByText('Meta parcial')).toBeTruthy();
+    expect(within(unidades).queryByText('Meta parcial')).toBeNull();
+    expect(within(rowOf('Luis Gómez')).queryByText(/Meta parcial|Meta compartida/)).toBeNull();
+  });
+
+  test('a partial units goal and a shared goal read as such', () => {
+    const shared = { ...luis, quotaShared: true, quotaPartial: false, unitsQuotaPartial: false };
+    const total = { ...vendedor.total, quotaPartial: false, unitsQuotaPartial: true, quotaShared: false };
+    render(<SellerGrid roots={[shared]} total={total} kind="vendedor" currency="usd" selected={null} onSelect={() => {}} />);
+    const totalRow = screen.getByRole('rowheader', { name: 'Total' }).closest('tr')!;
+    expect(within(within(totalRow).getAllByRole('cell')[3]).getByText('Meta parcial')).toBeTruthy();
+    expect(within(rowOf('Luis Gómez')).getAllByText('Meta compartida').length).toBe(2);
+  });
 });

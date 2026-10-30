@@ -30,3 +30,11 @@ export function StatusBadge({ status, title }: { status: BadgeStatus; title?: st
     </span>
   );
 }
+
+// Caveat shown beside a goal status, as the old quota bars did: a goal shared by several roots, or a sum that
+// misses some seller's goal. Shared wins over partial.
+export function quotaNote(shared: boolean | undefined, partial: boolean | undefined): string | null {
+  if (shared) return 'Meta compartida';
+  if (partial) return 'Meta parcial';
+  return null;
+}

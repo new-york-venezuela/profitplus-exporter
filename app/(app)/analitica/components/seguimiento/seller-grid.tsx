@@ -5,7 +5,7 @@ import type { RootKind, RootMetrics, SeguimientoRoot } from '@/lib/seguimiento/t
 import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { pct, units } from './fmt';
-import { goalStatus, StatusBadge } from './status-badge';
+import { goalStatus, quotaNote, StatusBadge } from './status-badge';
 
 const ROOT_HEADER: Record<RootKind, string> = { vendedor: 'Vendedor', ruta: 'Ruta', grupo: 'Grupo de cliente' };
 
@@ -27,6 +27,9 @@ function MetricCells({ m, withGoals, weekIdx, currency }: {
   const unitsStatus = goalStatus(m.projectedUnits, unitsQuota);
   const week = weekIdx >= 0 ? m.weeks[weekIdx] : undefined;
   const nc = m.newCustomers;
+  const hasSalesGoal = m.salesQuotaUsd !== null && m.salesQuotaUsd > 0;
+  const salesNote = hasSalesGoal ? quotaNote(m.quotaShared, m.quotaPartial) : null;
+  const unitsNote = hasUnitsGoal ? quotaNote(m.quotaShared, m.unitsQuotaPartial) : null;
   return (
     <>
       <td className="px-3 py-2 text-right align-top">
@@ -34,7 +37,8 @@ function MetricCells({ m, withGoals, weekIdx, currency }: {
         {withGoals && (
           <div className="mt-0.5 flex flex-col items-end gap-0.5">
             <StatusBadge status={salesStatus} title="Proyección del mes frente a la meta de ventas brutas (USD)" />
-            {m.salesQuotaUsd !== null && m.salesQuotaUsd > 0 && muted(`Meta ${usdLabel(m.salesQuotaUsd)}`)}
+            {hasSalesGoal && muted(`Meta ${usdLabel(m.salesQuotaUsd ?? 0)}`)}
+            {salesNote && muted(salesNote)}
           </div>
         )}
       </td>
@@ -46,6 +50,7 @@ function MetricCells({ m, withGoals, weekIdx, currency }: {
       <td className="px-3 py-2 text-right align-top">
         <div className="font-medium text-gray-900">{hasUnitsGoal ? `${units(m.units)} / ${units(unitsQuota)}` : units(m.units)}</div>
         {withGoals && <div className="mt-0.5 flex justify-end"><StatusBadge status={unitsStatus} title="Proyección de unidades frente a la meta" /></div>}
+        {withGoals && unitsNote && muted(unitsNote)}
         {muted(`dev. ${units(m.returnUnits)} · netas ${units(m.netUnits)}`)}
       </td>
       <td className="px-3 py-2 text-right align-top">{week ? `${week.active} / ${week.assigned}` : '—'}</td>

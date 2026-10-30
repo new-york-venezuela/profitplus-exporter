@@ -1,16 +1,11 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { Dual, RootMetrics, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
+import type { RootMetrics, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
 import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
-import { addDuals, pct, units } from './fmt';
-import { goalStatus, StatusBadge, type BadgeStatus } from './status-badge';
-
-const ZERO: Dual = { bs: 0, usd: 0 };
-const sumDuals = (items: Dual[]): Dual => items.reduce(addDuals, ZERO);
-const avgPrice = (sales: Dual, n: number): Dual | null =>
-  n > 0 ? { bs: sales.bs / n, usd: sales.usd === null ? null : sales.usd / n } : null;
+import { pct, units } from './fmt';
+import { goalStatus, quotaNote, StatusBadge, type BadgeStatus } from './status-badge';
 
 interface MatrixRow {
   label: string;
@@ -23,13 +18,16 @@ function Estimado({ root }: { root: RootMetrics }) {
   const quotaUsd = root.salesQuotaUsd;
   const unitsQuota = root.unitsQuota ?? null;
   const projectedUnits = root.projectedUnits ?? null;
-  const line = (label: string, value: string, goal: string | null, status: BadgeStatus) => (
+  const line = (label: string, value: string, goal: string | null, status: BadgeStatus, note: string | null) => (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-gray-500 w-40">{label}</span>
       <span className="font-semibold text-gray-900">{value}</span>
       {goal === null
         ? <span className="text-xs text-gray-500">Sin meta</span>
-        : <><span className="text-xs text-gray-500">({goal})</span><StatusBadge status={status} /></>}
+        : <>
+            <span className="text-xs text-gray-500">({goal})</span><StatusBadge status={status} />
+            {note && <span className="text-xs text-gray-500">{note}</span>}
+          </>}
     </div>
   );
   return (
@@ -40,12 +38,14 @@ function Estimado({ root }: { root: RootMetrics }) {
         projectedUnits === null ? '—' : units(projectedUnits),
         unitsQuota !== null && unitsQuota > 0 ? `meta ${units(unitsQuota)}` : null,
         goalStatus(projectedUnits, unitsQuota),
+        quotaNote(root.quotaShared, root.unitsQuotaPartial),
       )}
       {line(
         'Proyección USD',
         root.projected ? moneyLabel(root.projected, 'usd') : '—',
         quotaUsd !== null && quotaUsd > 0 ? `meta ${usdLabel(quotaUsd)}` : null,
         goalStatus(root.projected?.usd, quotaUsd),
+        quotaNote(root.quotaShared, root.quotaPartial),
       )}
     </section>
   );
@@ -88,12 +88,8 @@ export function WeeklyMatrix({ root, headers, currency }: {
   currency: Currency;
 }) {
   const cur = currency === 'usd' ? 'USD' : 'Bs.';
-  const past = root.weeks.filter((_, i) => !(headers[i]?.isFuture ?? false));
-  const sales = sumDuals(past.map(w => w.sales));
-  const returns = sumDuals(past.map(w => w.returns));
-  const net = sumDuals(past.map(w => w.net));
-  const soldUnits = past.reduce((s, w) => s + w.units, 0);
-  const returnUnits = past.reduce((s, w) => s + w.returnUnits, 0);
+  // The Total column reads the root's own month totals (the grid row's figures), not a sum of the week cells:
+  // that keeps a missing USD rate as "—" instead of $0 and covers the same span as the grid.
   // Month-distinct active customers, counted over the same assigned group as customerCount. A response cached
   // before the field existed has it undefined: show a dash rather than a guess.
   const activeInMonth = typeof root.activeCustomers === 'number' ? root.activeCustomers : null;
@@ -105,15 +101,15 @@ export function WeeklyMatrix({ root, headers, currency }: {
       label: '% activos', week: w => pct(w.pct),
       total: pct(activeInMonth !== null && root.customerCount > 0 ? activeInMonth / root.customerCount : null),
     },
-    { label: `Brutas ${cur}`, week: w => moneyLabel(w.sales, currency), total: moneyLabel(sales, currency) },
-    { label: 'Brutas unidades', week: w => units(w.units), total: units(soldUnits) },
-    { label: `Devoluciones ${cur}`, week: w => moneyLabel(w.returns, currency), total: moneyLabel(returns, currency) },
-    { label: 'Devoluciones unidades', week: w => units(w.returnUnits), total: units(returnUnits) },
-    { label: `Netas ${cur}`, week: w => moneyLabel(w.net, currency), total: moneyLabel(net, currency) },
-    { label: 'Netas unidades', week: w => units(w.units - w.returnUnits), total: units(soldUnits - returnUnits) },
+    { label: `Brutas ${cur}`, week: w => moneyLabel(w.sales, currency), total: moneyLabel(root.sales, currency) },
+    { label: 'Brutas unidades', week: w => units(w.units), total: units(root.units) },
+    { label: `Devoluciones ${cur}`, week: w => moneyLabel(w.returns, currency), total: moneyLabel(root.returns, currency) },
+    { label: 'Devoluciones unidades', week: w => units(w.returnUnits), total: units(root.returnUnits) },
+    { label: `Netas ${cur}`, week: w => moneyLabel(w.net, currency), total: moneyLabel(root.net, currency) },
+    { label: 'Netas unidades', week: w => units(w.units - w.returnUnits), total: units(root.netUnits) },
     {
       label: 'Precio promedio', week: w => (w.avgPrice ? priceLabel(w.avgPrice, currency) : '—'),
-      total: (() => { const p = avgPrice(sales, soldUnits); return p ? priceLabel(p, currency) : '—'; })(),
+      total: root.avgPrice ? priceLabel(root.avgPrice, currency) : '—',
     },
   ];
 

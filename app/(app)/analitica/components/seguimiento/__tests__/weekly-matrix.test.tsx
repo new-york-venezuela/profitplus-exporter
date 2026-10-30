@@ -59,13 +59,34 @@ describe('WeeklyMatrix', () => {
     }
   });
 
-  test('the Total of brutas USD is the sum of the week columns', () => {
-    render(<WeeklyMatrix root={root} headers={data.weeks} currency="usd" />);
-    expect(rowCells('Brutas USD')).toEqual(['$20', '$30', '$20', '', '', '$70']);
-    expect(rowCells('Brutas unidades')[5]).toBe('35');
-    expect(rowCells('Devoluciones USD')[5]).toBe('$2');
-    expect(rowCells('Netas USD')).toEqual(['$20', '$28', '$20', '', '', '$68']);
-    expect(rowCells('Netas unidades')[5]).toBe('34');
+  test('the Total column reads the root totals, the same figures as the grid row', () => {
+    // Deliberately not the sum of the elapsed weeks: the grid covers the whole month, so must the Total.
+    const totals: SeguimientoRoot = {
+      ...root, sales: { bs: 4500, usd: 90 }, units: 40, returns: { bs: 150, usd: 3 }, returnUnits: 2,
+      net: { bs: 4350, usd: 87 }, netUnits: 38, avgPrice: { bs: 112.5, usd: 2.25 },
+    };
+    render(<WeeklyMatrix root={totals} headers={data.weeks} currency="usd" />);
+    expect(rowCells('Brutas USD')).toEqual(['$20', '$30', '$20', '', '', '$90']);
+    expect(rowCells('Brutas unidades')[5]).toBe('40');
+    expect(rowCells('Devoluciones USD')[5]).toBe('$3');
+    expect(rowCells('Devoluciones unidades')[5]).toBe('2');
+    expect(rowCells('Netas USD')[5]).toBe('$87');
+    expect(rowCells('Netas unidades')[5]).toBe('38');
+    expect(rowCells('Precio promedio')[5]).toBe('$2.25');
+  });
+
+  test('no USD rate in any week: the Total shows a dash, never $0', () => {
+    const noUsd = (d: { bs: number }) => ({ bs: d.bs, usd: null });
+    const noRate: SeguimientoRoot = {
+      ...root,
+      weeks: weeks.map(w => ({ ...w, sales: noUsd(w.sales), returns: noUsd(w.returns), net: noUsd(w.net), avgPrice: null })),
+      sales: noUsd(root.sales), returns: noUsd(root.returns), net: noUsd(root.net), avgPrice: null,
+    };
+    render(<WeeklyMatrix root={noRate} headers={data.weeks} currency="usd" />);
+    for (const name of ['Brutas USD', 'Devoluciones USD', 'Netas USD', 'Precio promedio']) {
+      expect(rowCells(name)[5]).toBe('—');
+    }
+    expect(document.body.textContent).not.toContain('$0');
   });
 
   test('a week without units shows a dash as average price, never $0', () => {
@@ -147,5 +168,11 @@ describe('WeeklyMatrix', () => {
     expect(within(pan).getByText('$60')).toBeTruthy();
     expect(within(pan).getByText('85.7%')).toBeTruthy();
     expect(within(pan).getByText('$132')).toBeTruthy();
+  });
+
+  test('Estimado flags a partial goal', () => {
+    render(<WeeklyMatrix root={{ ...root, quotaPartial: true, unitsQuotaPartial: true, quotaShared: false }} headers={data.weeks} currency="usd" />);
+    const est = screen.getByRole('region', { name: 'Estimado' });
+    expect(within(est).getAllByText('Meta parcial').length).toBe(2);
   });
 });
