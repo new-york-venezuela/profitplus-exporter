@@ -2,9 +2,16 @@
 
 Todas las cifras de Analítica salen del Data Warehouse, que se actualiza desde Profit Plus. Los montos son **sin IVA** salvo que se indique lo contrario.
 
-## Ritmo del mes
+## Resumen
 
-**Ritmo del mes** (Resumen): días laborables transcurridos del mes de referencia (el mes en que termina el rango elegido) y el porcentaje del mes. Solo se excluyen sábados y domingos; los feriados no se consideran.
+La pestaña **Resumen** muestra, para el período elegido:
+
+- **Ventas del período:** tres tarjetas, *Ventas brutas*, *Devoluciones* y *Neto* (neto = brutas − devoluciones, con las devoluciones por fecha de su factura original). Cada una indica unidades, clientes/tiendas y precio promedio (monto ÷ unidades); la de devoluciones añade la tasa de devolución. Un precio sin unidades se muestra "Sin datos".
+- **Clientes:** *Total* = clientes vigentes (no inactivos) en el maestro, sin contar las raíces de consignación; *Activos* = con al menos una factura en el período (se cuentan por entidad legal) y su porcentaje del total; *Nuevos* = registrados en el período, sin el lote migrado en la puesta en marcha.
+- **Cuentas por cobrar:** *Saldo inicial* (snapshot de CxC al cierre del día anterior al período) + *Facturación* (ventas brutas sin IVA) − *Cobros* (con IVA) y *Pendiente*, que no es el resultado de esa suma sino el saldo real de todas las facturas abiertas según el snapshot más reciente al último día del período (la tarjeta indica su fecha). Sin snapshot muestra "Sin datos".
+- **Ventas netas y devoluciones:** barras apiladas (netas + devoluciones = brutas) por día, semana o mes, con la tasa de devolución como línea sobre el eje derecho.
+
+El ritmo del mes (días laborables transcurridos) ya no está en Resumen: se muestra en **Seguimiento**.
 
 ## Ventas brutas
 
@@ -115,18 +122,21 @@ La cobranza y el saldo por cobrar incluyen IVA. Por eso la **Tasa cobr.** y el *
 
 ## Seguimiento
 
-La pestaña **Seguimiento** replica el cuadro de seguimiento por ruta: para un mes muestra, por **vendedor**, **ruta** o **grupo de cliente**, la activación semanal, el avance contra la meta con su proyección, el precio promedio, la mezcla por línea y los clientes nuevos. Haga clic en un vendedor, ruta o grupo para ver sus clientes y en un cliente para ver sus líneas de factura. El botón **Tabla** muestra lo mismo en forma de tabla.
+La pestaña **Seguimiento** muestra, para un mes y por **vendedor**, **ruta** o **grupo de cliente**, una cuadrícula con una fila por cada uno más el Total. Las columnas son: *Brutas*, *Devoluciones* (con su tasa), *Netas*, *Unidades* (vendidas / meta; debajo devueltas y netas), *Clientes activos* (de la semana actual: con factura / asignados), *Nuevos*, *Precio prom.* y *Proyección*. Haga clic en una fila para ver su detalle y en un cliente para ver sus líneas de factura.
 
-- **Mes de referencia:** el mes en que termina el rango de fechas elegido (con "30 días" o "12 meses", el mes actual). Las ventas y la meta son de ese mes, hasta hoy.
-- **Ventas:** ventas brutas sin IVA, antes de devoluciones, sin la facturación agregada de consignación (que se lista aparte, igual que en el perfil del vendedor).
+- **Mes de referencia:** el mes en que termina el rango de fechas elegido (con "30 días" o "12 meses", el mes actual). Las cifras son de ese mes, hasta hoy, y el encabezado muestra el ritmo del mes (días laborables transcurridos; solo se excluyen sábados y domingos, no los feriados).
+- **Brutas, devoluciones y netas:** ventas brutas sin IVA, devoluciones del mismo período y netas = brutas − devoluciones. No incluyen la facturación agregada de consignación (que se lista aparte, igual que en el perfil del vendedor).
+- **Metas contra brutas:** la meta de ventas (USD) se compara con la proyección de las ventas **brutas** al cierre del mes; las unidades, con la proyección de unidades brutas.
+- **Estado:** *En meta* (proyección ≥ 100% de la meta), *Cerca* (≥ 85%) o *Bajo meta*; se muestra con icono y texto. Sin meta definida aparece "Sin meta" (nunca en rojo). Las metas se definen por vendedor, así que las filas de ruta y grupo no tienen meta ni estado; el Total sí.
+- **Proyección:** ventas del mes ÷ (días laborables transcurridos ÷ días laborables del mes).
 - **Cliente asignado:** el cliente pertenece al vendedor, ruta o grupo que tiene hoy en su ficha del ERP; las facturas antiguas siguen al cliente. Los clientes inactivos no cuentan, ni los registrados después del mes de referencia (al consultar un mes pasado).
-- **Tarjeta del vendedor vs. perfil del vendedor:** la tarjeta de Seguimiento suma las ventas de los clientes que hoy tiene asignados el vendedor, mientras que el perfil del vendedor ("ventas facturadas por el vendedor") cuenta las facturas según el vendedor que figura en el documento. Si un cliente fue reasignado a otro vendedor, las dos cifras pueden diferir.
-- **Cliente activo en una semana:** tuvo al menos una factura esa semana ISO (lunes a domingo, aunque la semana empiece en el mes anterior). Porcentaje = clientes activos ÷ clientes asignados.
-- **Proyección:** ventas del mes ÷ (días laborables transcurridos ÷ días laborables del mes). Solo se excluyen sábados y domingos; los feriados no se consideran.
-- **Meta:** las metas se definen por vendedor (botón "Editar metas" en la tarjeta del vendedor). Para rutas y grupos es la suma de las metas de sus vendedores; si un vendedor atiende varias rutas, la meta aparece como "compartida" porque no se reparte entre ellas. La meta se define en USD: la barra de avance y la columna Meta se muestran en USD aunque se haya elegido Bs.
+- **Vendedor en la cuadrícula vs. perfil del vendedor:** la cuadrícula suma las ventas de los clientes que hoy tiene asignados el vendedor, mientras que el perfil del vendedor cuenta las facturas según el vendedor que figura en el documento. Si un cliente fue reasignado, las dos cifras pueden diferir.
+- **Matriz semanal (detalle):** *Sem 1..5* y *Total* con clientes asignados y activos, % activos, brutas, devoluciones y netas (en monto y unidades) y precio promedio. Las semanas son semanas ISO (lunes a domingo); los montos de cada semana se recortan al mes, de modo que una semana que empieza en el mes anterior solo suma los días del mes. La semana actual es parcial y las futuras quedan en blanco. Un cliente está **activo** en una semana si tuvo al menos una factura en ella; % = activos ÷ asignados.
+- **Estimado al cierre del mes:** proyección de unidades y de USD frente a su meta, con el mismo estado. Debajo, las brutas por categoría (línea de producto) con su participación y proyección; las líneas se leen de Profit Plus y las menores se agrupan en "Otros".
+- **Mes a mes:** gráfica de los últimos 12 meses con ventas brutas (barras) y unidades brutas (línea), para el vendedor, ruta o grupo seleccionado o, sin selección, para el Total. Un mes sin datos queda vacío (no se dibuja como cero) y el mes en curso se marca como parcial. El detalle al pasar el cursor incluye devoluciones, netas y el cambio frente al mes anterior.
+- **Metas:** botón "Editar metas" en el detalle del vendedor (ventas USD, visitas por semana, clientes nuevos y unidades). La meta de ventas siempre se muestra en USD aunque se haya elegido Bs.
 - **Precio promedio:** ventas ÷ unidades vendidas del mes (las unidades de distintas líneas se suman tal como se facturan).
-- **Mezcla por línea:** participación de cada línea de producto en las ventas; las líneas se leen de Profit Plus, de modo que una línea nueva aparece sola cuando tenga ventas. Las líneas menores se agrupan en "Otros".
-- **Clientes nuevos:** clientes registrados en el mes, sin contar el lote de clientes migrado en la puesta en marcha, frente a la meta de clientes nuevos.
+- **Clientes nuevos:** clientes registrados en el mes, sin contar el lote migrado en la puesta en marcha, frente a la meta de clientes nuevos.
 - **Visita vencida:** el cliente lleva más días sin comprar que su frecuencia de visita (semanal 7, quincenal 15, mensual 30). Un cliente sin frecuencia asignada nunca figura como vencido ("Sin frecuencia").
 
 ## Cómo cuadrar con un Excel de Profit
