@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
+import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
   buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, jsonWithCache,
-  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey,
+  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey, rangeStartDateKey,
 } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual, sumDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
@@ -14,6 +15,7 @@ import type {
   SalesRepRow,
   AgingBucketRow,
   DebtorRow,
+  DualAmount,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -129,6 +131,13 @@ const SNAPSHOT_AS_OF_QUERY = `
   WHERE SnapshotDateKey <= @rangeEndKey
 `;
 
+// Latest snapshot ON OR BEFORE @openingEndKey (the day before the range starts).
+const SNAPSHOT_BEFORE_QUERY = `
+  SELECT MAX(SnapshotDateKey) AS SnapshotDateKey
+  FROM fact.Fact_AR_Snapshot
+  WHERE SnapshotDateKey <= @openingEndKey
+`;
+
 // AR balances are valued at the SNAPSHOT date's rate (usdConversionJoin('a',
 // 'SnapshotDateKey')), not the original invoice's own DateKey — a deliberate
 // exception to this file's otherwise-universal per-row-historical-rate rule,
@@ -165,6 +174,61 @@ function topDebtorsQuery(): string {
     GROUP BY ${spec.groupByColumn}
     HAVING SUM(a.OutstandingBalance) > 0
     ORDER BY OutstandingBs DESC
+  `;
+}
+
+// Opening AR: same valuation as AGING_BUCKETS_QUERY (snapshot-date rate), credit notes excluded.
+const OPENING_BALANCE_QUERY = `
+  SELECT
+    SUM(a.OutstandingBalance) AS OpeningBs,
+    SUM(a.OutstandingBalance / NULLIF(fx.RateSell, 0)) AS OpeningUsd
+  FROM fact.Fact_AR_Snapshot a
+  ${usdConversionJoin('a', 'SnapshotDateKey')}
+  WHERE a.SnapshotDateKey = @openingSnapshotKey AND a.IsCreditNote = 0
+`;
+
+// Customer-level KPIs. Everything is counted per customer code on the CURRENT
+// Dim_Customer row's code (IsCurrent = 1 for the total/new counts); consignment
+// roots (@root0, @root1, ...) are excluded from every count so the ratios stay
+// comparable. Sales/returns are summed per customer code so a customer whose
+// returns exceed its sales is not "net".
+function customerKpisQuery(
+  salesDateWhere: string, returnsDateWhere: string, registeredWhere: string, rootPlaceholders: string[],
+): string {
+  const exclude = rootPlaceholders.length > 0
+    ? `AND RTRIM(c.CustomerCode) NOT IN (${rootPlaceholders.join(', ')})`
+    : '';
+  return `
+    WITH sales AS (
+      SELECT c.CustomerCode, SUM(fs.NetAmount) AS Amount
+      FROM fact.Fact_Sales fs
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+      WHERE fs.IsVoided = 0 ${salesDateWhere} ${exclude}
+      GROUP BY c.CustomerCode
+    ),
+    rets AS (
+      SELECT c.CustomerCode, SUM(fr.NetAmount) AS Amount, SUM(fr.QuantityReturned) AS Units
+      FROM fact.Fact_Returns fr
+      JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
+      WHERE fr.IsVoided = 0 ${returnsDateWhere} ${exclude}
+      GROUP BY c.CustomerCode
+    ),
+    cur AS (
+      SELECT c.CustomerCode,
+             CONVERT(INT, CONVERT(CHAR(8), c.RegisteredDate, 112)) AS RegKey,
+             c.IsMigrationBatch
+      FROM dim.Dim_Customer c
+      WHERE c.IsCurrent = 1 AND c.IsInactive = 0 ${exclude}
+    )
+    SELECT
+      (SELECT COUNT(*) FROM cur) AS CustomersTotal,
+      (SELECT COUNT(*) FROM cur rc WHERE ISNULL(rc.IsMigrationBatch, 0) = 0 AND rc.RegKey IS NOT NULL ${registeredWhere}) AS CustomersNew,
+      (SELECT COUNT(*) FROM (
+         SELECT s.CustomerCode FROM sales s LEFT JOIN rets r ON r.CustomerCode = s.CustomerCode
+         WHERE s.Amount - ISNULL(r.Amount, 0) > 0
+       ) n) AS CustomersNet,
+      (SELECT COUNT(*) FROM rets) AS CustomersWithReturns,
+      (SELECT ISNULL(SUM(Units), 0) FROM rets) AS UnitsReturned
   `;
 }
 
@@ -208,6 +272,10 @@ function toDateKey(d: Date): number {
 function dateKeyToDate(key: number): Date {
   const s = String(key);
   return new Date(Date.UTC(parseInt(s.slice(0, 4)), parseInt(s.slice(4, 6)) - 1, parseInt(s.slice(6, 8))));
+}
+
+function previousDayKey(key: number): number {
+  return toDateKey(new Date(dateKeyToDate(key).getTime() - 86_400_000));
 }
 
 function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): string | null {
@@ -318,7 +386,16 @@ export async function GET(request: NextRequest) {
     // function's doc comment for why it can't just reuse salesDateWhere.
     const salesDateWhereFs2 = buildDateWhereClause(dateRange, 'fs2');
 
-    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult] = await Promise.all([
+    const flaggedRoots = await getFlaggedRootCodes(salesDateWhere, DEFAULT_ROOT_SHARE_THRESHOLD);
+    const customerKpisReq = pool.request();
+    const rootPlaceholders = flaggedRoots.map((code, i) => {
+      customerKpisReq.input(`root${i}`, code);
+      return `@root${i}`;
+    });
+    const registeredWhere = buildDateWhereClause(dateRange, 'rc', 'RegKey');
+    const openingEndKey = previousDayKey(rangeStartDateKey(dateRange));
+
+    const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult, customerKpis, openingSnapshot] = await Promise.all([
       pool.request().query(monthlyTrendQuery(salesDateWhere, returnsDateWhere, trendBucket)),
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
@@ -332,7 +409,20 @@ export async function GET(request: NextRequest) {
             JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
             JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
             WHERE fs.IsVoided = 0 ${salesDateWhere}`),
+      customerKpisReq.query(customerKpisQuery(salesDateWhere, returnsDateWhere, registeredWhere, rootPlaceholders)),
+      pool.request().input('openingEndKey', openingEndKey).query(SNAPSHOT_BEFORE_QUERY),
     ]);
+
+    const openingSnapshotKey: number | null = openingSnapshot.recordset[0]?.SnapshotDateKey ?? null;
+    let receivableOpening: DualAmount | null = null;
+    if (openingSnapshotKey !== null) {
+      const opening = await pool.request().input('openingSnapshotKey', openingSnapshotKey).query(OPENING_BALANCE_QUERY);
+      const row = opening.recordset[0];
+      if (row && row.OpeningBs !== null && row.OpeningBs !== undefined) {
+        receivableOpening = dualFromRow(row.OpeningBs, row.OpeningUsd);
+      }
+    }
+    const customerKpisRow = customerKpis.recordset[0] ?? {};
 
     const snapshotDateKey: number | null = latestSnapshot.recordset[0]?.SnapshotDateKey ?? null;
 
@@ -427,6 +517,13 @@ export async function GET(request: NextRequest) {
         churnRate,
         unitsSold: Number(totalsRow.UnitsSold ?? 0),
         receivable: sumDual(agingBucketsMapped.map(b => b.amount)),
+        unitsReturned: Number(customerKpisRow.UnitsReturned ?? 0),
+        customersWithReturns: Number(customerKpisRow.CustomersWithReturns ?? 0),
+        customersNet: Number(customerKpisRow.CustomersNet ?? 0),
+        customersTotal: Number(customerKpisRow.CustomersTotal ?? 0),
+        customersNew: Number(customerKpisRow.CustomersNew ?? 0),
+        receivableOpening,
+        billed: { bs: salesGrossBs, usd: salesGrossUsd },
       },
     };
 

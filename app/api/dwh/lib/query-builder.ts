@@ -250,6 +250,19 @@ export function rangeEndDateKey(dateRange: string, today: Date = new Date()): nu
   return dateKey(today);
 }
 
+// First calendar day covered by buildDateWhereClause(dateRange) as a YYYYMMDD
+// int (mirrors its fallbacks: '30d' = today-29, anything unrecognised = today-365).
+export function rangeStartDateKey(dateRange: string, today: Date = new Date()): number {
+  const custom = CUSTOM_RANGE_RE.exec(dateRange);
+  if (custom) return parseInt(custom[1].replace(/-/g, ''));
+  const month = MONTH_RANGE_RE.exec(dateRange);
+  if (month) return dateKey(new Date(Date.UTC(parseInt(month[1]), parseInt(month[2]) - 1, 1)));
+  const ytd = YTD_RANGE_RE.exec(dateRange);
+  if (ytd) return parseInt(ytd[1]) * 10000 + 101;
+  const back = dateRange === '30d' ? 29 : 365;
+  return dateKey(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - back)));
+}
+
 export function buildDateWhereClause(
   dateRange: string,
   tableName: string = 'f',

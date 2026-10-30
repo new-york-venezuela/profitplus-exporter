@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { dualFromRow, returnRate, subtractDual } from '../net-sales';
+import { averagePrice, dualFromRow, returnRate, subtractDual } from '../net-sales';
 import { periodLabel } from '../period-label';
 
 describe('subtractDual', () => {
@@ -64,5 +64,18 @@ describe('sumDual', () => {
   test('ignores null USD rows but keeps null when all are null', () => {
     expect(sumDual([{ bs: 10, usd: null }, { bs: 5, usd: 2 }])).toEqual({ bs: 15, usd: 2 });
     expect(sumDual([{ bs: 10, usd: null }])).toEqual({ bs: 10, usd: null });
+  });
+});
+
+describe('averagePrice', () => {
+  test('divides both currencies by units', () => {
+    expect(averagePrice({ bs: 100, usd: 10 }, 4)).toEqual({ bs: 25, usd: 2.5 });
+  });
+  test('is null when there are no units', () => {
+    expect(averagePrice({ bs: 100, usd: 10 }, 0)).toBeNull();
+    expect(averagePrice({ bs: 100, usd: 10 }, -1)).toBeNull();
+  });
+  test('keeps a missing USD amount null', () => {
+    expect(averagePrice({ bs: 100, usd: null }, 4)).toEqual({ bs: 25, usd: null });
   });
 });

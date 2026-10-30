@@ -47,3 +47,9 @@ export function sumDual(items: DualAmount[]): DualAmount | null {
     usd: withUsd.length === 0 ? null : withUsd.reduce((s, i) => s + (i.usd as number), 0),
   };
 }
+
+/** Average unit price: amount / units on both currencies; null when there are no units. USD stays null if unknown. */
+export function averagePrice(amount: DualAmount, units: number): DualAmount | null {
+  if (units <= 0) return null;
+  return { bs: amount.bs / units, usd: amount.usd === null ? null : amount.usd / units };
+}

@@ -59,6 +59,14 @@ export interface ResumenKPIs {
   // ResumenResponse.snapshotDateKey — the latest snapshot on/before the range's
   // last day. Null when no snapshot exists on/before that day.
   receivable: DualAmount | null;
+  unitsReturned: number; // SUM(Fact_Returns.QuantityReturned), windowed by original factura date
+  customersWithReturns: number; // distinct customers with >=1 return in range
+  customersNet: number; // customers (excl. consignment roots) whose net sales (gross - returns) in range are > 0
+  customersTotal: number; // Dim_Customer IsCurrent = 1, not inactive, consignment roots excluded
+  customersNew: number; // RegisteredDate in range and not IsMigrationBatch (consignment roots excluded)
+  // Open AR at the latest snapshot on/before the day before the range starts. Null when none exists.
+  receivableOpening: DualAmount | null;
+  billed: DualAmount; // = salesGross (sin IVA)
 }
 
 export interface MonthlyTrendRow {
