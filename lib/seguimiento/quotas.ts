@@ -44,25 +44,3 @@ export function rollUpQuotas(sellerKeys: readonly string[], targets: ReadonlyMap
     partial: { sales: sales.partial, weeklyVisits: weekly.partial, newCustomers: fresh.partial, units: units.partial },
   };
 }
-
-export interface QuotaBarGeometry {
-  fillPct: number;
-  targetPct: number;
-  projectionPct: number | null;
-}
-
-// Pure layout for the quota bar: one scale that fits the quota, the actual and the projection.
-export function quotaBarGeometry(
-  actual: number | null,
-  quota: number | null,
-  projected: number | null,
-): QuotaBarGeometry | null {
-  if (quota === null || !(quota > 0)) return null;
-  const scale = Math.max(quota, actual ?? 0, projected ?? 0);
-  const pct = (v: number) => (v / scale) * 100;
-  return {
-    fillPct: actual === null ? 0 : pct(Math.max(0, actual)),
-    targetPct: pct(quota),
-    projectionPct: projected === null ? null : pct(Math.max(0, projected)),
-  };
-}

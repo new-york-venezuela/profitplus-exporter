@@ -93,8 +93,7 @@ lib/
   dwh/historico-window.ts  — Histórico 2025 window (calendar 2025, sales and returns)
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
   seguimiento/             — pure helpers for the Seguimiento tab: iso-date.ts, month-pace.ts (monthPace/projectToMonth/resolveReferenceMonth),
-                              iso-weeks.ts, visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas,
-                              quotaBarGeometry), category-mix.ts, aggregate.ts (buildSeguimiento), queries.ts (DWH SQL), targets-repo.ts (seller_targets)
+                              iso-weeks.ts, visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas), category-mix.ts, aggregate.ts (buildSeguimiento), queries.ts (DWH SQL), targets-repo.ts (seller_targets)
 
 app/api/mapa/              — customer-map API (clientes, ubicacion, rutas, zonas), gated on 'geo'
   app/api/mapa/zonas/      — sales-area writes (POST, [id] PATCH/DELETE); areas are read via /api/mapa/clientes
@@ -365,7 +364,7 @@ The reference month is the month the selected date range ends in (`resolveRefere
 use the current month), measured up to today. Customers are attributed by the CURRENT `Dim_Customer` row
 (`IsCurrent = 1`) looked up by `CustomerCode`, so old invoices follow the customer; inactive customers are not
 assigned. A customer is active in a week when an assigned customer has an invoice in that ISO week. The month
-projection excludes weekends only (no holidays). Goals (sales USD, units, weekly visits, new customers) come from `seller_targets` and exist per seller and in the Total row only; route/group roots carry no goals (a seller's goal covers their whole portfolio), they show sales, units and projections. The KPI row is two goal cards (Ventas brutas, Unidades vendidas: value + bar with goal marker and projection + consignment notes) and three activity cards. Consignment-root customer
+projection excludes weekends only (no holidays). Goals (sales USD, units, weekly visits, new customers) come from `seller_targets` and exist per seller and in the Total row only; route/group roots carry no goals (a seller's goal covers their whole portfolio), they show sales, units and projections. The tab is a grid (`components/seguimiento/seller-grid.tsx`, one row per root + Total: brutas with status, devoluciones + rate, netas, units `sold / goal`, current-week active customers, nuevos, avg price, projection); status comes from `lib/seguimiento/grid-status.ts` (projected brutas vs goal, icon + label, never colour alone; no goal = "Sin meta", never red; route/group rows carry none). Selecting a row of any kind opens its detail: `weekly-matrix.tsx` (Sem 1..5 + Total, future weeks blank, then Estimado and categories), Clientes nuevos, and the customer list with weekly activation and invoice lines; sellers add "Ver perfil" and "Editar metas". Consignment-root customer
 codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `VisitIntervalDays` NULL means the
 customer is never overdue ("Sin frecuencia").
 

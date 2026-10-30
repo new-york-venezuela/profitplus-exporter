@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { quotaBarGeometry, rollUpQuotas, type SellerTargets } from '../../../lib/seguimiento/quotas';
+import { rollUpQuotas, type SellerTargets } from '../../../lib/seguimiento/quotas';
 
 const t = (s: number | null, w: number | null, n: number | null, u: number | null = null): SellerTargets =>
   ({ salesQuotaUsd: s, weeklyVisitQuota: w, newCustomerQuota: n, unitsQuota: u });
@@ -32,25 +32,5 @@ describe('rollUpQuotas', () => {
   });
   test('no sellers at all', () => {
     expect(rollUpQuotas([], targets)).toMatchObject({ salesQuotaUsd: null, sellersTotal: 0 });
-  });
-});
-
-describe('quotaBarGeometry', () => {
-  test('actual below quota: marker at the quota end of the scale when projection is lower than quota', () => {
-    expect(quotaBarGeometry(70, 100, 90)).toEqual({ fillPct: 70, targetPct: 100, projectionPct: 90 });
-  });
-  test('projection above quota rescales so everything fits', () => {
-    const g = quotaBarGeometry(70, 100, 154)!;
-    expect(g.projectionPct).toBe(100);
-    expect(g.targetPct).toBeCloseTo((100 / 154) * 100, 6);
-    expect(g.fillPct).toBeCloseTo((70 / 154) * 100, 6);
-  });
-  test('no quota, zero quota or negative quota draws nothing', () => {
-    expect(quotaBarGeometry(70, null, 80)).toBeNull();
-    expect(quotaBarGeometry(70, 0, 80)).toBeNull();
-    expect(quotaBarGeometry(70, -5, 80)).toBeNull();
-  });
-  test('null actual draws an empty fill, null projection draws no marker', () => {
-    expect(quotaBarGeometry(null, 100, null)).toEqual({ fillPct: 0, targetPct: 100, projectionPct: null });
   });
 });
