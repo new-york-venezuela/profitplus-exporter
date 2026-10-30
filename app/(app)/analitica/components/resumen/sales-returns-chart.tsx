@@ -11,6 +11,16 @@ import { returnRate } from '../../lib/net-sales';
 import { SectionTitle } from './stat-card';
 
 export const HATCH_ID = 'returns-hatch';
+const LEGEND_HATCH_ID = 'returns-hatch-legend';
+
+function hatchPattern(id: string) {
+  return (
+    <pattern id={id} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="#fee2e2" />
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#b91c1c" strokeWidth="2.5" />
+    </pattern>
+  );
+}
 
 export interface ChartRow {
   label: string;
@@ -67,13 +77,8 @@ export function SalesReturnsChart({ rows, trendMode, currency }: { rows: Monthly
             </li>
             <li className="flex items-center gap-1.5">
               <svg width="14" height="14" aria-hidden="true">
-                <defs>
-                  <pattern id={HATCH_ID} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-                    <rect width="6" height="6" fill="#fee2e2" />
-                    <line x1="0" y1="0" x2="0" y2="6" stroke="#b91c1c" strokeWidth="2.5" />
-                  </pattern>
-                </defs>
-                <rect width="14" height="14" fill={`url(#${HATCH_ID})`} stroke="#b91c1c" />
+                <defs>{hatchPattern(LEGEND_HATCH_ID)}</defs>
+                <rect width="14" height="14" fill={`url(#${LEGEND_HATCH_ID})`} stroke="#b91c1c" />
               </svg>
               Devoluciones
             </li>
@@ -84,6 +89,8 @@ export function SalesReturnsChart({ rows, trendMode, currency }: { rows: Monthly
           </ul>
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart data={data}>
+              {/* The bars' own pattern lives in the chart's SVG, so it never depends on the legend being mounted. */}
+              <defs>{hatchPattern(HATCH_ID)}</defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis yAxisId="amt" tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />

@@ -1,7 +1,16 @@
 import { screen } from '../../../../../../test/dom-setup';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, render } from '@testing-library/react';
+import { cloneElement, type ReactElement } from 'react';
 import type { MonthlyTrendRow } from '../../../types';
+
+// happy-dom has no layout, so ResponsiveContainer would never render the chart: give it a fixed size.
+const recharts = await import('recharts');
+mock.module('recharts', () => ({
+  ...recharts,
+  ResponsiveContainer: ({ children }: { children: ReactElement<{ width?: number; height?: number }> }) =>
+    cloneElement(children, { width: 800, height: 320 }),
+}));
 
 const { SalesReturnsChart, buildChartRows } = await import('../sales-returns-chart');
 afterEach(cleanup);
@@ -26,7 +35,10 @@ describe('SalesReturnsChart', () => {
     const { container } = render(<SalesReturnsChart rows={rows} trendMode="month" currency="usd" />);
     expect(screen.getByText(/Tasa de devolución/)).toBeTruthy();
     expect(screen.getByText('Devoluciones')).toBeTruthy();
-    expect(container.querySelector('pattern#returns-hatch')).toBeTruthy();
+    // The bars' pattern sits inside the chart's own SVG, not only in the legend swatch.
+    const chartSvg = container.querySelector('svg.recharts-surface');
+    expect(chartSvg).toBeTruthy();
+    expect(chartSvg!.querySelector('pattern#returns-hatch')).toBeTruthy();
   });
 
   test('empty rows show the empty state', () => {
