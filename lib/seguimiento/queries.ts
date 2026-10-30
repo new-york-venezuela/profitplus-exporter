@@ -295,7 +295,7 @@ export async function fetchHistory(
       ? '(z.IsRoute IS NULL OR z.IsRoute <> 1 OR z.RouteNumber IS NULL)'
       : 'RTRIM(cur.ZoneCode) = @rootValue AND z.IsRoute = 1');
   } else if (scope.kind === 'grupo') {
-    conditions.push(NO_ROOT_VALUES.has(scope.value) ? 'cur.ErpSegmentCode IS NULL' : 'RTRIM(cur.ErpSegmentCode) = @rootValue');
+    conditions.push(NO_ROOT_VALUES.has(scope.value) ? "NULLIF(RTRIM(cur.ErpSegmentCode), '') IS NULL" : 'RTRIM(cur.ErpSegmentCode) = @rootValue');
   }
   if (excludeCodes.length > 0) {
     conditions.push(`RTRIM(cur.CustomerCode) NOT IN (${excludeCodes.map((_, i) => `@code${i}`).join(', ')})`);

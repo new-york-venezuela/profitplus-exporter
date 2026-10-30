@@ -86,6 +86,12 @@ describe('fetchHistory', () => {
     expect(queries[0].text).toContain('r.SalesRepKey IS NULL');
     expect(queries[0].inputs).toEqual({});
   });
+  test('sin-grupo matches a NULL or blank segment code, as rootOf does', async () => {
+    const { pool, queries } = fakePool();
+    await fetchHistory(pool, { kind: 'grupo', value: 'sin-grupo' }, '2026-10', []);
+    expect(queries[0].text).toContain("NULLIF(RTRIM(cur.ErpSegmentCode), '') IS NULL");
+    expect(queries[0].inputs).toEqual({});
+  });
   test('invalid month throws', async () => {
     await expect(fetchHistory(fakePool().pool, { kind: 'total' }, '2026-1', [])).rejects.toThrow();
   });
