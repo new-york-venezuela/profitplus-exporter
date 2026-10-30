@@ -1,12 +1,11 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { gridStatus } from '@/lib/seguimiento/grid-status';
 import type { RootKind, RootMetrics, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { pct, units } from './fmt';
-import { StatusBadge } from './status-badge';
+import { goalStatus, StatusBadge } from './status-badge';
 
 const ROOT_HEADER: Record<RootKind, string> = { vendedor: 'Vendedor', ruta: 'Ruta', grupo: 'Grupo de cliente' };
 
@@ -22,10 +21,10 @@ function MetricCells({ m, withGoals, weekIdx, currency }: {
   m: RootMetrics; withGoals: boolean; weekIdx: number; currency: Currency;
 }) {
   // Goals are in USD and measured against brutas, at the month-end projection.
-  const salesStatus = gridStatus(m.projected?.usd ?? null, m.salesQuotaUsd);
+  const salesStatus = goalStatus(m.projected?.usd, m.salesQuotaUsd);
   const unitsQuota = m.unitsQuota ?? null;
   const hasUnitsGoal = unitsQuota !== null && unitsQuota > 0;
-  const unitsStatus = gridStatus(m.projectedUnits ?? null, unitsQuota);
+  const unitsStatus = goalStatus(m.projectedUnits, unitsQuota);
   const week = weekIdx >= 0 ? m.weeks[weekIdx] : undefined;
   const nc = m.newCustomers;
   return (

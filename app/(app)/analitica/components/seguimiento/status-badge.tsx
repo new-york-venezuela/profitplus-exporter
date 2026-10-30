@@ -1,9 +1,18 @@
 import type { CSSProperties } from 'react';
-import { STATUS_STYLES, type GridStatus } from '@/lib/seguimiento/grid-status';
+import { gridStatus, STATUS_STYLES, type GridStatus } from '@/lib/seguimiento/grid-status';
+
+export type BadgeStatus = Pick<GridStatus, 'level' | 'icon'> & { label: GridStatus['label'] | 'Sin datos' };
+
+// gridStatus, except that a real goal with no projection (e.g. no USD rate) is missing data, not a missing goal.
+export function goalStatus(projected: number | null | undefined, goal: number | null | undefined): BadgeStatus {
+  const hasGoal = goal != null && Number.isFinite(goal) && goal > 0;
+  if (hasGoal && (projected == null || !Number.isFinite(projected))) return { level: 'none', icon: '–', label: 'Sin datos' };
+  return gridStatus(projected ?? null, goal ?? null);
+}
 
 // Icon + label, never colour alone. Colours come from STATUS_STYLES (each pair checked >= 4.5:1) through CSS
 // variables, so the `dark:` variant can swap to the dark pair without a second render.
-export function StatusBadge({ status, title }: { status: GridStatus; title?: string }) {
+export function StatusBadge({ status, title }: { status: BadgeStatus; title?: string }) {
   const s = STATUS_STYLES[status.level];
   const style = {
     '--st-fg': s.light.fg, '--st-bg': s.light.bg, '--st-fg-dark': s.dark.fg, '--st-bg-dark': s.dark.bg,

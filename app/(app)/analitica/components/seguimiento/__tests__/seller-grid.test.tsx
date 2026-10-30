@@ -87,6 +87,15 @@ describe('SellerGrid', () => {
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
   });
 
+  test('a seller with a goal but no projected USD reads "Sin datos", not "Sin meta"', () => {
+    const noRate: SeguimientoRoot = { ...luis, projected: { bs: 775000, usd: null } };
+    render(<SellerGrid roots={[noRate]} total={vendedor.total} kind="vendedor" currency="usd" selected={null} onSelect={() => {}} />);
+    const status = within(rowOf('Luis Gómez')).getAllByTestId('grid-status')[0];
+    expect(status.textContent).toContain('Sin datos');
+    expect(status.textContent).not.toContain('Sin meta');
+    expect(status.getAttribute('style') ?? '').not.toContain(STATUS_STYLES.bad.light.bg);
+  });
+
   test('route rows carry no goal and no status', () => {
     const ruta = fixtureResponse('ruta');
     render(<SellerGrid roots={ruta.roots} total={ruta.total} kind="ruta" currency="usd" selected={null} onSelect={() => {}} />);

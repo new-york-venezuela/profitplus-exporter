@@ -21,6 +21,8 @@ export interface NewCustomersInfo { count: number; quota: number | null; partial
 
 export interface RootMetrics {
   customerCount: number;
+  /** Assigned customers (same group as customerCount) with an invoice in an elapsed week of the month. */
+  activeCustomers: number;
   sellerKeys: string[];
   sales: Dual;
   units: number;

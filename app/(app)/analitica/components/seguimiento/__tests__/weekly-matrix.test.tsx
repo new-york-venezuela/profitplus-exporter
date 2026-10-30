@@ -91,6 +91,33 @@ describe('WeeklyMatrix', () => {
     expect(rowCells('% activos')[5]).toBe('100.0%');
   });
 
+  test('the month total of active customers counts the same group as the assigned ones: never above 100%', () => {
+    // A customer listed because it had sales (e.g. inactive) is not assigned: the Total uses activeCustomers,
+    // which counts assigned customers only, not the customer list.
+    const extra = { ...root.customers[0], customerCode: 'C9', customerName: 'Inactivo con ventas', activeWeeks: ['2026-W41'] };
+    const withExtra: SeguimientoRoot = { ...root, customers: [...root.customers, extra], customerCount: 2, activeCustomers: 1 };
+    render(<WeeklyMatrix root={withExtra} headers={data.weeks} currency="usd" />);
+    expect(rowCells('Clientes activos')[5]).toBe('1');
+    expect(rowCells('% activos')[5]).toBe('50.0%');
+  });
+
+  test('a response without activeCustomers (cached before it existed) shows a dash, never NaN', () => {
+    const old = { ...root } as Partial<SeguimientoRoot>;
+    delete old.activeCustomers;
+    render(<WeeklyMatrix root={old as SeguimientoRoot} headers={data.weeks} currency="usd" />);
+    expect(rowCells('Clientes activos')[5]).toBe('—');
+    expect(rowCells('% activos')[5]).toBe('—');
+  });
+
+  test('Estimado: a goal with no projected USD reads "Sin datos", not "Sin meta"', () => {
+    render(<WeeklyMatrix root={{ ...root, projected: { bs: 7700, usd: null } }} headers={data.weeks} currency="usd" />);
+    const est = screen.getByRole('region', { name: 'Estimado' });
+    const usdLine = within(est).getByText('Proyección USD').parentElement!;
+    expect(within(usdLine).getByText(/meta \$100/)).toBeTruthy();
+    expect(within(usdLine).getByText('Sin datos')).toBeTruthy();
+    expect(within(usdLine).queryByText('Sin meta')).toBeNull();
+  });
+
   test('Estimado: projected units and USD against the goal, with status', () => {
     render(<WeeklyMatrix root={root} headers={data.weeks} currency="usd" />);
     const est = screen.getByRole('region', { name: 'Estimado' });

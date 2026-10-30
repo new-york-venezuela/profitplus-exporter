@@ -1,12 +1,11 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { gridStatus } from '@/lib/seguimiento/grid-status';
-import type { Dual, RootMetrics, SeguimientoCustomer, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
+import type { Dual, RootMetrics, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
 import { moneyLabel, priceLabel, usdLabel } from '../../lib/format';
 import type { Currency } from '../../types';
 import { addDuals, pct, units } from './fmt';
-import { StatusBadge } from './status-badge';
+import { goalStatus, StatusBadge, type BadgeStatus } from './status-badge';
 
 const ZERO: Dual = { bs: 0, usd: 0 };
 const sumDuals = (items: Dual[]): Dual => items.reduce(addDuals, ZERO);
@@ -24,7 +23,7 @@ function Estimado({ root }: { root: RootMetrics }) {
   const quotaUsd = root.salesQuotaUsd;
   const unitsQuota = root.unitsQuota ?? null;
   const projectedUnits = root.projectedUnits ?? null;
-  const line = (label: string, value: string, goal: string | null, status: ReturnType<typeof gridStatus>) => (
+  const line = (label: string, value: string, goal: string | null, status: BadgeStatus) => (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-gray-500 w-40">{label}</span>
       <span className="font-semibold text-gray-900">{value}</span>
@@ -40,13 +39,13 @@ function Estimado({ root }: { root: RootMetrics }) {
         'Proyección unidades',
         projectedUnits === null ? '—' : units(projectedUnits),
         unitsQuota !== null && unitsQuota > 0 ? `meta ${units(unitsQuota)}` : null,
-        gridStatus(projectedUnits, unitsQuota),
+        goalStatus(projectedUnits, unitsQuota),
       )}
       {line(
         'Proyección USD',
         root.projected ? moneyLabel(root.projected, 'usd') : '—',
         quotaUsd !== null && quotaUsd > 0 ? `meta ${usdLabel(quotaUsd)}` : null,
-        gridStatus(root.projected?.usd ?? null, quotaUsd),
+        goalStatus(root.projected?.usd, quotaUsd),
       )}
     </section>
   );
@@ -83,9 +82,8 @@ function Categories({ root, currency }: { root: RootMetrics; currency: Currency 
 }
 
 // Weekly "Real" block (Sem 1..5 + Total), then the Estimado block and the category list, for one root of any kind.
-// `customers` (a SeguimientoRoot has them) gives the month's distinct active customers for the Total column.
 export function WeeklyMatrix({ root, headers, currency }: {
-  root: RootMetrics & { customers?: SeguimientoCustomer[] };
+  root: RootMetrics;
   headers: WeekHeader[];
   currency: Currency;
 }) {
@@ -96,7 +94,9 @@ export function WeeklyMatrix({ root, headers, currency }: {
   const net = sumDuals(past.map(w => w.net));
   const soldUnits = past.reduce((s, w) => s + w.units, 0);
   const returnUnits = past.reduce((s, w) => s + w.returnUnits, 0);
-  const activeInMonth = root.customers ? root.customers.filter(c => c.activeWeeks.length > 0).length : null;
+  // Month-distinct active customers, counted over the same assigned group as customerCount. A response cached
+  // before the field existed has it undefined: show a dash rather than a guess.
+  const activeInMonth = typeof root.activeCustomers === 'number' ? root.activeCustomers : null;
 
   const rows: MatrixRow[] = [
     { label: 'Clientes asignados', week: w => w.assigned, total: root.customerCount },

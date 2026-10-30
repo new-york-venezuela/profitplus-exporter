@@ -220,3 +220,23 @@ describe('buildSeguimiento: registration date vs the reference month', () => {
     expect(buildSeguimiento({ ...input, customers }).roots.find(r => r.label === 'Ana')!.customerCount).toBe(3);
   });
 });
+
+describe('buildSeguimiento: month-distinct active customers', () => {
+  test('counts assigned customers with an invoice in a week of the month; inactive customers with sales never count', () => {
+    const input = fixtureInput('vendedor');
+    const weekActivity = [
+      ...input.weekActivity,
+      { customerCode: 'C5', yearWeek: '2026-W41' },   // inactive customer that invoiced: not assigned, not active
+      { customerCode: 'C3', yearWeek: '2026-W39' },   // outside the month: does not make C3 active
+    ];
+    const lineSales = [...input.lineSales, { customerCode: 'C5', line: 'Panaderia', units: 3, sales: { bs: 300, usd: 6 } }];
+    const out = buildSeguimiento({ ...input, weekActivity, lineSales });
+    const beto = out.roots.find(r => r.label === 'Beto')!;
+    expect(beto.customers.map(c => c.customerCode)).toContain('C5');   // listed (it has sales) ...
+    expect(beto.activeCustomers).toBe(0);                              // ... but not counted as active
+    expect(beto.customerCount).toBe(1);
+    expect(out.roots.find(r => r.label === 'Ana')!.activeCustomers).toBe(2);   // C1 and C2
+    expect(out.total.activeCustomers).toBe(2);
+    for (const r of [...out.roots, out.total]) expect(r.activeCustomers).toBeLessThanOrEqual(r.customerCount);
+  });
+});

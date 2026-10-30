@@ -146,6 +146,7 @@ function buildMetrics(rows: Row[], sellerKeys: string[], shared: boolean, ctx: C
   const projectedWithConsignment: Dual | null = allProjectedBs === null ? null : { bs: allProjectedBs, usd: projectToMonth(allSales.usd, ctx.pace) };
   return {
     customerCount: assigned.length,
+    activeCustomers: assigned.filter(r => ctx.headers.some(h => !h.isFuture && r.active.has(h.yearWeek))).length,
     sellerKeys,
     sales, units,
     returns, returnUnits,
