@@ -14,7 +14,7 @@ describe('gridStatus', () => {
     expect(gridStatus(0, 1000).level).toBe('bad');
   });
   test('none when goal or projection missing/invalid', () => {
-    const none = { level: 'none', icon: '–', label: 'Sin meta' };
+    const none = { level: 'none', icon: '–', label: 'Sin meta' } as const;
     expect(gridStatus(500, null)).toEqual(none);
     expect(gridStatus(null, 1000)).toEqual(none);
     expect(gridStatus(500, 0)).toEqual(none);
