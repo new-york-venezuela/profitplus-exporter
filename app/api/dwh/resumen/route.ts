@@ -187,11 +187,15 @@ const OPENING_BALANCE_QUERY = `
   WHERE a.SnapshotDateKey = @openingSnapshotKey AND a.IsCreditNote = 0
 `;
 
-// Customer-level KPIs. Everything is counted per customer code on the CURRENT
-// Dim_Customer row's code (IsCurrent = 1 for the total/new counts); consignment
-// roots (@root0, @root1, ...) are excluded from every count so the ratios stay
-// comparable. Sales/returns are summed per customer code so a customer whose
-// returns exceed its sales is not "net".
+// Customer-level KPIs, counted per customer code (one basis per Resumen card):
+// - Ventas cards (CustomersWithSales / CustomersWithReturns / CustomersNet): every
+//   customer, consignment included, the same basis as the card amounts (totalsQuery
+//   and the chart, which include consignment). Sales/returns are summed per customer
+//   code so a customer whose returns exceed its sales is not "net".
+// - Clientes cards (CustomersTotal / ActiveCustomerCodes / CustomersNew): the CURRENT
+//   Dim_Customer row (IsCurrent = 1, not inactive) with consignment roots (@root0,
+//   @root1, ...) excluded, as in Seguimiento. Activos is a subset of Total, so the
+//   "% del total" can never pass 100%.
 function customerKpisQuery(
   salesDateWhere: string, returnsDateWhere: string, registeredWhere: string, rootPlaceholders: string[],
 ): string {
@@ -203,14 +207,14 @@ function customerKpisQuery(
       SELECT c.CustomerCode, SUM(fs.NetAmount) AS Amount
       FROM fact.Fact_Sales fs
       JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-      WHERE fs.IsVoided = 0 ${salesDateWhere} ${exclude}
+      WHERE fs.IsVoided = 0 ${salesDateWhere}
       GROUP BY c.CustomerCode
     ),
     rets AS (
-      SELECT c.CustomerCode, SUM(fr.NetAmount) AS Amount, SUM(fr.QuantityReturned) AS Units
+      SELECT c.CustomerCode, SUM(fr.NetAmount) AS Amount
       FROM fact.Fact_Returns fr
       JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
-      WHERE fr.IsVoided = 0 ${returnsDateWhere} ${exclude}
+      WHERE fr.IsVoided = 0 ${returnsDateWhere}
       GROUP BY c.CustomerCode
     ),
     cur AS (
@@ -223,12 +227,13 @@ function customerKpisQuery(
     SELECT
       (SELECT COUNT(*) FROM cur) AS CustomersTotal,
       (SELECT COUNT(*) FROM cur rc WHERE ISNULL(rc.IsMigrationBatch, 0) = 0 AND rc.RegKey IS NOT NULL ${registeredWhere}) AS CustomersNew,
+      (SELECT COUNT(*) FROM cur ac WHERE EXISTS (SELECT 1 FROM sales s WHERE s.CustomerCode = ac.CustomerCode)) AS ActiveCustomerCodes,
+      (SELECT COUNT(*) FROM sales) AS CustomersWithSales,
       (SELECT COUNT(*) FROM (
          SELECT s.CustomerCode FROM sales s LEFT JOIN rets r ON r.CustomerCode = s.CustomerCode
          WHERE s.Amount - ISNULL(r.Amount, 0) > 0
        ) n) AS CustomersNet,
-      (SELECT COUNT(*) FROM rets) AS CustomersWithReturns,
-      (SELECT ISNULL(SUM(Units), 0) FROM rets) AS UnitsReturned
+      (SELECT COUNT(*) FROM rets) AS CustomersWithReturns
   `;
 }
 
@@ -247,6 +252,8 @@ function totalsQuery(salesDateWhere: string, returnsDateWhere: string, collectio
          WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS ReturnsNetPeriodUsd,
       (SELECT ISNULL(SUM(fs.QuantitySold), 0) FROM fact.Fact_Sales fs
          WHERE fs.IsVoided = 0 ${salesDateWhere}) AS UnitsSold,
+      (SELECT ISNULL(SUM(fr.QuantityReturned), 0) FROM fact.Fact_Returns fr
+         WHERE fr.IsVoided = 0 ${returnsDateWhere}) AS UnitsReturned,
       (SELECT ISNULL(SUM(AmountCollected), 0) FROM fact.Fact_Collections fc
          WHERE fc.IsVoided = 0 ${collectionsDateWhere}) AS CollectedPeriodBs,
       (SELECT CASE WHEN COUNT(fc.AmountCollected) = 0 THEN 0 ELSE SUM(fc.AmountCollected / NULLIF(cfx.RateSell, 0)) END
@@ -434,7 +441,7 @@ export async function GET(request: NextRequest) {
       topDebtors = debtors.recordset;
     }
 
-    const totalsRow = totals.recordset[0] ?? { SalesGrossPeriodBs: 0, SalesGrossPeriodUsd: 0, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, CollectedPeriodBs: 0, CollectedPeriodUsd: 0, UnitsSold: 0 };
+    const totalsRow = totals.recordset[0] ?? { SalesGrossPeriodBs: 0, SalesGrossPeriodUsd: 0, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, CollectedPeriodBs: 0, CollectedPeriodUsd: 0, UnitsSold: 0, UnitsReturned: 0 };
     const salesGrossBs = Number(totalsRow.SalesGrossPeriodBs);
     const salesGrossUsd = totalsRow.SalesGrossPeriodUsd === null ? null : Number(totalsRow.SalesGrossPeriodUsd);
     const returnsNetBs = Number(totalsRow.ReturnsNetPeriodBs);
@@ -499,6 +506,7 @@ export async function GET(request: NextRequest) {
       agingBuckets: agingBucketsMapped,
       topDebtors: topDebtorsMapped,
       snapshotDateKey,
+      openingSnapshotKey,
       kpis: {
         salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
         returns: { bs: returnsNetBs, usd: returnsNetUsd },
@@ -513,7 +521,9 @@ export async function GET(request: NextRequest) {
         churnRate,
         unitsSold: Number(totalsRow.UnitsSold ?? 0),
         receivable: sumDual(agingBucketsMapped.map(b => b.amount)),
-        unitsReturned: Number(customerKpisRow.UnitsReturned ?? 0),
+        unitsReturned: Number(totalsRow.UnitsReturned ?? 0),
+        customersWithSales: Number(customerKpisRow.CustomersWithSales ?? 0),
+        activeCustomerCodes: Number(customerKpisRow.ActiveCustomerCodes ?? 0),
         customersWithReturns: Number(customerKpisRow.CustomersWithReturns ?? 0),
         customersNet: Number(customerKpisRow.CustomersNet ?? 0),
         customersTotal: Number(customerKpisRow.CustomersTotal ?? 0),

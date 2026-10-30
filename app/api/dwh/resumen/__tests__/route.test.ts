@@ -16,11 +16,11 @@ function recordsetFor(sql: string, inputs: Record<string, unknown>): Row[] {
     return [{ SnapshotDateKey: isOpening ? snapshotKeys[1] : snapshotKeys[0] }];
   }
   if (sql.includes('AS CustomersTotal')) {
-    return [{ CustomersTotal: 120, CustomersNew: 7, CustomersNet: 80, CustomersWithReturns: 9, UnitsReturned: 33 }];
+    return [{ CustomersTotal: 120, CustomersNew: 7, CustomersNet: 80, CustomersWithReturns: 9, CustomersWithSales: 95, ActiveCustomerCodes: 85 }];
   }
   if (sql.includes('AS OpeningBs')) return [openingBalance];
   if (sql.includes('AS SalesGrossPeriodBs')) {
-    return [{ SalesGrossPeriodBs: 1000, SalesGrossPeriodUsd: 100, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, UnitsSold: 10, CollectedPeriodBs: 0, CollectedPeriodUsd: 0 }];
+    return [{ SalesGrossPeriodBs: 1000, SalesGrossPeriodUsd: 100, ReturnsNetPeriodBs: 0, ReturnsNetPeriodUsd: 0, UnitsSold: 10, UnitsReturned: 33, CollectedPeriodBs: 0, CollectedPeriodUsd: 0 }];
   }
   if (sql.includes('AS ActiveCustomers')) return [{ ActiveCustomers: 3, ActiveCustomersPrevPeriod: 4, ChurnedCustomers: 1 }];
   return [];
@@ -91,15 +91,41 @@ describe('GET /api/dwh/resumen', () => {
   test('receivableOpening is null when no snapshot exists before the range', async () => {
     snapshotKeys = [20261030, null];
     const res = await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
-    const { kpis } = await res.json();
-    expect(kpis.receivableOpening).toBeNull();
+    const body = await res.json();
+    expect(body.kpis.receivableOpening).toBeNull();
+    expect(body.openingSnapshotKey).toBeNull();
   });
 
-  test('excludes consignment roots from the customer counts', async () => {
+  test('returns the opening snapshot key it valued receivableOpening at', async () => {
+    snapshotKeys = [20261030, 20260925];
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
+    const body = await res.json();
+    expect(body.openingSnapshotKey).toBe(20260925);
+  });
+
+  test('excludes consignment roots from the Clientes counts (master, activos, nuevos) only', async () => {
     await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
     const q = queries.find(s => s.includes('AS CustomersTotal'))!;
-    expect(q).toContain('NOT IN');
     const bound = boundInputs.find(b => b.sql === q)!;
     expect(bound.inputs.root0).toBe('ROOT1');
+    // The exclusion sits in the `cur` CTE (Total / Activos / Nuevos), never in the sales/returns CTEs
+    // that feed the Ventas cards, whose amounts include consignment.
+    expect(q.match(/NOT IN/g)?.length).toBe(1);
+    const cur = q.slice(q.indexOf('cur AS'));
+    expect(cur).toContain('NOT IN');
+    expect(q.slice(0, q.indexOf('cur AS'))).not.toContain('NOT IN');
+    expect(q).toContain('AS ActiveCustomerCodes');
+  });
+
+  test('Ventas cards: units and clientes on the same basis as the amounts (consignment included)', async () => {
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
+    const { kpis } = await res.json();
+    // Returned units come from the same totals query (same table, window and scope) as the returns amount.
+    const totals = queries.find(s => s.includes('AS SalesGrossPeriodBs'))!;
+    expect(totals).toContain('AS UnitsReturned');
+    expect(totals).not.toContain('NOT IN');
+    expect(kpis.unitsReturned).toBe(33);
+    expect(kpis.customersWithSales).toBe(95);
+    expect(kpis.activeCustomerCodes).toBe(85);
   });
 });

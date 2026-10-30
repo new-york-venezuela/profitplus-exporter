@@ -111,6 +111,7 @@ export default function TabResumen({
           kpis={data.kpis}
           currency={currency}
           snapshotLabel={data.snapshotDateKey !== null ? `al ${formatSnapshotDate(data.snapshotDateKey)}` : undefined}
+          openingLabel={data.openingSnapshotKey != null ? `al ${formatSnapshotDate(data.openingSnapshotKey)}` : undefined}
         />
       </section>
       <SalesReturnsChart rows={data.monthlyTrend} trendMode={data.trendMode} currency={currency} />

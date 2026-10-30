@@ -19,6 +19,7 @@ const response = {
   topProducts: [],
   salesReps: [],
   snapshotDateKey: 20260930,
+  openingSnapshotKey: 20260825,
 };
 
 beforeEach(() => {
@@ -61,6 +62,13 @@ describe('TabResumen', () => {
     expect(screen.queryByText(/Antigüedad de saldos/)).toBeNull();
     expect(screen.queryByText(/Mayor concentración/)).toBeNull();
     expect(screen.queryByText('Deudor SA')).toBeNull();
+  });
+
+  test('Saldo inicial and Pendiente each name their own snapshot date', async () => {
+    globalThis.fetch = mock(async () => json(response)) as unknown as typeof fetch;
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    expect(await screen.findByText('al 25/08/2026')).toBeTruthy();
+    expect(screen.getByText('al 30/09/2026')).toBeTruthy();
   });
 
   test('does not render Top 10 clientes, Top 10 productos or Desempeño por vendedor', async () => {

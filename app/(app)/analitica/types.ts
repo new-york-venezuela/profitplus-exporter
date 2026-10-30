@@ -45,7 +45,8 @@ export interface ResumenKPIs {
   salesNet: DualAmount;
   returnRate: number | null; // returns / salesGross
   collected: DualAmount; // Fact_Collections.AmountCollected by receipt date (IVA incluido)
-  // Distinct Dim_LegalEntity with >=1 sale in range, and the same-length
+  // Distinct Dim_LegalEntity with >=1 sale in range (consignment included; not
+  // shown on Resumen, which counts customer codes), and the same-length
   // immediately-preceding period's count, for the Δ card — same
   // activeClients/prevPeriod convention as Ventas' VentasKpis.
   activeCustomers: number;
@@ -59,10 +60,14 @@ export interface ResumenKPIs {
   // ResumenResponse.snapshotDateKey — the latest snapshot on/before the range's
   // last day. Null when no snapshot exists on/before that day.
   receivable: DualAmount | null;
-  unitsReturned: number; // SUM(Fact_Returns.QuantityReturned), windowed by original factura date
-  customersWithReturns: number; // distinct customers with >=1 return in range
-  customersNet: number; // customers (excl. consignment roots) whose net sales (gross - returns) in range are > 0
+  // Ventas cards: one basis per card, consignment INCLUDED like the amounts above.
+  unitsReturned: number; // SUM(Fact_Returns.QuantityReturned), windowed by original factura date, same scope as `returns`
+  customersWithSales: number; // distinct customer codes with >=1 invoice in range
+  customersWithReturns: number; // distinct customer codes with >=1 return in range
+  customersNet: number; // customer codes whose net sales (gross - returns) in range are > 0
+  // Clientes cards: consignment roots EXCLUDED, as in Seguimiento.
   customersTotal: number; // Dim_Customer IsCurrent = 1, not inactive, consignment roots excluded
+  activeCustomerCodes: number; // customersTotal's customers with >=1 invoice in range (subset of customersTotal)
   customersNew: number; // RegisteredDate in range and not IsMigrationBatch (consignment roots excluded)
   // Open AR at the latest snapshot on/before the day before the range starts. Null when none exists.
   receivableOpening: DualAmount | null;
@@ -116,6 +121,8 @@ export interface ResumenResponse {
   agingBuckets: AgingBucketRow[];
   topDebtors: DebtorRow[];
   snapshotDateKey: number | null;
+  // Snapshot behind kpis.receivableOpening: the latest on/before the day before the range starts. Null when none exists.
+  openingSnapshotKey: number | null;
   kpis: ResumenKPIs;
 }
 
