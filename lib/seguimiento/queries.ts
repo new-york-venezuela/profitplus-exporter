@@ -1,7 +1,9 @@
 import sql from 'mssql';
-import { buildDateWhereClause, dualAmountExpr, usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
-import type { CustomerFact, CustomerLineSales, CustomerWeekActivity } from './aggregate';
-import type { Dual, SeguimientoExcludedInvoice, SeguimientoInvoiceLine } from './types';
+import {
+  buildDateWhereClause, buildReturnsDateWhereClause, dualAmountExpr, returnsUsdConversionJoin, usdConversionJoin,
+} from '@/app/api/dwh/lib/query-builder';
+import type { CustomerFact, CustomerLineReturns, CustomerLineSales, CustomerWeekActivity, CustomerWeekAmounts } from './aggregate';
+import type { Dual, HistoryPoint, HistoryScope, SeguimientoExcludedInvoice, SeguimientoInvoiceLine } from './types';
 
 // Reads only the pre-aggregated dim/fact schema of DWH_AlimentosNY (no ERP tables, no collation
 // handling). All user-controlled values go through .input(); the only interpolated SQL is the date
@@ -179,4 +181,172 @@ export async function fetchExcludedInvoices(
     invoiceDate: isoOf(r.InvoiceDate),
     amountNet: dualOf(r.NetBs, r.NetUsd),
   }));
+}
+
+// Fact_Returns line -> the customer version it was issued under -> that customer's CURRENT row.
+const RETURNS_TO_CURRENT_CUSTOMER = `
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
+    JOIN dim.Dim_Customer cur ON cur.CustomerCode = c.CustomerCode AND cur.IsCurrent = 1`;
+
+// Devoluciones per customer x product line, windowed by the ORIGINAL factura's date (same month
+// window as fetchLineSales) and converted at that factura's rate (AGENTS.md "Ventas brutas / netas").
+export async function fetchLineReturns(pool: sql.ConnectionPool, month: string): Promise<CustomerLineReturns[]> {
+  assertMonth(month);
+  const where = buildReturnsDateWhereClause(`month:${month}`, 'fr', 'factura');
+  const result = await pool.request().query(`
+    SELECT RTRIM(cur.CustomerCode) AS CustomerCode, p.LineName AS LineName,
+      SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
+    FROM fact.Fact_Returns fr
+    ${returnsUsdConversionJoin('fr')}
+    ${RETURNS_TO_CURRENT_CUSTOMER}
+    JOIN dim.Dim_Product p ON p.ProductKey = fr.ProductKey
+    WHERE fr.IsVoided = 0 ${where}
+    GROUP BY RTRIM(cur.CustomerCode), p.LineName
+  `);
+  return result.recordset.map(r => ({
+    customerCode: String(r.CustomerCode),
+    line: r.LineName === null || r.LineName === undefined ? null : String(r.LineName).trim() || null,
+    units: Number(r.Units ?? 0),
+    returns: dualOf(r.ReturnsBs, r.ReturnsUsd),
+  }));
+}
+
+// Per customer x ISO week (Dim_Date.YearWeek), clipped to the month: the window is the month only, so
+// the edge weeks hold just their in-month days. Sales by invoice date, returns by original invoice date.
+export async function fetchWeekAmounts(pool: sql.ConnectionPool, month: string): Promise<CustomerWeekAmounts[]> {
+  assertMonth(month);
+  const salesWhere = buildDateWhereClause(`month:${month}`, 'fs');
+  const returnsWhere = buildReturnsDateWhereClause(`month:${month}`, 'fr', 'factura');
+  const [sales, returns] = await Promise.all([
+    pool.request().query(`
+      SELECT RTRIM(cur.CustomerCode) AS CustomerCode, d.YearWeek,
+        SUM(fs.QuantitySold) AS Units, ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')}
+      FROM fact.Fact_Sales fs
+      ${usdConversionJoin('fs')}
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      ${TO_CURRENT_CUSTOMER}
+      WHERE fs.IsVoided = 0 ${salesWhere}
+      GROUP BY RTRIM(cur.CustomerCode), d.YearWeek
+    `),
+    pool.request().query(`
+      SELECT RTRIM(cur.CustomerCode) AS CustomerCode, d.YearWeek,
+        SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
+      FROM fact.Fact_Returns fr
+      ${returnsUsdConversionJoin('fr')}
+      JOIN dim.Dim_Date d ON d.DateKey = fr.OriginalInvoiceDateKey
+      ${RETURNS_TO_CURRENT_CUSTOMER}
+      WHERE fr.IsVoided = 0 ${returnsWhere}
+      GROUP BY RTRIM(cur.CustomerCode), d.YearWeek
+    `),
+  ]);
+  const out = new Map<string, CustomerWeekAmounts>();
+  const cell = (code: string, yearWeek: string): CustomerWeekAmounts => {
+    const key = `${code}|${yearWeek}`;
+    let c = out.get(key);
+    if (!c) {
+      c = { customerCode: code, yearWeek, units: 0, sales: { bs: 0, usd: 0 }, returnUnits: 0, returns: { bs: 0, usd: 0 } };
+      out.set(key, c);
+    }
+    return c;
+  };
+  for (const r of sales.recordset) {
+    const c = cell(String(r.CustomerCode), String(r.YearWeek).trim());
+    c.units = Number(r.Units ?? 0);
+    c.sales = dualOf(r.SalesBs, r.SalesUsd);
+  }
+  for (const r of returns.recordset) {
+    const c = cell(String(r.CustomerCode), String(r.YearWeek).trim());
+    c.returnUnits = Number(r.Units ?? 0);
+    c.returns = dualOf(r.ReturnsBs, r.ReturnsUsd);
+  }
+  return [...out.values()];
+}
+
+const NO_ROOT_VALUES = new Set(['sin-vendedor', 'sin-ruta', 'sin-grupo']);
+
+function shiftMonth(month: string, delta: number): string {
+  const n = Number(month.slice(0, 4)) * 12 + (Number(month.slice(5, 7)) - 1) + delta;
+  return `${Math.floor(n / 12)}-${String((n % 12) + 1).padStart(2, '0')}`;
+}
+
+// Twelve months ending endMonth. The scope filter uses the CURRENT customer row (cur / z / r joined
+// below); the root value and every excluded consignment code are bound with .input(). Months with no
+// rows are simply absent from the result.
+export async function fetchHistory(
+  pool: sql.ConnectionPool, scope: HistoryScope, endMonth: string, excludeCodes: string[],
+): Promise<HistoryPoint[]> {
+  assertMonth(endMonth);
+  const startMonth = shiftMonth(endMonth, -11);
+  const range = `custom:${startMonth}-01:${endMonth}-31`;
+  // buildDateWhereClause on a custom range only strips hyphens, so day 31 is a safe upper bound for
+  // the DateKey comparison in every month.
+  const salesWhere = buildDateWhereClause(range, 'fs');
+  const returnsWhere = buildReturnsDateWhereClause(range, 'fr', 'factura');
+
+  const conditions: string[] = [];
+  const bind = (req: sql.Request): void => {
+    if (scope.kind !== 'total' && !NO_ROOT_VALUES.has(scope.value)) req.input('rootValue', sql.VarChar(32), scope.value);
+    excludeCodes.forEach((code, i) => req.input(`code${i}`, sql.VarChar(16), code));
+  };
+  if (scope.kind === 'vendedor') {
+    conditions.push(NO_ROOT_VALUES.has(scope.value) ? 'r.SalesRepKey IS NULL' : 'CAST(r.SalesRepKey AS varchar(32)) = @rootValue');
+  } else if (scope.kind === 'ruta') {
+    conditions.push(NO_ROOT_VALUES.has(scope.value)
+      ? '(z.IsRoute IS NULL OR z.IsRoute <> 1 OR z.RouteNumber IS NULL)'
+      : 'RTRIM(cur.ZoneCode) = @rootValue AND z.IsRoute = 1');
+  } else if (scope.kind === 'grupo') {
+    conditions.push(NO_ROOT_VALUES.has(scope.value) ? 'cur.ErpSegmentCode IS NULL' : 'RTRIM(cur.ErpSegmentCode) = @rootValue');
+  }
+  if (excludeCodes.length > 0) {
+    conditions.push(`RTRIM(cur.CustomerCode) NOT IN (${excludeCodes.map((_, i) => `@code${i}`).join(', ')})`);
+  }
+  const scopeSql = conditions.map(c => ` AND ${c}`).join('');
+  const SCOPE_JOINS = `
+    LEFT JOIN dim.Dim_SalesRep r ON r.SalesRepCode = cur.DefaultSalesRepCode
+    LEFT JOIN dim.Dim_Zone z ON z.ZoneCode = cur.ZoneCode`;
+
+  const salesReq = pool.request();
+  bind(salesReq);
+  const returnsReq = pool.request();
+  bind(returnsReq);
+  const [sales, returns] = await Promise.all([
+    salesReq.query(`
+      SELECT d.YearMonth AS Month, SUM(fs.QuantitySold) AS Units, ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')}
+      FROM fact.Fact_Sales fs
+      ${usdConversionJoin('fs')}
+      JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+      ${TO_CURRENT_CUSTOMER}${SCOPE_JOINS}
+      WHERE fs.IsVoided = 0 ${salesWhere}${scopeSql}
+      GROUP BY d.YearMonth
+    `),
+    returnsReq.query(`
+      SELECT d.YearMonth AS Month, SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
+      FROM fact.Fact_Returns fr
+      ${returnsUsdConversionJoin('fr')}
+      JOIN dim.Dim_Date d ON d.DateKey = fr.OriginalInvoiceDateKey
+      ${RETURNS_TO_CURRENT_CUSTOMER}${SCOPE_JOINS}
+      WHERE fr.IsVoided = 0 ${returnsWhere}${scopeSql}
+      GROUP BY d.YearMonth
+    `),
+  ]);
+  const out = new Map<string, HistoryPoint>();
+  const point = (month: string): HistoryPoint => {
+    let p = out.get(month);
+    if (!p) {
+      p = { month, sales: { bs: 0, usd: 0 }, units: 0, returns: { bs: 0, usd: 0 }, returnUnits: 0 };
+      out.set(month, p);
+    }
+    return p;
+  };
+  for (const r of sales.recordset) {
+    const p = point(String(r.Month).trim());
+    p.units = Number(r.Units ?? 0);
+    p.sales = dualOf(r.SalesBs, r.SalesUsd);
+  }
+  for (const r of returns.recordset) {
+    const p = point(String(r.Month).trim());
+    p.returnUnits = Number(r.Units ?? 0);
+    p.returns = dualOf(r.ReturnsBs, r.ReturnsUsd);
+  }
+  return [...out.values()].sort((a, b) => a.month.localeCompare(b.month));
 }

@@ -122,3 +122,7 @@ export interface SeguimientoExcludedInvoice {
   amountNet: Dual;
 }
 export interface SeguimientoExcludedResponse { invoices: SeguimientoExcludedInvoice[] }
+
+export type HistoryScope = { kind: 'total' } | { kind: RootKind; value: string };
+export interface HistoryPoint { month: string; sales: Dual; units: number; returns: Dual; returnUnits: number }
+export interface SeguimientoHistoryResponse { points: HistoryPoint[] }

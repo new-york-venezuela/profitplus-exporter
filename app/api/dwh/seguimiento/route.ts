@@ -10,12 +10,13 @@ import { buildSeguimiento, rootOf } from '@/lib/seguimiento/aggregate';
 import { isoWeeksOfMonth } from '@/lib/seguimiento/iso-weeks';
 import { resolveReferenceMonth } from '@/lib/seguimiento/month-pace';
 import {
-  fetchCustomerInvoiceLines, fetchCustomers, fetchExcludedInvoices, fetchLineSales, fetchWeekActivity,
+  fetchCustomerInvoiceLines, fetchCustomers, fetchExcludedInvoices, fetchHistory, fetchLineReturns, fetchLineSales,
+  fetchWeekActivity, fetchWeekAmounts,
 } from '@/lib/seguimiento/queries';
 import { readTargetsForMonth } from '@/lib/seguimiento/targets-repo';
 import {
   parseRootKind,
-  type SeguimientoExcludedResponse, type SeguimientoLinesResponse, type SeguimientoResponse,
+  type HistoryScope, type SeguimientoExcludedResponse, type SeguimientoHistoryResponse, type SeguimientoLinesResponse, type SeguimientoResponse,
 } from '@/lib/seguimiento/types';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +29,8 @@ const CUSTOMER_CODE_RE = /^[A-Za-z0-9._\- ]{1,16}$/;
 // '90d' of old bookmarks. The value only feeds resolveReferenceMonth (never SQL), but a malformed
 // one is rejected rather than silently mapped to the current month.
 const DATE_RANGE_RE = /^(12m|30d|90d|month:\d{4}-\d{2}|ytd:\d{4}|custom:\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2})$/;
-const SECTIONS = new Set(['lines', 'excluded']);
+const ROOT_VALUE_RE = /^[A-Za-z0-9._-]{1,32}$/;
+const SECTIONS = new Set(['lines', 'excluded', 'history']);
 
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
@@ -56,6 +58,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Falta rootValue' }, { status: 400 });
   }
 
+  const historyRoot = (rootValue ?? '').trim();
+  if (section === 'history' && historyRoot !== '' && !ROOT_VALUE_RE.test(historyRoot)) {
+    return NextResponse.json({ error: 'rootValue inválido' }, { status: 400 });
+  }
+
   try {
     const pool = await getDwhPool();
 
@@ -66,6 +73,13 @@ export async function GET(request: NextRequest) {
     }
 
     const flaggedCodes = await getFlaggedRootCodes(buildDateWhereClause(`month:${ref.month}`, 'fs'), DEFAULT_ROOT_SHARE_THRESHOLD);
+
+    if (section === 'history') {
+      const scope: HistoryScope = historyRoot === '' ? { kind: 'total' } : { kind, value: historyRoot };
+      const points = await fetchHistory(pool, scope, ref.month, flaggedCodes.map(c => c.trim()));
+      const body: SeguimientoHistoryResponse = { points };
+      return jsonWithCache(body);
+    }
 
     if (section === 'excluded') {
       const flaggedSet = new Set(flaggedCodes.map(c => c.trim()));
@@ -78,17 +92,19 @@ export async function GET(request: NextRequest) {
     }
 
     const weeks = isoWeeksOfMonth(ref.month);
-    const [customers, lineSales, weekActivity] = await Promise.all([
+    const [customers, lineSales, weekActivity, lineReturns, weekAmounts] = await Promise.all([
       fetchCustomers(pool, ref.asOf),
       fetchLineSales(pool, ref.month),
       // Activation counts the whole ISO week, including days before the 1st / after the last day.
       fetchWeekActivity(pool, weeks[0].weekStart, weeks[weeks.length - 1].weekEnd),
+      fetchLineReturns(pool, ref.month),
+      fetchWeekAmounts(pool, ref.month),
     ]);
     const targets = readTargetsForMonth(getDb(), ref.month);
 
     const response: SeguimientoResponse = {
       kind, month: ref.month, monthStart: ref.monthStart, monthEnd: ref.monthEnd, asOf: ref.asOf,
-      ...buildSeguimiento({ kind, month: ref.month, asOf: ref.asOf, customers, lineSales, weekActivity, lineReturns: [], weekAmounts: [], consignmentRootCodes: flaggedCodes, targets }),
+      ...buildSeguimiento({ kind, month: ref.month, asOf: ref.asOf, customers, lineSales, weekActivity, lineReturns, weekAmounts, consignmentRootCodes: flaggedCodes, targets }),
     };
     captureEvent(auth.session.sub, 'seguimiento_viewed', { kind, month: ref.month, roots: response.roots.length });
     return jsonWithCache(response);

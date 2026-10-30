@@ -17,13 +17,16 @@ const fetchWeekActivity = mock(async () => FIXTURE_WEEK_ACTIVITY);
 const fetchCustomerInvoiceLines = mock(async () => FIXTURE_INVOICE_LINES);
 const fetchExcludedInvoices = mock(async (_p: unknown, _m: string, codes: string[]) =>
   codes.length ? [{ customerCode: 'C4', customerName: 'Cadena Raiz', invoiceNumber: 'F9', invoiceDate: '2026-10-05', amountNet: { bs: 9000, usd: 180 } }] : []);
+const fetchLineReturns = mock(async () => []);
+const fetchWeekAmounts = mock(async () => []);
+const fetchHistory = mock(async (..._a: unknown[]) => [{ month: '2026-10', sales: { bs: 1, usd: 1 }, units: 1, returns: { bs: 0, usd: 0 }, returnUnits: 0 }]);
 const flagged = mock(async (_w: string, _t: number) => FIXTURE_CONSIGNMENT_ROOTS);
 
 mock.module('@/lib/dwh/access', () => ({ requireDwhAccess: access }));
 mock.module('@/lib/db/dwh-mssql', () => ({ getDwhPool: async () => pool }));
 mock.module('@/lib/db/sqlite', () => ({ getDb: () => memoryDb }));
 mock.module('@/lib/analytics/posthog', () => ({ captureEvent: capture, captureException: captureEx }));
-mock.module('@/lib/seguimiento/queries', () => ({ fetchCustomers, fetchLineSales, fetchWeekActivity, fetchCustomerInvoiceLines, fetchExcludedInvoices }));
+mock.module('@/lib/seguimiento/queries', () => ({ fetchCustomers, fetchLineSales, fetchWeekActivity, fetchCustomerInvoiceLines, fetchExcludedInvoices, fetchLineReturns, fetchWeekAmounts, fetchHistory }));
 mock.module('@/app/api/dwh/lib/consignment', () => ({ getFlaggedRootCodes: flagged, DEFAULT_ROOT_SHARE_THRESHOLD: 0.15 }));
 
 const { GET } = await import('../route');
@@ -32,7 +35,7 @@ const call = (qs = '') => GET(new NextRequest(`http://localhost/api/dwh/seguimie
 beforeAll(() => setSystemTime(new Date('2026-10-14T15:00:00Z')));
 afterAll(() => setSystemTime());
 beforeEach(() => {
-  for (const m of [capture, captureEx, fetchCustomers, fetchLineSales, fetchWeekActivity, fetchCustomerInvoiceLines, fetchExcludedInvoices, flagged]) m.mockClear();
+  for (const m of [capture, captureEx, fetchCustomers, fetchLineSales, fetchWeekActivity, fetchCustomerInvoiceLines, fetchExcludedInvoices, flagged, fetchLineReturns, fetchWeekAmounts, fetchHistory]) m.mockClear();
   access.mockImplementation(async () => ({ ok: true, session: { sub: '7', role: 'admin' } }));
   memoryDb.delete(sellerTargets).run();
   memoryDb.insert(sellerTargets).values([
@@ -173,5 +176,39 @@ describe('GET /api/dwh/seguimiento: sections', () => {
     fetchExcludedInvoices.mockClear();
     await call('?section=excluded&kind=vendedor&rootValue=1');      // Ana has no flagged code
     expect(fetchExcludedInvoices).toHaveBeenCalledWith(pool, '2026-10', []);
+  });
+});
+
+describe('GET /api/dwh/seguimiento: history', () => {
+  test('returns points for a scope, binds the reference month and flagged codes', async () => {
+    const res = await call('?section=history&kind=ruta&rootValue=CCS003&dateRange=month:2026-09');
+    expect(res.status).toBe(200);
+    expect((await res.json()).points).toHaveLength(1);
+    expect(fetchHistory).toHaveBeenCalledWith(pool, { kind: 'ruta', value: 'CCS003' }, '2026-09', FIXTURE_CONSIGNMENT_ROOTS.map(c => c.trim()));
+  });
+
+  test('no rootValue means the total scope', async () => {
+    await call('?section=history');
+    expect((fetchHistory.mock.calls[0] as unknown[])[1]).toEqual({ kind: 'total' });
+  });
+
+  test('malformed rootValue is a 400 and runs no query', async () => {
+    const res = await call('?section=history&rootValue=' + encodeURIComponent("1' OR 1=1"));
+    expect(res.status).toBe(400);
+    expect(fetchHistory).not.toHaveBeenCalled();
+  });
+
+  test('401 and 403 from requireDwhAccess pass through for history', async () => {
+    for (const status of [401, 403]) {
+      access.mockImplementation(async () => ({ ok: false, response: NextResponse.json({ error: 'x' }, { status }) }));
+      expect((await call('?section=history')).status).toBe(status);
+    }
+    expect(fetchHistory).not.toHaveBeenCalled();
+  });
+
+  test('main response feeds returns and week amounts for the reference month', async () => {
+    await call('?dateRange=30d');
+    expect(fetchLineReturns).toHaveBeenCalledWith(pool, '2026-10');
+    expect(fetchWeekAmounts).toHaveBeenCalledWith(pool, '2026-10');
   });
 });
