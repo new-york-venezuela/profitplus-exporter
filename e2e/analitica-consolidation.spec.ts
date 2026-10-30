@@ -7,6 +7,19 @@ import { test, expect } from './fixtures';
 
 const DWH_ERROR = { error: 'Error al consultar el Data Warehouse' };
 
+const dual = (usd: number) => ({ bs: usd * 50, usd });
+const RESUMEN = {
+  monthlyTrend: [{ bucket: '2026-09', salesGross: dual(100), returnsNet: dual(4), salesNet: dual(96) }],
+  trendMode: 'month', topCustomers: [], topProducts: [], salesReps: [], agingBuckets: [], topDebtors: [],
+  snapshotDateKey: 20260930, openingSnapshotKey: 20260831,
+  kpis: {
+    salesGross: dual(100), returns: dual(4), salesNet: dual(96), returnRate: 0.04, collected: dual(50),
+    activeCustomers: 9, activeCustomersPrevPeriod: 8, churnRate: 0.1, unitsSold: 40, receivable: dual(200),
+    unitsReturned: 2, customersWithSales: 9, customersWithReturns: 1, customersNet: 9, customersTotal: 10,
+    activeCustomerCodes: 8, customersNew: 1, receivableOpening: dual(150), billed: dual(100),
+  },
+};
+
 async function failAllDwh(page: Page) {
   await page.route(/\/api\/dwh\//, route => route.fulfill({ status: 500, json: DWH_ERROR }));
 }
@@ -75,10 +88,15 @@ async function mockProductos(page: Page) {
 }
 
 test.describe('analitica consolidation (mocked API)', () => {
-  test('Resumen shows the month-pace strip even while the API fails', async ({ adminPage }) => {
+  // The month-pace strip moved to Seguimiento (covered by seguimiento.spec.ts); Resumen has four sections.
+  test('Resumen shows its four sections and no month-pace strip', async ({ adminPage }) => {
     await failAllDwh(adminPage);
+    await adminPage.route(/\/api\/dwh\/resumen/, route => route.fulfill({ json: RESUMEN }));
     await adminPage.goto('/analitica');
-    await expect(adminPage.getByText(/Día laborable \d+ de \d+/)).toBeVisible({ timeout: 15_000 });
+    for (const name of ['Ventas del período', 'Clientes', 'Cuentas por cobrar', 'Ventas netas y devoluciones']) {
+      await expect(adminPage.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 15_000 });
+    }
+    await expect(adminPage.getByText(/Día laborable \d+ de \d+/)).toHaveCount(0);
   });
 
   test('Clientes: visit KPIs, overdue and inactive-in-period lists, "Sin frecuencia" instead of overdue', async ({ adminPage }) => {
@@ -211,11 +229,6 @@ test.describe('retired tabs (mocked API)', () => {
 
 // @mssql: needs the migrated + loaded DWH (plan A's migration 0040 applied). Excluded from default CI.
 test.describe('analitica consolidation @mssql', () => {
-  test('Resumen shows the month pace', async ({ adminPage }) => {
-    await adminPage.goto('/analitica');
-    await expect(adminPage.getByText(/Día laborable \d+ de \d+/)).toBeVisible({ timeout: 30_000 });
-  });
-
   test('Clientes shows the group/route filters and the visit KPIs on real data', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=clientes');
     await expect(adminPage.getByRole('textbox', { name: 'Filtrar por grupo' })).toBeVisible({ timeout: 30_000 });
