@@ -129,8 +129,8 @@ show only netas in places; they are wireframes. The built tab shows all three.)
   activity (brutas: invoiced; devoluciones: with a return; neto: with net sales > 0).
 - Weeks Sem 1..5: ISO weeks via `iso-weeks.ts`, clipped to the reference month.
 - Cut-off: Seguimiento runs through yesterday; Resumen keeps its current cut-off.
-  On day 1 of a month Seguimiento shows the previous month (existing
-  `resolveReferenceMonth` behaviour).
+  On day 1 of a month Seguimiento shows the new month with nothing elapsed
+  (existing `resolveReferenceMonth` behaviour, pinned by `reference-month.test.ts`).
 - Grid cells with no goal (activos, precio promedio) are uncoloured; a seller with no
   goal for a coloured KPI shows grey, never red.
 
