@@ -35,116 +35,119 @@ async function loaded(currency: 'bs' | 'usd' = 'usd') {
   await screen.findByRole('heading', { name: 'Seguimiento de ventas' });
   return utils;
 }
+const grid = () => screen.getByRole('table', { name: 'Cuadrícula de seguimiento' });
+async function select(name: string) {
+  await userEvent.click(within(grid()).getByRole('button', { name: new RegExp(`^${name}`) }));
+  return screen.findByRole('region', { name: `Detalle de ${name}` });
+}
 
 describe('TabSeguimiento', () => {
-  test('loads vendedor roots by default, with month pace, KPIs and one card per seller', async () => {
+  test('loads vendedor roots by default: month pace and one grid row per seller, no goal cards', async () => {
     await loaded();
     expect(urls()[0]).toContain('kind=vendedor');
     expect(urls()[0]).toContain('dateRange=30d');
-    expect(screen.getByRole('article', { name: 'Ana' })).toBeTruthy();
-    expect(screen.getByRole('article', { name: 'Beto' })).toBeTruthy();
+    expect(within(grid()).getByRole('button', { name: /^Ana/ })).toBeTruthy();
+    expect(within(grid()).getByRole('button', { name: /^Beto/ })).toBeTruthy();
     expect(screen.getByText(/Día laborable 10 de 22/)).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Ventas brutas' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Unidades vendidas' })).toBeTruthy();
-    // goals and projections live inside their metric's card, not in cards of their own
-    expect(screen.queryByText('Meta de ventas (USD)')).toBeNull();
-    expect(screen.queryByText('Proyección al cierre')).toBeNull();
-    expect(screen.queryByText('Proyección de unidades')).toBeNull();
-    expect(screen.getByText('Visitas vencidas')).toBeTruthy();
-    expect(screen.queryByRole('table')).toBeNull();                      // cards are the default view
+    // the old KPI cards are gone
+    expect(screen.queryByRole('region', { name: 'Ventas brutas' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Unidades vendidas' })).toBeNull();
+    expect(screen.queryByText('Visitas vencidas')).toBeNull();
+    expect(screen.queryByRole('article')).toBeNull();
+    // nothing selected yet: no detail
+    expect(screen.queryByRole('region', { name: /^Detalle de/ })).toBeNull();
   });
 
-  test('each card shows quota bar, projection marker, week strip, mix, new-customers chip and visit badge counts', async () => {
+  test('grid status: Ana projects $154 of $100 (En meta); Beto $18 of $50 (Bajo meta)', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    expect(within(ana).getByRole('img', { name: /Ventas \$70, meta \$100, proyección \$154/ })).toBeTruthy();
-    expect(within(ana).getByTestId('quota-bar-projection')).toBeTruthy();
-    expect(within(ana).getByRole('img', { name: /Activación semanal/ })).toBeTruthy();
-    expect(within(ana).getByRole('img', { name: /Panaderia 86%, Pizza 14%/ })).toBeTruthy();
-    expect(within(ana).getByText('Nuevos 1 / 1')).toBeTruthy();
-    expect(within(ana).getByText(/Precio prom\./)).toBeTruthy();
+    const anaRow = within(grid()).getByRole('button', { name: /^Ana/ }).closest('tr')!;
+    expect(within(anaRow).getAllByTestId('grid-status')[0].textContent).toContain('En meta');
+    expect(within(anaRow).getByText('35 / 100')).toBeTruthy();
+    const betoRow = within(grid()).getByRole('button', { name: /^Beto/ }).closest('tr')!;
+    expect(within(betoRow).getAllByTestId('grid-status')[0].textContent).toContain('Bajo meta');
   });
 
-  test('each card shows units vs the unit goal, with the projection marker, or says there is no unit goal', async () => {
+  test('selecting a seller shows matrix, estimado, categories, new customers and customers; captures the event', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    expect(within(ana).getByRole('img', { name: 'Unidades 35, meta 100, proyección 77' })).toBeTruthy();
-    expect(within(ana).getByTestId('units-bar-target')).toBeTruthy();
-    const beto = screen.getByRole('article', { name: 'Beto' });
-    expect(within(beto).getByText('Sin meta de unidades')).toBeTruthy();
+    const detail = await select('Ana');
+    expect(capture).toHaveBeenCalledWith('seguimiento_root_selected', { kind: 'vendedor' });
+    expect(within(detail).getByRole('table', { name: /semana/i })).toBeTruthy();
+    expect(within(detail).getByRole('region', { name: 'Estimado' })).toBeTruthy();
+    expect(within(detail).getByRole('table', { name: 'Categorías' })).toBeTruthy();
+    expect(within(detail).getByRole('heading', { name: 'Clientes nuevos' })).toBeTruthy();
+    expect(within(detail).getByRole('heading', { name: 'Clientes' })).toBeTruthy();
+    expect(within(detail).getByRole('button', { name: 'Cliente Uno' })).toBeTruthy();
+    expect(within(detail).getAllByRole('img', { name: /Semanas con factura/ }).length).toBe(2);
+    // clicking the selected row again closes the detail
+    await userEvent.click(within(grid()).getByRole('button', { name: /^Ana/ }));
+    expect(screen.queryByRole('region', { name: 'Detalle de Ana' })).toBeNull();
   });
 
-  test('table view lists units, unit goal, attainment and projected units per root', async () => {
+  test('switching the root toggle refetches with the new kind and drops the selection', async () => {
     await loaded();
-    await userEvent.click(screen.getByRole('button', { name: 'Tabla' }));
-    const table = await screen.findByRole('table');
-    for (const name of ['Unidades', 'Meta uds.', 'Avance uds.', 'Proy. uds.']) {
-      expect(within(table).getByRole('columnheader', { name })).toBeTruthy();
-    }
-    const row = within(table).getByRole('button', { name: 'Ana' }).closest('tr')!;
-    expect(within(row).getByText('35.0%')).toBeTruthy();   // 35 of 100 units
-    expect(within(row).getByText('77')).toBeTruthy();       // projected units
-  });
-
-  test('Beto has a goal but no frequency: no overdue count is shown as a number', async () => {
-    await loaded();
-    const beto = screen.getByRole('article', { name: 'Beto' });
-    expect(within(beto).getByText('Nuevos 0 (sin meta)')).toBeTruthy();
-    expect(within(beto).getByText(/Sin frecuencia/)).toBeTruthy();
-  });
-
-  test('switching the root toggle refetches with the new kind', async () => {
-    await loaded();
+    await select('Ana');
     await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
     await waitFor(() => expect(urls().some(u => u.includes('kind=ruta'))).toBe(true));
-    expect(await screen.findByRole('article', { name: 'Ruta 3' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Ver perfil' })).toBeNull();     // profile only for sellers
+    expect(capture).toHaveBeenCalledWith('seguimiento_root_changed', { kind: 'ruta' });
+    expect(await within(grid()).findByRole('button', { name: /^Ruta 3/ })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: /^Detalle de/ })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Grupo de cliente' }));
-    expect(await screen.findByRole('article', { name: 'Abasto' })).toBeTruthy();
+    expect(await within(grid()).findByRole('button', { name: /^Abasto/ })).toBeTruthy();
   });
 
-  test('hierarchy: expand a seller, then a customer to see its invoice lines', async () => {
+  test('selecting a route renders the same detail: matrix and customer list, no seller actions', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
-    expect(within(ana).getByRole('button', { name: /Cliente Uno/ })).toBeTruthy();
-    await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
-    const region = await within(ana).findByRole('region', { name: 'Líneas de factura' });
+    await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
+    await within(grid()).findByRole('button', { name: /^Ruta 3/ });
+    const detail = await select('Ruta 3');
+    expect(within(detail).getByRole('table', { name: /semana/i })).toBeTruthy();
+    expect(within(detail).getByRole('button', { name: 'Cliente Dos' })).toBeTruthy();
+    expect(within(detail).getByRole('button', { name: 'Cliente Uno' })).toBeTruthy();
+    expect(within(detail).queryByRole('button', { name: 'Ver perfil' })).toBeNull();
+    expect(within(detail).queryByRole('button', { name: 'Editar metas' })).toBeNull();
+    const routeRow = within(grid()).getByRole('button', { name: /^Ruta 3/ }).closest('tr')!;
+    expect(within(routeRow).queryByTestId('grid-status')).toBeNull();
+  });
+
+  test('a selected group shows its detail too', async () => {
+    await loaded();
+    await userEvent.click(screen.getByRole('button', { name: 'Grupo de cliente' }));
+    await within(grid()).findByRole('button', { name: /^Abasto/ });
+    const detail = await select('Abasto');
+    expect(within(detail).getByRole('table', { name: /semana/i })).toBeTruthy();
+    expect(within(detail).getByRole('button', { name: 'Cliente Uno' })).toBeTruthy();
+  });
+
+  test('hierarchy: select a seller, then a customer to see its invoice lines', async () => {
+    await loaded();
+    const detail = await select('Ana');
+    await userEvent.click(within(detail).getByRole('button', { name: 'Cliente Uno' }));
+    const region = await within(detail).findByRole('region', { name: 'Líneas de factura' });
     expect(urls().some(u => u.includes('section=lines') && u.includes('customerCode=C1'))).toBe(true);
     expect(within(region).getByText('F000101')).toBeTruthy();
     expect(within(region).getByText('Pizza Familiar')).toBeTruthy();
   });
 
-  test('table view is one click away and lists every root with its numbers', async () => {
-    await loaded();
-    await userEvent.click(screen.getByRole('button', { name: 'Tabla' }));
-    const table = await screen.findByRole('table');
-    expect(within(table).getByText('Ana')).toBeTruthy();
-    expect(within(table).getByRole('columnheader', { name: 'Ventas' })).toBeTruthy();
-    expect(within(table).getByRole('columnheader', { name: 'S41' })).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Tarjetas' }));
-    expect(screen.queryByRole('table')).toBeNull();
-  });
-
   test('"Ver perfil" opens the seller profile with the Seguimiento back label', async () => {
     await loaded();
-    await userEvent.click(within(screen.getByRole('article', { name: 'Ana' })).getByRole('button', { name: 'Ver perfil' }));
+    const detail = await select('Ana');
+    await userEvent.click(within(detail).getByRole('button', { name: 'Ver perfil' }));
     expect(await screen.findByText('Perfil mock 1')).toBeTruthy();
     expect(profileProps.at(-1)).toMatchObject({ salesRepKey: '1', dateRange: '30d', currency: 'usd', backLabel: 'Volver a Seguimiento' });
     await act(async () => { (profileProps.at(-1)!.onBack as () => void)(); });
     expect(await screen.findByRole('heading', { name: 'Seguimiento de ventas' })).toBeTruthy();
   });
 
-  test('inline quota editing sends the FULL row for the response month and refetches without cache', async () => {
+  test('inline quota editing sends the FULL row for the response month, refetches without cache and keeps the selection', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    await userEvent.click(within(ana).getByRole('button', { name: 'Editar metas' }));
+    const detail = await select('Ana');
+    await userEvent.click(within(detail).getByRole('button', { name: 'Editar metas' }));
     fetchMock.mockClear();
-    await userEvent.click(within(ana).getByRole('button', { name: 'Editar meta (100USD)' }));
-    const input = within(ana).getByRole('spinbutton');
+    await userEvent.click(within(detail).getByRole('button', { name: 'Editar meta (100USD)' }));
+    const input = within(detail).getByRole('spinbutton');
     await userEvent.clear(input);
     await userEvent.type(input, '120');
-    await userEvent.click(within(ana).getByRole('button', { name: 'Guardar' }));
+    await userEvent.click(within(detail).getByRole('button', { name: 'Guardar' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/admin/seller-targets')).toBe(true));
     const post = fetchMock.mock.calls.find(c => String(c[0]) === '/api/admin/seller-targets')!;
     expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
@@ -153,6 +156,7 @@ describe('TabSeguimiento', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(c => String(c[0]).includes('/api/dwh/seguimiento')).length).toBeGreaterThan(0));
     const refetch = fetchMock.mock.calls.find(c => String(c[0]).includes('/api/dwh/seguimiento'))!;
     expect((refetch[1] as RequestInit | undefined)?.cache).toBe('no-store');
+    expect(await screen.findByRole('region', { name: 'Detalle de Ana' })).toBeTruthy();
   });
 
   test('consignment footnote lists the excluded invoices of that seller on demand', async () => {
@@ -163,49 +167,27 @@ describe('TabSeguimiento', () => {
     expect(urls().some(u => u.includes('section=excluded') && u.includes('rootValue=2'))).toBe(true);
   });
 
-  test('sales and units share one card anatomy: value, goal bar with projection, consignment notes', async () => {
-    await loaded();
-    const sales = screen.getByRole('region', { name: 'Ventas brutas' });
-    expect(within(sales).getByRole('img', { name: 'Ventas $78, meta $150, proyección $172' })).toBeTruthy();
-    expect(within(sales).getByText('Con consignación: $258')).toBeTruthy();
-    expect(within(sales).getByText('Proyección con consignación: $568')).toBeTruthy();
-    const sold = screen.getByRole('region', { name: 'Unidades vendidas' });
-    expect(within(sold).getByRole('img', { name: 'Unidades 39, meta 100, proyección 86' })).toBeTruthy();
-    expect(within(sold).getByText('Con consignación: 139')).toBeTruthy();
-    expect(within(sold).getByText('Proyección con consignación: 306')).toBeTruthy();   // goal = Ana's 100-unit quota
-  });
-
   test('a response without the units fields (cached before they existed) renders a dash, never NaN', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const res = await defaultFetch(url, init);
       if (!url.includes('/api/dwh/seguimiento') || url.includes('section=')) return res;
       const body = await res.json();
       for (const k of ['projectedUnits', 'projectedUnitsWithConsignment', 'unitsWithConsignment']) delete body.total[k];
+      for (const r of body.roots) delete r.projectedUnits;
       return json(body);
     });
     await loaded();
+    await select('Ana');
     expect(document.body.textContent).not.toContain('NaN');
-    expect(within(screen.getByRole('region', { name: 'Unidades vendidas' })).getByText('Proy. —')).toBeTruthy();
   });
 
-  test('route roots show no goals: sales and projection stay, the card says goals are per seller', async () => {
-    await loaded();
-    await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
-    const card = await screen.findByRole('article', { name: 'Ruta 3' });
-    expect(within(card).getByText(/Las metas se definen por vendedor/)).toBeTruthy();
-    expect(within(card).queryByText(/Meta \$/)).toBeNull();
-    expect(screen.getByRole('region', { name: 'Ventas brutas' })).toBeTruthy();     // the total keeps its goal
-  });
-
-  test('Bs currency shows Bs sales, but every figure compared with the USD goal stays in USD', async () => {
+  test('Bs currency shows Bs amounts, but the goal comparison in Estimado stays in USD', async () => {
     await loaded('bs');
-    expect(screen.getAllByText(/^Bs\. /).length).toBeGreaterThan(0);             // KPI "Ventas brutas"
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    expect(within(ana).getByRole('img', { name: 'Ventas $70, meta $100, proyección $154' })).toBeTruthy();
-    expect(within(ana).getByText('Meta en USD')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Tabla' }));
-    const table = await screen.findByRole('table');
-    expect(within(table).getByRole('columnheader', { name: 'Meta (USD)' })).toBeTruthy();
+    expect(within(grid()).getAllByText(/^Bs\. /).length).toBeGreaterThan(0);
+    const detail = await select('Ana');
+    const est = within(detail).getByRole('region', { name: 'Estimado' });
+    expect(within(est).getByText('$154')).toBeTruthy();
+    expect(within(est).getByText(/meta \$100/)).toBeTruthy();
   });
 
   test('the consignment toggle reports whether its invoice list is open', async () => {
@@ -217,11 +199,11 @@ describe('TabSeguimiento', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('server error shows the message and no cards', async () => {
+  test('server error shows the message and no grid', async () => {
     fetchMock.mockImplementationOnce(async () => json({ error: 'Error al consultar el Data Warehouse' }, false, 500));
     render(<TabSeguimiento dateRange="30d" currency="usd" />);
     expect(await screen.findByText('Error al consultar el Data Warehouse')).toBeTruthy();
-    expect(screen.queryByRole('article')).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 
   test('a month without data shows an empty state, not zeros', async () => {
@@ -243,7 +225,7 @@ const excludedBody = (invoiceNumber: string) => ({
 describe('TabSeguimiento review fixes', () => {
   test('two quota saves back to back (refetch still pending) keep both edits in the second POST', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
+    const ana = await select('Ana');
     await userEvent.click(within(ana).getByRole('button', { name: 'Editar metas' }));
     // From here on the post-save refetch never returns, so the card keeps the pre-save targets.
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -301,24 +283,23 @@ describe('TabSeguimiento review fixes', () => {
     const slow = deferred<Response>();
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
       url.includes('section=lines') && url.includes('dateRange=30d') ? slow.promise : defaultFetch(url, init));
-    let ana = screen.getByRole('article', { name: 'Ana' });
-    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    let ana = await select('Ana');
     await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
 
     rerender(<TabSeguimiento dateRange="month:2026-09" currency="usd" />);
     await waitFor(() => expect(urls().some(u => u.includes('dateRange=month%3A2026-09') && !u.includes('section='))).toBe(true));
     await act(async () => { slow.resolve(json({ lines: FIXTURE_INVOICE_LINES })); });
 
-    ana = await screen.findByRole('article', { name: 'Ana' });
-    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    // the new month's data drops the selection; select Ana again once it is on screen
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Detalle de Ana' })).toBeNull());
+    ana = await select('Ana');
     await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
     await waitFor(() => expect(urls().some(u => u.includes('section=lines') && u.includes('dateRange=month%3A2026-09'))).toBe(true));
   });
 
   test('invoice-lines requests do not send the unused kind param', async () => {
     await loaded();
-    const ana = screen.getByRole('article', { name: 'Ana' });
-    await userEvent.click(within(ana).getByRole('button', { name: 'Ver clientes' }));
+    const ana = await select('Ana');
     await userEvent.click(within(ana).getByRole('button', { name: /Cliente Uno/ }));
     await within(ana).findByRole('region', { name: 'Líneas de factura' });
     const linesUrl = urls().find(u => u.includes('section=lines'))!;
@@ -330,7 +311,7 @@ describe('TabSeguimiento review fixes', () => {
     render(<TabSeguimiento dateRange="30d" currency="usd" />);
     expect(await screen.findByText('Error al consultar el Data Warehouse')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Ruta' }));
-    expect(await screen.findByRole('article', { name: 'Ruta 3' })).toBeTruthy();
+    expect(await within(grid()).findByRole('button', { name: /^Ruta 3/ })).toBeTruthy();
     expect(screen.queryByText('Error al consultar el Data Warehouse')).toBeNull();
   });
 });

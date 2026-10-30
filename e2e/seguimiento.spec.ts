@@ -3,7 +3,7 @@ import { test, expect } from './fixtures';
 import { FIXTURE_INVOICE_LINES, fixtureResponse } from '../__tests__/unit/seguimiento/fixture';
 
 // Default suite (no DWH available): the API is mocked with page.route, so these tests cover the
-// UI behaviour of the Seguimiento tab end to end (toggle, drill-down, table view, quota editing,
+// UI behaviour of the Seguimiento tab end to end (toggle, grid, drill-down, quota editing,
 // error state). Real-data coverage is the @mssql describe at the bottom.
 // /analitica is gated by hasDwhAccess; only the admin role bypasses it, so use adminPage.
 
@@ -31,61 +31,61 @@ async function mockApi(page: Page, opts: { fail?: boolean } = {}) {
   return { seen, posts };
 }
 
+const grid = (page: Page) => page.getByRole('table', { name: 'Cuadrícula de seguimiento' });
+const rootButton = (page: Page, name: string) => grid(page).getByRole('button', { name: new RegExp(`^${name}`) });
+
 test.describe('seguimiento (mocked API)', () => {
-  test('renders seller cards with quota bar, projection marker and week strip; table is hidden', async ({ adminPage }) => {
+  test('renders one grid row per seller with status and absolute units; no detail until a row is selected', async ({ adminPage }) => {
     await mockApi(adminPage);
-    // The page defaults to Bs.; the quota bar label below asserts USD amounts.
+    // The page defaults to Bs.; the amounts below are USD.
     await adminPage.goto('/analitica?tab=seguimiento&currency=usd');
     await expect(adminPage.getByRole('heading', { name: 'Seguimiento de ventas' })).toBeVisible({ timeout: 15_000 });
-    const ana = adminPage.getByRole('article', { name: 'Ana' });
-    await expect(ana).toBeVisible();
-    await expect(ana.getByRole('img', { name: /meta \$100, proyección \$154/ })).toBeVisible();
-    await expect(ana.getByTestId('quota-bar-projection')).toBeVisible();
-    await expect(ana.getByRole('img', { name: /Activación semanal/ })).toBeVisible();
-    await expect(ana.getByText('Nuevos 1 / 1')).toBeVisible();
+    const ana = grid(adminPage).getByRole('row').filter({ has: rootButton(adminPage, 'Ana') });
+    await expect(ana.getByTestId('grid-status').first()).toContainText('En meta');
+    await expect(ana.getByText('35 / 100')).toBeVisible();
     await expect(adminPage.getByText(/Día laborable 10 de 22/)).toBeVisible();
-    await expect(adminPage.locator('table')).toHaveCount(0);
+    await expect(adminPage.getByRole('region', { name: /^Detalle de/ })).toHaveCount(0);
   });
 
   test('root toggle switches to routes and groups', async ({ adminPage }) => {
     const { seen } = await mockApi(adminPage);
     await adminPage.goto('/analitica?tab=seguimiento');
-    await expect(adminPage.getByRole('article', { name: 'Ana' })).toBeVisible({ timeout: 15_000 });
+    await expect(rootButton(adminPage, 'Ana')).toBeVisible({ timeout: 15_000 });
     await adminPage.getByRole('button', { name: 'Ruta', exact: true }).click();
-    await expect(adminPage.getByRole('article', { name: 'Ruta 3' })).toBeVisible();
+    await expect(rootButton(adminPage, 'Ruta 3')).toBeVisible();
     await adminPage.getByRole('button', { name: 'Grupo de cliente' }).click();
-    await expect(adminPage.getByRole('article', { name: 'Abasto' })).toBeVisible();
+    await expect(rootButton(adminPage, 'Abasto')).toBeVisible();
     expect(seen.some(s => s.includes('kind=ruta'))).toBe(true);
     expect(seen.some(s => s.includes('kind=grupo'))).toBe(true);
   });
 
-  test('drill-down: seller -> customer -> invoice lines', async ({ adminPage }) => {
+  test('drill-down: seller -> weekly matrix -> customer -> invoice lines', async ({ adminPage }) => {
     await mockApi(adminPage);
     await adminPage.goto('/analitica?tab=seguimiento');
-    const ana = adminPage.getByRole('article', { name: 'Ana' });
-    await ana.getByRole('button', { name: 'Ver clientes' }).click();
-    await ana.getByRole('button', { name: /Cliente Uno/ }).click();
-    const lines = ana.getByRole('region', { name: 'Líneas de factura' });
+    await rootButton(adminPage, 'Ana').click();
+    const detail = adminPage.getByRole('region', { name: 'Detalle de Ana' });
+    await expect(detail.getByRole('table', { name: 'Real por semana' })).toBeVisible();
+    await detail.getByRole('button', { name: /Cliente Uno/ }).click();
+    const lines = detail.getByRole('region', { name: 'Líneas de factura' });
     await expect(lines.getByText('F000101')).toBeVisible();
     await expect(lines.getByText('Pizza Familiar')).toBeVisible();
   });
 
-  test('table view is one click away and back', async ({ adminPage }) => {
+  test('a route opens the same detail', async ({ adminPage }) => {
     await mockApi(adminPage);
     await adminPage.goto('/analitica?tab=seguimiento');
-    await expect(adminPage.getByRole('article', { name: 'Ana' })).toBeVisible({ timeout: 15_000 });
-    await adminPage.getByRole('button', { name: 'Tabla' }).click();
-    const table = adminPage.locator('table').first();
-    await expect(table.getByRole('columnheader', { name: 'Proyección' })).toBeVisible();
-    await expect(table.getByText('Ana')).toBeVisible();
-    await adminPage.getByRole('button', { name: 'Tarjetas' }).click();
-    await expect(adminPage.locator('table')).toHaveCount(0);
+    await adminPage.getByRole('button', { name: 'Ruta', exact: true }).click();
+    await rootButton(adminPage, 'Ruta 3').click();
+    const detail = adminPage.getByRole('region', { name: 'Detalle de Ruta 3' });
+    await expect(detail.getByRole('table', { name: 'Real por semana' })).toBeVisible();
+    await expect(detail.getByRole('button', { name: 'Cliente Uno' })).toBeVisible();
   });
 
-  test('inline quota editing posts the full three-field row for the response month', async ({ adminPage }) => {
+  test('inline quota editing posts the full row for the response month', async ({ adminPage }) => {
     const { posts } = await mockApi(adminPage);
     await adminPage.goto('/analitica?tab=seguimiento');
-    const ana = adminPage.getByRole('article', { name: 'Ana' });
+    await rootButton(adminPage, 'Ana').click();
+    const ana = adminPage.getByRole('region', { name: 'Detalle de Ana' });
     await ana.getByRole('button', { name: 'Editar metas' }).click();
     await ana.getByRole('button', { name: 'Editar meta (100USD)' }).click();
     await ana.getByRole('spinbutton').fill('120');
@@ -102,11 +102,11 @@ test.describe('seguimiento (mocked API)', () => {
     await expect(adminPage.getByText('F9')).toBeVisible();
   });
 
-  test('a server error shows the message instead of cards', async ({ adminPage }) => {
+  test('a server error shows the message instead of the grid', async ({ adminPage }) => {
     await mockApi(adminPage, { fail: true });
     await adminPage.goto('/analitica?tab=seguimiento');
     await expect(adminPage.getByText('Error al consultar el Data Warehouse')).toBeVisible({ timeout: 15_000 });
-    await expect(adminPage.getByRole('article')).toHaveCount(0);
+    await expect(grid(adminPage)).toHaveCount(0);
   });
 
   test('help panel documents Seguimiento', async ({ adminPage }) => {
@@ -125,17 +125,15 @@ test.describe('seguimiento @mssql', () => {
     await adminPage.goto('/analitica?tab=seguimiento');
     await expect(adminPage.getByRole('heading', { name: 'Seguimiento de ventas' })).toBeVisible({ timeout: 30_000 });
     await expect(adminPage.getByText(/Día laborable \d+ de \d+/)).toBeVisible();
-    await expect(adminPage.getByRole('article').first()).toBeVisible();
+    await expect(grid(adminPage).getByRole('button').first()).toBeVisible();
     await adminPage.getByRole('button', { name: 'Ruta', exact: true }).click();
-    await expect(adminPage.getByRole('article').first()).toBeVisible({ timeout: 30_000 });
-    await adminPage.getByRole('button', { name: 'Tabla' }).click();
-    await expect(adminPage.locator('table').first()).toBeVisible();
+    await expect(grid(adminPage).getByRole('button', { name: /^Ruta/ }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test('a seller can be opened from the tab and returns to Seguimiento', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=seguimiento');
-    await expect(adminPage.getByRole('article').first()).toBeVisible({ timeout: 30_000 });
-    await adminPage.getByRole('button', { name: 'Ver perfil' }).first().click();
+    await grid(adminPage).getByRole('button').first().click({ timeout: 30_000 });
+    await adminPage.getByRole('button', { name: 'Ver perfil' }).click();
     await expect(adminPage.getByText('← Volver a Seguimiento')).toBeVisible();
     await adminPage.getByText('← Volver a Seguimiento').click();
     await expect(adminPage.getByRole('heading', { name: 'Seguimiento de ventas' })).toBeVisible();
