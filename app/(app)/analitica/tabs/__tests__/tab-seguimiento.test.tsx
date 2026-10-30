@@ -335,4 +335,29 @@ describe('TabSeguimiento review fixes', () => {
     expect(await screen.findByText('No se pudo cargar el historial mes a mes')).toBeTruthy();
     expect(within(grid()).getByRole('button', { name: /^Ana/ })).toBeTruthy();
   });
+
+  test('while history is pending it reads "Cargando historial…", never a "Sin datos" flash', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('section=history')) return new Promise<Response>(() => {});
+      return defaultFetch(url);
+    });
+    await loaded();
+    expect(screen.getByText('Cargando historial…')).toBeTruthy();
+    expect(screen.queryByText('Sin datos')).toBeNull();
+  });
+
+  test('the history title names the selected root, Total otherwise', async () => {
+    await loaded();
+    expect(await screen.findByRole('heading', { name: 'Mes a mes · Total' })).toBeTruthy();
+    await select('Ana');
+    expect(await screen.findByRole('heading', { name: /^Mes a mes · Ana/ })).toBeTruthy();
+  });
+
+  test('Clientes nuevos shows net sales', async () => {
+    await loaded();
+    const detail = await select('Ana');
+    const heading = within(detail).getByRole('heading', { name: 'Clientes nuevos' });
+    const table = heading.parentElement!.querySelector('table')!;
+    expect(within(table).getByRole('columnheader', { name: 'Ventas netas' })).toBeTruthy();
+  });
 });

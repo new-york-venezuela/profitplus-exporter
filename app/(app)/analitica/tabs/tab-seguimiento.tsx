@@ -65,7 +65,8 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   // Bumped whenever the main load starts; a drill-down response from an older generation
   // (previous kind / date range / reload) is dropped instead of written into fresh state.
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
-  const [history, setHistory] = useState<HistoryState>({ loading: false, error: null, points: [] });
+  // Starts loading: the history request only begins after the main load, and an idle state would flash "Sin datos".
+  const [history, setHistory] = useState<HistoryState>({ loading: true, error: null, points: [] });
   const generationRef = useRef(0);
   // Only the latest excluded-invoices request may write its result.
   const excludedRequestRef = useRef(0);
@@ -294,7 +295,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
           <WeeklyMatrix root={root} headers={data.weeks} currency={currency} />
           <div>
             <h4 className="text-xs font-semibold uppercase text-gray-500 mb-1">Clientes nuevos</h4>
-            <NewCustomersTable customers={root.customers} currency={currency} monthLabel={monthLabel(data.month)} />
+            <NewCustomersTable customers={root.customers} currency={currency} monthLabel={monthLabel(data.month)} amount="net" />
           </div>
           <div>
             <h4 className="text-xs font-semibold uppercase text-gray-500 mb-1">Clientes</h4>
@@ -321,6 +322,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
           currency={currency}
           endMonth={data.month}
           partialMonth={data.asOf < data.monthEnd ? data.month : ''}
+          scopeLabel={root?.label ?? 'Total'}
         />
       )}
     </div>

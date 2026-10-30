@@ -6,8 +6,9 @@ import { units } from './fmt';
 
 // New = registered inside the month and not part of the migration batch (same rule as the "Nuevos clientes" card,
 // carried by SeguimientoCustomer.isNew), so this list always adds up to the card's count.
-export function NewCustomersTable({ customers, currency, monthLabel }: {
-  customers: SeguimientoCustomer[]; currency: Currency; monthLabel: string;
+// `amount`: Seguimiento shows net sales (brutas - devoluciones); the seller profile keeps brutas (the default).
+export function NewCustomersTable({ customers, currency, monthLabel, amount = 'sales' }: {
+  customers: SeguimientoCustomer[]; currency: Currency; monthLabel: string; amount?: 'sales' | 'net';
 }) {
   const rows = customers.filter(c => c.isNew).sort((a, b) => (a.registeredDate ?? '').localeCompare(b.registeredDate ?? ''));
   if (rows.length === 0) return <div className="text-sm text-gray-400 py-2">Sin clientes nuevos en {monthLabel}.</div>;
@@ -19,8 +20,8 @@ export function NewCustomersTable({ customers, currency, monthLabel }: {
           <th className="pr-4 py-1">Registro</th>
           <th className="pr-4 py-1">Ruta</th>
           <th className="pr-4 py-1">Frecuencia</th>
-          <th className="text-right pr-4 py-1">Ventas</th>
-          <th className="text-right pr-4 py-1">Unidades</th>
+          <th className="text-right pr-4 py-1">{amount === 'net' ? 'Ventas netas' : 'Ventas'}</th>
+          <th className="text-right pr-4 py-1">{amount === 'net' ? 'Unidades netas' : 'Unidades'}</th>
           <th className="py-1">Última factura</th>
         </tr>
       </thead>
@@ -31,8 +32,8 @@ export function NewCustomersTable({ customers, currency, monthLabel }: {
             <td className="pr-4 py-1">{c.registeredDate ?? '—'}</td>
             <td className="pr-4 py-1">{c.routeLabel ?? '—'}</td>
             <td className="pr-4 py-1">{frequencyLabel(c.visit.intervalDays)}</td>
-            <td className="text-right pr-4 py-1">{moneyLabel(c.sales, currency)}</td>
-            <td className="text-right pr-4 py-1">{units(c.units)}</td>
+            <td className="text-right pr-4 py-1">{moneyLabel(amount === 'net' ? c.net : c.sales, currency)}</td>
+            <td className="text-right pr-4 py-1">{units(amount === 'net' ? c.units - c.returnUnits : c.units)}</td>
             <td className="py-1">{c.lastInvoiceDate ?? 'Sin compras'}</td>
           </tr>
         ))}

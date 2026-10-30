@@ -64,7 +64,27 @@ describe('buildHistoryRows', () => {
   });
 });
 
+describe('partial month change', () => {
+  test('the partial month has no month-over-month change (a partial month is not comparable)', () => {
+    const rows = buildHistoryRows([pt('2026-09', 100, 10), pt('2026-10', 50, 5)], '2026-10', 'usd', '2026-10');
+    expect(rows[11].change).toBeNull();
+    expect(rows[11].unitsChange).toBeNull();
+    const closed = buildHistoryRows([pt('2026-09', 100, 10), pt('2026-10', 50, 5)], '2026-10', 'usd', '');
+    expect(closed[11].change).toBeCloseTo(-0.5);
+  });
+});
+
 describe('HistoryChart', () => {
+  test('the title names the scope', () => {
+    render(<HistoryChart points={[pt('2026-10', 120, 12)]} currency="usd" partialMonth="" scopeLabel="Ana Pérez" />);
+    expect(screen.getByRole('heading', { name: 'Mes a mes · Ana Pérez' })).toBeTruthy();
+  });
+
+  test('the scope defaults to Total', () => {
+    render(<HistoryChart points={[pt('2026-10', 120, 12)]} currency="usd" partialMonth="" />);
+    expect(screen.getByRole('heading', { name: 'Mes a mes · Total' })).toBeTruthy();
+  });
+
   test('empty points renders Sin datos', () => {
     render(<HistoryChart points={[]} currency="usd" partialMonth="2026-10" />);
     expect(screen.getByText('Sin datos')).toBeTruthy();

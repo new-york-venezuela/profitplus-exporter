@@ -22,7 +22,7 @@ export interface HistoryRow {
   units: number | null;
   returnUnits: number | null;
   netUnits: number | null;
-  /** Gross change vs the previous calendar month; null when there is no usable previous month. */
+  /** Gross change vs the previous calendar month; null when there is no usable previous month or this month is partial. */
   change: number | null;
   unitsChange: number | null;
   partial: boolean;
@@ -74,6 +74,8 @@ export function buildHistoryRows(points: HistoryPoint[], endMonth: string, curre
     };
   });
   for (let i = 1; i < rows.length; i++) {
+    // A partial month against a full one would always read as a drop: no change for it.
+    if (rows[i].partial) continue;
     rows[i].change = changeOf(rows[i].gross, rows[i - 1].gross);
     rows[i].unitsChange = changeOf(rows[i].units, rows[i - 1].units);
   }
@@ -92,20 +94,23 @@ function HistoryTooltip({ active, payload, currency }: { active?: boolean; paylo
       <p>Brutas: {cur(r.gross, currency)} · {r.units === null ? '—' : `${unitsLabel(r.units)} u.`}</p>
       <p>Devoluciones: {cur(r.returns, currency)} · {r.returnUnits === null ? '—' : `${unitsLabel(r.returnUnits)} u.`}</p>
       <p>Neta: {cur(r.net, currency)} · {r.netUnits === null ? '—' : `${unitsLabel(r.netUnits)} u.`}</p>
-      <p>Cambio vs mes anterior: {pctChange(r.change)} (ventas) · {pctChange(r.unitsChange)} (unidades)</p>
+      {r.partial
+        ? <p>Cambio vs mes anterior: — (mes parcial)</p>
+        : <p>Cambio vs mes anterior: {pctChange(r.change)} (ventas) · {pctChange(r.unitsChange)} (unidades)</p>}
     </div>
   );
 }
 
-export function HistoryChart({ points, currency, partialMonth, endMonth }: {
-  points: HistoryPoint[]; currency: Currency; partialMonth: string; endMonth?: string;
+// `scopeLabel`: the selected root's label, or Total when none is selected.
+export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLabel = 'Total' }: {
+  points: HistoryPoint[]; currency: Currency; partialMonth: string; endMonth?: string; scopeLabel?: string;
 }) {
   const end = endMonth || partialMonth || points.map(p => p.month).sort().at(-1) || '';
   const rows = points.length === 0 || !end ? [] : buildHistoryRows(points, end, currency, partialMonth);
   const currencyName = currency === 'usd' ? 'USD' : 'Bs.';
   return (
     <section aria-label="Historial mes a mes" className="bg-white border border-gray-200 rounded-lg p-4 w-full">
-      <h3 className="text-sm font-bold text-gray-900">Mes a mes</h3>
+      <h3 className="text-sm font-bold text-gray-900">Mes a mes · {scopeLabel}</h3>
       <p className="text-xs text-gray-500 mb-2">
         Últimos 12 meses, ventas brutas sin IVA (antes de devoluciones). Un mes sin datos queda vacío.
         {partialMonth && <> {monthLabel(partialMonth)} es parcial.</>}
