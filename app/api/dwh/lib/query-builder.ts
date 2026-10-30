@@ -263,6 +263,12 @@ export function rangeStartDateKey(dateRange: string, today: Date = new Date()): 
   return dateKey(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - back)));
 }
 
+// The calendar day before a YYYYMMDD key (rolls over month/year boundaries).
+export function previousDayKey(key: number): number {
+  const s = String(key);
+  return dateKey(new Date(Date.UTC(parseInt(s.slice(0, 4)), parseInt(s.slice(4, 6)) - 1, parseInt(s.slice(6, 8)) - 1)));
+}
+
 export function buildDateWhereClause(
   dateRange: string,
   tableName: string = 'f',

@@ -5,9 +5,12 @@ type Row = Record<string, unknown>;
 let snapshotKeys: Array<number | null> = [];
 let openingBalance: Row = { OpeningBs: 500, OpeningUsd: 5 };
 const queries: string[] = [];
+const boundInputs: Array<{ sql: string; inputs: Record<string, unknown> }> = [];
+let authResult: { ok: true; session: unknown } | { ok: false; response: Response } = { ok: true, session: { sub: 'u', role: 'admin' } };
 
 function recordsetFor(sql: string, inputs: Record<string, unknown>): Row[] {
   queries.push(sql);
+  boundInputs.push({ sql, inputs: { ...inputs } });
   if (sql.includes('MAX(SnapshotDateKey)')) {
     const isOpening = 'openingEndKey' in inputs;
     return [{ SnapshotDateKey: isOpening ? snapshotKeys[1] : snapshotKeys[0] }];
@@ -24,7 +27,7 @@ function recordsetFor(sql: string, inputs: Record<string, unknown>): Row[] {
 }
 
 mock.module('@/lib/dwh/access', () => ({
-  requireDwhAccess: async () => ({ ok: true, session: { sub: 'u', role: 'admin' } }),
+  requireDwhAccess: async () => authResult,
 }));
 mock.module('@/lib/db/dwh-mssql', () => ({
   getDwhPool: async () => ({
@@ -46,9 +49,23 @@ mock.module('@/app/api/dwh/lib/consignment', () => ({
 const { GET } = await import('../route');
 
 describe('GET /api/dwh/resumen', () => {
+  test('rejects unauthenticated requests with 401', async () => {
+    authResult = { ok: false, response: Response.json({ error: 'No autorizado' }, { status: 401 }) };
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen'));
+    expect(res.status).toBe(401);
+  });
+
+  test('rejects users without dwh access with 403', async () => {
+    authResult = { ok: false, response: Response.json({ error: 'Prohibido' }, { status: 403 }) };
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen'));
+    expect(res.status).toBe(403);
+  });
+
   beforeEach(() => {
     queries.length = 0;
-    snapshotKeys = [20261030, 20261001];
+    boundInputs.length = 0;
+    authResult = { ok: true, session: { sub: 'u', role: 'admin' } };
+    snapshotKeys = [20261030, 20260930];
     openingBalance = { OpeningBs: 500, OpeningUsd: 5 };
   });
 
@@ -64,6 +81,11 @@ describe('GET /api/dwh/resumen', () => {
     expect(kpis.billed).toEqual(kpis.salesGross);
     expect(kpis.billed).toEqual({ bs: 1000, usd: 100 });
     expect(kpis.receivableOpening).toEqual({ bs: 500, usd: 5 });
+    // opening snapshot is looked up on/before the day before the range starts
+    const lookup = boundInputs.find(b => 'openingEndKey' in b.inputs)!;
+    expect(lookup.inputs.openingEndKey).toBe(20260930);
+    const balance = boundInputs.find(b => b.sql.includes('AS OpeningBs'))!;
+    expect(balance.inputs.openingSnapshotKey).toBe(20260930);
   });
 
   test('receivableOpening is null when no snapshot exists before the range', async () => {
@@ -77,5 +99,7 @@ describe('GET /api/dwh/resumen', () => {
     await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
     const q = queries.find(s => s.includes('AS CustomersTotal'))!;
     expect(q).toContain('NOT IN');
+    const bound = boundInputs.find(b => b.sql === q)!;
+    expect(bound.inputs.root0).toBe('ROOT1');
   });
 });

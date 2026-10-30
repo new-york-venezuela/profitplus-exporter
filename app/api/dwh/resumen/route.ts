@@ -5,7 +5,7 @@ import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
   buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, jsonWithCache,
-  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey, rangeStartDateKey,
+  usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey, rangeStartDateKey, previousDayKey,
 } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual, sumDual } from '@/app/(app)/analitica/lib/net-sales';
 import type {
@@ -272,10 +272,6 @@ function toDateKey(d: Date): number {
 function dateKeyToDate(key: number): Date {
   const s = String(key);
   return new Date(Date.UTC(parseInt(s.slice(0, 4)), parseInt(s.slice(4, 6)) - 1, parseInt(s.slice(6, 8))));
-}
-
-function previousDayKey(key: number): number {
-  return toDateKey(new Date(dateKeyToDate(key).getTime() - 86_400_000));
 }
 
 function buildPrevPeriodDateWhereClause(dateRange: string, tableName: string): string | null {
