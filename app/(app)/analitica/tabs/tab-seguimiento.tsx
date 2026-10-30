@@ -121,8 +121,8 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   useEffect(() => {
     if (!historyReady || historyMonth === null) return;
     let cancelled = false;
-    setHistory(prev => ({ ...prev, loading: true, error: null }));
     (async () => {
+      setHistory(prev => ({ ...prev, loading: true, error: null }));
       try {
         const params = new URLSearchParams({ section: 'history', kind, dateRange });
         if (selected !== null) params.set('rootValue', selected);
