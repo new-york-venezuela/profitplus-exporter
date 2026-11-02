@@ -161,6 +161,26 @@ describe('planWorkbook', () => {
     }), inScope);
     expect(parsed.errors).toEqual([]);
     const plan = await planWorkbook(deps, parsed, TODAY);
+    // list B starts on NEW_DESDE: a discount on it cannot be cloned today
+    expect(plan.problems).toEqual([
+      `Descuentos por cliente: cliente C1: la lista nueva «Cadenas» (B) empieza el ${NEW_DESDE}; los descuentos requieren una lista vigente hoy (${TODAY})`,
+    ]);
+    expect(plan.discounts.errors).toHaveLength(1);
+    expect(plan.discounts.sets).toHaveLength(1);
+    expect([...plan.discounts.sets[0].overrides]).toEqual([['A1', 10.8], ['A2', 24]]);
+  });
+
+  test('a discount on a new list that starts today plans clean', async () => {
+    const d = makeDeps();
+    const deps: WorkbookDeps = { rates: d.rates.erp, segments: d.seg.erp, db: d.db };
+    const parsed = parseWorkbook(book({
+      Listas: [LISTAS[0], LISTAS[1], ['B', 'Cadenas', 'USD', TODAY, 'si']],
+      Promociones: [PROMOS[0], ['Oferta', 'B', NEW_DESDE, '2026-12-01', '', 'A1', 9, '']],
+      Clientes: withTarget('Cadenas'),
+      'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, ''], ['C1', 'A2', 24, TODAY, '']],
+    }), inScope);
+    expect(parsed.errors).toEqual([]);
+    const plan = await planWorkbook(deps, parsed, TODAY);
     expect(plan.problems).toEqual([]);
     expect(plan.lists.lists).toMatchObject([{ key: 'B', existingCoPrecio: null, changes: [{ coArt: 'A1', monto: 12 }, { coArt: 'A2', monto: 25 }] }]);
     expect(plan.promos.promos).toMatchObject([{ name: 'Oferta', target: { kind: 'pending', key: 'B' }, items: [{ coArt: 'A1', monto: 9, regular: 12 }] }]);

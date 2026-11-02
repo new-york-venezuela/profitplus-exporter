@@ -79,6 +79,10 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
       prices = new Map(parsed.cells.filter(c => c.key === key).map(c => [c.coArt, c.monto]));
       const def = parsed.lists.find(l => norm(l.key) === norm(key));
       types.set(coCli, { coPrecio: `@${key}`, desPrecio: def?.nombre ?? key });
+      // The special list is cloned from the type list as of today: a new list starting later has no price today.
+      if (def && def.desde > today) {
+        errors.set(coCli, `cliente ${coCli}: la lista nueva «${def.nombre}» (${def.key}) empieza el ${def.desde}; los descuentos requieren una lista vigente hoy (${today})`);
+      }
     } else {
       let coPrecio: string | null;
       if (target) coPrecio = coPrecioOfTarget(target);
@@ -98,7 +102,7 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
     prices: (coCli: string) => resolved.get(coCli) ?? null,
     typeOf: (coCli: string) => types.get(coCli) ?? null,
     types,
-    /** Customer-specific reasons that replace compileDiscounts' generic «no se pudo determinar su lista de tipo». */
+    /** Customer-specific plan problems (they replace compileDiscounts' generic «no se pudo determinar su lista de tipo»). */
     errors,
     lists,
   };
