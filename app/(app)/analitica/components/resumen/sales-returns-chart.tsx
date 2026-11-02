@@ -8,6 +8,7 @@ import { bucketLabels, bucketTitle } from '../../lib/granularity';
 import type { BucketMode } from '../../lib/granularity';
 import { money, moneyTooltip } from '../../lib/format';
 import { returnRate } from '../../lib/net-sales';
+import { BAR_Z_INDEX, haloLineProps, trendLineProps } from '../../lib/line-halo';
 import { SectionTitle } from './stat-card';
 
 export const HATCH_ID = 'returns-hatch';
@@ -96,9 +97,10 @@ export function SalesReturnsChart({ rows, trendMode, currency }: { rows: Monthly
               <YAxis yAxisId="amt" tick={{ fontSize: 12 }} tickFormatter={v => money({ bs: v, usd: v }, currency)} />
               <YAxis yAxisId="rate" orientation="right" tick={{ fontSize: 12 }} tickFormatter={v => `${(v * 100).toFixed(0)}%`} />
               <Tooltip content={<ChartTooltip currency={currency} />} />
-              <Bar yAxisId="amt" dataKey="net" name="Ventas netas" stackId="s" fill="#2563eb" />
-              <Bar yAxisId="amt" dataKey="returns" name="Devoluciones" stackId="s" fill={`url(#${HATCH_ID})`} stroke="#b91c1c" />
-              <Line yAxisId="rate" type="monotone" dataKey="rate" name="Tasa de devolución" stroke="#111827" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3 }} connectNulls={false} />
+              <Bar yAxisId="amt" dataKey="net" name="Ventas netas" stackId="s" fill="#2563eb" zIndex={BAR_Z_INDEX} />
+              <Bar yAxisId="amt" dataKey="returns" name="Devoluciones" stackId="s" fill={`url(#${HATCH_ID})`} stroke="#b91c1c" zIndex={BAR_Z_INDEX} />
+              <Line yAxisId="rate" dataKey="rate" name="Tasa de devolución" {...haloLineProps()} />
+              <Line yAxisId="rate" dataKey="rate" name="Tasa de devolución" {...trendLineProps()} />
             </ComposedChart>
           </ResponsiveContainer>
         </>
