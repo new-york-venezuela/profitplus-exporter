@@ -157,8 +157,8 @@ describe('stacked segments per month', () => {
     const { container } = render(<HistoryChart points={points} currency="usd" partialMonth="" />);
     const legend = screen.getByRole('list', { name: /Leyenda/ });
     const items = Array.from(legend.querySelectorAll('li')).map(li => li.textContent?.trim());
-    // Legend order = the 12-month ranking (Bs total, ties by name), not one month's stack order.
-    expect(items).toEqual(['Pan', 'Pizza', 'Torta', 'Navidad', 'Otros', 'Unidades brutas (eje der.)']);
+    // Legend order = the 12-month ranking (12-month USD total; a line without USD, Torta, ranks last), not one month's stack order.
+    expect(items).toEqual(['Pan', 'Pizza', 'Navidad', 'Torta', 'Otros', 'Unidades brutas (eje der.)']);
     const fills = Array.from(legend.querySelectorAll('li svg > rect')).map(r => r.getAttribute('fill'));
     expect(fills.slice(0, 5).every(f => f?.startsWith('url(#'))).toBe(true);
     expect(new Set(fills.slice(0, 5)).size).toBe(5);
@@ -169,10 +169,10 @@ describe('stacked segments per month', () => {
     render(<HistoryChart points={points} currency="usd" partialMonth="" />);
     const table = screen.getByRole('table', { name: /por categoría/ });
     const headers = Array.from(table.querySelectorAll('th[scope="col"]')).map(th => th.textContent);
-    expect(headers).toEqual(['Mes', 'Pan', 'Pizza', 'Torta', 'Navidad', 'Otros', 'Ventas brutas', 'Unidades brutas']);
+    expect(headers).toEqual(['Mes', 'Pan', 'Pizza', 'Navidad', 'Torta', 'Otros', 'Ventas brutas', 'Unidades brutas']);
     const octRow = Array.from(table.querySelectorAll('tbody tr')).at(-1)!;
     const cells = Array.from(octRow.querySelectorAll('td')).map(td => td.textContent);
-    expect(cells[2]).toBe('—'); // Torta, USD null
+    expect(cells[3]).toBe('—'); // Torta, USD null
     expect(cells[4]).toBe('—'); // no Otros this month
     const sepRow = Array.from(table.querySelectorAll('tbody tr'))[10];
     expect(Array.from(sepRow.querySelectorAll('td')).every(td => td.textContent === '—')).toBe(true);
