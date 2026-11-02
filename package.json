@@ -34,6 +34,7 @@
     "mapping:apply": "bun --bun run scripts/mapping-apply.ts",
     "pricing:import-lists": "bun --bun run scripts/pricing-lists-import.ts",
     "pricing:export-xlsx": "bun --bun run scripts/pricing-export-xlsx.ts",
+    "pricing:import-xlsx": "bun --bun run scripts/pricing-import-xlsx.ts",
     "pricing:import-promotions": "bun --bun run scripts/pricing-promotions-import.ts",
     "tipo-cliente:apply": "bun --bun run scripts/tipo-cliente-apply.ts",
     "tipo-cliente:export": "bun --bun run scripts/tipo-cliente-export.ts",
