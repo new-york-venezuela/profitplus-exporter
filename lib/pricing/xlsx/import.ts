@@ -3,8 +3,9 @@ import type { ImportPlan } from '@/lib/pricing/list-import/plan';
 import { planImport } from '@/lib/pricing/list-import/run';
 import { planPromoImport, type CheckedPromoPlan } from '@/lib/pricing/promo-import/run';
 import { planTipoCliente } from '@/lib/pricing/tipo-cliente-apply/run';
+import { regularRowsAsOf } from '@/lib/pricing/promotions-service';
 import type { TipoClientePlan } from '@/lib/pricing/tipo-cliente-apply/plan';
-import { currentOf, type RatesErp } from '@/lib/pricing/lists-service';
+import type { RatesErp } from '@/lib/pricing/lists-service';
 import type { SegmentErp } from '@/lib/pricing/segments-service';
 import { compileDiscounts, type DiscountSet } from '@/lib/pricing/xlsx/discounts';
 import {
@@ -49,10 +50,8 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
     const k = `${coPrecio}|${asOf}`;
     let m = rateCache.get(k);
     if (!m) {
-      m = new Map();
-      for (const r of await deps.rates.readListRates(coPrecio)) {
-        if (currentOf([r], asOf)) m.set(r.coArt.trim(), r.monto);
-      }
+      // Regular prices: a tracked overlay promotion live today is not the base of a `-N%` discount.
+      m = new Map((await regularRowsAsOf(deps, coPrecio, asOf)).map(r => [r.coArt.trim(), r.monto]));
       rateCache.set(k, m);
     }
     return m;

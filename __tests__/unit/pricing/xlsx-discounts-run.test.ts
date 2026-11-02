@@ -7,6 +7,7 @@ import { makeMemoryDb } from '../../helpers/memory-db';
 import { makeFakeRatesErp } from '../../helpers/fake-rates-erp';
 import { makeFakeSegmentErp } from '../../helpers/fake-segment-erp';
 import { getSegmentMeta, upsertSegmentMeta } from '@/lib/pricing/segments-repo';
+import { insertItems, insertPromotion, updateItem } from '@/lib/pricing/promotions-repo';
 import { pricingListMeta, pricingSegmentMeta } from '@/lib/db/schema';
 import type { SegmentMoveResult } from '@/lib/pricing/segments-service';
 import type { DiscountSet } from '@/lib/pricing/xlsx/discounts';
@@ -503,5 +504,33 @@ describe('fix round 1', () => {
       const out = await applyDiscountSets(withDb(s, failingInserts(s.db, [pricingSegmentMeta])), [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
       expect(out[0].customers[0]).toEqual({ coCli: 'C1', outcome: 'error', message: 'Segmento creado en Profit pero sin metadatos; avise a un administrador' });
     } finally { err.mockRestore(); }
+  });
+});
+
+// ---------- final-review fix wave ----------
+
+/** A1 in list 08 is under a live, app-tracked overlay promotion (8 from 2026-11-01 to 2026-11-15; regular 10 around it). */
+function trackedPromoOnA1(s: ReturnType<typeof setup>) {
+  const a1 = s.rates.state.rates.find(r => r.coPrecio === '08' && r.coArt === 'A1')!;
+  a1.hasta = '2026-10-31';
+  s.rates.state.rates.push(rate('A1', '08', 8, '2026-11-01', '2026-11-15'), rate('A1', '08', 10, '2026-11-16'));
+  const id = insertPromotion(s.db, {
+    name: 'Oferta pan', reason: null, kind: 'overlay', coPrecio: '08', baseCoPrecio: null, tipCli: null,
+    startsOn: '2026-11-01', endsOn: '2026-11-15', cancelledAt: null, createdBy: 'x', createdAt: 0,
+  });
+  insertItems(s.db, id, [{ coArt: 'A1', promoMonto: 8 }]);
+  updateItem(s.db, id, 'A1', { coAlma: '000015', regularMonto: 10, applied: true, appliedFrom: '2026-11-01', appliedTo: '2026-11-15' });
+}
+
+describe('final-review fix wave', () => {
+  test('C1. a percent discount on an article under a tracked promotion is computed from the regular price', async () => {
+    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, ''], ['C1', 'A2', 15, TODAY, '']] });
+    trackedPromoOnA1(s);
+    const p = await planWorkbook(s.wdeps, s.parsed, TODAY);
+    expect(p.problems).toEqual([]);
+    expect([...p.discounts.sets[0].overrides]).toEqual([['A1', 9], ['A2', 15]]);
+    await applyWorkbook(s.wdeps, p, s.parsed, 'discounts', ACTOR, runFile());
+    const special = s.rates.state.lists.find(l => l.desPrecio.startsWith('Desc '))!;
+    expect(s.rates.state.rates.filter(r => r.coPrecio === special.coPrecio).map(r => [r.coArt, r.monto]).sort()).toEqual([['A1', 9], ['A2', 15]]);
   });
 });

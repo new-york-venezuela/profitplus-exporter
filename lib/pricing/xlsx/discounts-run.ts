@@ -1,7 +1,7 @@
 import type { AppDb } from '@/lib/geo/routes-repo';
 import { todayIso } from '@/lib/pricing/dates';
 import { cloneList, currentOf, type ListsDeps, type RatesErp } from '@/lib/pricing/lists-service';
-import { segmentCloneRows } from '@/lib/pricing/promotions-service';
+import { regularRowsAsOf } from '@/lib/pricing/promotions-service';
 import { getSegmentMetaMap } from '@/lib/pricing/segments-repo';
 import {
   assignCustomers, createSegment, patchSegment, type Actor, type SegmentErp, type ServiceDeps,
@@ -210,7 +210,7 @@ export type TypeOf = (coCli: string) => Promise<{ coPrecio: string; tipCli: stri
 
 /** The type list's rows covering `desde` (overlay promo rows replaced by the regular price, as segment promotions do), overrides applied. */
 async function specialRows(deps: { lists: ListsDeps }, typeCoPrecio: string, desde: string, overrides: Map<string, number>) {
-  const rows = await segmentCloneRows({ rates: deps.lists.erp, db: deps.lists.db }, typeCoPrecio, desde);
+  const rows = await regularRowsAsOf({ rates: deps.lists.erp, db: deps.lists.db }, typeCoPrecio, desde);
   for (const [coArt, monto] of overrides) {
     const hit = rows.filter(r => norm(r.coArt) === norm(coArt));
     if (!hit.length) throw new Error(`el artículo ${coArt} no tiene precio vigente en la lista ${typeCoPrecio} al ${desde}`);

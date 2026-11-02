@@ -343,7 +343,7 @@ export async function previewPromotion(
   const ctx = await makeCtx(deps, coPrecio, list.coMone);
   // A segment promotion is planned against the price its cloned list will start with (one open row from today).
   const clone = input.kind === 'segment'
-    ? new Map((await segmentCloneRows(deps, coPrecio, ctx.t)).map(r => [r.coArt, r]))
+    ? new Map((await regularRowsAsOf(deps, coPrecio, ctx.t)).map(r => [r.coArt, r]))
     : null;
   const names = new Map((await deps.rates.listArticles({ limit: 5000 })).map(a => [a.coArt, a.artDes]));
   const rows: PreviewRow[] = [];
@@ -365,11 +365,12 @@ export async function previewPromotion(
 // ---------- segment machinery ----------
 
 /**
- * Rows the segment promotion's list is cloned with, all starting today: each article/warehouse covered today in the
- * base list keeps today's price, except when today's row is an app-tracked overlay promo row, which is replaced by
- * the regular price that follows it. Base-list changes scheduled after today are not copied (the clone is a snapshot).
+ * The list's REGULAR price per article/warehouse as of `t`: the row covering `t`, except when it is an app-tracked
+ * overlay promo row, which is replaced by the regular price that follows it. Rows scheduled after `t` are ignored.
+ * Segment promotions clone their list from these rows; the xlsx discounts both clone from them and compute their
+ * `-N%` prices against them (one rule, so a live promotion never leaks into a discount base).
  */
-export async function segmentCloneRows(deps: Pick<PromotionsDeps, 'rates' | 'db'>, baseCoPrecio: string, t: string): Promise<CloneRow[]> {
+export async function regularRowsAsOf(deps: Pick<PromotionsDeps, 'rates' | 'db'>, baseCoPrecio: string, t: string): Promise<CloneRow[]> {
   const groups = new Map<string, RateRow[]>();
   for (const r of await deps.rates.readListRates(baseCoPrecio)) {
     const k = `${r.coArt}\u0000${r.coAlma}`;
@@ -490,7 +491,7 @@ async function prepareTarget(deps: PromotionsDeps, input: CreatePromotionInput, 
   const customers = await resolveCustomers(deps, input.customerCodes);
   const promoList = await cloneList(listsDeps(deps), {
     mode: 'clone', sourceCoPrecio: input.baseCoPrecio, desPrecio: `PROMO ${input.name}`.slice(0, 60),
-    percent: null, effectiveFrom: t, rows: await segmentCloneRows(deps, input.baseCoPrecio, t),
+    percent: null, effectiveFrom: t, rows: await regularRowsAsOf(deps, input.baseCoPrecio, t),
   }, actor);
   return { coPrecio: promoList.coPrecio, baseCoPrecio: input.baseCoPrecio, customers, warning: promoList.warning };
 }
