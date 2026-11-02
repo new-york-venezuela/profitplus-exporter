@@ -95,6 +95,27 @@ describe('parseWorkbook', () => {
     expect(parseWorkbook(Buffer.from('not a workbook'), inScope).errors.length).toBeGreaterThan(0);
   });
 
+  test('Precios: an empty price cell yields no cell for that list (not 0); a 0 price is a parse error', () => {
+    const empty = parseWorkbook(book({ Precios: [PRECIOS[0], PRECIOS[1], ['A2', 'Torta', 'Pasteleria', 'Fresco', 20, '']] }), inScope);
+    expect(empty.errors).toEqual([]);
+    expect(empty.cells.map(c => [c.coArt, c.monto])).toEqual([['A1', 12]]);
+    const zero = parseWorkbook(book({ Precios: [PRECIOS[0], ['A1', 'Pan', 'Panaderia', 'Fresco', 10, 0]] }), inScope);
+    expect(zero.errors.join('\n')).toContain('la hoja Precios');
+    expect(zero.errors.join('\n')).toContain('precio fuera de rango');
+    expect(zero.cells).toEqual([]);
+  });
+
+  test('a new list in Listas with no price column in Precios is an error, not silent success', () => {
+    const p = parseWorkbook(book({ Precios: PRECIOS.map(r => r.slice(0, 5)) }), inScope);
+    expect(p.errors.join('\n')).toContain('falta la columna de la lista «B»');
+  });
+
+  test('a user-typed L:@Foo is rejected with a clear error, never treated as a new-list reference', () => {
+    const p = parseWorkbook(book({ Clientes: withTarget('L:@Foo') }), inScope);
+    expect(p.errors.join('\n')).toContain('«L:@» está reservado');
+    expect(p.errors.join('\n')).toContain('C1');
+  });
+
   test('malformed values are reported with the sheet name', () => {
     const p = parseWorkbook(book({ Precios: [PRECIOS[0], ['A1', '', '', '', '', '12,5']] }), inScope);
     expect(p.errors.join('\n')).toContain('la hoja Precios');
@@ -172,6 +193,39 @@ describe('planWorkbook', () => {
     const parsed = parseWorkbook(book({ Clientes: withTarget('NOPE') }), inScope);
     const plan = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parsed, TODAY);
     expect(plan.problems.join('\n')).toContain('no es un segmento ni una lista');
+  });
+
+  test('a typed L:@Foo does not null out customers as if it were a new list', async () => {
+    const d = makeDeps();
+    const parsed = parseWorkbook(book({ Clientes: withTarget('L:@Foo') }), inScope);
+    const plan = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parsed, TODAY);
+    expect(plan.customers).toBeNull();
+    expect(plan.warnings.join('\n')).not.toContain('listas nuevas');
+    expect(plan.problems.join('\n')).toContain('está reservado');
+  });
+
+  test('a discount for an article the type list does not price is a problem naming the co_art', async () => {
+    const d = makeDeps();
+    const scope3 = [...inScope, { coArt: 'A3', artDes: 'Pie', line: 'Pasteleria', category: 'Fresco' }];
+    const parsed = parseWorkbook(book({ 'Descuentos por cliente': [...DESC, ['C2', 'A3', 5, NEW_DESDE, '']] }), scope3);
+    expect(parsed.errors).toEqual([]);
+    const plan = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parsed, TODAY);
+    expect(plan.discounts.sets).toEqual([]);
+    expect(plan.problems.join('\n')).toMatch(/A3 no tiene precio en su lista de tipo/);
+  });
+
+  test('a customer with discounts and no resolvable type list is a problem', async () => {
+    const d = makeDeps();
+    const nope = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parseWorkbook(book({
+      Clientes: withTarget('NOPE'), 'Descuentos por cliente': [...DESC, ['C1', 'A1', 5, NEW_DESDE, '']],
+    }), inScope), TODAY);
+    expect(nope.discounts.errors.join('\n')).toContain('cliente C1: no se pudo determinar su lista de tipo');
+    expect(nope.problems.join('\n')).toContain('Descuentos por cliente: cliente C1');
+
+    const ghost = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parseWorkbook(book({
+      'Descuentos por cliente': [...DESC, ['C9', 'A1', 5, NEW_DESDE, '']],
+    }), inScope), TODAY);
+    expect(ghost.problems.join('\n')).toContain('cliente C9: no se pudo determinar su lista de tipo');
   });
 
   test('parse errors short-circuit: problems carry the errors and no section is planned', async () => {

@@ -118,6 +118,11 @@ export function parseWorkbook(buf: Buffer, inScope: ScopedArticle[]): ParsedWork
     errors.push(...p.errors.map(e => `Clientes: ${e}`));
     const newLists = new Map<string, string>();
     for (const l of out.lists) { newLists.set(norm(l.key), l.key); newLists.set(norm(l.nombre), l.key); }
+    for (const r of p.rows) {
+      if (r.target.toUpperCase().startsWith(NEW_LIST_SENTINEL)) {
+        errors.push(`Clientes: línea ${r.line} (${r.coCli}): «${r.target}» no es válido; «${NEW_LIST_SENTINEL}» está reservado. Escriba el nombre o la clave de la lista nueva de «Listas»`);
+      }
+    }
     out.customers = p.rows.map(r => {
       const key = newLists.get(norm(r.target));
       return key ? { ...r, target: `${NEW_LIST_SENTINEL}${key}` } : r;
