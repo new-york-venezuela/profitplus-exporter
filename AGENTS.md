@@ -371,7 +371,7 @@ codes are excluded via `app/api/dwh/lib/consignment.ts` and listed separately. `
 customer is never overdue ("Sin frecuencia"). The month-to-month chart (`section=history`, `fetchHistory`) stacks
 each month's brutas by product line: `HistoryPoint.byLine` (sales grouped by month x `Dim_Product.LineName`; the
 month's `sales`/`units` are the sum of its lines, returns stay month-level). Pure shaping in
-`lib/seguimiento/history-stack.ts`: visible lines = `chooseVisibleLines` over the 12 months (top 6 by Bs, null/blank
+`lib/seguimiento/history-stack.ts`: visible lines = `historyCategories` over the 12 months (top 6 by 12-month USD total, each invoice converted at its own date's rate, independent of the currency toggle; lines with no USD rank last by Bs; the Categorías block keeps `chooseVisibleLines`, ranked by Bs; null/blank
 line -> "Otros"); per month biggest at the base, ties by name, "Otros" always on top. Recharts stacks in a fixed
 series order, so `history-chart.tsx` uses positional slots with a per-month `Cell` fill; each category has a colour
 plus a texture pattern, and an sr-only table carries the values (null USD = "—", never 0).

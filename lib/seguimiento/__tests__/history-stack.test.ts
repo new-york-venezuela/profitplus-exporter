@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { OTHER_LINE_LABEL } from '../category-mix';
+import { chooseVisibleLines, OTHER_LINE_LABEL } from '../category-mix';
 import { historyCategories, stackMonth, sumHistoryLines, type HistoryLine } from '../history-stack';
 import type { HistoryPoint } from '../types';
 
@@ -31,6 +31,39 @@ describe('historyCategories', () => {
   });
   test('points without byLine (older cached responses) give no categories', () => {
     expect(historyCategories([{ month: '2026-10', sales: { bs: 1, usd: 1 }, units: 1, returns: { bs: 0, usd: 0 }, returnUnits: 0 }])).toEqual([]);
+  });
+});
+
+describe('historyCategories ranks by 12-month USD, not Bs', () => {
+  // A: huge in Bs (recent months, high rate) but small in USD; B: the opposite.
+  const pts = [
+    point('2026-01', [ln('B', 100, 1000), ln('A', 10, 100)]),
+    point('2026-10', [ln('B', 100, 1000), ln('A', 20, 9000)]),
+  ];
+  test('the Bs ranking and the USD ranking disagree; the visible set follows USD', () => {
+    const rows = pts.flatMap(p => p.byLine ?? []);
+    expect(chooseVisibleLines(rows, 1)).toEqual(['A']);
+    expect(historyCategories(pts, 1)).toEqual(['B']);
+    expect(historyCategories(pts)).toEqual(['B', 'A']);
+  });
+  test('with 7 lines the one that is last in USD (but first in Bs) drops to Otros', () => {
+    const lines = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((n, i) => ln(n, 100 - i, n === 'G' ? 1e6 : 100));
+    expect(historyCategories([point('2026-10', lines)])).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+  });
+  test('lines with USD in no row rank after every line with USD, ordered by Bs; ties by name', () => {
+    const p = point('2026-10', [ln('N1', null, 900), ln('N2', null, 800), ln('U', 1, 1), ln('Zeta', 5, 5), ln('Alfa', 5, 5)]);
+    expect(historyCategories([p])).toEqual(['Alfa', 'Zeta', 'U', 'N1', 'N2']);
+  });
+  test('a null USD month does not zero out a line that has USD in other months', () => {
+    const p1 = point('2026-09', [ln('X', null, 9999)]);
+    const p2 = point('2026-10', [ln('X', 3, 150), ln('Y', 2, 100)]);
+    expect(historyCategories([p1, p2])).toEqual(['X', 'Y']);
+  });
+  test('the set is independent of the currency toggle; stackMonth order follows the chosen currency', () => {
+    const visible = historyCategories(pts);
+    const month = pts[1].byLine!;
+    expect(stackMonth(month, visible, 'usd').map(s => s.category)).toEqual(['B', 'A']);
+    expect(stackMonth(month, visible, 'bs').map(s => s.category)).toEqual(['A', 'B']);
   });
 });
 

@@ -1,6 +1,6 @@
 // Pure shaping for the Seguimiento month-to-month chart's stacked bars (one segment per product
 // line = Dim_Product.LineName, the Categorías block's notion of "categoría"). No I/O.
-import { chooseVisibleLines, OTHER_LINE_LABEL, type Dual } from './category-mix';
+import { DEFAULT_MAX_VISIBLE_LINES, OTHER_LINE_LABEL, type Dual } from './category-mix';
 import type { HistoryPoint } from './types';
 
 export interface HistoryLine { line: string | null; sales: Dual; units: number }
@@ -24,12 +24,36 @@ export function sumHistoryLines(lines: readonly HistoryLine[]): { sales: Dual; u
 }
 
 /**
- * The lines that get their own segment: chooseVisibleLines over the 12 months' rows, i.e. the same
- * rule as the Categorías block (top DEFAULT_MAX_VISIBLE_LINES = 6 by Bs total, ties by name; null or
- * blank line names are never visible and fall into "Otros").
+ * The lines that get their own segment: the top DEFAULT_MAX_VISIBLE_LINES = 6 by their 12-month USD
+ * total (each month's USD is already converted per invoice at that invoice date's rate by the SQL, so
+ * recent months do not dominate through the Bs/USD rate). Always USD, whatever the chart's currency, so
+ * toggling to Bs never changes the set. A line with no USD in any row ranks after every line with USD,
+ * ordered by Bs total; ties by name. Null or blank line names are never visible and fall into "Otros".
+ * (The Categorías block keeps its own Bs ranking via chooseVisibleLines.)
  */
-export function historyCategories(points: readonly HistoryPoint[]): string[] {
-  return chooseVisibleLines(points.flatMap(p => p.byLine ?? []));
+export function historyCategories(points: readonly HistoryPoint[], max: number = DEFAULT_MAX_VISIBLE_LINES): string[] {
+  const totals = new Map<string, { bs: number; usd: number | null }>();
+  for (const l of points.flatMap(p => p.byLine ?? [])) {
+    const name = l.line?.trim();
+    if (!name || !(l.sales.bs > 0)) continue;
+    const acc = totals.get(name) ?? { bs: 0, usd: null };
+    acc.bs += l.sales.bs;
+    if (l.sales.usd !== null) acc.usd = (acc.usd ?? 0) + l.sales.usd;
+    totals.set(name, acc);
+  }
+  return [...totals]
+    .sort(([na, a], [nb, b]) => {
+      if (a.usd !== null && b.usd !== null) {
+        if (a.usd !== b.usd) return b.usd - a.usd;
+      } else if (a.usd !== b.usd) {
+        return a.usd === null ? 1 : -1;
+      } else if (a.bs !== b.bs) {
+        return b.bs - a.bs;
+      }
+      return na.localeCompare(nb);
+    })
+    .slice(0, max)
+    .map(([name]) => name);
 }
 
 /**
