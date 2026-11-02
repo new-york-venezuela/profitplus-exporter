@@ -208,6 +208,16 @@ describe('planWorkbook', () => {
     expect([...plan.discounts.sets[0].overrides]).toEqual([['A2', 10]]);
   });
 
+  test('a plain target equal to an existing list NAME is rejected by Clientes and prices no discount', async () => {
+    const d = makeDeps();
+    const parsed = parseWorkbook(book({ Clientes: withTarget('INDEPENDIENTES'), 'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, '']] }), inScope);
+    expect(parsed.errors).toEqual([]);
+    const plan = await planWorkbook({ rates: d.rates.erp, segments: d.seg.erp, db: d.db }, parsed, TODAY);
+    expect(plan.problems.join('\n')).toContain('«INDEPENDIENTES» no es un segmento ni una lista');
+    expect(plan.discounts.errors).toContain('cliente C1: no se pudo determinar su lista de tipo');
+    expect(plan.discounts.sets).toEqual([]);
+  });
+
   test('an unknown customer target is a customers problem, not a throw', async () => {
     const d = makeDeps();
     const parsed = parseWorkbook(book({ Clientes: withTarget('NOPE') }), inScope);

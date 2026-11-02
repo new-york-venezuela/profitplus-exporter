@@ -57,13 +57,16 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
     return m;
   };
 
-  /** Mirrors planTipoCliente's reading of tip_cli_nuevo: `L:` forces a list; a bare value is a segment, else a list code or name. */
+  /**
+   * Mirrors planTipoCliente's resolveTarget for tip_cli_nuevo: `L:` forces a list; a bare value is a segment code,
+   * else a list code. A list NAME is not accepted (Clientes rejects it), so no discount is priced from one.
+   */
   const coPrecioOfTarget = (raw: string): string | null => {
     const forced = /^L:/i.test(raw);
     const value = (forced ? raw.slice(2) : raw).trim();
     const seg = forced ? undefined : segments.find(s => norm(s.tipCli) === norm(value));
     if (seg) return seg.coPrecio;
-    return (lists.find(l => norm(l.coPrecio) === norm(value)) ?? lists.find(l => norm(l.desPrecio) === norm(value)))?.coPrecio ?? null;
+    return lists.find(l => norm(l.coPrecio) === norm(value))?.coPrecio ?? null;
   };
 
   const resolved = new Map<string, Map<string, number> | null>();
