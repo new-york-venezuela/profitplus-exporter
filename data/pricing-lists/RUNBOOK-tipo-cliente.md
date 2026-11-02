@@ -12,7 +12,7 @@ Alcance de artículos: solo productos terminados, líneas **Panadería, Pasteler
 
 - Todo comando escribe solo con `--apply --confirm-db <DB_NAME>`. Sin eso es simulación.
 - Ejecutar siempre desde la raíz del repo (los scripts leen `.env.local` del directorio actual).
-- Profit **no permite borrar listas, tarifas, promociones ni descuentos** desde la app. La reversa de precios es volver a cargar el archivo «antes» (paso 1).
+- Profit **no permite borrar listas, tarifas, promociones ni descuentos** desde la app. El archivo «antes» (paso 1) es un registro para **leer** qué precios había, no un mecanismo de restauración: ver «Reversa».
 - Una lista nueva no afecta a ningún cliente hasta que se le asigna (`tip_cli`). Cargar precios es seguro; **mover clientes (paso 7) es lo que cambia lo que se factura**.
 - Si el plan tiene algún problema, el comando no escribe nada.
 
@@ -30,7 +30,7 @@ Alcance de artículos: solo productos terminados, líneas **Panadería, Pasteler
 bun run pricing:export-xlsx            # escribe data/pricing-lists/precios-actuales.xlsx (no sobrescribe; --out <ruta> para otra)
 ```
 
-Guarda una copia fuera del repo con fecha (`precios-ANTES-AAAA-MM-DD.xlsx`). **Es la reversa de precios.**
+Guarda una copia fuera del repo con fecha (`precios-ANTES-AAAA-MM-DD.xlsx`). **Es un registro para consultar** qué precios había; volver a cargarlo no los restaura (el importador solo lee columnas de precio de listas marcadas `nueva` = `SI`).
 
 El libro trae: `Listas`, `Precios` (68 artículos, precio actual por lista), `Promociones` (activas y programadas, con `estado`), `Descuentos por cliente`, `Clientes` (segmento y lista actuales).
 
@@ -89,7 +89,7 @@ Debe ir **después** del paso 4: una promoción necesita un precio regular vigen
 bun run pricing:import-xlsx -- --file <ruta.xlsx> --step customers --apply --confirm-db <DB_NAME>
 ```
 
-Hacerlo en horario sin facturación o con la fecha `desde` futura. Anota el `runId` que imprime (la corrida queda en `data/tipo-cliente/runs/<runId>.jsonl`). Con este paso solo, las listas nuevas se buscan por `nombre` en Profit: si hay dos con el mismo nombre falla.
+Hacerlo en horario sin facturación o con la fecha `desde` futura. Anota el `runId` que imprime (para revertir este paso, hágalo antes del paso 8) (la corrida queda en `data/tipo-cliente/runs/<runId>.jsonl`). Con este paso solo, las listas nuevas se buscan por `nombre` en Profit: si hay dos con el mismo nombre falla.
 
 ## Paso 8. Aplicar descuentos por cliente
 
@@ -110,9 +110,9 @@ Va **después** del paso 7: el segmento de descuento con fecha vuelve al segment
 
 | Qué | Cómo |
 |---|---|
-| Clientes mal asignados (paso 7) | `bun run tipo-cliente:apply -- --rollback <runId> --confirm-db <DB_NAME>` (único paso con reversa automática) |
-| Precio incorrecto | Corregir el libro y volver a cargar con `desde` de hoy o posterior (el precio anterior queda cerrado, no se borra) |
-| Volver a los precios de antes | Cargar `precios-ANTES-…xlsx` con `desde` de hoy o posterior |
+| Clientes mal asignados (paso 7) | `bun run tipo-cliente:apply -- --rollback <runId> --confirm-db <DB_NAME>` (único paso con reversa automática). **Hágalo ANTES de aplicar los descuentos (paso 8)**: la reversa omite a los clientes movidos desde entonces, así que los que ya pasaron a un segmento de descuento se omiten y hay que devolverlos a mano en la pestaña **Segmentos** |
+| Precio incorrecto | Corregirlo a mano en la pestaña **Listas** de la app (con `desde` de hoy; el precio anterior queda cerrado, no se borra), o volver a ejecutar la importación con la lista `nueva` corregida (solo vale para listas creadas desde ese mismo libro: se reutilizan por nombre y los precios iguales se omiten) |
+| Volver a los precios de antes | No se restauran desde `precios-ANTES-…xlsx`: léalo para saber qué precio había y corrija cada uno a mano en la pestaña **Listas** (`desde` de hoy) |
 | Promoción incorrecta | Cancelar o cambiar el fin en la pestaña **Promociones** |
 | Descuento incorrecto | No hay reversa automática: mover el cliente a su segmento del tipo en la pestaña **Segmentos** y volver a cargar el libro corregido |
 | Listas y segmentos creados | No se borran; sin clientes asignados no tienen efecto |
