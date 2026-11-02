@@ -5,10 +5,12 @@ import { applyPromoImport, planPromoImport } from '@/lib/pricing/promo-import/ru
 import type { Actor } from '@/lib/pricing/segments-service';
 import { applyTipoCliente, planTipoCliente } from '@/lib/pricing/tipo-cliente-apply/run';
 import type { TipoClienteRow } from '@/lib/pricing/tipo-cliente-apply/csv';
+import type { TipoClientePlan } from '@/lib/pricing/tipo-cliente-apply/plan';
 import { NEW_LIST_SENTINEL, type ParsedWorkbook } from '@/lib/pricing/xlsx/parse-workbook';
 import type { WorkbookDeps, WorkbookPlan } from '@/lib/pricing/xlsx/import';
+import { applyDiscountSets, loadTypeContext, resolveCustomerType } from '@/lib/pricing/xlsx/discounts-run';
 
-export type StepName = 'lists' | 'promotions' | 'customers';
+export type StepName = 'lists' | 'promotions' | 'customers' | 'discounts';
 export type Step = StepName | 'all';
 /** The three module deps (ListsDeps, PromotionsDeps, TipoClienteDeps) are all satisfied by rates + segments + db. */
 export type WorkbookApplyDeps = WorkbookDeps & { today: string };
@@ -23,7 +25,8 @@ export interface StepOutcome {
   moved?: number;
 }
 
-export const STEP_ORDER: StepName[] = ['lists', 'promotions', 'customers'];
+/** Discounts run last: a dated discount's special segment falls back to the type segment the customers step assigns. */
+export const STEP_ORDER: StepName[] = ['lists', 'promotions', 'customers', 'discounts'];
 
 const norm = (s: string) => s.trim().toUpperCase();
 
@@ -114,10 +117,12 @@ async function runCustomers(
 
   const plan = await planTipoCliente(deps, rows);
   if (plan.problems.length) return fail(plan.problems.map(p => `✗ ${p}`));
+  const keptOnDiscount = await dropMovesOffDiscount(deps, plan, parsed);
 
   mkdirSync(dirname(runFile), { recursive: true });
   const r = await applyTipoCliente(deps, plan, actor, runFile);
   const lines = r.createdSegments.map(s => `Segmento ${s.tipCli} creado para la lista ${s.coPrecio}`);
+  if (keptOnDiscount) lines.push(`${keptOnDiscount} cliente(s) con descuento ya tienen ese tipo; siguen en su segmento de descuento`);
   const ok = r.moves.filter(m => m.outcome === 'success').length;
   lines.push(`Movidos: ${ok} de ${r.moves.length}`);
   const bad = r.moves.filter(m => m.outcome !== 'success');
@@ -126,7 +131,52 @@ async function runCustomers(
 }
 
 /**
- * Applies the workbook in the fixed order lists → promotions → customers. `all` stops at the first step that reports
+ * A discounted customer whose discount segment (from an earlier run) already unwraps to the target type is not moved
+ * back to the type segment: the discounts step would only move it onto the discount segment again. Returns how many.
+ */
+async function dropMovesOffDiscount(deps: WorkbookApplyDeps, plan: TipoClientePlan, parsed: ParsedWorkbook): Promise<number> {
+  const discounted = new Set(parsed.discounts.map(d => norm(d.coCli)));
+  if (!plan.moves.some(m => discounted.has(norm(m.coCli)))) return 0;
+  const ctx = await loadTypeContext(deps);
+  const before = plan.moves.length;
+  const kept: TipoClientePlan['moves'] = [];
+  for (const m of plan.moves) {
+    const type = discounted.has(norm(m.coCli)) && m.toTipCli ? resolveCustomerType(ctx, m.fromTipCli) : null;
+    if (type && norm(type.tipCli) === norm(m.toTipCli!) && norm(m.fromTipCli) !== norm(type.tipCli)) continue;
+    kept.push(m);
+  }
+  plan.moves = kept;
+  plan.unchanged += before - kept.length;
+  return before - kept.length;
+}
+
+async function runDiscounts(deps: WorkbookApplyDeps, plan: WorkbookPlan, actor: Actor): Promise<StepOutcome> {
+  if (!plan.discounts.sets.length) return { step: 'discounts', status: 'ok', lines: ['Sin descuentos por cliente.'], failures: 0 };
+  // Resolved live, after the customers step: the customer's current segment, seen through any earlier discount segment.
+  const ctx = await loadTypeContext(deps);
+  const typeOf = async (coCli: string) => {
+    const c = await deps.segments.getCustomer(coCli);
+    return c ? resolveCustomerType(ctx, c.tipCli) : null;
+  };
+  const done = await applyDiscountSets(
+    { lists: { erp: deps.rates, db: deps.db }, segments: { erp: deps.segments, db: deps.db } }, plan.discounts.sets, typeOf, actor,
+  );
+  const lines: string[] = [];
+  let failures = 0;
+  for (const o of done) {
+    const ok = o.customers.filter(c => c.outcome === 'success').length;
+    const where = o.coPrecio ? `lista especial ${o.coPrecio}${o.reusedList ? ' (ya existía)' : ' (creada)'}` : 'sin lista especial';
+    lines.push(`${o.key} → ${where}: ${ok} de ${o.customers.length} clientes asignados`);
+    for (const c of o.customers.filter(x => x.outcome !== 'success')) {
+      failures++;
+      lines.push(`  ✗ ${c.coCli}: ${c.outcome}${c.message ? ` — ${c.message}` : ''}`);
+    }
+  }
+  return { step: 'discounts', status: failures ? 'failed' : 'ok', lines, failures };
+}
+
+/**
+ * Applies the workbook in the fixed order lists → promotions → customers → discounts. `all` stops at the first step that reports
  * failures and reports the rest as skipped. Plan problems block everything (nothing is written).
  */
 export async function applyWorkbook(
@@ -148,8 +198,10 @@ export async function applyWorkbook(
         createdLists = r.done;
       } else if (s === 'promotions') {
         out = await runPromotions(deps, plan, parsed, actor);
-      } else {
+      } else if (s === 'customers') {
         out = await runCustomers(deps, parsed, actor, runFile, createdLists);
+      } else {
+        out = await runDiscounts(deps, plan, actor);
       }
     } catch (e) {
       // Keep the summary of earlier steps: a throw becomes a failed outcome instead of escaping.

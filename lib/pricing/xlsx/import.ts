@@ -7,6 +7,10 @@ import type { TipoClientePlan } from '@/lib/pricing/tipo-cliente-apply/plan';
 import { currentOf, type RatesErp } from '@/lib/pricing/lists-service';
 import type { SegmentErp } from '@/lib/pricing/segments-service';
 import { compileDiscounts, type DiscountSet } from '@/lib/pricing/xlsx/discounts';
+import {
+  describeDiscountSets, discountDateIssues, groupDiscountTargets, loadTypeContext, pricesAsOf, resolveCustomerType,
+  staleSpecialLists, type StaleCheck,
+} from '@/lib/pricing/xlsx/discounts-run';
 import { NEW_LIST_SENTINEL, relabel, type ParsedWorkbook } from '@/lib/pricing/xlsx/parse-workbook';
 
 export { parseWorkbook, type ParsedWorkbook } from '@/lib/pricing/xlsx/parse-workbook';
@@ -18,7 +22,8 @@ export interface WorkbookPlan {
   promos: CheckedPromoPlan;
   /** null while any customer targets a list that does not exist in Profit yet (see `warnings`). */
   customers: TipoClientePlan | null;
-  discounts: { sets: DiscountSet[]; errors: string[] };
+  /** `lines`: one dry-run line per special list; `stale`: existing special lists that no longer match their type list. */
+  discounts: { sets: DiscountSet[]; errors: string[]; lines: string[]; stale: string[] };
   warnings: string[];
   problems: string[];
 }
@@ -26,9 +31,13 @@ export interface WorkbookPlan {
 const norm = (s: string) => s.trim().toUpperCase();
 const relabelAll = (xs: string[]) => xs.map(relabel);
 
-/** Type-list price maps for compileDiscounts, resolved ahead of time because compileDiscounts is synchronous. */
-async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, today: string) {
-  const [segments, lists] = await Promise.all([deps.segments.listSegments(), deps.rates.listLists()]);
+/**
+ * Each discounted customer's type list (and its prices) for compileDiscounts, resolved ahead of time because
+ * compileDiscounts is synchronous. The type is the Clientes target when there is one, else the customer's live
+ * segment seen through any discount segment of a previous run (resolveCustomerType).
+ */
+async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook) {
+  const [segments, lists, typeCtx] = await Promise.all([deps.segments.listSegments(), deps.rates.listLists(), loadTypeContext(deps)]);
   const targetOf = new Map(parsed.customers.map(c => [norm(c.coCli), c.target]));
   const rateCache = new Map<string, Map<string, number>>();
 
@@ -55,6 +64,7 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
   };
 
   const resolved = new Map<string, Map<string, number> | null>();
+  const types = new Map<string, { coPrecio: string; desPrecio: string }>();
   for (const coCli of new Set(parsed.discounts.map(d => d.coCli))) {
     const asOf = parsed.discounts.find(d => d.coCli === coCli)!.desde;
     const target = targetOf.get(norm(coCli)) ?? '';
@@ -62,13 +72,47 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, toda
     if (target.startsWith(NEW_LIST_SENTINEL)) {
       const key = target.slice(NEW_LIST_SENTINEL.length);
       prices = new Map(parsed.cells.filter(c => c.key === key).map(c => [c.coArt, c.monto]));
+      const def = parsed.lists.find(l => norm(l.key) === norm(key));
+      types.set(coCli, { coPrecio: `@${key}`, desPrecio: def?.nombre ?? key });
     } else {
-      const coPrecio = target ? coPrecioOfTarget(target) : (await deps.rates.getCustomerPriceList(coCli))?.coPrecio?.trim() ?? null;
+      let coPrecio: string | null;
+      if (target) coPrecio = coPrecioOfTarget(target);
+      else {
+        const cur = await deps.segments.getCustomer(coCli);
+        coPrecio = cur ? resolveCustomerType(typeCtx, cur.tipCli)?.coPrecio ?? null : null;
+      }
+      const list = coPrecio ? lists.find(l => norm(l.coPrecio) === norm(coPrecio!)) : undefined;
       if (coPrecio) prices = new Map(await listPrices(coPrecio, asOf));
+      if (list) types.set(coCli, { coPrecio: list.coPrecio.trim(), desPrecio: list.desPrecio.trim() });
     }
     resolved.set(coCli, prices);
   }
-  return (coCli: string) => resolved.get(coCli) ?? null;
+  return {
+    prices: (coCli: string) => resolved.get(coCli) ?? null,
+    typeOf: (coCli: string) => types.get(coCli) ?? null,
+    lists,
+  };
+}
+
+/** Dry-run lines per special list, and a notice for each existing special list that drifted from its type list. */
+async function describeDiscounts(
+  deps: WorkbookDeps, sets: DiscountSet[], r: Awaited<ReturnType<typeof typeListResolver>>, today: string,
+): Promise<{ lines: string[]; stale: string[] }> {
+  const lines = describeDiscountSets(sets, r.lists.map(l => l.desPrecio), r.typeOf);
+  const checks: StaleCheck[] = [];
+  for (const t of groupDiscountTargets(sets, r.typeOf).targets) {
+    if (t.type.coPrecio.startsWith('@')) continue; // type list not created yet
+    const same = r.lists.filter(l => norm(l.desPrecio) === norm(t.name));
+    if (same.length !== 1) continue;
+    const desde = t.customers[0].desde;
+    const asOf = desde > today ? desde : today;
+    checks.push({
+      name: t.name, typeName: t.type.desPrecio, overridden: t.set.overrides.keys(),
+      special: await pricesAsOf(deps.rates, same[0].coPrecio.trim(), asOf),
+      type: await pricesAsOf(deps.rates, t.type.coPrecio, asOf),
+    });
+  }
+  return { lines, stale: staleSpecialLists(checks) };
 }
 
 /** Dry-run plan of the whole workbook. Reads from Profit and SQLite only; never writes. */
@@ -77,7 +121,7 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
     lists: { lists: [], problems: [] },
     promos: { promos: [], problems: [], warnings: [] },
     customers: null,
-    discounts: { sets: [], errors: [] },
+    discounts: { sets: [], errors: [], lines: [], stale: [] },
     warnings: [],
     problems: [...parsed.errors],
   };
@@ -109,9 +153,18 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
     customers = await planTipoCliente(deps, parsed.customers);
   }
 
-  const discounts = parsed.discounts.length
-    ? compileDiscounts(parsed.discounts, await typeListResolver(deps, parsed, today))
-    : empty.discounts;
+  let discounts = empty.discounts;
+  if (parsed.discounts.length) {
+    const resolver = await typeListResolver(deps, parsed);
+    const compiled = compileDiscounts(parsed.discounts, resolver.prices);
+    const dates = discountDateIssues(compiled.sets, today);
+    warnings.push(...dates.warnings);
+    discounts = {
+      sets: compiled.sets,
+      errors: [...compiled.errors, ...dates.errors],
+      ...(await describeDiscounts(deps, compiled.sets, resolver, today)),
+    };
+  }
 
   const plan: WorkbookPlan = {
     lists: { ...lists, problems: relabelAll(lists.problems) },

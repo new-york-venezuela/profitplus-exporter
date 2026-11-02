@@ -369,7 +369,7 @@ export async function previewPromotion(
  * base list keeps today's price, except when today's row is an app-tracked overlay promo row, which is replaced by
  * the regular price that follows it. Base-list changes scheduled after today are not copied (the clone is a snapshot).
  */
-async function segmentCloneRows(deps: PromotionsDeps, baseCoPrecio: string, t: string): Promise<CloneRow[]> {
+export async function segmentCloneRows(deps: Pick<PromotionsDeps, 'rates' | 'db'>, baseCoPrecio: string, t: string): Promise<CloneRow[]> {
   const groups = new Map<string, RateRow[]>();
   for (const r of await deps.rates.readListRates(baseCoPrecio)) {
     const k = `${r.coArt}\u0000${r.coAlma}`;

@@ -18,7 +18,7 @@ type Step = (typeof STEPS)[number];
 const USAGE = `Uso:
   bun run pricing:import-xlsx -- --file <ruta.xlsx>   # simulación (por defecto)
   --step lists|promotions|customers|discounts|all     # por defecto all: en orden, se detiene en el primer paso con problemas
-  --apply --confirm-db <DB_NAME>                      # escribe en Profit (lists, promotions, customers; all = en ese orden)
+  --apply --confirm-db <DB_NAME>                      # escribe en Profit (all = lists, promotions, customers, discounts en ese orden)
   Para revertir los movimientos de clientes: bun run tipo-cliente:apply -- --rollback <runId> --confirm-db <DB_NAME>`;
 const RUNS_DIR = 'data/tipo-cliente/runs';
 
@@ -67,10 +67,9 @@ async function printStep(step: Step, plan: WorkbookPlan, deps: Deps): Promise<st
     for (const [k, n] of [...byTarget].sort()) console.log(`  → ${k}: ${n} clientes`);
     return c.problems;
   }
-  console.log(`\n== Descuentos por cliente (${plan.discounts.sets.length} listas especiales) ==`);
-  for (const s of plan.discounts.sets) {
-    for (const c of s.customers) console.log(`  ${c.coCli} → lista especial ${s.key} (${s.overrides.size} artículos distintos)`);
-  }
+  console.log(`\n== Descuentos por cliente (${plan.discounts.lines.length} listas especiales) ==`);
+  for (const l of plan.discounts.lines) console.log(`  ${l}`);
+  for (const w of plan.discounts.stale) console.log(`  ⚠ ${w}`);
   return plan.discounts.errors.map(e => `Descuentos por cliente: ${e}`);
 }
 
@@ -86,7 +85,6 @@ async function main() {
   const step = values.step ?? 'all';
   if (step !== 'all' && !(STEPS as readonly string[]).includes(step)) { console.error(`--step inválido: ${step}\n${USAGE}`); process.exit(2); }
 
-  if (values.apply && step === 'discounts') { console.error('el paso discounts aún no está implementado'); process.exit(2); }
   if (values.apply) assertConfirmedDb(values['confirm-db'], process.env.DB_NAME);
 
   let buf: Buffer;

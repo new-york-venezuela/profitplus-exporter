@@ -96,7 +96,7 @@ describe('resolveListSentinels', () => {
 });
 
 describe('applyWorkbook', () => {
-  test('all: lists → promotions → customers in order; promos and customers resolve to the new list', async () => {
+  test('all: lists → promotions → customers → discounts in order; promos and customers resolve to the new list', async () => {
     const s = await prepare({
       Promociones: [PROMO_HEAD, ['Oferta', 'B', NEW_DESDE, '2026-12-01', '', 'A1', 9, '']],
       Clientes: cli('Cadenas', ''),
@@ -104,7 +104,7 @@ describe('applyWorkbook', () => {
     expect(s.plan.problems).toEqual([]);
     const file = runFile();
     const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, file);
-    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'ok']]);
+    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'ok'], ['discounts', 'ok']]);
 
     const first = (n: string) => s.calls.indexOf(n);
     const last = (n: string) => s.calls.lastIndexOf(n);
@@ -151,7 +151,7 @@ describe('applyWorkbook', () => {
     const s = await prepare({ Clientes: cli('Cadenas') });
     s.hooks.rejectPrices = true; // every price write is rejected -> lists step fails
     const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, runFile());
-    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'failed'], ['promotions', 'skipped'], ['customers', 'skipped']]);
+    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'failed'], ['promotions', 'skipped'], ['customers', 'skipped'], ['discounts', 'skipped']]);
     expect(out[0].failures).toBeGreaterThan(0);
     expect(out[1].lines).toEqual(['omitido']);
     expect(s.calls).not.toContain('moveCustomer');
@@ -185,13 +185,13 @@ describe('applyWorkbook', () => {
     });
     s.hooks.throwOn = { name: 'createSegment', nth: 1 };
     const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, runFile());
-    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'failed']]);
+    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'failed'], ['discounts', 'skipped']]);
     expect(out[2].lines.join('\n')).toContain('ERP timeout en createSegment');
 
     const t = await prepare({ Clientes: cli('Cadenas') });
     t.hooks.throwOn = { name: 'createList', nth: 1 };
     const out2 = await applyWorkbook(t.deps, t.plan, t.parsed, 'all', ACTOR, runFile());
-    expect(out2.map(o => o.status)).toEqual(['failed', 'skipped', 'skipped']);
+    expect(out2.map(o => o.status)).toEqual(['failed', 'skipped', 'skipped', 'skipped']);
     expect(out2[0].lines.join('\n')).toContain('ERP timeout en createList');
   });
 
