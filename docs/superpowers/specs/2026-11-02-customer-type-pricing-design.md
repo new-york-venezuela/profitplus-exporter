@@ -1,6 +1,6 @@
 # Precios por tipo de cliente: export/import por Excel — Design Spec
 
-**Status:** shape approved in conversation (2026-11-02). Items marked **[my call]** were decided by the assistant, not the user; check them. Operator steps: `2026-11-02-customer-type-pricing-runbook-DRAFT.md` (becomes `data/pricing-lists/README.md` content when built).
+**Status:** implemented (2026-11-02). Items marked **[my call]** were decided by the assistant, not the user. Operator steps: `data/pricing-lists/RUNBOOK-tipo-cliente.md`; user guide: `data/pricing-lists/README.md` («Cargar desde Excel»). Sections 5-7 describe what was built, including the deviations from the first design noted there.
 
 ## 1. Intent
 
@@ -43,25 +43,27 @@ Sellable = `Dim_Product.LineName` in **Panadería, Pastelería, Pizza** (68 toda
 
 `pricing:export-xlsx` writes `data/pricing-lists/precios-actuales.xlsx` (never overwrites; `--out` to choose). Tabs:
 
-1. `Listas`: lista, nombre, moneda (`USD`/`BSD`), desde. Existing lists prefilled; the user adds the four type lists.
-2. `Precios`: co_art, nombre, línea, categoría (Congelado/Fresco), current price per existing list (read-only context), one input column per list of `Listas` marked new. Empty cell = no price. Never `0`.
-3. `Promociones`: same columns as `promotions.csv` plus `estado` (activa/programada, read-only), pre-filled with current and scheduled overlay promotions.
-4. `Descuentos por cliente`: co_cli, co_art, `precio` (final) or `-N%`, desde, hasta (blank = permanent).
-5. `Clientes`: co_cli, nombre, current segment/list, 90-day list used, `tipo nuevo`.
+1. `Listas`: lista, nombre, moneda (`USD`/`BSD`), desde, `nueva`. Existing lists are prefilled as context; only rows with `nueva = SI` are created, so the user adds the four type lists as new rows.
+2. `Precios`: co_art, nombre, linea, categoria (Congelado/Fresco), `actual <lista>` per existing list (read-only context), one input column per list marked new, whose header equals that list's key. Empty cell = no price. Never `0`.
+3. `Promociones`: same columns as `promotions.csv` plus `estado`. Rows with a filled `estado` are existing (active/scheduled) overlay promotions, shown as read-only context and not imported; to edit or cancel one use the app's Promociones tab. New promotions are rows with blank `estado`.
+4. `Descuentos por cliente`: co_cli, co_art, `precio` (final price or `-N%`), desde, hasta (blank = permanent).
+5. `Clientes`: co_cli, nombre, tip_cli_actual, des_tipo_actual, lista_actual, lista_usada_90d, moneda_90d, `tip_cli_nuevo`. `tip_cli_nuevo` accepts the same values as `tipo-cliente:apply` plus the key or name of a new list from `Listas`.
 
-`pricing:import-xlsx -- --file <path>` parses the workbook (new xlsx reader, pure module with unit tests; rejects a workbook with wrong headers or `;`-style damage like the CSV readers), converts tabs 1-3 into the existing `lists/prices/promotions` plan inputs, and runs the existing planners. It reuses `planImport`/`applyImport`, `parsePromotions`/promo import, and tipo-cliente apply logic rather than reimplementing them.
+`pricing:import-xlsx -- --file <path> [--step lists|promotions|customers|discounts|all] [--apply --confirm-db <DB_NAME>]` parses the workbook (pure reader with unit tests; rejects wrong headers or missing tabs), converts tabs 1-3 into the existing `lists/prices/promotions` plan inputs and tab 5 into `tipo-cliente:apply` rows, and runs the existing planners and services (`planImport`/`applyImport`, promo import, `planTipoCliente`/`applyTipoCliente`). Dry-run by default. Any plan problem blocks every write. When `customers` runs alone, new-list keys are resolved by list `nombre` against live Profit; duplicate live names make the step fail.
 
 ## 6. Per-customer discounts (special lists)
 
-- A discount set = the customer's type list + overrides. Customers with an identical override set share one special list/segment. **[my call]**
+- A discount set = the customer's type list + overrides. Customers with an identical override set share one special list (named `Desc <key> · <type list>`). **[my call]**
 - The special list is a full copy of the type list (Profit cannot fall back to another list mid-invoice) with overridden articles replaced; a `-N%` is computed against the type list price at import time, rounded to 5 decimals.
-- Segment is a one-customer (or shared) `special` segment (`pricing_segment_meta.kind = 'special'`); `hasta` is stored so the nightly sweep and the Vencimientos tab handle expiry, reverting to the type segment.
-- **Re-sync [my call]:** a special list is a snapshot. `pricing:import-xlsx` dry-run lists special lists whose non-overridden prices differ from their type list; applying the workbook re-syncs them. Not automatic on base-price changes.
-- Dry-run shows per customer: which special list is created/reused and how many articles differ from base.
+- Segments: permanent discounts (blank `hasta`) share one `group` segment per special list; dated discounts get a per-customer `special` segment (`pricing_segment_meta.kind = 'special'`), because special segments require an expiry. The dated segment stores `hasta` so the nightly sweep and the Vencimientos tab revert the customer to the type segment, which is why the type segment must already be assigned (apply order, §7).
+- Dates: `desde` must equal the run date (today); any other value is a plan problem. `hasta` blank = permanent, otherwise strictly after today. A new list used as the type of a discounted customer must start today.
+- A customer currently in a promotion segment, or in a discount segment different from this run's target, is reported as a plan error and not moved (move them to their type segment first).
+- **Re-sync [my call]:** a special list is a snapshot. The dry-run warns for special lists whose non-overridden prices differ from their type list. There is no re-sync tool yet and applying the workbook does not re-sync; base-price changes never propagate automatically.
+- Dry-run shows per special list which customers and how many articles differ from base.
 
 ## 7. Apply order (explicit)
 
-1. Lists + regular prices. 2. Promotions. 3. Special lists. 4. Assign customers (`tipo nuevo`, plus special segments for discounted customers). Each step is idempotent; nothing moves a customer until step 4.
+1. Lists + regular prices. 2. Promotions. 3. Customers (`tip_cli_nuevo`, the type segment). 4. Discounts (special lists and segments; they need the type segment as fallback). Each step is idempotent; nothing moves a customer before step 3. `--step all` runs them in this order and stops at the first failing step. Rollback exists only for step 3 (`tipo-cliente:apply -- --rollback <runId>`); lists, prices, promotions and discounts cannot be deleted in Profit.
 
 ## 8. Errors and edge cases
 

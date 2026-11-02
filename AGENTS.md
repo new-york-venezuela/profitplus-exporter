@@ -92,6 +92,7 @@ lib/
   dwh/depth-tier.ts, seller-coverage.ts — line-depth tiers and the per-seller coverage figure shown on Vendedor 360 (moved from the removed Profundidad route)
   dwh/historico-window.ts  — Histórico 2025 window (calendar 2025, sales and returns)
   pricing/sweep.ts, sweep-erp.ts, sweep-job.ts — nightly revert of expired special segments; runSweepJob() = sweep + heartbeat + digest
+  pricing/xlsx/            — one-workbook pricing import/export: workbook.ts (tab/column contract), scope.ts (Panaderia/Pasteleria/Pizza filter from Dim_Product.LineName), export.ts + customer-rows.ts (build the .xlsx), parse-workbook.ts (pure reader, header checks), import.ts (planWorkbook: dry-run plan over the existing planners), discounts.ts (pure per-customer discount sets, `-N%` maths), discounts-run.ts (special lists/segments, date rules, stale-snapshot warning), apply.ts (applyWorkbook: lists -> promotions -> customers -> discounts, stops at first failing step)
   seguimiento/             — pure helpers for the Seguimiento tab: iso-date.ts, month-pace.ts (monthPace/projectToMonth/resolveReferenceMonth),
                               iso-weeks.ts, grid-status.ts (gridStatus: projected vs goal -> En meta/Cerca/Bajo meta/Sin meta), visit-compliance.ts (visitCompliance/summarizeCompliance; shared with Clientes), quotas.ts (rollUpQuotas), category-mix.ts, aggregate.ts (buildSeguimiento), queries.ts (DWH SQL), targets-repo.ts (seller_targets)
 
@@ -128,6 +129,8 @@ scripts/migrate-mssql.ts    — runs migrations/mssql/ in order, against the ERP
 scripts/migrate.ts          — runs migrations/sqlite/ (SQLite)
 scripts/geocode-customers.ts — bun run geocode:customers (dry-run by default)
 scripts/sweep-promotions.ts  — bun run pricing:sweep-promotions, nightly Task Scheduler job (INSTRUCTIONS.md Step 10)
+scripts/pricing-export-xlsx.ts — bun run pricing:export-xlsx [-- --out <path>], writes data/pricing-lists/precios-actuales.xlsx (never overwrites)
+scripts/pricing-import-xlsx.ts — bun run pricing:import-xlsx -- --file <path> [--step lists|promotions|customers|discounts|all] [--apply --confirm-db <DB_NAME>]
 content/help/pricing-*.md    — in-app help pages for the pricing tabs (segmentos, listas, promociones, vencimientos);
                               slugs are allowlisted in app/api/help/[page]/route.ts
 
@@ -499,6 +502,8 @@ ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
 ## Bulk pricing tools
 
 `data/pricing-lists/README.md` is the user guide. `bun run pricing:import-lists` (lists + regular prices from `lists.csv`/`prices.csv`, wide format, via `createList`/`applyRates`), `pricing:import-promotions` (overlay promotions from `promotions.csv` via `createPromotion`) and `tipo-cliente:apply` (bulk `saCliente.tip_cli` from the `tipo-cliente:export` CSV, via `SegmentErp.moveCustomer`, rollback from `data/tipo-cliente/runs/*.jsonl`) are dry-run by default; `--apply` needs `--confirm-db <DB_NAME>`. They contain no ERP logic of their own: pure CSV/plan modules in `lib/pricing/{list-import,promo-import,tipo-cliente-apply}/`, writes only through the existing services.
+
+`pricing:export-xlsx` / `pricing:import-xlsx` do the same from one workbook (tabs Listas, Precios, Promociones, Descuentos por cliente, Clientes; guide in `data/pricing-lists/README.md` «Cargar desde Excel», operator runbook `data/pricing-lists/RUNBOOK-tipo-cliente.md`, spec `docs/superpowers/specs/2026-11-02-customer-type-pricing-design.md`). Dry-run by default; `--apply` needs `--confirm-db <DB_NAME>`. Fixed apply order lists -> promotions -> customers (type) -> discounts (`--step all` stops at the first failing step; any plan problem blocks every write). Only Listas rows with `nueva = SI` are created; Promociones rows with a filled `estado` are existing promotions (read-only context, edit them in the app). Articles are limited to `Dim_Product.LineName` Panaderia/Pasteleria/Pizza. Discounts: `desde` must equal the run date, `hasta` blank = permanent (shared `group` segment per special list) or strictly after today (per-customer `special` segment with expiry, falls back to the type segment, reverted by the nightly sweep); customers in a promotion segment or another discount segment are reported and not moved. Special lists are snapshots of the type list: the dry-run warns when one is stale, there is no re-sync tool. Rollback: `tipo-cliente:apply -- --rollback <runId>` undoes only the customers step; lists, prices, promotions and discounts cannot be undone (Profit cannot delete them). No ERP logic of its own in `lib/pricing/xlsx/`: it reuses `createList`/`applyRates`, `createPromotion`, `SegmentErp` and the `tipo-cliente-apply` planner.
 
 ## Product Analytics (PostHog)
 
