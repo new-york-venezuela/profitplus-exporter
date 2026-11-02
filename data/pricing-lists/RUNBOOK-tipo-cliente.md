@@ -36,10 +36,10 @@ El libro trae: `Listas`, `Precios` (68 artículos, precio actual por lista), `Pr
 
 ## Paso 2. Llenar el libro
 
-1. `Listas`: agregar filas para Cadenas, Independientes, Mayoristas, Restaurantes (clave en `lista`, nombre, moneda `USD`/`BSD`, `desde`) con `nueva` = `SI`. Solo se crean las filas `SI`; las demás son contexto.
+1. `Listas`: agregar filas para Cadenas, Independientes, Mayoristas, Restaurantes (clave en `lista`, nombre, moneda `USD`/`BSD`, `desde`) con `nueva` = `SI`. Solo se crean las filas `SI`; las demás son contexto. **Una lista nueva que sea el tipo de un cliente con descuento debe empezar hoy** (`desde` = hoy); si empieza después, el plan lo reporta como problema.
 2. `Precios`: precio final por artículo en la columna de cada lista nueva (el encabezado es la clave de `lista`). Celda vacía = sin precio en esa lista. Punto decimal, sin símbolos. Las columnas `actual <lista>` son solo lectura.
 3. `Promociones`: agregar filas **nuevas** con `estado` vacío (una por artículo; `desde`/`hasta` iguales en toda la promoción). Las filas con `estado` lleno son promociones que ya existen y se ignoran: para editarlas o cancelarlas use la pestaña **Promociones** de la app.
-4. `Descuentos por cliente`: `co_cli`, `co_art`, precio final **o** `-8%`, `desde` (**hoy**), `hasta` (vacío = permanente; si no, posterior a hoy).
+4. `Descuentos por cliente`: `co_cli`, `co_art`, precio final **o** `-8%` (sobre el precio regular de la lista del tipo, nunca sobre una promoción vigente), `desde` (**hoy**), `hasta` (vacío = permanente; si no, posterior a hoy). Recuerde: una lista nueva que sea el tipo de un cliente con descuento debe empezar hoy.
 5. `Clientes`: columna `tip_cli_nuevo` con el tipo de cada cliente (segmento, código de lista, `L:código`, o la clave/nombre de una lista nueva de `Listas`).
 
 ## Paso 3. Simulación
@@ -99,7 +99,17 @@ bun run pricing:import-xlsx -- --file <ruta.xlsx> --step discounts --apply --con
 
 Va **después** del paso 7: el segmento de descuento con fecha vuelve al segmento del tipo cuando vence, así que el cliente ya debe tener su tipo. Crea una lista especial por cada conjunto distinto de descuentos (copia de la lista del tipo con los artículos con descuento reemplazados; los clientes con los mismos descuentos la comparten). Los permanentes comparten un segmento de grupo por lista especial; los que tienen `hasta` reciben un segmento propio con vencimiento y el barrido nocturno los revierte. Los descuentos empiezan **hoy**.
 
-(Para hacer todo de una vez: `--step all`, o sin `--step`; ejecuta los pasos 4, 5, 7 y 8 en ese orden y se detiene en el primero que falle.)
+> **Atención con `--step all`** (o sin `--step`): ejecuta los pasos 4, 5, 7 y 8 seguidos, en ese orden, y se detiene en el primero que falle. **Elimina las verificaciones de los pasos 6 y 7** (no hay pausa entre asignar clientes y aplicar descuentos).
+> - La **primera corrida en producción se hace paso a paso**: listas, promociones, verificar, clientes, verificar, descuentos.
+> - `--step all` solo para repetir un libro ya ensayado.
+> - Si usó `--step all`, la reversa del paso de clientes **no devuelve a los clientes con descuento** (ya pasaron a su segmento de descuento): hay que moverlos a mano en la pestaña **Segmentos**.
+
+### Volver a cargar los descuentos
+
+- **Mismo libro, otro día** (mismos descuentos, `desde` = el nuevo hoy): la lista especial y su segmento se **reutilizan por nombre** y los clientes que ya están en su segmento se omiten; no se crea nada nuevo. Si cambió un `hasta`, se actualiza el vencimiento del segmento especial.
+- La lista especial es una **copia de los precios del tipo del primer día**: no se actualiza al reutilizarla. La simulación avisa cuando quedó desactualizada respecto a la lista del tipo.
+- **Si cambiaron los descuentos** de un cliente (otro precio u otro artículo), se crea una lista especial **nueva** (otra clave en el nombre). El importador no saca a un cliente de otro segmento de descuento: muévalo **antes** a su segmento del tipo en la pestaña **Segmentos** y vuelva a aplicar.
+- Las listas y segmentos especiales que quedan sin uso cuando cambian los descuentos **no se borran** (Profit no lo permite); sin clientes no tienen efecto.
 
 ## Paso 9. Verificación final
 

@@ -30,7 +30,7 @@ Lower base prices per customer type (Cadenas, Independientes, Mayoristas, Restau
 
 - A customer has exactly one list, via `saCliente.tip_cli` → `saTipoCliente.co_precio`. `co_seg` is never written.
 - ERP writes only through `pApi*` procs, using the existing services (`createList`, `applyRates`, `createPromotion`, `SegmentErp.moveCustomer`). No new ERP logic.
-- `desde` is today or later; `hasta` is end of day; planners never create overlapping periods; a regular price cannot change while an active or scheduled promotion covers that article/list.
+- `desde` is today or later (discounts: exactly today, see §6); `hasta` is end of day; planners never create overlapping periods; a regular price cannot change while an active or scheduled promotion covers that article/list.
 - Existing CSV importers keep working unchanged.
 - `--apply` requires `--confirm-db <DB_NAME>`.
 
@@ -76,7 +76,7 @@ Sellable = `Dim_Product.LineName` in **Panadería, Pastelería, Pizza** (68 toda
 ## 9. Left to the builder
 
 - Choice of xlsx library (prefer what `lib/xlsx.ts` already uses; read support may need an addition).
-- Exact module layout under `lib/pricing/xlsx-import/`.
+- Exact module layout under `lib/pricing/xlsx/`.
 - Whether `import-xlsx` shells into the existing CSV code paths or shares their functions (prefer functions).
 
 ## 10. Open items to verify in the non-production rehearsal
