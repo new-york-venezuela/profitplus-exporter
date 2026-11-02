@@ -7,6 +7,7 @@ import {
 import type { HistoryPoint } from '../../../../../lib/seguimiento/types';
 import { OTHER_LINE_LABEL } from '../../../../../lib/seguimiento/category-mix';
 import { historyCategories, stackMonth, type StackSegment } from '../../../../../lib/seguimiento/history-stack';
+import { BAR_Z_INDEX, haloLineProps, trendLineProps } from '../../lib/line-halo';
 import { lineColor } from './colors';
 import { moneyTooltip } from '../../lib/format';
 import { money } from '../../lib/format';
@@ -232,6 +233,7 @@ export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLa
                   dataKey={(r: HistoryRow) => r.slots[i]?.value ?? null}
                   name={`Ventas brutas (${currencyName})`}
                   isAnimationActive={false}
+                  zIndex={BAR_Z_INDEX}
                 >
                   {rows.map(r => {
                     const sg = r.slots[i];
@@ -239,7 +241,8 @@ export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLa
                   })}
                 </Bar>
               ))}
-              <Line yAxisId="units" type="monotone" dataKey="units" name="Unidades brutas" stroke="#111827" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, fill: '#fff' }} connectNulls={false} />
+              <Line yAxisId="units" dataKey="units" name="Unidades brutas" {...haloLineProps()} />
+              <Line yAxisId="units" dataKey="units" name="Unidades brutas" {...trendLineProps()} />
             </ComposedChart>
           </ResponsiveContainer>
           <table className="sr-only">
