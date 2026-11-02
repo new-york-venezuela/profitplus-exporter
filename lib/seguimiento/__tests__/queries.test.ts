@@ -136,3 +136,18 @@ describe('fetchHistory', () => {
     await expect(fetchHistory(fakePool().pool, { kind: 'total' }, '2026-1', [])).rejects.toThrow();
   });
 });
+
+describe('fetchHistory USD conversion invariant', () => {
+  test('USD is summed per row at the rate of the row\'s own invoice date, never one rate per month', async () => {
+    const { pool, queries } = fakePool([[], []]);
+    await fetchHistory(pool, { kind: 'total' }, '2026-10', []);
+    const [salesSql, returnsSql] = queries.map(q => q.text.replace(/\s+/g, ' '));
+    expect(salesSql).toContain('LEFT JOIN fact.Fact_ExchangeRate fx ON fx.DateKey = fs.DateKey');
+    expect(returnsSql).toContain('LEFT JOIN fact.Fact_ExchangeRate fx ON fx.DateKey = fr.OriginalInvoiceDateKey');
+    expect(salesSql).toContain('SUM(fs.NetAmount / NULLIF(fx.RateSell, 0))');
+    expect(returnsSql).toContain('SUM(fr.NetAmount / NULLIF(fx.RateSell, 0))');
+    // the rate is joined on the fact row's date, not on the month key
+    expect(salesSql).not.toMatch(/fx\.DateKey = d\./);
+    expect(returnsSql).not.toMatch(/fx\.DateKey = d\./);
+  });
+});
