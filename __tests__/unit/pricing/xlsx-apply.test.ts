@@ -50,13 +50,17 @@ function setup() {
     customers: { C1: { cliDes: 'Bodega 1', tipCli: '000001' }, C2: { cliDes: 'Bodega 2', tipCli: '000001' } },
   });
   const calls: string[] = [];
-  const hooks = { rejectPrices: false };
+  const hooks = { rejectPrices: false, throwOn: null as { name: string; nth: number } | null };
+  const seen = new Map<string, number>();
   const spy = <T extends object>(erp: T, names: string[]): T => new Proxy(erp, {
     get(t, p, r) {
       const v = Reflect.get(t, p, r);
       if (typeof p === 'string' && names.includes(p) && typeof v === 'function') {
         return (...a: unknown[]) => {
           calls.push(p);
+          const n = (seen.get(p) ?? 0) + 1;
+          seen.set(p, n);
+          if (hooks.throwOn?.name === p && hooks.throwOn.nth === n) throw new Error(`ERP timeout en ${p}`);
           if (p === 'applyRatePeriod' && hooks.rejectPrices) return Promise.resolve({ outcome: 'rejected', message: 'rechazado' });
           return (v as (...x: unknown[]) => unknown)(...a);
         };
@@ -172,5 +176,61 @@ describe('applyWorkbook', () => {
     expect(out[0].lines.join('\n')).toContain('Lista «Cadenas» no existe en Profit; ejecute antes --step lists');
     expect(s.calls).toEqual([]);
     expect(existsSync(file)).toBe(false);
+  });
+
+  test('a step that throws becomes a failed outcome; earlier outcomes are kept and later steps are omitido', async () => {
+    const s = await prepare({
+      Promociones: [PROMO_HEAD, ['Oferta', 'B', NEW_DESDE, '2026-12-01', '', 'A1', 9, '']],
+      Clientes: cli('Cadenas'),
+    });
+    s.hooks.throwOn = { name: 'createSegment', nth: 1 };
+    const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, runFile());
+    expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'failed']]);
+    expect(out[2].lines.join('\n')).toContain('ERP timeout en createSegment');
+
+    const t = await prepare({ Clientes: cli('Cadenas') });
+    t.hooks.throwOn = { name: 'createList', nth: 1 };
+    const out2 = await applyWorkbook(t.deps, t.plan, t.parsed, 'all', ACTOR, runFile());
+    expect(out2.map(o => o.status)).toEqual(['failed', 'skipped', 'skipped']);
+    expect(out2[0].lines.join('\n')).toContain('ERP timeout en createList');
+  });
+
+  test('customers step throwing after segment lines were written still leaves the run file for the runId', async () => {
+    const two = [...LISTAS, ['C', 'Mayoristas', 'USD', NEW_DESDE, 'si']];
+    const prices = PRECIOS.map((r, i) => (i === 0 ? [...r, 'C'] : [...r, 30]));
+    const s = await prepare({ Listas: two, Precios: prices, Clientes: cli('Cadenas', 'Mayoristas') });
+    s.hooks.throwOn = { name: 'createSegment', nth: 2 };
+    const file = runFile();
+    const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, file);
+    expect(out[2].status).toBe('failed');
+    expect(existsSync(file)).toBe(true);
+    expect(readFileSync(file, 'utf8')).toContain('"type":"segment"');
+  });
+
+  test('customers alone fails naming the codes when several live lists share the nombre, moving nothing', async () => {
+    const s = await prepare({ Clientes: cli('Cadenas') });
+    s.rates.state.lists.push({ coPrecio: '12', desPrecio: 'Cadenas' }, { coPrecio: '13', desPrecio: 'CADENAS' });
+    const out = await applyWorkbook(s.deps, s.plan, s.parsed, 'customers', ACTOR, runFile());
+    expect(out[0].status).toBe('failed');
+    expect(out[0].lines.join('\n')).toContain('12, 13');
+    expect(s.calls).toEqual([]);
+  });
+});
+
+describe('planWorkbook with a new list: other customer rows are validated before any write', () => {
+  test('an unknown co_cli (sentinel row or plain row) and a bad segment code are plan problems; apply writes nothing', async () => {
+    const rows = [CLI_HEAD,
+      ['C1', 'Bodega 1', '', '', '', '', 'USD', 'Cadenas'],
+      ['GHOST', 'Fantasma', '', '', '', '', 'USD', 'Cadenas'],
+      ['GHOST2', 'Fantasma 2', '', '', '', '', 'USD', '08'],
+      ['C2', 'Bodega 2', '', '', '', '', 'USD', 'NOPE']];
+    const s = await prepare({ Clientes: rows });
+    expect(s.plan.customers).toBeNull();
+    const text = s.plan.problems.join('\n');
+    expect(text).toContain('GHOST');
+    expect(text).toContain('GHOST2');
+    expect(text).toContain('no es un segmento ni una lista');
+    await expect(applyWorkbook(s.deps, s.plan, s.parsed, 'all', ACTOR, runFile())).rejects.toThrow('no se escribe nada');
+    expect(s.calls).toEqual([]);
   });
 });

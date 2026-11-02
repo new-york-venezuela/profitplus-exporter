@@ -97,7 +97,12 @@ async function runCustomers(
     created = [];
     for (const key of keys) {
       const def = parsed.lists.find(l => norm(l.key) === norm(key));
-      const hit = def && live.find(l => norm(l.desPrecio) === norm(def.nombre));
+      const hits = def ? live.filter(l => norm(l.desPrecio) === norm(def.nombre)) : [];
+      if (hits.length > 1) {
+        missing.push(`✗ Hay ${hits.length} listas en Profit llamadas «${def!.nombre}» (${hits.map(h => h.coPrecio).join(', ')}); no se sabe a cuál asignar los clientes. Deje una sola o use el código de lista en tip_cli_nuevo`);
+        continue;
+      }
+      const hit = hits[0];
       if (hit) created.push({ key, coPrecio: hit.coPrecio });
       else missing.push(`✗ Lista «${def?.nombre ?? key}» no existe en Profit; ejecute antes --step lists`);
     }
@@ -136,14 +141,20 @@ export async function applyWorkbook(
   for (const s of steps) {
     if (stopped) { outcomes.push({ step: s, status: 'skipped', lines: ['omitido'], failures: 0 }); continue; }
     let out: StepOutcome;
-    if (s === 'lists') {
-      const r = await runLists(deps, plan, actor);
-      out = r.out;
-      createdLists = r.done;
-    } else if (s === 'promotions') {
-      out = await runPromotions(deps, plan, parsed, actor);
-    } else {
-      out = await runCustomers(deps, parsed, actor, runFile, createdLists);
+    try {
+      if (s === 'lists') {
+        const r = await runLists(deps, plan, actor);
+        out = r.out;
+        createdLists = r.done;
+      } else if (s === 'promotions') {
+        out = await runPromotions(deps, plan, parsed, actor);
+      } else {
+        out = await runCustomers(deps, parsed, actor, runFile, createdLists);
+      }
+    } catch (e) {
+      // Keep the summary of earlier steps: a throw becomes a failed outcome instead of escaping.
+      const msg = e instanceof Error ? e.message : String(e);
+      out = { step: s, status: 'failed', lines: [`✗ Error inesperado: ${msg}`], failures: 1 };
     }
     outcomes.push(out);
     if (out.status === 'failed') stopped = true;

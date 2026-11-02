@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { getPool } from '@/lib/db/mssql';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
@@ -120,13 +120,13 @@ async function main() {
       for (const w of plan.warnings.slice(0, MAX_WARN)) console.log(`  ⚠ ${w}`);
       const runId = new Date().toISOString().replace(/[:.]/g, '-');
       const actor = { id: 'import-xlsx', erpUser: process.env.PRICING_ERP_SERVICE_USER ?? 'PROFIT' };
-      const outcomes = await applyWorkbook({ ...deps, today }, plan, parsed, step as ApplyStep, actor, `${RUNS_DIR}/${runId}.jsonl`);
+      const runFile = `${RUNS_DIR}/${runId}.jsonl`;
+      const outcomes = await applyWorkbook({ ...deps, today }, plan, parsed, step as ApplyStep, actor, runFile);
       for (const o of outcomes) {
         console.log(`\n== ${o.step} — ${o.status === 'ok' ? 'listo' : o.status === 'skipped' ? 'omitido' : 'CON PROBLEMAS'} ==`);
         for (const l of o.lines) console.log(l);
       }
-      const moved = outcomes.find(o => o.step === 'customers')?.moved ?? 0;
-      if (moved > 0) {
+      if (existsSync(runFile)) {
         console.log(`\nCorrida de clientes: ${runId}`);
         console.log(`Para revertir: bun run tipo-cliente:apply -- --rollback ${runId} --confirm-db ${process.env.DB_NAME}`);
       }

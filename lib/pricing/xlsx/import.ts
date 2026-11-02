@@ -95,9 +95,16 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
   const warnings: string[] = [];
   const pendingTargets = parsed.customers.filter(c => c.target.startsWith(NEW_LIST_SENTINEL));
   let customers: TipoClientePlan | null = null;
+  let newListProblems: string[] = [];
   if (pendingTargets.length) {
     const keys = [...new Set(pendingTargets.map(c => c.target.slice(NEW_LIST_SENTINEL.length)))].map(k => `«${k}»`).join(', ');
     warnings.push(`${pendingTargets.length} cliente(s) apuntan a listas nuevas (${keys}) que aún no existen en Profit; no se pueden planificar hasta crearlas.`);
+    // Validate what can be validated now so nothing is written before a bad row is found.
+    const others = await planTipoCliente(deps, parsed.customers.filter(c => !c.target.startsWith(NEW_LIST_SENTINEL)));
+    newListProblems = [...others.problems];
+    for (const c of pendingTargets) {
+      if (!(await deps.segments.getCustomer(c.coCli))) newListProblems.push(`Clientes: línea ${c.line} (${c.coCli}): el cliente no existe en Profit`);
+    }
   } else {
     customers = await planTipoCliente(deps, parsed.customers);
   }
@@ -118,6 +125,7 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
     ...plan.lists.problems,
     ...plan.promos.problems,
     ...(customers?.problems ?? []),
+    ...newListProblems,
     ...discounts.errors.map(e => `Descuentos por cliente: ${e}`),
   ];
   return plan;
