@@ -533,4 +533,26 @@ describe('final-review fix wave', () => {
     const special = s.rates.state.lists.find(l => l.desPrecio.startsWith('Desc '))!;
     expect(s.rates.state.rates.filter(r => r.coPrecio === special.coPrecio).map(r => [r.coArt, r.monto]).sort()).toEqual([['A1', 9], ['A2', 15]]);
   });
+
+  test('I2. the same workbook applied on two days: no new list or segment, no move errors', async () => {
+    const sheets = (iso: string) => ({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', iso, ''], ['C2', 'A1', '-10%', iso, '2026-12-15']] });
+    const s = await pipeline(sheets(TODAY));
+    expect(s.plan.problems).toEqual([]);
+    const out1 = await applyWorkbook(s.wdeps, s.plan, s.parsed, 'discounts', ACTOR, runFile());
+    expect(out1[0].status).toBe('ok');
+    const counts = () => ({ clone: s.count('cloneList'), seg: s.count('createSegment'), move: s.count('moveCustomer') });
+    const before = counts();
+
+    const NEXT = '2026-11-03';
+    const wdeps2 = { ...s.wdeps, today: NEXT };
+    const parsed2 = parseWorkbook(book(sheets(NEXT)), inScope);
+    const plan2 = await planWorkbook(wdeps2, parsed2, NEXT);
+    expect(plan2.problems).toEqual([]);
+    expect(plan2.discounts.sets[0].key).toBe(s.plan.discounts.sets[0].key);
+    expect(plan2.discounts.lines[0]).toContain('ya existe');
+    const out2 = await applyWorkbook(wdeps2, plan2, parsed2, 'discounts', ACTOR, runFile());
+    expect(out2[0].status).toBe('ok');
+    expect(out2[0].lines.join('\n')).not.toContain('ya está en el descuento');
+    expect(counts()).toEqual(before);
+  });
 });

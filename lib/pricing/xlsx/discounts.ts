@@ -123,8 +123,10 @@ export function compileDiscounts(
     }
     if (!ok) continue;
 
+    // The key (and so the special list/segment names) depends on the overrides only: `desde` is the run date, and a
+    // key that changed every day would make a re-run treat already-discounted customers as being in another discount.
     const key = createHash('sha256')
-      .update(`${desde}|${[...overrides].map(([a, p]) => `${a}=${p}`).sort().join(';')}`)
+      .update([...overrides].map(([a, p]) => `${a}=${p}`).sort().join(';'))
       .digest('hex')
       .slice(0, 8);
     const existing = sets.get(key);

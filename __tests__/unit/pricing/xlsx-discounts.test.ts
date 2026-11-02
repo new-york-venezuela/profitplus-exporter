@@ -87,7 +87,7 @@ describe('compileDiscounts', () => {
     expect(r.errors).toEqual(['cliente NOPE: no se pudo determinar su lista de tipo']);
     expect(r.sets).toEqual([]);
   });
-  test('identical overrides and desde share one set, hasta may differ', () => {
+  test('identical overrides share one set, hasta may differ', () => {
     const r = compileDiscounts([
       row({ coCli: 'C1', hasta: '2026-12-01' }),
       row({ coCli: 'C2', kind: 'price', value: 9.2, hasta: '2026-12-31' }),
@@ -99,10 +99,13 @@ describe('compileDiscounts', () => {
       { coCli: 'C2', desde: '2026-11-01', hasta: '2026-12-31' },
     ]);
   });
-  test('same overrides, different desde: two sets with distinct keys', () => {
-    const r = compileDiscounts([row({ coCli: 'C1' }), row({ coCli: 'C2', desde: '2026-11-15' })], tl);
-    expect(r.sets.length).toBe(2);
-    expect(r.sets[0].key).not.toBe(r.sets[1].key);
+  test('the key depends on the overrides only: stable across days (desde), each customer keeps its own desde', () => {
+    const day1 = compileDiscounts([row({ coCli: 'C1' })], tl);
+    const day2 = compileDiscounts([row({ coCli: 'C1', desde: '2026-11-15' })], tl);
+    expect(day2.sets[0].key).toBe(day1.sets[0].key);
+    const both = compileDiscounts([row({ coCli: 'C1' }), row({ coCli: 'C2', desde: '2026-11-15' })], tl);
+    expect(both.sets.length).toBe(1);
+    expect(both.sets[0].customers.map(c => [c.coCli, c.desde])).toEqual([['C1', '2026-11-01'], ['C2', '2026-11-15']]);
   });
   test('different prices: two sets; key stable and 8 hex', () => {
     const rows = [row({ coCli: 'C1' }), row({ coCli: 'C2', value: 10 })];
