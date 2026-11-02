@@ -65,7 +65,7 @@ describe('compileDiscounts', () => {
   });
   test('rounds to 5 decimals', () => {
     const r = compileDiscounts([row({ coCli: 'C1', value: 33.33333 })], lists({ C1: { A1: 7 } }));
-    expect(r.sets[0].overrides.get('A1')).toBe(Math.round(7 * (1 - 0.3333333) * 1e5) / 1e5);
+    expect(r.sets[0].overrides.get('A1')).toBe(4.66667);
   });
   test('result of 0 rejected', () => {
     const r = compileDiscounts([row({ coCli: 'C1' })], lists({ C1: { A1: 0 } }));
@@ -118,5 +118,32 @@ describe('compileDiscounts', () => {
       row({ coCli: 'C2', coArt: 'A2' }), row({ coCli: 'C2', coArt: 'A1' }),
     ], tl);
     expect(r.sets.length).toBe(1);
+  });
+  const tlc = lists({ c1: { A1: 10, A2: 20 }, C1: { A1: 10, A2: 20 } });
+  test('case-variant customer across rows is ONE customer in ONE set', () => {
+    const r = compileDiscounts([
+      row({ coCli: 'c1', coArt: 'A1' }),
+      row({ coCli: 'C1', coArt: 'A2' }),
+    ], tlc);
+    expect(r.errors).toEqual([]);
+    expect(r.sets.length).toBe(1);
+    expect(r.sets[0].customers).toEqual([{ coCli: 'c1', desde: '2026-11-01', hasta: null }]);
+    expect([...r.sets[0].overrides.keys()].sort()).toEqual(['A1', 'A2']);
+  });
+  test('customer with different desde values reports an error', () => {
+    const r = compileDiscounts([
+      row({ coCli: 'C1', coArt: 'A1' }),
+      row({ coCli: 'C1', coArt: 'A2', desde: '2026-11-15' }),
+    ], tlc);
+    expect(r.sets).toEqual([]);
+    expect(r.errors).toEqual(['cliente C1: tiene valores de «desde» distintos']);
+  });
+  test('case-variant customer with different desde reports the desde error', () => {
+    const r = compileDiscounts([
+      row({ coCli: 'c1', coArt: 'A1' }),
+      row({ coCli: 'C1', coArt: 'A2', desde: '2026-11-15' }),
+    ], tlc);
+    expect(r.sets).toEqual([]);
+    expect(r.errors).toEqual(['cliente c1: tiene valores de «desde» distintos']);
   });
 });

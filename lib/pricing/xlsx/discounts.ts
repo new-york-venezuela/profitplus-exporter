@@ -91,12 +91,14 @@ export function compileDiscounts(
   const errors: string[] = [];
   const byCli = new Map<string, DiscountRow[]>();
   for (const r of rows) {
-    const list = byCli.get(r.coCli);
-    if (list) list.push(r); else byCli.set(r.coCli, [r]);
+    const cliKey = r.coCli.trim().toUpperCase();
+    const list = byCli.get(cliKey);
+    if (list) list.push(r); else byCli.set(cliKey, [r]);
   }
 
   const sets = new Map<string, DiscountSet>();
-  for (const [coCli, cliRows] of byCli) {
+  for (const cliRows of byCli.values()) {
+    const coCli = cliRows[0].coCli;
     const base = typeListPrices(coCli);
     if (!base) { errors.push(`cliente ${coCli}: no se pudo determinar su lista de tipo`); continue; }
     const { desde, hasta } = cliRows[0];
