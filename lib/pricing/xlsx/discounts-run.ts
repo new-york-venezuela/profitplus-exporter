@@ -1,9 +1,10 @@
 import type { AppDb } from '@/lib/geo/routes-repo';
+import { todayIso } from '@/lib/pricing/dates';
 import { cloneList, currentOf, type ListsDeps, type RatesErp } from '@/lib/pricing/lists-service';
 import { segmentCloneRows } from '@/lib/pricing/promotions-service';
 import { getSegmentMetaMap } from '@/lib/pricing/segments-repo';
 import {
-  assignCustomers, createSegment, type Actor, type SegmentErp, type ServiceDeps,
+  assignCustomers, createSegment, patchSegment, type Actor, type SegmentErp, type ServiceDeps,
 } from '@/lib/pricing/segments-service';
 import type { DiscountSet } from '@/lib/pricing/xlsx/discounts';
 
@@ -42,6 +43,30 @@ export async function loadTypeContext(deps: { rates: RatesErp; segments: Segment
   };
 }
 
+export const PROMO_SEGMENT_MSG = 'el cliente está en un segmento especial de promoción; muévalo primero a su segmento de tipo';
+
+/**
+ * How the customer's current segment relates to its type:
+ * - `type`: an ordinary segment (it is the type);
+ * - `discount`: a segment of a special discount list made by this importer (`type` is what it unwraps to, or null);
+ * - `promo`: any other special segment (a promotion or a one-off special price): its list is not a type list;
+ * - `unknown`: the segment or its list is not in Profit.
+ */
+export type CustomerClass =
+  | { kind: 'type'; type: CustomerType }
+  | { kind: 'discount'; type: CustomerType | null; tipCli: string }
+  | { kind: 'promo'; tipCli: string }
+  | { kind: 'unknown' };
+
+export function classifyCustomer(ctx: TypeContext, currentTipCli: string): CustomerClass {
+  const seg = ctx.segments.find(s => norm(s.tipCli) === norm(currentTipCli));
+  const list = seg && ctx.lists.find(l => norm(l.coPrecio) === norm(seg.coPrecio));
+  if (!seg || !list) return { kind: 'unknown' };
+  if (isSpecialListName(list.desPrecio)) return { kind: 'discount', type: resolveCustomerType(ctx, currentTipCli), tipCli: seg.tipCli };
+  if (seg.kind === 'special') return { kind: 'promo', tipCli: seg.tipCli };
+  return { kind: 'type', type: { tipCli: seg.tipCli, coPrecio: list.coPrecio, desPrecio: list.desPrecio } };
+}
+
 /**
  * The customer's type: its segment and list, unless the segment points at a special discount list (a previous run of
  * this importer), in which case the type is the segment it would go back to — the special segment's fallback, or,
@@ -58,9 +83,10 @@ export function resolveCustomerType(ctx: TypeContext, currentTipCli: string): Cu
   };
 
   const direct = typeOfSeg(currentTipCli);
-  if (!direct || !isSpecialListName(direct.desPrecio)) return direct;
+  const seg = segOf(currentTipCli);
+  if (direct && seg && seg.kind === 'special' && !isSpecialListName(direct.desPrecio)) return null; // promotion segment
+  if (!direct || !seg || !isSpecialListName(direct.desPrecio)) return direct;
 
-  const seg = segOf(currentTipCli)!;
   if (seg.fallbackTipCli) {
     const fb = typeOfSeg(seg.fallbackTipCli);
     if (fb && !isSpecialListName(fb.desPrecio)) return fb;
@@ -114,7 +140,8 @@ export function describeDiscountSets(
   const existing = new Set(existingListNames.map(norm));
   return groupDiscountTargets(sets, typeOf).targets.map(t => {
     const who = t.customers.map(c => `${c.coCli} (${c.hasta === null ? 'permanente' : `hasta ${c.hasta}`})`).join(', ');
-    return `lista especial «${t.name}»: ${existing.has(norm(t.name)) ? 'ya existe' : 'se creará'} — ${t.set.overrides.size} artículos distintos del tipo — clientes: ${who}`;
+    const n = t.set.overrides.size;
+    return `lista especial «${t.name}»: ${existing.has(norm(t.name)) ? 'ya existe' : 'se creará'} — ${n} ${n === 1 ? 'artículo distinto' : 'artículos distintos'} del tipo — clientes: ${who}`;
   });
 }
 
@@ -138,7 +165,11 @@ export function staleSpecialLists(checks: StaleCheck[]): string[] {
       const b = c.type.get(coArt);
       if (a === undefined || b === undefined || Math.abs(a - b) > 1e-9) n++;
     }
-    if (n > 0) out.push(`lista especial «${c.name}» está desactualizada respecto a «${c.typeName}» (${n} artículos); vuelva a cargar el libro para sincronizarla`);
+    if (n > 0) {
+      out.push(`lista especial «${c.name}»: ${n} ${n === 1 ? 'artículo sin descuento tiene' : 'artículos sin descuento tienen'} un precio distinto al de «${c.typeName}». `
+        + 'La lista NO se sincroniza automáticamente: conserva los precios anteriores para los artículos sin descuento. '
+        + 'Para actualizarla cree una lista de descuento nueva (por ejemplo, cambiando un precio de descuento) o pida una herramienta de re-sincronización');
+    }
   }
   return out;
 }
@@ -151,24 +182,24 @@ export async function pricesAsOf(rates: RatesErp, coPrecio: string, asOf: string
 }
 
 /**
- * A dated discount becomes a special segment, which must expire after today (same rule as the Segmentos tab), so a
- * `hasta` on or before today is an error. A `desde` after today is allowed but warned: the customer is moved when the
- * workbook is applied and the special list has no price before `desde`.
+ * `desde` must be today (the run date): the customer is moved when the workbook is applied, so a past `desde` would
+ * back-date the special list and a future one would leave the customer without prices until then. A dated discount
+ * becomes a special segment, which must expire after today (same rule as the Segmentos tab).
  */
-export function discountDateIssues(sets: DiscountSet[], today: string): { errors: string[]; warnings: string[] } {
+export function discountDateIssues(sets: DiscountSet[], today: string): { errors: string[] } {
   const errors: string[] = [];
-  const warnings: string[] = [];
   for (const s of sets) {
+    const arts = [...s.overrides.keys()].join(', ');
     for (const c of s.customers) {
+      if (c.desde !== today) {
+        errors.push(`cliente ${c.coCli} (artículos ${arts}): «desde» ${c.desde} debe ser hoy (${today}); las fechas futuras o pasadas aún no están soportadas`);
+      }
       if (c.hasta !== null && c.hasta <= today) {
         errors.push(`cliente ${c.coCli}: «hasta» ${c.hasta} debe ser posterior a hoy (${today}); un descuento con fecha de fin necesita un segmento especial que venza después de hoy`);
       }
-      if (c.desde > today) {
-        warnings.push(`Descuentos por cliente: cliente ${c.coCli}: «desde» ${c.desde} es futuro; se moverá al aplicar y su lista especial no tiene precios antes de esa fecha`);
-      }
     }
   }
-  return { errors, warnings };
+  return { errors };
 }
 
 // ---------- apply ----------
@@ -191,14 +222,18 @@ async function specialRows(deps: { lists: ListsDeps }, typeCoPrecio: string, des
 /**
  * Creates (or reuses, by name) one special list per discount set and type list, then puts its customers on it:
  * permanent customers share one group segment named like the list; dated customers each get a special segment that
- * expires on `hasta` and falls back to their type segment (the nightly sweep moves them back). Customers already in
- * a segment of the special list are left alone, so a re-run writes nothing. A failing customer never stops the others.
+ * expires on `hasta` and falls back to their type segment (the nightly sweep moves them back). The list starts today.
+ * A customer already in its target segment is left alone (a dated one only gets its expiry updated when `hasta`
+ * changed), so a re-run writes nothing; one sitting in any other discount segment is an error, never re-moved.
+ * A failing customer never stops the others.
  */
 export async function applyDiscountSets(
   deps: { lists: ListsDeps; segments: ServiceDeps }, sets: DiscountSet[], typeOf: TypeOf, actor: Actor,
 ): Promise<DiscountOutcome[]> {
   const out: DiscountOutcome[] = [];
-  const typeLists = new Map((await deps.lists.erp.listLists()).map(l => [norm(l.coPrecio), l]));
+  const allLists = await deps.lists.erp.listLists();
+  const typeLists = new Map(allLists.map(l => [norm(l.coPrecio), l]));
+  const today = todayIso((deps.lists.now ?? (() => new Date()))());
 
   // Resolve every customer's type before any write.
   const types = new Map<string, { coPrecio: string; tipCli: string; desPrecio: string } | string>();
@@ -209,7 +244,7 @@ export async function applyDiscountSets(
         const l = t && typeLists.get(norm(t.coPrecio));
         types.set(c.coCli, t && l ? { ...t, desPrecio: l.desPrecio } : 'no se pudo determinar el tipo (segmento y lista) del cliente');
       } catch (e) {
-        types.set(c.coCli, `no se pudo determinar el tipo del cliente: ${errMsg(e)}`);
+        types.set(c.coCli, errMsg(e));
       }
     }
   }
@@ -223,6 +258,12 @@ export async function applyDiscountSets(
   for (const t of targets) {
     const result: DiscountOutcome = { key: t.key, coPrecio: '', reusedList: false, customers: [] };
     out.push(result);
+    /** Service warnings for the list / group segment: shown on each successful customer of this list. */
+    const warnings: string[] = [];
+    const ok = (coCli: string, message?: string): DiscountCustomerOutcome => {
+      const m = [message, ...warnings].filter(Boolean).join('; ');
+      return { coCli, outcome: 'success', ...(m ? { message: m } : {}) };
+    };
     const failAll = (cs: DiscountSet['customers'], message: string) => {
       for (const c of cs) result.customers.push({ coCli: c.coCli, outcome: 'error', message });
     };
@@ -235,12 +276,12 @@ export async function applyDiscountSets(
         result.coPrecio = same[0].coPrecio.trim();
         result.reusedList = true;
       } else {
-        const desde = t.customers[0].desde;
-        const rows = await specialRows(deps, t.type.coPrecio, desde, t.set.overrides);
+        const rows = await specialRows(deps, t.type.coPrecio, today, t.set.overrides);
         const created = await cloneList(deps.lists, {
-          mode: 'clone', sourceCoPrecio: t.type.coPrecio, desPrecio: t.name, percent: null, effectiveFrom: desde, rows,
+          mode: 'clone', sourceCoPrecio: t.type.coPrecio, desPrecio: t.name, percent: null, effectiveFrom: today, rows,
         }, actor);
         result.coPrecio = created.coPrecio;
+        if (created.warning) warnings.push(created.warning);
       }
     } catch (e) {
       failAll(t.customers, `no se pudo crear la lista especial «${t.name}»: ${errMsg(e)}`);
@@ -248,14 +289,15 @@ export async function applyDiscountSets(
     }
 
     const segs = await deps.segments.erp.listSegments();
-    const segList = new Map(segs.map(s => [norm(s.tipCli), norm(s.coPrecio)]));
-    /** Already in a special segment of this list: a previous run moved this dated customer. */
-    const inOwnSpecial = async (coCli: string) => {
+    const listName = (coPrecio: string) => allLists.find(l => norm(l.coPrecio) === norm(coPrecio))?.desPrecio ?? '';
+    /** The customer's current segment, when it belongs to an importer discount list. */
+    const currentDiscount = async (coCli: string) => {
       const cur = await deps.segments.erp.getCustomer(coCli);
       if (!cur) throw new Error('el cliente no existe en Profit');
-      return segList.get(norm(cur.tipCli)) === norm(result.coPrecio)
-        && getSegmentMetaMap(deps.segments.db).get(cur.tipCli.trim())?.kind === 'special';
+      const seg = segs.find(s => norm(s.tipCli) === norm(cur.tipCli));
+      return { cur, seg: seg && isSpecialListName(listName(seg.coPrecio)) ? seg : null };
     };
+    const inOtherDiscount = (desTipo: string) => `el cliente ya está en el descuento «${desTipo.trim()}»; muévalo primero al segmento de tipo`;
 
     // 2. permanent customers: one shared group segment named like the list
     const permanent = t.customers.filter(c => c.hasta === null);
@@ -266,19 +308,23 @@ export async function applyDiscountSets(
         const desTipo = t.name.slice(0, MAX_NAME);
         const found = segs.filter(s => norm(s.desTipo) === norm(desTipo) && norm(s.coPrecio) === norm(result.coPrecio)
           && metas.get(s.tipCli.trim())?.kind !== 'special');
-        groupTipCli = found[0]?.tipCli.trim()
-          ?? (await createSegment(deps.segments, { kind: 'group', desTipo, coPrecio: result.coPrecio }, actor)).segment.tipCli;
+        if (found[0]) groupTipCli = found[0].tipCli.trim();
+        else {
+          const created = await createSegment(deps.segments, { kind: 'group', desTipo, coPrecio: result.coPrecio }, actor);
+          groupTipCli = created.segment.tipCli;
+          if (created.warning) warnings.push(created.warning);
+        }
       } catch (e) {
         failAll(permanent, `no se pudo crear el segmento de «${t.name}»: ${errMsg(e)}`);
       }
       if (groupTipCli) {
         for (const c of permanent) {
           try {
-            const cur = await deps.segments.erp.getCustomer(c.coCli);
-            if (!cur) throw new Error('el cliente no existe en Profit');
-            if (norm(cur.tipCli) === norm(groupTipCli)) { result.customers.push({ coCli: c.coCli, outcome: 'success' }); continue; }
+            const { cur, seg } = await currentDiscount(c.coCli);
+            if (norm(cur.tipCli) === norm(groupTipCli)) { result.customers.push(ok(c.coCli)); continue; }
+            if (seg) { result.customers.push({ coCli: c.coCli, outcome: 'error', message: inOtherDiscount(seg.desTipo) }); continue; }
             const [r] = await assignCustomers(deps.segments, { customerCodes: [c.coCli], targetTipCli: groupTipCli }, actor);
-            result.customers.push({ coCli: c.coCli, outcome: r.outcome, ...(r.message ? { message: r.message } : {}) });
+            result.customers.push(r.outcome === 'success' ? ok(c.coCli, r.message) : { coCli: c.coCli, outcome: r.outcome, ...(r.message ? { message: r.message } : {}) });
           } catch (e) {
             result.customers.push({ coCli: c.coCli, outcome: 'error', message: errMsg(e) });
           }
@@ -289,12 +335,24 @@ export async function applyDiscountSets(
     // 3. dated customers: their own special segment (createSegment also moves the customer)
     for (const c of t.customers.filter(x => x.hasta !== null)) {
       try {
-        if (await inOwnSpecial(c.coCli)) { result.customers.push({ coCli: c.coCli, outcome: 'success' }); continue; }
-        const { move } = await createSegment(deps.segments, {
+        const { seg } = await currentDiscount(c.coCli);
+        if (seg) {
+          const meta = getSegmentMetaMap(deps.segments.db).get(seg.tipCli.trim());
+          const own = meta?.kind === 'special' && norm(meta.customerCoCli ?? '') === norm(c.coCli) && norm(seg.coPrecio) === norm(result.coPrecio);
+          if (!own) { result.customers.push({ coCli: c.coCli, outcome: 'error', message: inOtherDiscount(seg.desTipo) }); continue; }
+          if (meta!.expiresAt === c.hasta) { result.customers.push(ok(c.coCli)); continue; }
+          await patchSegment(deps.segments, seg.tipCli.trim(), { expiresOn: c.hasta }, actor);
+          result.customers.push(ok(c.coCli, `vencimiento actualizado a ${c.hasta}`));
+          continue;
+        }
+        const { move, warning } = await createSegment(deps.segments, {
           kind: 'special', customerCoCli: c.coCli, reason: DISCOUNT_REASON, expiresOn: c.hasta!,
           coPrecio: result.coPrecio, fallbackTipCli: typeFor(c.coCli)!.tipCli,
         }, actor);
-        result.customers.push({ coCli: c.coCli, outcome: move?.outcome ?? 'error', ...(move?.message ? { message: move.message } : {}) });
+        // Without its metadata the special segment never expires (the sweep reads expiresAt/fallback from it).
+        if (warning) result.customers.push({ coCli: c.coCli, outcome: 'error', message: warning });
+        else if (move?.outcome === 'success') result.customers.push(ok(c.coCli, move.message));
+        else result.customers.push({ coCli: c.coCli, outcome: move?.outcome ?? 'error', ...(move?.message ? { message: move.message } : {}) });
       } catch (e) {
         result.customers.push({ coCli: c.coCli, outcome: 'error', message: errMsg(e) });
       }

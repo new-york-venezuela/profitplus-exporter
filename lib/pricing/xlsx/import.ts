@@ -8,8 +8,8 @@ import { currentOf, type RatesErp } from '@/lib/pricing/lists-service';
 import type { SegmentErp } from '@/lib/pricing/segments-service';
 import { compileDiscounts, type DiscountSet } from '@/lib/pricing/xlsx/discounts';
 import {
-  describeDiscountSets, discountDateIssues, groupDiscountTargets, loadTypeContext, pricesAsOf, resolveCustomerType,
-  staleSpecialLists, type StaleCheck,
+  classifyCustomer, describeDiscountSets, discountDateIssues, groupDiscountTargets, loadTypeContext, pricesAsOf,
+  PROMO_SEGMENT_MSG, staleSpecialLists, type StaleCheck,
 } from '@/lib/pricing/xlsx/discounts-run';
 import { NEW_LIST_SENTINEL, relabel, type ParsedWorkbook } from '@/lib/pricing/xlsx/parse-workbook';
 
@@ -22,8 +22,12 @@ export interface WorkbookPlan {
   promos: CheckedPromoPlan;
   /** null while any customer targets a list that does not exist in Profit yet (see `warnings`). */
   customers: TipoClientePlan | null;
-  /** `lines`: one dry-run line per special list; `stale`: existing special lists that no longer match their type list. */
-  discounts: { sets: DiscountSet[]; errors: string[]; lines: string[]; stale: string[] };
+  /**
+   * `lines`: one dry-run line per special list; `stale`: existing special lists that no longer match their type list;
+   * `types`: the type list each customer's overrides were computed against (by trimmed upper-case co_cli; a list not
+   * created yet is `@<key>`), checked again live before the discounts step writes.
+   */
+  discounts: { sets: DiscountSet[]; errors: string[]; lines: string[]; stale: string[]; types: Map<string, { coPrecio: string; desPrecio: string }> };
   warnings: string[];
   problems: string[];
 }
@@ -36,7 +40,7 @@ const relabelAll = (xs: string[]) => xs.map(relabel);
  * compileDiscounts is synchronous. The type is the Clientes target when there is one, else the customer's live
  * segment seen through any discount segment of a previous run (resolveCustomerType).
  */
-async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook) {
+async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook, today: string) {
   const [segments, lists, typeCtx] = await Promise.all([deps.segments.listSegments(), deps.rates.listLists(), loadTypeContext(deps)]);
   const targetOf = new Map(parsed.customers.map(c => [norm(c.coCli), c.target]));
   const rateCache = new Map<string, Map<string, number>>();
@@ -65,8 +69,9 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook) {
 
   const resolved = new Map<string, Map<string, number> | null>();
   const types = new Map<string, { coPrecio: string; desPrecio: string }>();
+  const errors = new Map<string, string>();
   for (const coCli of new Set(parsed.discounts.map(d => d.coCli))) {
-    const asOf = parsed.discounts.find(d => d.coCli === coCli)!.desde;
+    const asOf = today; // the special list is a snapshot of the type list as of the run date
     const target = targetOf.get(norm(coCli)) ?? '';
     let prices: Map<string, number> | null = null;
     if (target.startsWith(NEW_LIST_SENTINEL)) {
@@ -79,7 +84,9 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook) {
       if (target) coPrecio = coPrecioOfTarget(target);
       else {
         const cur = await deps.segments.getCustomer(coCli);
-        coPrecio = cur ? resolveCustomerType(typeCtx, cur.tipCli)?.coPrecio ?? null : null;
+        const cls = cur ? classifyCustomer(typeCtx, cur.tipCli) : { kind: 'unknown' as const };
+        if (cls.kind === 'promo') errors.set(coCli, `cliente ${coCli}: ${PROMO_SEGMENT_MSG}`);
+        coPrecio = cls.kind === 'type' || cls.kind === 'discount' ? cls.type?.coPrecio ?? null : null;
       }
       const list = coPrecio ? lists.find(l => norm(l.coPrecio) === norm(coPrecio!)) : undefined;
       if (coPrecio) prices = new Map(await listPrices(coPrecio, asOf));
@@ -90,6 +97,9 @@ async function typeListResolver(deps: WorkbookDeps, parsed: ParsedWorkbook) {
   return {
     prices: (coCli: string) => resolved.get(coCli) ?? null,
     typeOf: (coCli: string) => types.get(coCli) ?? null,
+    types,
+    /** Customer-specific reasons that replace compileDiscounts' generic «no se pudo determinar su lista de tipo». */
+    errors,
     lists,
   };
 }
@@ -104,8 +114,7 @@ async function describeDiscounts(
     if (t.type.coPrecio.startsWith('@')) continue; // type list not created yet
     const same = r.lists.filter(l => norm(l.desPrecio) === norm(t.name));
     if (same.length !== 1) continue;
-    const desde = t.customers[0].desde;
-    const asOf = desde > today ? desde : today;
+    const asOf = today;
     checks.push({
       name: t.name, typeName: t.type.desPrecio, overridden: t.set.overrides.keys(),
       special: await pricesAsOf(deps.rates, same[0].coPrecio.trim(), asOf),
@@ -121,7 +130,7 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
     lists: { lists: [], problems: [] },
     promos: { promos: [], problems: [], warnings: [] },
     customers: null,
-    discounts: { sets: [], errors: [], lines: [], stale: [] },
+    discounts: { sets: [], errors: [], lines: [], stale: [], types: new Map() },
     warnings: [],
     problems: [...parsed.errors],
   };
@@ -155,14 +164,15 @@ export async function planWorkbook(deps: WorkbookDeps, parsed: ParsedWorkbook, t
 
   let discounts = empty.discounts;
   if (parsed.discounts.length) {
-    const resolver = await typeListResolver(deps, parsed);
+    const resolver = await typeListResolver(deps, parsed, today);
     const compiled = compileDiscounts(parsed.discounts, resolver.prices);
+    const generic = new Set([...resolver.errors.keys()].map(c => `cliente ${c}: no se pudo determinar su lista de tipo`));
     const dates = discountDateIssues(compiled.sets, today);
-    warnings.push(...dates.warnings);
     discounts = {
       sets: compiled.sets,
-      errors: [...compiled.errors, ...dates.errors],
+      errors: [...compiled.errors.filter(e => !generic.has(e)), ...resolver.errors.values(), ...dates.errors],
       ...(await describeDiscounts(deps, compiled.sets, resolver, today)),
+      types: new Map([...resolver.types].map(([c, t]) => [norm(c), t])),
     };
   }
 

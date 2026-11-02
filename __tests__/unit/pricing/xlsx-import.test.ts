@@ -157,7 +157,7 @@ describe('planWorkbook', () => {
     const parsed = parseWorkbook(book({
       Promociones: [PROMOS[0], ['Oferta', 'B', NEW_DESDE, '2026-12-01', '', 'A1', 9, '']],
       Clientes: withTarget('Cadenas'),
-      'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', NEW_DESDE, ''], ['C1', 'A2', 24, NEW_DESDE, '']],
+      'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, ''], ['C1', 'A2', 24, TODAY, '']],
     }), inScope);
     expect(parsed.errors).toEqual([]);
     const plan = await planWorkbook(deps, parsed, TODAY);

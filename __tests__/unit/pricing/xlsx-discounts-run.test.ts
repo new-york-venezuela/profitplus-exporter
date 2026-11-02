@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx';
 import { makeMemoryDb } from '../../helpers/memory-db';
 import { makeFakeRatesErp } from '../../helpers/fake-rates-erp';
 import { makeFakeSegmentErp } from '../../helpers/fake-segment-erp';
-import { getSegmentMeta } from '@/lib/pricing/segments-repo';
+import { getSegmentMeta, upsertSegmentMeta } from '@/lib/pricing/segments-repo';
+import { pricingListMeta, pricingSegmentMeta } from '@/lib/db/schema';
 import type { SegmentMoveResult } from '@/lib/pricing/segments-service';
 import type { DiscountSet } from '@/lib/pricing/xlsx/discounts';
 import {
@@ -228,7 +229,7 @@ describe('dry-run helpers', () => {
     );
     expect(lines).toEqual([
       'lista especial «Desc aaaaaaaa · INDEPENDIENTES»: se creará — 2 artículos distintos del tipo — clientes: C1 (permanente), C2 (hasta 2026-12-15)',
-      'lista especial «Desc bbbbbbbb · CADENAS»: ya existe — 1 artículos distintos del tipo — clientes: C3 (permanente)',
+      'lista especial «Desc bbbbbbbb · CADENAS»: ya existe — 1 artículo distinto del tipo — clientes: C3 (permanente)',
     ]);
   });
 
@@ -237,16 +238,20 @@ describe('dry-run helpers', () => {
       { name: 'Desc a · T', typeName: 'T', special: new Map([['A1', 9], ['A2', 20], ['A3', 5]]), type: new Map([['A1', 10], ['A2', 22], ['A3', 5], ['A4', 7]]), overridden: ['A1'] },
       { name: 'Desc b · T', typeName: 'T', special: new Map([['A1', 9], ['A2', 20]]), type: new Map([['A1', 10], ['A2', 20]]), overridden: ['A1'] },
     ]);
-    expect(notices).toEqual(['lista especial «Desc a · T» está desactualizada respecto a «T» (2 artículos); vuelva a cargar el libro para sincronizarla']);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toStartWith('lista especial «Desc a · T»: 2 artículos sin descuento tienen un precio distinto al de «T».');
+    expect(notices[0]).toContain('NO se sincroniza automáticamente');
+    expect(notices[0]).not.toContain('vuelva a cargar');
+    const one = staleSpecialLists([{ name: 'X', typeName: 'T', special: new Map([['A2', 1]]), type: new Map([['A2', 2]]), overridden: [] }]);
+    expect(one[0]).toContain('1 artículo sin descuento tiene un precio distinto');
   });
 
-  test('discountDateIssues: hasta not after today is an error naming the customer; a future desde warns', () => {
-    const r = discountDateIssues([set([dated('C1', TODAY), dated('C2', '2026-11-03'), perm('C3', '2026-11-09')])], TODAY);
-    expect(r.errors).toHaveLength(1);
-    expect(r.errors[0]).toContain('C1');
-    expect(r.errors[0]).toContain('hasta');
-    expect(r.warnings).toHaveLength(1);
-    expect(r.warnings[0]).toContain('C3');
+  test('discountDateIssues: hasta not after today, and any desde other than today, are errors naming the customer', () => {
+    const r = discountDateIssues([set([dated('C1', TODAY), dated('C2', '2026-11-03'), perm('C3', '2026-11-09'), perm('C4', '2026-10-01')])], TODAY);
+    expect(r.errors).toHaveLength(3);
+    expect(r.errors[0]).toContain('cliente C1: «hasta»');
+    expect(r.errors[1]).toBe(`cliente C3 (artículos A1): «desde» 2026-11-09 debe ser hoy (${TODAY}); las fechas futuras o pasadas aún no están soportadas`);
+    expect(r.errors[2]).toContain('cliente C4 (artículos A1): «desde» 2026-10-01 debe ser hoy');
   });
 });
 
@@ -294,7 +299,7 @@ describe('workbook pipeline with discounts', () => {
     const p = await planWorkbook(s.wdeps, s.parsed, TODAY);
     expect(p.problems).toEqual([]);
     expect(p.discounts.lines).toEqual([
-      'lista especial «Desc ' + p.discounts.sets[0].key + ' · INDEPENDIENTES»: se creará — 1 artículos distintos del tipo — clientes: C1 (permanente), C2 (permanente)',
+      'lista especial «Desc ' + p.discounts.sets[0].key + ' · INDEPENDIENTES»: se creará — 1 artículo distinto del tipo — clientes: C1 (permanente), C2 (permanente)',
     ]);
     const out = await applyWorkbook(s.wdeps, p, s.parsed, 'all', ACTOR, runFile());
     expect(out.map(o => [o.step, o.status])).toEqual([['lists', 'ok'], ['promotions', 'ok'], ['customers', 'ok'], ['discounts', 'ok']]);
@@ -323,9 +328,8 @@ describe('workbook pipeline with discounts', () => {
     const a2 = s.rates.state.rates.find(r => r.coPrecio === '08' && r.coArt === 'A2')!;
     a2.monto = 25; // the type list moved on after the special list was cloned
     const again = await planWorkbook(s.wdeps, s.parsed, TODAY);
-    expect(again.discounts.stale).toEqual([
-      `lista especial «Desc ${again.discounts.sets[0].key} · INDEPENDIENTES» está desactualizada respecto a «INDEPENDIENTES» (1 artículos); vuelva a cargar el libro para sincronizarla`,
-    ]);
+    expect(again.discounts.stale).toHaveLength(1);
+    expect(again.discounts.stale[0]).toStartWith(`lista especial «Desc ${again.discounts.sets[0].key} · INDEPENDIENTES»: 1 artículo sin descuento tiene un precio distinto al de «INDEPENDIENTES».`);
   });
 
   test('discounts is omitido when an earlier step fails', async () => {
@@ -341,7 +345,7 @@ describe('workbook pipeline with discounts', () => {
   });
 
   test('hasta not after today is a plan problem and blocks every write', async () => {
-    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', 9, '2026-10-01', TODAY]] });
+    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', 9, TODAY, TODAY]] });
     expect(s.plan.problems.join('\n')).toMatch(/Descuentos por cliente: .*C1.*hasta/);
     await expect(applyWorkbook(s.wdeps, s.plan, s.parsed, 'all', ACTOR, runFile())).rejects.toThrow('no se escribe nada');
     expect(s.calls).toEqual([]);
@@ -352,5 +356,152 @@ describe('workbook pipeline with discounts', () => {
     const out = await applyWorkbook(s.wdeps, s.plan, s.parsed, 'discounts', ACTOR, runFile());
     expect(out.map(o => [o.step, o.status])).toEqual([['discounts', 'ok']]);
     expect(getSegmentMeta(s.db, s.seg.state.customers.C1.tipCli)).toMatchObject({ kind: 'special', expiresAt: '2026-12-15', fallbackTipCli: '000001' });
+  });
+});
+
+// ---------- review fix round 1 ----------
+
+/** Wraps the SQLite db so inserts into the given tables throw (a failed metadata write). */
+function failingInserts(db: ReturnType<typeof makeMemoryDb>, tables: unknown[]): ReturnType<typeof makeMemoryDb> {
+  return new Proxy(db, {
+    get(t, p, r) {
+      if (p === 'insert') return (tbl: unknown) => { if (tables.includes(tbl)) throw new Error('SQLITE_BUSY'); return t.insert(tbl as never); };
+      return Reflect.get(t, p, r);
+    },
+  });
+}
+function failingUpdates(db: ReturnType<typeof makeMemoryDb>): ReturnType<typeof makeMemoryDb> {
+  return new Proxy(db, {
+    get(t, p, r) { if (p === 'update') return () => { throw new Error('SQLITE_BUSY'); }; return Reflect.get(t, p, r); },
+  });
+}
+const withDb = (s: ReturnType<typeof setup>, db: ReturnType<typeof makeMemoryDb>) =>
+  ({ lists: { ...s.deps.lists, db }, segments: { ...s.deps.segments, db } });
+const quiet = () => spyOn(console, 'error').mockImplementation(() => {});
+
+/** C1 sits in a promotion's special segment 000009 on list 10. */
+function intoPromo(s: ReturnType<typeof setup>) {
+  s.rates.state.lists.push({ coPrecio: '10', desPrecio: 'PROMO NAVIDAD' });
+  s.rates.state.rates.push(rate('A1', '10', 7), rate('A2', '10', 17));
+  s.seg.state.segments.push({ tipCli: '000009', desTipo: 'PROMO NAVIDAD hasta 31/12', coPrecio: '10', desPrecio: null, customerCount: 1, validador: '0x1' });
+  upsertSegmentMeta(s.db, { tipCli: '000009', kind: 'special', reason: 'PROMO NAVIDAD', expiresAt: '2026-12-31', createdBy: 'x', createdAt: 0 });
+  s.seg.state.customers.C1.tipCli = '000009';
+}
+
+describe('fix round 1', () => {
+  test('1. the special list starts today and copies the type list as of today, whatever the set desde', async () => {
+    const s = setup();
+    const a2 = s.rates.state.rates.find(r => r.coPrecio === '08' && r.coArt === 'A2')!;
+    a2.hasta = '2026-10-31'; a2.monto = 15;
+    s.rates.state.rates.push(rate('A2', '08', 20, '2026-11-01'));
+    await applyDiscountSets(s.deps, [set([perm('C1', '2026-10-01')])], () => TYPE_08, ACTOR);
+    const clone = s.calls.find(c => c.name === 'cloneList')!.args[0] as { from: string; rows: { coArt: string; monto: number }[] };
+    expect(clone.from).toBe(TODAY);
+    expect(clone.rows.map(r => [r.coArt, r.monto]).sort()).toEqual([['A1', 9], ['A2', 20]]);
+  });
+
+  test('1. a desde other than today is a plan problem that blocks every write', async () => {
+    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', 9, '2026-11-09', '']] });
+    expect(s.plan.problems.join('\n')).toContain('cliente C1 (artículos A1): «desde» 2026-11-09 debe ser hoy (2026-11-02); las fechas futuras o pasadas aún no están soportadas');
+    expect(s.plan.warnings.join('\n')).not.toContain('desde');
+    await expect(applyWorkbook(s.wdeps, s.plan, s.parsed, 'all', ACTOR, runFile())).rejects.toThrow('no se escribe nada');
+    expect(s.calls).toEqual([]);
+  });
+
+  test('2. a customer in a promotion segment: plan problem, nothing priced from the promotion list', async () => {
+    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, '']] });
+    intoPromo(s);
+    const p = await planWorkbook(s.wdeps, s.parsed, TODAY);
+    const text = p.problems.join('\n');
+    expect(text).toContain('Descuentos por cliente: cliente C1: el cliente está en un segmento especial de promoción; muévalo primero a su segmento de tipo');
+    expect(text).not.toContain('no se pudo determinar');
+    expect(p.discounts.sets).toEqual([]);
+  });
+
+  test('2. a customer moved into a promotion segment after planning is an error at apply, never written', async () => {
+    const s = await pipeline({ 'Descuentos por cliente': [...DESC, ['C1', 'A1', 9, TODAY, ''], ['C2', 'A1', 9, TODAY, '']] });
+    expect(s.plan.problems).toEqual([]);
+    intoPromo(s);
+    const out = await applyWorkbook(s.wdeps, s.plan, s.parsed, 'discounts', ACTOR, runFile());
+    expect(out[0].status).toBe('failed');
+    expect(out[0].lines.join('\n')).toContain('C1: error — el cliente está en un segmento especial de promoción');
+    expect(s.seg.state.customers.C1.tipCli).toBe('000009');
+    const clones = s.calls.filter(c => c.name === 'cloneList').map(c => (c.args[0] as { coPrecio: string; desPrecio: string }).desPrecio);
+    expect(clones.every(n => n.endsWith('INDEPENDIENTES'))).toBe(true);
+    expect(s.seg.state.customers.C2.tipCli).not.toBe('000001'); // the other customer still goes through
+  });
+
+  test('3. permanent → dated on a customer already in a discount segment: error, no new segment, not moved', async () => {
+    const s = setup();
+    await applyDiscountSets(s.deps, [set([perm('C1')])], () => TYPE_08, ACTOR);
+    const groupSeg = s.seg.state.customers.C1.tipCli;
+    const before = { seg: s.count('createSegment'), move: s.count('moveCustomer') };
+    const out = await applyDiscountSets(s.deps, [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
+    expect(out[0].customers).toEqual([{ coCli: 'C1', outcome: 'error', message: 'el cliente ya está en el descuento «Desc aaaaaaaa · INDEPENDIENTES»; muévalo primero al segmento de tipo' }]);
+    expect({ seg: s.count('createSegment'), move: s.count('moveCustomer') }).toEqual(before);
+    expect(s.seg.state.customers.C1.tipCli).toBe(groupSeg);
+  });
+
+  test('3. a dated customer in another discount list, and dated → permanent, are errors too', async () => {
+    const s = setup();
+    await applyDiscountSets(s.deps, [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
+    const other = await applyDiscountSets(s.deps, [set([dated('C1', '2026-12-15')], [['A1', 8]], 'bbbbbbbb')], () => TYPE_08, ACTOR);
+    expect(other[0].customers[0]).toMatchObject({ outcome: 'error', message: expect.stringContaining('ya está en el descuento') });
+    const perm2 = await applyDiscountSets(s.deps, [set([perm('C1')])], () => TYPE_08, ACTOR);
+    expect(perm2[0].customers[0]).toMatchObject({ outcome: 'error', message: expect.stringContaining('ya está en el descuento') });
+    expect(s.count('moveCustomer')).toBe(1);
+  });
+
+  test('4. a changed hasta updates the special segment expiry instead of being skipped', async () => {
+    const s = setup();
+    await applyDiscountSets(s.deps, [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
+    const tip = s.seg.state.customers.C1.tipCli;
+    const before = { seg: s.count('createSegment'), move: s.count('moveCustomer') };
+    const out = await applyDiscountSets(s.deps, [set([dated('C1', '2027-01-31')])], () => TYPE_08, ACTOR);
+    expect(out[0].customers).toEqual([{ coCli: 'C1', outcome: 'success', message: 'vencimiento actualizado a 2027-01-31' }]);
+    expect(getSegmentMeta(s.db, tip)?.expiresAt).toBe('2027-01-31');
+    expect({ seg: s.count('createSegment'), move: s.count('moveCustomer') }).toEqual(before);
+    const same = await applyDiscountSets(s.deps, [set([dated('C1', '2027-01-31')])], () => TYPE_08, ACTOR);
+    expect(same[0].customers).toEqual([{ coCli: 'C1', outcome: 'success' }]);
+  });
+
+  test('4. an expiry update the service rejects is an error with its message', async () => {
+    const s = setup();
+    await applyDiscountSets(s.deps, [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
+    const out = await applyDiscountSets(withDb(s, failingUpdates(s.db)), [set([dated('C1', '2027-01-31')])], () => TYPE_08, ACTOR);
+    expect(out[0].customers[0]).toMatchObject({ coCli: 'C1', outcome: 'error', message: expect.stringContaining('SQLITE_BUSY') });
+  });
+
+  test('6. step discounts alone: a live type different from the planned one is an error, nothing written', async () => {
+    const s = await pipeline({
+      'Descuentos por cliente': [...DESC, ['C1', 'A1', '-10%', TODAY, '']],
+      Clientes: [CLI_HEAD, ['C1', 'Bodega 1', '000001', 'GENERAL', '08', '', 'USD', '000002']],
+    });
+    expect(s.plan.problems).toEqual([]);
+    expect(s.plan.discounts.types.get('C1')).toEqual({ coPrecio: '09', desPrecio: 'CADENAS' });
+    const out = await applyWorkbook(s.wdeps, s.plan, s.parsed, 'discounts', ACTOR, runFile());
+    expect(out[0].status).toBe('failed');
+    expect(out[0].lines.join('\n')).toContain('el tipo actual del cliente es la lista 08 «INDEPENDIENTES», pero el descuento se calculó con la lista 09 «CADENAS»');
+    expect(s.count('cloneList') + s.count('createSegment') + s.count('moveCustomer')).toBe(0);
+  });
+
+  test('7. a list or group-segment metadata warning is shown on the successful customers', async () => {
+    const s = setup();
+    const err = quiet();
+    try {
+      const out = await applyDiscountSets(withDb(s, failingInserts(s.db, [pricingListMeta, pricingSegmentMeta])), [set([perm('C1')])], () => TYPE_08, ACTOR);
+      expect(out[0].customers[0].outcome).toBe('success');
+      expect(out[0].customers[0].message).toContain('Lista creada en Profit pero sin metadatos');
+      expect(out[0].customers[0].message).toContain('Segmento creado en Profit pero sin metadatos');
+    } finally { err.mockRestore(); }
+  });
+
+  test('7. a dated customer whose special segment metadata failed is an error with the warning', async () => {
+    const s = setup();
+    const err = quiet();
+    try {
+      const out = await applyDiscountSets(withDb(s, failingInserts(s.db, [pricingSegmentMeta])), [set([dated('C1', '2026-12-15')])], () => TYPE_08, ACTOR);
+      expect(out[0].customers[0]).toEqual({ coCli: 'C1', outcome: 'error', message: 'Segmento creado en Profit pero sin metadatos; avise a un administrador' });
+    } finally { err.mockRestore(); }
   });
 });

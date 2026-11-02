@@ -8,7 +8,7 @@ import type { TipoClienteRow } from '@/lib/pricing/tipo-cliente-apply/csv';
 import type { TipoClientePlan } from '@/lib/pricing/tipo-cliente-apply/plan';
 import { NEW_LIST_SENTINEL, type ParsedWorkbook } from '@/lib/pricing/xlsx/parse-workbook';
 import type { WorkbookDeps, WorkbookPlan } from '@/lib/pricing/xlsx/import';
-import { applyDiscountSets, loadTypeContext, resolveCustomerType } from '@/lib/pricing/xlsx/discounts-run';
+import { applyDiscountSets, classifyCustomer, loadTypeContext, PROMO_SEGMENT_MSG, resolveCustomerType } from '@/lib/pricing/xlsx/discounts-run';
 
 export type StepName = 'lists' | 'promotions' | 'customers' | 'discounts';
 export type Step = StepName | 'all';
@@ -153,13 +153,27 @@ async function dropMovesOffDiscount(deps: WorkbookApplyDeps, plan: TipoClientePl
 async function runDiscounts(deps: WorkbookApplyDeps, plan: WorkbookPlan, actor: Actor): Promise<StepOutcome> {
   if (!plan.discounts.sets.length) return { step: 'discounts', status: 'ok', lines: ['Sin descuentos por cliente.'], failures: 0 };
   // Resolved live, after the customers step: the customer's current segment, seen through any earlier discount segment.
+  // Throws (→ that customer is an error, never written) when the live type is not the one the plan priced against.
   const ctx = await loadTypeContext(deps);
   const typeOf = async (coCli: string) => {
     const c = await deps.segments.getCustomer(coCli);
-    return c ? resolveCustomerType(ctx, c.tipCli) : null;
+    if (!c) return null;
+    const cls = classifyCustomer(ctx, c.tipCli);
+    if (cls.kind === 'promo') throw new Error(PROMO_SEGMENT_MSG);
+    const type = cls.kind === 'type' || cls.kind === 'discount' ? cls.type : null;
+    const planned = plan.discounts.types.get(norm(coCli));
+    if (type && planned) {
+      const same = planned.coPrecio.startsWith('@') ? norm(planned.desPrecio) === norm(type.desPrecio) : norm(planned.coPrecio) === norm(type.coPrecio);
+      if (!same) {
+        throw new Error(`el tipo actual del cliente es la lista ${type.coPrecio} «${type.desPrecio}», pero el descuento se calculó con la lista `
+          + `${planned.coPrecio.startsWith('@') ? '' : `${planned.coPrecio} `}«${planned.desPrecio}»; ejecute antes --step customers o corrija tip_cli_nuevo`);
+      }
+    }
+    return type;
   };
+  const now = () => new Date(`${deps.today}T12:00:00`);
   const done = await applyDiscountSets(
-    { lists: { erp: deps.rates, db: deps.db }, segments: { erp: deps.segments, db: deps.db } }, plan.discounts.sets, typeOf, actor,
+    { lists: { erp: deps.rates, db: deps.db, now }, segments: { erp: deps.segments, db: deps.db, now } }, plan.discounts.sets, typeOf, actor,
   );
   const lines: string[] = [];
   let failures = 0;
