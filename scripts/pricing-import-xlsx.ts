@@ -7,6 +7,8 @@ import { todayIso } from '@/lib/pricing/dates';
 import { currentPrices } from '@/lib/pricing/list-import/run';
 import { realRatesErp } from '@/lib/pricing/rates-erp-adapter';
 import { realSegmentErp } from '@/lib/pricing/segment-erp';
+import { assertConfirmedDb } from '@/lib/customer-mapping/diff-csv';
+import { applyWorkbook, type Step as ApplyStep } from '@/lib/pricing/xlsx/apply';
 import { fetchDwhProducts, partitionByScope } from '@/lib/pricing/xlsx/scope';
 import { parseWorkbook, planWorkbook, type WorkbookPlan } from '@/lib/pricing/xlsx/import';
 
@@ -16,7 +18,9 @@ type Step = (typeof STEPS)[number];
 const USAGE = `Uso:
   bun run pricing:import-xlsx -- --file <ruta.xlsx>   # simulación (por defecto)
   --step lists|promotions|customers|discounts|all     # por defecto all: en orden, se detiene en el primer paso con problemas
-  --apply, --confirm-db <DB_NAME>                     # aún no implementado`;
+  --apply --confirm-db <DB_NAME>                      # escribe en Profit (lists, promotions, customers; all = en ese orden)
+  Para revertir los movimientos de clientes: bun run tipo-cliente:apply -- --rollback <runId> --confirm-db <DB_NAME>`;
+const RUNS_DIR = 'data/tipo-cliente/runs';
 
 const fmt = (n: number) => n.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
 const MAX_WARN = 40;
@@ -78,10 +82,12 @@ async function main() {
     },
   });
   if (values.help) { console.log(USAGE); return; }
-  if (values.apply) { console.error('--apply aún no está implementado'); process.exit(2); }
   if (!values.file) { console.error(`Falta --file <ruta.xlsx>\n${USAGE}`); process.exit(2); }
   const step = values.step ?? 'all';
   if (step !== 'all' && !(STEPS as readonly string[]).includes(step)) { console.error(`--step inválido: ${step}\n${USAGE}`); process.exit(2); }
+
+  if (values.apply && step === 'discounts') { console.error('el paso discounts aún no está implementado'); process.exit(2); }
+  if (values.apply) assertConfirmedDb(values['confirm-db'], process.env.DB_NAME);
 
   let buf: Buffer;
   try { buf = readFileSync(values.file); } catch { console.error(`No se pudo leer ${values.file}`); process.exit(1); }
@@ -100,7 +106,36 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    const plan = await planWorkbook(deps, parsed, todayIso());
+    const today = todayIso();
+    const plan = await planWorkbook(deps, parsed, today);
+
+    if (values.apply) {
+      if (plan.problems.length) {
+        console.log('');
+        for (const p of plan.problems) console.log(`  ✗ ${p}`);
+        console.log('\nEl plan tiene problemas: no se escribió nada.');
+        process.exitCode = 1;
+        return;
+      }
+      for (const w of plan.warnings.slice(0, MAX_WARN)) console.log(`  ⚠ ${w}`);
+      const runId = new Date().toISOString().replace(/[:.]/g, '-');
+      const actor = { id: 'import-xlsx', erpUser: process.env.PRICING_ERP_SERVICE_USER ?? 'PROFIT' };
+      const outcomes = await applyWorkbook({ ...deps, today }, plan, parsed, step as ApplyStep, actor, `${RUNS_DIR}/${runId}.jsonl`);
+      for (const o of outcomes) {
+        console.log(`\n== ${o.step} — ${o.status === 'ok' ? 'listo' : o.status === 'skipped' ? 'omitido' : 'CON PROBLEMAS'} ==`);
+        for (const l of o.lines) console.log(l);
+      }
+      const moved = outcomes.find(o => o.step === 'customers')?.moved ?? 0;
+      if (moved > 0) {
+        console.log(`\nCorrida de clientes: ${runId}`);
+        console.log(`Para revertir: bun run tipo-cliente:apply -- --rollback ${runId} --confirm-db ${process.env.DB_NAME}`);
+      }
+      if (outcomes.some(o => o.status === 'failed')) {
+        console.log('\nAlgún paso falló; los pasos siguientes se omitieron. Se puede volver a ejecutar: lo ya aplicado se omite.');
+        process.exitCode = 1;
+      }
+      return;
+    }
 
     let failed = false;
     for (const s of step === 'all' ? STEPS : [step as Step]) {
