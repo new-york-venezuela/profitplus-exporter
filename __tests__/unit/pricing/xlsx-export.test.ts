@@ -19,8 +19,8 @@ const data: ExportData = {
     { name: 'Futura', coPrecio: '02', startsOn: '2026-12-01', endsOn: '2026-12-10', reason: null, status: 'programada', items: [{ coArt: 'A1', monto: 2.75 }] },
   ],
   customers: [
-    { coCli: 'C1', nombre: 'Cliente Uno', tipCli: 'T1', desTipo: 'Tipo 1', listaActual: '01', lista90d: '01', moneda90d: 'USD' },
-    { coCli: 'C2', nombre: 'Cliente Dos', tipCli: 'T2', desTipo: 'Tipo 2', listaActual: '02', lista90d: '' },
+    { coCli: 'C1', nombre: 'Cliente Uno', tipCli: 'T1', desTipo: 'Tipo 1', segmento: 'Cadenas', listaActual: '01', lista90d: '01', moneda90d: 'USD' },
+    { coCli: 'C2', nombre: 'Cliente Dos', tipCli: 'T2', desTipo: 'Tipo 2', segmento: '', listaActual: '02', lista90d: '' },
   ],
 };
 
@@ -67,10 +67,10 @@ describe('buildExportWorkbook', () => {
 
   test('Clientes: header and rows with blank tip_cli_nuevo', () => {
     const { header, rows } = read(SHEET.clientes);
-    expect(header).toEqual(['co_cli', 'nombre', 'tip_cli_actual', 'des_tipo_actual', 'lista_actual', 'lista_usada_90d', 'moneda_90d', 'tip_cli_nuevo']);
+    expect(header).toEqual(['co_cli', 'nombre', 'tip_cli_actual', 'des_tipo_actual', 'segmento', 'lista_actual', 'lista_usada_90d', 'moneda_90d', 'tip_cli_nuevo']);
     expect(rows).toEqual([
-      ['C1', 'Cliente Uno', 'T1', 'Tipo 1', '01', '01', 'USD', ''],
-      ['C2', 'Cliente Dos', 'T2', 'Tipo 2', '02', '', '', ''],
+      ['C1', 'Cliente Uno', 'T1', 'Tipo 1', 'Cadenas', '01', '01', 'USD', ''],
+      ['C2', 'Cliente Dos', 'T2', 'Tipo 2', '', '02', '', '', ''],
     ]);
   });
 });

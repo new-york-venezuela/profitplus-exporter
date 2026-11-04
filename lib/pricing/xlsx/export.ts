@@ -19,7 +19,7 @@ export interface ExportData {
   articles: ScopedArticle[];
   currentPrice: Map<string, number>; // key `${coPrecio}|${coArt}`
   promotions: ExportPromotion[];
-  customers: { coCli: string; nombre: string; tipCli: string; desTipo: string; listaActual: string; lista90d: string; moneda90d?: string }[];
+  customers: { coCli: string; nombre: string; tipCli: string; desTipo: string; segmento: string; listaActual: string; lista90d: string; moneda90d?: string }[];
 }
 
 export const priceKey = (coPrecio: string, coArt: string) => `${coPrecio}|${coArt}`;
@@ -69,9 +69,9 @@ export function buildExportWorkbook(d: ExportData, today: string): Buffer {
     [['co_cli', 'co_art', 'precio', 'desde', 'hasta']], [14, 14, 12, 12, 12]), SHEET.descuentos);
 
   XLSX.utils.book_append_sheet(wb, sheet(
-    [['co_cli', 'nombre', 'tip_cli_actual', 'des_tipo_actual', 'lista_actual', 'lista_usada_90d', 'moneda_90d', 'tip_cli_nuevo'],
-      ...d.customers.map(c => [c.coCli, c.nombre, c.tipCli, c.desTipo, c.listaActual, c.lista90d, c.moneda90d ?? '', ''])],
-    [14, 40, 14, 24, 12, 14, 10, 14]), SHEET.clientes);
+    [['co_cli', 'nombre', 'tip_cli_actual', 'des_tipo_actual', 'segmento', 'lista_actual', 'lista_usada_90d', 'moneda_90d', 'tip_cli_nuevo'],
+      ...d.customers.map(c => [c.coCli, c.nombre, c.tipCli, c.desTipo, c.segmento, c.listaActual, c.lista90d, c.moneda90d ?? '', ''])],
+    [14, 40, 14, 24, 24, 12, 14, 10, 14]), SHEET.clientes);
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
@@ -100,7 +100,7 @@ export async function loadExportData(deps: ExportDeps): Promise<ExportData & { u
     lists, articles: inScope, currentPrice, unclassified,
     promotions: selectPromotions(listPromotions(db), id => listItems(db, id), today),
     customers: customerRows.map(c => ({
-      coCli: c.co_cli, nombre: c.nombre, tipCli: c.tip_cli_actual, desTipo: c.des_tipo_actual ?? '',
+      coCli: c.co_cli, nombre: c.nombre, tipCli: c.tip_cli_actual, desTipo: c.des_tipo_actual ?? '', segmento: c.des_seg ?? c.co_seg ?? '',
       listaActual: c.lista_actual ?? '', lista90d: c.lista_usada_90d ?? '', moneda90d: c.moneda_90d ?? '',
     })),
   };
