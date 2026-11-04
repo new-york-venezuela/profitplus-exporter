@@ -4,7 +4,7 @@ import type { GridRow } from '@/lib/pricing/lists-service';
 
 const row = (over: Partial<GridRow>): GridRow => ({
   coArt: 'A1', artDes: 'Harina', catDes: null, coAlma: '000015', ambiguous: false,
-  current: { monto: 12.4, desde: '2026-01-01', hasta: null }, next: null, referenceMonto: 12.4, ...over,
+  current: { monto: 12.4, desde: '2026-01-01', hasta: null }, next: null, referenceMonto: 12.4, inScope: true, ...over,
 });
 
 describe('buildListCsv', () => {

@@ -112,12 +112,11 @@ test.describe('pricing lists @mssql', () => {
       await expect.poll(() => new URL(adminPage.url()).searchParams.get('list'), { timeout: 20_000 }).toBe(createdCo);
       await expect(adminPage.getByRole('heading', { name: new RegExp(listName) })).toBeVisible({ timeout: 20_000 });
 
-      await adminPage.getByLabel('Mostrar artículos sin precio en esta lista').check();
-      const row = adminPage.locator('tbody tr:not([aria-hidden])').first();
-      const input = row.getByRole('textbox').first();
-      await expect(input).toBeEnabled({ timeout: 20_000 });
-      await input.fill('9999,99');
-      await input.press('Enter');
+      await adminPage.getByRole('button', { name: '+ Agregar artículos' }).click();
+      const dialog = adminPage.getByRole('dialog');
+      await dialog.getByRole('list', { name: 'Artículos disponibles' }).getByRole('checkbox').first().check({ timeout: 20_000 });
+      await dialog.getByRole('textbox', { name: /^Precio de / }).fill('9999,99');
+      await dialog.getByRole('button', { name: /^Agregar \d/ }).click();
       await expect(adminPage.getByText('1 cambio pendiente')).toBeVisible();
 
       await adminPage.getByLabel('Vigente desde:', { exact: true }).fill(future);

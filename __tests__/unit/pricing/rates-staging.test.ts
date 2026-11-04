@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'bun:test';
-import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows, rowIdentityKey, visibleDraft } from '@/lib/pricing/rates-staging';
+import { stageEdit, pendingChanges, referenceFor, newDeltaPct, visibleRows, addableRows, rowIdentityKey, visibleDraft } from '@/lib/pricing/rates-staging';
 import type { GridRow } from '@/lib/pricing/client-types';
 
 function row(p: Partial<GridRow> & { coArt: string }): GridRow {
   return {
     artDes: p.coArt, catDes: null, coAlma: '000015', ambiguous: false,
-    current: { monto: 10, desde: '2026-01-01', hasta: null }, next: null, referenceMonto: 8, ...p,
+    current: { monto: 10, desde: '2026-01-01', hasta: null }, next: null, referenceMonto: 8, inScope: true, ...p,
   };
 }
 
@@ -88,6 +88,40 @@ describe('visibleRows', () => {
   test('search and category combine', () => {
     expect(visibleRows(rows, { ...base, showUnpriced: true, search: 'sin', category: 'Granos' }).map(r => r.coArt)).toEqual(['NOP']);
     expect(visibleRows(rows, { ...base, search: 'harina', category: 'Granos' })).toEqual([]);
+  });
+});
+
+describe('visibleRows pinning', () => {
+  test('rows staged as new (no current price) are pinned above the priced rows', () => {
+    const rows = [
+      row({ coArt: 'A', artDes: 'Arroz' }),
+      row({ coArt: 'N1', artDes: 'Nuevo uno', current: null }),
+      row({ coArt: 'B', artDes: 'Bagel' }),
+    ];
+    const out = visibleRows(rows, { search: '', category: '', showUnpriced: false, staged: { N1: 5 } });
+    expect(out.map(r => r.coArt)).toEqual(['N1', 'A', 'B']);
+  });
+});
+
+describe('addableRows', () => {
+  const rows = [
+    row({ coArt: 'P', artDes: 'Priced' }),
+    row({ coArt: 'U1', artDes: 'Pan de jamon', current: null }),
+    row({ coArt: 'U2', artDes: 'Harina cruda', current: null, inScope: false }),
+    row({ coArt: 'AMB', artDes: 'Ambiguo', current: null, ambiguous: true }),
+    row({ coArt: 'SCH', artDes: 'Programado', current: null, next: { monto: 5, desde: '2026-12-01' } }),
+    row({ coArt: 'ST', artDes: 'Ya agregado', current: null }),
+  ];
+  const base = { search: '', includeOutOfScope: false, staged: { ST: 3 } };
+  test('only unpriced, in-scope, not-yet-staged rows; priced, scheduled and ambiguous rows are excluded', () => {
+    expect(addableRows(rows, base).map(r => r.coArt)).toEqual(['U1']);
+  });
+  test('includeOutOfScope also lists articles outside the warehouse', () => {
+    expect(addableRows(rows, { ...base, includeOutOfScope: true }).map(r => r.coArt)).toEqual(['U1', 'U2']);
+  });
+  test('search matches code or description case-insensitively', () => {
+    expect(addableRows(rows, { ...base, includeOutOfScope: true, search: 'HARINA' }).map(r => r.coArt)).toEqual(['U2']);
+    expect(addableRows(rows, { ...base, search: 'u1' }).map(r => r.coArt)).toEqual(['U1']);
   });
 });
 

@@ -43,6 +43,41 @@ describe('getRatesGrid', () => {
     expect(g.rows.find(r => r.coArt === 'A1')!.referenceMonto).toBe(14);
     expect(g.rows.find(r => r.coArt === 'A2')!.referenceMonto).toBeNull();
   });
+  describe('article scope (warehouse)', () => {
+    beforeEach(() => {
+      state.articles.push({ coArt: 'A4', artDes: 'Pan de jamon' }, { coArt: 'A5', artDes: 'Harina cruda 25kg' });
+      state.stock['000015'] = ['A1', 'A2', 'A3', 'A4'];
+    });
+    test('unpriced rows are flagged inScope by the dominant price warehouse', async () => {
+      const g = await getRatesGrid(deps, '08', null);
+      expect(g.scope).toEqual({ coAlma: '000015' });
+      expect(g.rows.find(r => r.coArt === 'A4')).toMatchObject({ current: null, inScope: true });
+      expect(g.rows.find(r => r.coArt === 'A5')).toMatchObject({ current: null, inScope: false });
+      expect(g.rows.find(r => r.coArt === 'A1')!.inScope).toBe(true);
+    });
+    test('priced articles outside the warehouse stay visible and are never hidden', async () => {
+      state.stock['000015'] = ['A4'];
+      const g = await getRatesGrid(deps, '08', null);
+      expect(g.rows.find(r => r.coArt === 'A1')).toMatchObject({ inScope: false });
+      expect(g.rows.find(r => r.coArt === 'A1')!.current).not.toBeNull();
+    });
+    test('PRICING_ARTICLE_WAREHOUSE overrides the dominant warehouse', async () => {
+      state.stock['000099'] = ['A5'];
+      process.env.PRICING_ARTICLE_WAREHOUSE = '000099';
+      try {
+        const g = await getRatesGrid(deps, '08', null);
+        expect(g.scope).toEqual({ coAlma: '000099' });
+        expect(g.rows.find(r => r.coArt === 'A5')!.inScope).toBe(true);
+        expect(g.rows.find(r => r.coArt === 'A4')!.inScope).toBe(false);
+      } finally { delete process.env.PRICING_ARTICLE_WAREHOUSE; }
+    });
+    test('a warehouse with no stock records disables the scope instead of hiding everything', async () => {
+      state.stock = {};
+      const g = await getRatesGrid(deps, '08', null);
+      expect(g.scope).toBeNull();
+      expect(g.rows.every(r => r.inScope)).toBe(true);
+    });
+  });
   test('unknown list → NotFoundError', async () => {
     await expect(getRatesGrid(deps, 'ZZ', null)).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -322,7 +357,7 @@ describe('final fixes F: grid is the priced rows UNION the catalog', () => {
     state.rates.push({ coArt: 'A9', coPrecio: '01', coAlma: '000015', desde: '2026-03-15', hasta: null, monto: 8, coMone: 'USD', validador: '0x0b' });
     const g = await getRatesGrid(deps, '08', '01');
     expect(g.rows.find(r => r.coArt === 'A9')).toEqual({
-      coArt: 'A9', artDes: 'Zucaritas', catDes: 'Cereal', coAlma: null, ambiguous: false, current: null, next: null, referenceMonto: 8,
+      coArt: 'A9', artDes: 'Zucaritas', catDes: 'Cereal', coAlma: null, ambiguous: false, current: null, next: null, referenceMonto: 8, inScope: true,
     });
     expect((await getRatesGrid(deps, '08', null)).rows.find(r => r.coArt === 'A9')!.referenceMonto).toBeNull();
   });

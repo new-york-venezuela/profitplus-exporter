@@ -22,6 +22,20 @@ elegir una, a la derecha aparece la tabla de artículos con su precio
   se te avisa cuántos fueron.
 - **Descartar** borra todos los cambios que aún no has aplicado.
 
+## Agregar artículos a una lista
+
+La tabla solo muestra los artículos que ya tienen precio en la lista. Para
+agregar otros pulsa **+ Agregar artículos**: busca por código o nombre,
+marca los que quieras y escribe el precio de cada uno (si hay una lista en
+**Comparar con**, el precio de esa lista viene como sugerencia). Al
+confirmar, los artículos quedan **arriba de la tabla** como cambios
+pendientes; se guardan al pulsar **Aplicar**.
+
+Por defecto solo se ofrecen los artículos del **almacén de venta** (el
+almacén donde viven la mayoría de los precios, o el definido en
+`PRICING_ARTICLE_WAREHOUSE`), así que la materia prima no aparece. Marca
+**Incluir artículos fuera del almacén** si necesitas uno de otro almacén.
+
 ## Cómo se aplica un cambio de precio
 
 1. Edita los precios que quieras y elige la fecha en **Vigente desde**.

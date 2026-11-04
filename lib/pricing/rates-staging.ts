@@ -35,16 +35,34 @@ export function newDeltaPct(row: GridRow, staged: Staged): number | null {
   return percentFromPrice(referenceFor(row), price);
 }
 
+const isUnpriced = (r: GridRow) => r.current === null && r.next === null && !r.ambiguous;
+
 export function visibleRows(
   rows: GridRow[],
   opts: { search: string; category: string; showUnpriced: boolean; staged: Staged },
 ): GridRow[] {
   const q = opts.search.trim().toLowerCase();
-  return rows.filter(r => {
+  const shown = rows.filter(r => {
     if (opts.category && r.catDes !== opts.category) return false;
     if (q && !r.coArt.toLowerCase().includes(q) && !r.artDes.toLowerCase().includes(q)) return false;
-    if (r.current === null && r.next === null && !r.ambiguous && opts.staged[r.coArt] === undefined && !opts.showUnpriced) return false;
+    if (isUnpriced(r) && opts.staged[r.coArt] === undefined && !opts.showUnpriced) return false;
     return true;
+  });
+  // Articles being added (unpriced, price staged) sit on top so a new price is never lost in the list.
+  const added = shown.filter(r => isUnpriced(r) && opts.staged[r.coArt] !== undefined);
+  return added.length === 0 ? shown : [...added, ...shown.filter(r => !added.includes(r))];
+}
+
+/** Candidates for "Agregar artículos": unpriced, not yet staged, inside the retail scope unless widened. */
+export function addableRows(
+  rows: GridRow[],
+  opts: { search: string; includeOutOfScope: boolean; staged: Staged },
+): GridRow[] {
+  const q = opts.search.trim().toLowerCase();
+  return rows.filter(r => {
+    if (!isUnpriced(r) || opts.staged[r.coArt] !== undefined) return false;
+    if (!opts.includeOutOfScope && !r.inScope) return false;
+    return !q || r.coArt.toLowerCase().includes(q) || r.artDes.toLowerCase().includes(q);
   });
 }
 

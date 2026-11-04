@@ -487,6 +487,7 @@ ERP is the source of truth; SQLite holds app metadata (`pricing_*` tables).
 - **ERP pricing writes only through `pApi*` wrapper procs** (`migrations/mssql/0010-0014`) — never raw
   INSERT/UPDATE on `saArtPrecio`, `saTipoPrecio` or `saTipoCliente`.
 - **Segment = `saTipoCliente`; `saCliente.co_seg` is never written** (customers move via `tip_cli` only) — except by `bun run mapping:apply` (`pApiActualizarSegmentoCliente`), which assigns the business customer group. `saCliente.co_zon` and `saCliente.frecu_vist` are written only by `bun run mapping:apply` (`pApiActualizarRutaCliente`).
+- **Listas grid scope**: unpriced rows are not shown in the grid; they are added through the "Agregar artículos" dialog, which offers only articles with a stock record (`saStockAlmacen`) in the retail warehouse (`PRICING_ARTICLE_WAREHOUSE`, default = the warehouse most `saArtPrecio` rows use; no stock records there = scope off). `GridRow.inScope` / `GridData.scope` carry it; added rows are staged and pinned on top until applied.
 - **Planners never create overlapping periods** for an article/list/warehouse (`rate-planner.ts`,
   `promo-planner.ts`; pure, unit-tested). `hasta` is **end of day** (23:59:59.997, set by the procs;
   `desde` stays midnight) — Profit treats `hasta >= GETDATE()` as current. Dates in the app are `YYYY-MM-DD`.

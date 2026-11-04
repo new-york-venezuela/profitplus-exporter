@@ -20,6 +20,7 @@ export interface RatesErp {
   readListRates(coPrecio: string): Promise<RateRow[]>;
   readArticleRates(coArt: string): Promise<RateRow[]>;
   dominantWarehouse(coPrecio?: string): Promise<string | null>;
+  stockedArticles(coAlma: string): Promise<Set<string>>;
   listArticles(p: { search?: string; limit?: number }): Promise<ArticleRow[]>;
   getCustomerPriceList(coCli: string): Promise<{ coCli: string; cliDes: string; tipCli: string; coPrecio: string | null } | null>;
   applyRatePeriod(a: { coPrecio: string; coArt: string; coAlma: string; coMone: string | null; from: string; to: string | null; monto: number; today: string; user: string; expectedCurrent?: number | null }): Promise<ApplyOutcome>;
@@ -36,8 +37,10 @@ export interface GridRow {
   current: { monto: number; desde: string; hasta: string | null } | null;
   next: { monto: number; desde: string } | null;
   referenceMonto: number | null;
+  /** In the retail-article scope (has stock in the scope warehouse); true for every row when the scope is off. */
+  inScope: boolean;
 }
-export interface GridData { list: PriceListDto; rows: GridRow[]; referenceCoPrecio: string | null }
+export interface GridData { list: PriceListDto; rows: GridRow[]; referenceCoPrecio: string | null; scope: { coAlma: string } | null }
 export type ApplyResult = { coArt: string; outcome: 'success' | 'skipped' | 'conflict' | 'rejected' | 'error'; message?: string };
 export interface ArticlePrices {
   coArt: string;
@@ -99,6 +102,12 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
     deps.erp.readListRates(coPrecio), deps.erp.listArticles({ limit: 5000 }),
     compareTo ? deps.erp.readListRates(compareTo) : Promise.resolve(null),
   ]);
+  // Retail-article scope: articles stocked in one warehouse (PRICING_ARTICLE_WAREHOUSE, else the warehouse most
+  // prices live in). No stock records there = scope off, never an empty catalog.
+  const scopeWh = process.env.PRICING_ARTICLE_WAREHOUSE?.trim() || (await deps.erp.dominantWarehouse());
+  const stocked = scopeWh ? await deps.erp.stockedArticles(scopeWh) : new Set<string>();
+  const scope = scopeWh && stocked.size > 0 ? { coAlma: scopeWh } : null;
+  const inScope = (coArt: string) => scope === null || stocked.has(coArt);
   const refRates = refAll ? groupBy(refAll, r => r.coArt) : null;
   const names = new Map(articles.map(a => [a.coArt, a]));
 
@@ -119,7 +128,7 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
     rows.push({
       coArt, artDes: a?.artDes ?? coArt, catDes: a?.catDes ?? null,
       coAlma: ambiguous ? null : [...warehouses][0] ?? null, ambiguous,
-      current: cur(current), next: nxt(next), referenceMonto,
+      current: cur(current), next: nxt(next), referenceMonto, inScope: inScope(coArt),
     });
   }
   // Unpriced rows: every catalog article with no row in this list (a new/empty list must be priceable).
@@ -131,10 +140,10 @@ export async function getRatesGrid(deps: ListsDeps, coPrecio: string, compareTo:
       const rr = refRates.get(a.coArt) ?? [];
       referenceMonto = new Set(rr.map(r => r.coAlma)).size > 1 ? null : currentOf(rr, t)?.monto ?? null;
     }
-    rows.push({ coArt: a.coArt, artDes: a.artDes, catDes: a.catDes, coAlma: null, ambiguous: false, current: null, next: null, referenceMonto });
+    rows.push({ coArt: a.coArt, artDes: a.artDes, catDes: a.catDes, coAlma: null, ambiguous: false, current: null, next: null, referenceMonto, inScope: inScope(a.coArt) });
   }
   rows.sort((x, y) => x.artDes.localeCompare(y.artDes));
-  return { list, rows, referenceCoPrecio: compareTo };
+  return { list, rows, referenceCoPrecio: compareTo, scope };
 }
 
 /** Warehouse an article's rates live in: its own (single) warehouse, else the list's / install's dominant one, else 'TODOS'. */

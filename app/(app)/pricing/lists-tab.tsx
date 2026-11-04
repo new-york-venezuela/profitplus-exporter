@@ -14,9 +14,10 @@ import RatesGrid from './rates-grid';
 import ApplyDialog, { type ApplyChange } from './apply-dialog';
 import NewListDialog, { type NewListBody } from './new-list-dialog';
 import ArticleLookup from './article-lookup';
+import AddArticlesDialog from './add-articles-dialog';
 import { FOCUS } from './dialog-parts';
 
-type DialogState = null | 'apply' | 'new' | 'clone';
+type DialogState = null | 'apply' | 'new' | 'clone' | 'add';
 type View = 'tarifas' | 'articulos';
 const VIEWS: { id: View; label: string }[] = [{ id: 'tarifas', label: 'Tarifas' }, { id: 'articulos', label: 'Artículos' }];
 
@@ -41,7 +42,6 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
-  const [showUnpriced, setShowUnpriced] = useState(false);
   const [discardNonce, setDiscardNonce] = useState(0);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [snapshot, setSnapshot] = useState<{ co: string; changes: ApplyChange[]; effectiveFrom: string } | null>(null);
@@ -72,7 +72,6 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
     setSelectedRows(new Set());
     setSearch('');
     setCategory('');
-    setShowUnpriced(false);
     setNotice(null);
     setActionError(null);
     setDialog(null);
@@ -288,8 +287,7 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
                 onSearchChange={setSearch}
                 category={category}
                 onCategoryChange={setCategory}
-                showUnpriced={showUnpriced}
-                onShowUnpricedChange={setShowUnpriced}
+                onAddArticles={() => setDialog('add')}
                 onBulk={onBulk}
                 onClear={onClear}
                 onApply={onApply}
@@ -316,6 +314,13 @@ export default function ListsTab({ canEdit }: { canEdit: boolean }) {
       {canEdit && dialog === 'apply' && snapshot && (
         <ApplyDialog changes={snapshot.changes} effectiveFrom={snapshot.effectiveFrom} onConfirm={confirmApply}
           onReload={() => { setDialog(null); setSnapshot(null); setDiscardNonce(n => n + 1); void loadGrid(); }} onClose={closeDialog} />
+      )}
+      {canEdit && dialog === 'add' && grid && (
+        <AddArticlesDialog
+          rows={grid.rows} staged={staged} scope={grid.scope} hasReference={compareTo !== null}
+          onAdd={items => setStaged(st => items.reduce((acc, i) => stageEdit(acc, i.coArt, i.monto), st))}
+          onClose={closeDialog}
+        />
       )}
       {canEdit && dialog === 'new' && (
         <NewListDialog lists={lists} currencies={currencies} mode="create" onConfirm={createList} onClose={closeDialog} />

@@ -11,6 +11,7 @@ export function realRatesErp(pool: ConnectionPool): RatesErp {
     readListRates: c => erp.readListRates(pool, c),
     readArticleRates: a => erp.readArticleRates(pool, a),
     dominantWarehouse: c => erp.dominantWarehouse(pool, c),
+    stockedArticles: w => erp.stockedArticles(pool, w),
     listArticles: p => erp.listArticles(pool, p),
     getCustomerPriceList: c => erp.getCustomerPriceList(pool, c),
     applyRatePeriod: a => erp.applyRatePeriodErp(pool, a),

@@ -5,7 +5,7 @@ import type { RatesErp } from '@/lib/pricing/lists-service';
 
 const KEYS = [
   'listLists', 'getList', 'listCodes', 'listCurrencies', 'readListRates', 'readArticleRates',
-  'dominantWarehouse', 'listArticles', 'getCustomerPriceList', 'applyRatePeriod', 'applyPlanned',
+  'dominantWarehouse', 'stockedArticles', 'listArticles', 'getCustomerPriceList', 'applyRatePeriod', 'applyPlanned',
   'createList', 'updateList', 'cloneList',
 ] as const;
 

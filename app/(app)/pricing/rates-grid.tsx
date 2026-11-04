@@ -50,8 +50,7 @@ export interface RatesGridProps {
   onSearchChange: (v: string) => void;
   category: string;
   onCategoryChange: (v: string) => void;
-  showUnpriced: boolean;
-  onShowUnpricedChange: (v: boolean) => void;
+  onAddArticles: () => void;
   onBulk: (op: BulkOp) => void;
   onClear: () => void;
   onApply: () => void;
@@ -128,15 +127,15 @@ export default function RatesGrid(props: RatesGridProps) {
   const {
     data, loading, error, staged, onStage, selected, onToggle, onToggleAll, compareTo, compareOptions,
     onCompareChange, effectiveFrom, onEffectiveFromChange, canEdit, search, onSearchChange, category,
-    onCategoryChange, showUnpriced, onShowUnpricedChange, onBulk, onClear, onApply, onClone, onExport, discardNonce,
+    onCategoryChange, onAddArticles, onBulk, onClear, onApply, onClone, onExport, discardNonce,
   } = props;
 
   const rows = useMemo(
     () =>
-      visibleRows(data?.rows ?? [], { search, category, showUnpriced, staged })
+      visibleRows(data?.rows ?? [], { search, category, showUnpriced: false, staged })
         .slice()
         .sort((a, b) => a.artDes.localeCompare(b.artDes, 'es')),
-    [data, search, category, showUnpriced, staged],
+    [data, search, category, staged],
   );
   const categories = useMemo<FilterOption[]>(() => {
     const set = new Set<string>();
@@ -208,15 +207,11 @@ export default function RatesGrid(props: RatesGridProps) {
           ariaLabel="Categoría"
           className="w-56"
         />
-        <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={showUnpriced}
-            onChange={e => onShowUnpricedChange(e.target.checked)}
-            className={`h-4 w-4 rounded border-gray-300 ${FOCUS}`}
-          />
-          Mostrar artículos sin precio en esta lista
-        </label>
+        {canEdit && (
+          <button type="button" onClick={onAddArticles} className={BTN}>
+            + Agregar artículos
+          </button>
+        )}
       </div>
 
       {canEdit && selected.size > 0 && <BulkBar count={selected.size} onBulk={onBulk} />}

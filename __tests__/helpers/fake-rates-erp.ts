@@ -10,6 +10,8 @@ export interface FakeRatesState {
   rates: RateRow[];
   customers: Record<string, { cliDes: string; tipCli: string; coPrecio: string | null }>;
   currencies: string[];
+  /** warehouse -> articles with a stock record there (saStockAlmacen) */
+  stock: Record<string, string[]>;
   failCloneOnce: boolean;
   conflictNext: boolean;
 }
@@ -26,6 +28,7 @@ export function makeFakeRatesErp(seed: {
     rates: (seed.rates ?? []).map(r => ({ ...r })),
     customers: { ...(seed.customers ?? {}) },
     currencies: [],
+    stock: {},
     failCloneOnce: false,
     conflictNext: false,
   };
@@ -56,6 +59,7 @@ export function makeFakeRatesErp(seed: {
     readListRates: async c => state.rates.filter(r => r.coPrecio === c).map(r => ({ ...r })),
     readArticleRates: async a => state.rates.filter(r => r.coArt === a).map(r => ({ ...r })),
     dominantWarehouse: async c => dominant(c ? state.rates.filter(r => r.coPrecio === c) : state.rates),
+    stockedArticles: async w => new Set(state.stock[w] ?? []),
     listArticles: async ({ search, limit }) => state.articles
       .filter(a => !search || a.artDes.toLowerCase().includes(search.toLowerCase()) || a.coArt.toLowerCase().includes(search.toLowerCase()))
       .slice(0, limit ?? 200)

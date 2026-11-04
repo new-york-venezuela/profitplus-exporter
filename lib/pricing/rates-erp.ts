@@ -90,6 +90,12 @@ export async function dominantWarehouse(pool: ConnectionPool, coPrecio?: string)
   const r = await req.query(`SELECT TOP 1 RTRIM(co_alma_calculado) AS w FROM saArtPrecio ${where} GROUP BY co_alma_calculado ORDER BY COUNT(*) DESC, co_alma_calculado`);
   return r.recordset[0]?.w ?? null;
 }
+/** Articles with a stock record (saStockAlmacen) in a warehouse: the retail-article scope of the pricing grid. */
+export async function stockedArticles(pool: ConnectionPool, coAlma: string): Promise<Set<string>> {
+  const r = await pool.request().input('w', sql.Char(6), coAlma)
+    .query(`SELECT DISTINCT RTRIM(co_art) AS c FROM saStockAlmacen WHERE RTRIM(co_alma) = RTRIM(@w)`);
+  return new Set((r.recordset as { c: string }[]).map(x => x.c));
+}
 export async function listArticles(pool: ConnectionPool, p: { search?: string; limit?: number }): Promise<ArticleRow[]> {
   const limit = Math.min(Math.max(Math.trunc(p.limit ?? 200) || 200, 1), 5000);
   const req = pool.request().input('limit', sql.Int, limit);
