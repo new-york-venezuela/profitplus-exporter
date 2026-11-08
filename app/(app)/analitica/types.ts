@@ -279,6 +279,7 @@ export interface DevolucionesMatrixCell {
 }
 
 export interface DevolucionesResponse {
+  returnsBasis: 'factura' | 'devolucion';
   rows: DevolucionesMatrixCell[];
   groupBy: GroupBy; // 'salesrep' | 'producto' | 'cliente'
   breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
@@ -659,5 +660,6 @@ export interface DevolucionesKpis {
 }
 
 export interface DevolucionesKpisResponse {
+  returnsBasis: 'factura' | 'devolucion';
   kpis: DevolucionesKpis;
 }

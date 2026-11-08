@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import GroupedDrilldownTable, { type DrilldownColumn } from '../components/grouped-drilldown-table';
 import { moneyLabel } from '../lib/format';
+import { RETURNS_BASIS_LABEL, type ReturnsBasisOption } from '../lib/net-sales';
 import { KpiCard } from '../components/kpi-card';
 import { KpiGroup } from '../components/kpi-group';
 import type { BreakdownRow, Currency, DateRange, DevolucionesKpisResponse, DevolucionesMatrixCell, DevolucionesResponse, DualAmount, PivotDimension } from '../types';
@@ -166,9 +167,11 @@ function MatrixTable({
 export default function TabDevoluciones({
   dateRange,
   currency,
+  returnsBasis,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  returnsBasis: ReturnsBasisOption;
 }) {
   const [kpisData, setKpisData] = useState<DevolucionesKpisResponse | null>(null);
   const [kpisLoading, setKpisLoading] = useState<boolean>(true);
@@ -203,7 +206,7 @@ export default function TabDevoluciones({
       setKpisError(null);
       setKpisLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, section: 'kpis' });
+        const params = new URLSearchParams({ dateRange, section: 'kpis', returnsBasis });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -222,7 +225,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,7 +233,7 @@ export default function TabDevoluciones({
       setSalesrepError(null);
       setSalesrepLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'salesrep' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'salesrep', returnsBasis });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -249,7 +252,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,7 +260,7 @@ export default function TabDevoluciones({
       setProductoError(null);
       setProductoLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'producto' });
+        const params = new URLSearchParams({ dateRange, groupBy: 'producto', returnsBasis });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -276,7 +279,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange]);
+  }, [dateRange, returnsBasis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,7 +287,7 @@ export default function TabDevoluciones({
       setClienteError(null);
       setClienteLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension });
+        const params = new URLSearchParams({ dateRange, groupBy: 'cliente', clienteDimension, returnsBasis });
         const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
         if (cancelled) return;
         if (!res.ok) {
@@ -303,7 +306,7 @@ export default function TabDevoluciones({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension]);
+  }, [dateRange, clienteDimension, returnsBasis]);
 
   const clienteRows: DevolucionesTableRow[] = useMemo(() => {
     if (!clienteData) return [];
@@ -329,6 +332,7 @@ export default function TabDevoluciones({
       clienteDimension,
       breakdownBy: dimension,
       parentValue,
+      returnsBasis,
     });
     const res = await fetch(`/api/dwh/devoluciones?${params.toString()}`);
     if (!res.ok) return [];
@@ -356,9 +360,9 @@ export default function TabDevoluciones({
       <div>
         <h2 className="text-lg font-bold text-gray-900">Devoluciones</h2>
         <p className="text-sm text-gray-500">
-          Devoluciones sin IVA <strong>por fecha de devolución</strong> (fecha de la nota de crédito) y tasa de devolución
-          (devoluciones del período ÷ ventas brutas del período, incluida la consignación). En Ventas, Resumen y las
-          columnas de ventas netas, las devoluciones se restan por fecha de la factura original.
+          Devoluciones sin IVA <strong>{RETURNS_BASIS_LABEL[returnsBasis]}</strong> y tasa de devolución
+          (devoluciones del período ÷ ventas brutas del período, incluida la consignación). La fecha de atribución se elige
+          arriba y vale para todas las pestañas.
         </p>
       </div>
 

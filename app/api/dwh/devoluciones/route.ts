@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
-import { buildDateWhereClause, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, returnsUsdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, buildReturnsDateWhereClause, parseReturnsBasis, getDimensionSpec, isDimensionForFact, isClienteDimension, jsonWithCache, returnsUsdConversionJoin, dualAmountExpr, type Dimension } from '@/app/api/dwh/lib/query-builder';
 import { pickTopSellerByRate, safeRatio } from '@/app/(app)/analitica/lib/devoluciones-kpis';
 import type { DevolucionesResponse, DevolucionesMatrixCell, DevolucionesKpis, DevolucionesKpisResponse, GroupBy } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
 
-// This tab reports devoluciones as events of the period: windowed by the
-// devolución's own date (Fact_Returns.DateKey), not the original factura's
-// (that basis is used wherever returns are netted against sales, e.g. Ventas
-// netas). USD converts at the original factura's rate. The tasa denominator
+// Returns are windowed by the global returnsBasis param: 'devolucion'
+// (default, Fact_Returns.DateKey, the nota de crédito date) or 'factura'
+// (Fact_Returns.OriginalInvoiceDateKey). Sales windows (denominators) are the
+// same in both bases. USD converts at the original factura's rate. The tasa denominator
 // is ventas brutas of the same group in the same range.
 //
 // All queries here read from the pre-aggregated dwh/dim/fact schema in
@@ -195,11 +195,12 @@ export async function GET(request: NextRequest) {
   const breakdownByParam = searchParams.get('breakdownBy');
   const breakdownBy: Dimension | null = isDimensionForFact(breakdownByParam, 'returns') ? breakdownByParam : null;
   const parentValue = searchParams.get('parentValue');
+  const returnsBasis = parseReturnsBasis(searchParams.get('returnsBasis'));
 
   try {
     const pool = await getDwhPool();
 
-    const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', returnsBasis);
     // clienteMatrixQuery's correlated sales subquery aliases Fact_Sales as
     // `fs2` (via spec.correlate), not `fs` like salesRepMatrixQuery/
     // productoMatrixQuery, so it needs its own date-where clause built
@@ -249,7 +250,7 @@ export async function GET(request: NextRequest) {
           ? { name: top.name, rate: top.rate, amount: { bs: topSellerRow.returnsBs, usd: topSellerRow.returnsUsd } }
           : null,
       };
-      const kpiResponse: DevolucionesKpisResponse = { kpis };
+      const kpiResponse: DevolucionesKpisResponse = { kpis, returnsBasis };
       return jsonWithCache(kpiResponse);
     }
 
@@ -274,6 +275,7 @@ export async function GET(request: NextRequest) {
         ORDER BY ReturnsNetBs DESC
       `);
       return jsonWithCache({
+        returnsBasis,
         breakdown: result.recordset.map(r => ({
           label: r.GroupLabel,
           value: String(r.GroupValue),
@@ -289,6 +291,7 @@ export async function GET(request: NextRequest) {
 
     const response: DevolucionesResponse = {
       rows,
+      returnsBasis,
       groupBy: groupBy as GroupBy,
       breadcrumb: [{ label: GROUP_LABELS[groupBy], groupBy }],
     };
