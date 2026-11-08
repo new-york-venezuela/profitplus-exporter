@@ -8,12 +8,12 @@ export const TAB_KEYS = [
   'devoluciones',
   'cxc',
   'clientes',
-  'prospecto',
   'productos',
   'historico',
   'finanzas',
   'multimoneda',
   'compras',
+  'prospecto',
 ] as const;
 
 export type TabKey = (typeof TAB_KEYS)[number];
