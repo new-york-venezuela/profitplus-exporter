@@ -137,6 +137,7 @@ content/help/pricing-*.md    — in-app help pages for the pricing tabs (segment
 app/(app)/
   analitica/                — sales/returns/collections dashboard, gated on the 'dwh' module
     tabs/tab-resumen.tsx + components/resumen/ — Resumen tab (ventas-strip, clientes-cards, cxc-cards, sales-returns-chart, stat-card)
+    tabs/tab-prospecto.tsx + components/prospecto/ — Perfil de prospecto tab (result-panel, client-only pin-picker loaded with next/dynamic ssr:false)
     tabs/tab-seguimiento.tsx + components/seguimiento/ — Seguimiento tab (seller-grid, weekly-matrix, history-chart, status-badge, excluded-section, root-views customer list, visuals MonthPaceStrip)
     lib/tab-keys.ts — tab registry (TAB_KEYS/TAB_LABELS/resolveActiveTab); an unknown or retired ?tab= resolves to Resumen
     lib/returns-basis.ts — global returns-basis selector state (`returnsBasis=devolucion|factura`, default devolucion), used by Resumen/Ventas/Devoluciones
@@ -154,6 +155,7 @@ app/api/
   dwh/resumen/                — Resumen API: kpis (ventas, devoluciones, neto, clientes total/activos/nuevos, CxC opening/billed/collected/receivable), monthlyTrend, gated on 'dwh'
   recetas/recipes/            — recipe CRUD + GET .../[id]/cost (live cost computation)
   dwh/seguimiento/            — Seguimiento API (kind=vendedor|ruta|grupo, sections lines/excluded), gated on 'dwh'
+  dwh/prospecto/              — Perfil de prospecto API (default result, section=options|suggest), gated on 'dwh'; pure logic in lib/prospect/
 ```
 
 **No `middleware.ts`** — there is no Edge Runtime request guard in this
@@ -380,6 +382,10 @@ month's `sales`/`units` are the sum of its lines, returns stay month-level). Pur
 line -> "Otros"); per month biggest at the base, ties by name, "Otros" always on top. Recharts stacks in a fixed
 series order, so `history-chart.tsx` uses positional slots with a per-month `Cell` fill; each category has a colour
 plus a texture pattern, and an sr-only table carries the values (null USD = "—", never 0).
+
+## Prospect profile (Analítica tab)
+
+"Perfil de prospecto" estimates a new store's weekly units and the store's weekly benefit from peers of the same store type (`Dim_Segment`) on the same route (fallback: 2 nearest routes, then the whole type; minimum 5 peers), over the last 12 complete ISO weeks (the global date range and currency do not apply). Benefit takes the margin as a share of the store's shelf price (`shelf = cost / (1 - m)`); missing USD cost is `null` = "Sin datos", never `$0`, and `benefit: null` with peers is "Sin datos de costo". Read-only, nothing is stored. Spec: `docs/superpowers/specs/2026-11-08-prospect-profile-design.md`.
 
 ## Analítica tabs (consolidated)
 

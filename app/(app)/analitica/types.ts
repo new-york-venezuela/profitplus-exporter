@@ -524,6 +524,43 @@ export interface ActivacionWeekRow {
   distinctReached: number; // distinct CustomerKey or LegalEntityKey per entityGrain
 }
 
+// Perfil de prospecto (GET /api/dwh/prospecto). Mirrors ProspectResult in lib/prospect/aggregate.ts
+// plus the route suggested for a map pin and the peers' store-type name.
+export type ProspectoTier = 'type_route' | 'type_near_routes' | 'type_all';
+
+export interface ProspectoMixLine {
+  productCode: string;
+  productName: string;
+  share: number;
+  costUsd: number | null;
+}
+
+export interface ProspectoPeer {
+  code: string;
+  name: string;
+  typeName?: string;
+  routeNumber: number | null;
+  weeklyUnits: number;
+  weeklyBenefitUsd: number | null;
+}
+
+export interface ProspectoResponse {
+  tier: ProspectoTier;
+  peerCount: number;
+  lowPeers: boolean;
+  units: { median: number; p25: number; p75: number } | null;
+  mix: ProspectoMixLine[];
+  benefit: { medianUsd: number; p25Usd: number; p75Usd: number; incomplete: boolean } | null;
+  peers: ProspectoPeer[];
+  excludedNoRoute: number;
+  suggestedRoute: number | null;
+}
+
+export interface ProspectoOptions {
+  types: { code: string; name: string; count: number }[];
+  routes: { number: number; name: string; customers: number }[];
+}
+
 // Re-declared here (not imported from the route's customer-classification.ts)
 // so app/(app) code never imports from app/api/* — this app's existing
 // layering convention (route-local pure-function files stay import-only from

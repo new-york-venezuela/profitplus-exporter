@@ -22,6 +22,7 @@ import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
 import TabHistorico from './tabs/tab-historico';
+import TabProspecto from './tabs/tab-prospecto';
 
 export interface TabComponentProps {
   dateRange: DateRange;
@@ -43,6 +44,7 @@ const TAB_COMPONENTS: Record<TabKey, ComponentType<TabComponentProps>> = {
   devoluciones: TabDevoluciones,
   cxc: TabCxc,
   clientes: TabClientes,
+  prospecto: TabProspecto,
   productos: TabProductos,
   historico: TabHistorico,
   finanzas: TabFinanzas,

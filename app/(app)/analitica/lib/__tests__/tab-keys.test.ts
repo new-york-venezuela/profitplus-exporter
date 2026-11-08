@@ -25,6 +25,13 @@ describe('tab registry', () => {
   });
 });
 
+describe('tab: prospecto', () => {
+  test('resolves to itself, right after clientes', () => {
+    expect(resolveActiveTab('prospecto')).toBe('prospecto');
+    expect(TAB_KEYS.indexOf('prospecto')).toBe(TAB_KEYS.indexOf('clientes') + 1);
+  });
+});
+
 describe('retired tab: vendedores', () => {
   test('is no longer a tab and an old link opens the default tab', () => {
     expect(TAB_KEYS).not.toContain('vendedores' as never);
@@ -53,10 +60,10 @@ describe('retired tab: cadencia, and the final tab list', () => {
   });
   test('the consolidated tab list, in order', () => {
     expect([...TAB_KEYS]).toEqual([
-      'resumen', 'seguimiento', 'ventas', 'devoluciones', 'cxc', 'clientes', 'productos', 'historico', 'finanzas', 'multimoneda', 'compras',
+      'resumen', 'seguimiento', 'ventas', 'devoluciones', 'cxc', 'clientes', 'prospecto', 'productos', 'historico', 'finanzas', 'multimoneda', 'compras',
     ]);
     expect(TAB_KEYS.map(k => TAB_LABELS[k])).toEqual([
-      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras',
+      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Perfil de prospecto', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras',
     ]);
   });
   test('every retired key falls back', () => {
