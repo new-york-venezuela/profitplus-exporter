@@ -5,4 +5,6 @@ export const HISTORICO_TO_KEY = 20251231 as const;
 
 export const HISTORICO_SALES_WINDOW = `AND fsl.DateKey BETWEEN ${HISTORICO_FROM_KEY} AND ${HISTORICO_TO_KEY}`;
 // Returns are windowed by the ORIGINAL factura's date (OriginalInvoiceDateKey), like the rest of Analítica.
-export const HISTORICO_RETURNS_WINDOW = `AND frl.OriginalInvoiceDateKey BETWEEN ${HISTORICO_FROM_KEY} AND ${HISTORICO_TO_KEY}`;
+// Returns are windowed (and bucketed by month) by the devolución's own date
+// (frl.DateKey); only the USD rate still comes from the original factura's date.
+export const HISTORICO_RETURNS_WINDOW = `AND frl.DateKey BETWEEN ${HISTORICO_FROM_KEY} AND ${HISTORICO_TO_KEY}`;

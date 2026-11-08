@@ -40,7 +40,18 @@ describe('GET /api/dwh/historico window', () => {
   test('monthly view windows sales and the correlated returns subqueries to 2025', async () => {
     const legacy = await everyLegacyQueryIsWindowed('groupBy=mes');
     expect(legacy[0]).toContain('fsl.DateKey BETWEEN 20250101 AND 20251231');
-    expect(legacy[0]).toContain('frl.OriginalInvoiceDateKey BETWEEN 20250101 AND 20251231');
+    expect(legacy[0]).toContain('frl.DateKey BETWEEN 20250101 AND 20251231');
+    expect(legacy[0]).not.toContain('frl.OriginalInvoiceDateKey BETWEEN');
+  });
+  test('monthly return buckets use the devolucion date; USD join keeps the factura rate', async () => {
+    const legacy = await everyLegacyQueryIsWindowed('groupBy=mes');
+    expect(legacy[0]).toContain('JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey');
+    expect(legacy[0]).not.toContain('dr.DateKey = frl.OriginalInvoiceDateKey');
+    expect(legacy[0]).toContain('OriginalInvoiceDateKey');
+  });
+  test('ignores a returnsBasis param', async () => {
+    const legacy = await everyLegacyQueryIsWindowed('groupBy=mes&returnsBasis=factura');
+    expect(legacy[0]).toContain('frl.DateKey BETWEEN 20250101 AND 20251231');
   });
   test('kpis window sales and returns to 2025', async () => {
     const legacy = await everyLegacyQueryIsWindowed('section=kpis');

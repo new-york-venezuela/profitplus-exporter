@@ -30,13 +30,10 @@ export const dynamic = 'force-dynamic';
 // placeholder for BS-denominated documents, not a real rate) — conversion is
 // always via fact.Fact_ExchangeRate.RateSell for the row's own DateKey.
 const DATE_WINDOW = HISTORICO_SALES_WINDOW;
-// Devoluciones follow the same rule as the rest of Analítica (0036/0037):
-// windowed by the ORIGINAL factura's date (OriginalInvoiceDateKey — never
-// NULL; unlinked lines fall back to the devolución's own date) and converted
-// to USD at that factura date's rate (legacyReturnsUsdConversionJoin). Ventas
-// netas = ventas brutas − devoluciones por fecha de factura. A devolución
-// issued in the window for a factura from before 2025 is therefore not part
-// of this tab (it restates a period the tab doesn't cover).
+// Devoluciones are windowed and bucketed by the devolución's own date
+// (frl.DateKey), the global returns basis. This fixed calendar-2025 view has no
+// basis selector. USD conversion still uses the ORIGINAL factura date's rate
+// (legacyReturnsUsdConversionJoin); a missing rate stays null, never 0.
 const RETURNS_DATE_WINDOW = HISTORICO_RETURNS_WINDOW;
 
 function monthlyQuery(): string {
@@ -47,11 +44,11 @@ function monthlyQuery(): string {
       ${dualAmountExpr('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
       (SELECT ISNULL(SUM(frl.NetAmount), 0)
          FROM fact.Fact_Returns_Legacy frl
-         JOIN dim.Dim_Date dr ON dr.DateKey = frl.OriginalInvoiceDateKey
+         JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsBs,
       (SELECT CASE WHEN COUNT(frl.NetAmount) = 0 THEN 0 ELSE SUM(frl.NetAmount / NULLIF(frfx.RateSell, 0)) END
          FROM fact.Fact_Returns_Legacy frl
-         JOIN dim.Dim_Date dr ON dr.DateKey = frl.OriginalInvoiceDateKey
+         JOIN dim.Dim_Date dr ON dr.DateKey = frl.DateKey
          ${legacyReturnsUsdConversionJoin('frl', 'frfx')}
          WHERE frl.IsVoided = 0 ${RETURNS_DATE_WINDOW} AND dr.YearMonth = d.YearMonth) AS ReturnsUsd
     FROM fact.Fact_Sales_Legacy fsl
