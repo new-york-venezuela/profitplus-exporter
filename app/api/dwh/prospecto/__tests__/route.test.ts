@@ -1,18 +1,31 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { NextRequest, NextResponse } from 'next/server';
 
 let authResult: { ok: true; session: unknown } | { ok: false; response: NextResponse };
 let base: { customers: unknown[]; products: unknown[] };
 let erp: unknown[];
 let flagged: string[];
+let erpError: Error | null;
+let dbError: Error | null;
+let calls: { products: number; consignment: number; erp: number };
+const captured: unknown[] = [];
 
 mock.module('@/lib/dwh/access', () => ({ requireDwhAccess: async () => authResult }));
 mock.module('@/lib/db/dwh-mssql', () => ({ getDwhPool: async () => ({}) }));
 mock.module('@/lib/db/mssql', () => ({ getPool: async () => ({}) }));
-mock.module('@/lib/prospect/queries', () => ({ fetchProspectBase: async () => base }));
-mock.module('@/lib/geo/map-data', () => ({ fetchErpCustomers: async () => erp }));
+mock.module('@/lib/analytics/posthog', () => ({
+  captureEvent: () => {},
+  captureException: (e: unknown) => { captured.push(e); },
+}));
+mock.module('@/lib/prospect/queries', () => ({
+  fetchProspectCustomers: async () => { if (dbError) throw dbError; return base.customers; },
+  fetchProspectProducts: async () => { calls.products += 1; return base.products; },
+}));
+mock.module('@/lib/geo/map-data', () => ({
+  fetchErpCustomers: async () => { calls.erp += 1; if (erpError) throw erpError; return erp; },
+}));
 mock.module('@/app/api/dwh/lib/consignment', () => ({
-  getFlaggedRootCodes: async () => flagged,
+  getFlaggedRootCodes: async () => { calls.consignment += 1; return flagged; },
   DEFAULT_ROOT_SHARE_THRESHOLD: 0.15,
 }));
 
@@ -43,6 +56,10 @@ beforeEach(() => {
   };
   erp = [loc('A', 10.5, -66.9), loc(' B ', 10.51, -66.91), { coCli: 'C', campo1: 'basura' }];
   flagged = ['CONS'];
+  erpError = null;
+  dbError = null;
+  calls = { products: 0, consignment: 0, erp: 0 };
+  captured.length = 0;
 });
 
 describe('GET /api/dwh/prospecto', () => {
@@ -123,13 +140,70 @@ describe('GET /api/dwh/prospecto', () => {
 
   test('section=options lists eligible types and routes with counts', async () => {
     const body = await (await call('?section=options')).json();
+    // consignment is not queried for options, so CONS is counted here
     expect(body.types).toEqual([
       { code: 'REST', name: 'Restaurante', count: 1 },
-      { code: 'SUP', name: 'Supermercado', count: 6 },
+      { code: 'SUP', name: 'Supermercado', count: 7 },
     ]);
     expect(body.routes).toEqual([
-      { number: 7, name: 'Ruta 7', customers: 6 },
+      { number: 7, name: 'Ruta 7', customers: 7 },
       { number: 8, name: 'Ruta 8', customers: 1 },
     ]);
+  });
+
+  test('options skips ERP, consignment and products; suggest skips consignment and products', async () => {
+    await call('?section=options');
+    expect(calls).toEqual({ products: 0, consignment: 0, erp: 0 });
+    await call('?section=suggest&lat=10.5&lng=-66.9');
+    expect(calls).toEqual({ products: 0, consignment: 0, erp: 1 });
+  });
+
+  test('ERP failure degrades: 200, no pin suggestion, peers by units, error logged and captured', async () => {
+    erpError = new Error('erp down');
+    const spy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const body = await (await call('?section=suggest&lat=10.5&lng=-66.9')).json();
+      expect(body).toEqual({ route: null });
+      const res = await call('?tipo=SUP&ruta=7&margen=30&lat=10.5&lng=-66.9');
+      expect(res.status).toBe(200);
+      const full = await res.json();
+      expect(full.suggestedRoute).toBeNull();
+      expect(full.peerCount).toBe(6);
+      expect(spy).toHaveBeenCalled();
+      expect(captured).toContain(erpError);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('tier 2 without a pin starts from the all-types centroid of the chosen route', async () => {
+    // route 8 only has a REST customer; SUP customers sit on routes 9 and 10
+    const sup = (code: string, route: number) => cust(code, { routeNumber: route, routeName: `Ruta ${route}` });
+    base = {
+      customers: [
+        cust('R8', { typeCode: 'REST', typeName: 'Restaurante', routeNumber: 8, routeName: 'Ruta 8' }),
+        sup('S1', 9), sup('S2', 9), sup('S3', 9), sup('S4', 10), sup('S5', 10), sup('S6', 10),
+      ],
+      products: ['R8', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map((c) => prod(c)),
+    };
+    erp = [loc('R8', 10.5, -66.9), loc('S1', 10.5, -66.9), loc('S2', 10.5, -66.9), loc('S3', 10.5, -66.9),
+      loc('S4', 10.51, -66.9), loc('S5', 10.51, -66.9), loc('S6', 10.51, -66.9)];
+    const body = await (await call('?tipo=SUP&ruta=8&margen=30')).json();
+    expect(body.tier).toBe('type_near_routes');
+    expect(body.peerCount).toBe(6);
+  });
+
+  test('a thrown DB error returns 500 { error }, logs and captures', async () => {
+    dbError = new Error('boom');
+    const spy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await call('?tipo=SUP&ruta=7&margen=30');
+      expect(res.status).toBe(500);
+      expect(typeof (await res.json()).error).toBe('string');
+      expect(spy).toHaveBeenCalled();
+      expect(captured).toContain(dbError);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

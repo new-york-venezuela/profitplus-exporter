@@ -28,7 +28,8 @@ user-controlled values); a module that needs both ERP and DWH data (e.g.
 `/mapa`) queries each through its own pool and merges the results in
 TypeScript by customer code — never join across the two databases in SQL
 outside the `Load_*` procedures. Never query raw ERP tables from
-`app/api/dwh/*`.
+`app/api/dwh/*`. The one exception is `/api/dwh/prospecto`, which reads only customer coordinates through
+`fetchErpCustomers` (see "Prospect profile").
 
 ## Directory Map
 
@@ -385,7 +386,7 @@ plus a texture pattern, and an sr-only table carries the values (null USD = "—
 
 ## Prospect profile (Analítica tab)
 
-"Perfil de prospecto" estimates a new store's weekly units and the store's weekly benefit from peers of the same store type (`Dim_Segment`) on the same route (fallback: 2 nearest routes, then the whole type; minimum 5 peers), over the last 12 complete ISO weeks (the global date range and currency do not apply). Benefit takes the margin as a share of the store's shelf price (`shelf = cost / (1 - m)`); missing USD cost is `null` = "Sin datos", never `$0`, and `benefit: null` with peers is "Sin datos de costo". Read-only, nothing is stored. Spec: `docs/superpowers/specs/2026-11-08-prospect-profile-design.md`.
+"Perfil de prospecto" estimates a new store's weekly units and the store's weekly benefit from peers of the same store type (`Dim_Segment`) on the same route (fallback: 2 nearest routes, then the whole type; minimum 5 peers), over the last 12 complete ISO weeks (the global date range and currency do not apply). Benefit takes the margin as a share of the store's shelf price (`shelf = cost / (1 - m)`); missing USD cost is `null` = "Sin datos", never `$0`, and `benefit: null` with peers is "Sin datos de costo". Read-only, nothing is stored. **ERP exception**: `/api/dwh/prospecto` reads ERP `saCliente.campo1` coordinates only, via `fetchErpCustomers` (same helper as `/mapa`), merged in TypeScript by customer code, never joined in SQL; `section=options` does not touch the ERP, and if the ERP read fails the route degrades (no coordinates: `section=suggest` returns `{ route: null }`, peers ordered by units, error logged and captured, response stays 200). With no pin the nearest-routes tier starts from the chosen route's centroid over all located customers of any type. Spec: `docs/superpowers/specs/2026-11-08-prospect-profile-design.md`.
 
 ## Analítica tabs (consolidated)
 

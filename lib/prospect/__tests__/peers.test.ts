@@ -67,6 +67,34 @@ describe('selectPeers', () => {
     expect(r.peers[r.peers.length - 1].routeNumber).toBe(2);
   });
 
+  test('no pin, chosen route has no same-type customers: tier 2 starts from the all-types centroid', () => {
+    const r9 = Array.from({ length: 3 }, () => cand({ routeNumber: 9, point: at(10, -66) }));
+    const r10 = Array.from({ length: 3 }, () => cand({ routeNumber: 10, point: at(10.01, -66) }));
+    const far = cand({ routeNumber: 11, point: at(5, -60) });
+    const otherType = cand({ typeCode: 'T2', routeNumber: 8, point: at(10.005, -66) });
+    const all = new Map([[8, at(10.005, -66)]]);
+    const r = selectPeers([...r9, ...r10, far, otherType], { typeCode: 'T1', routeNumber: 8, pin: null }, all);
+    expect(r.tier).toBe('type_near_routes');
+    expect(r.peers).toHaveLength(6);
+    expect(r.peers.map((p) => p.code)).not.toContain(far.code);
+    expect(r.peers.map((p) => p.code)).not.toContain(otherType.code);
+    // without the fallback it jumps to type_all
+    expect(selectPeers([...r9, ...r10, far], { typeCode: 'T1', routeNumber: 8, pin: null }).tier).toBe('type_all');
+  });
+
+  test('tier 2 yielding fewer than 5 falls through to type_all; other types never at tier 1/2', () => {
+    const own = [cand({ routeNumber: 1, point: at(10, -66) })];
+    const near = [cand({ routeNumber: 2, point: at(10.01, -66) })];
+    const far = Array.from({ length: 2 }, () => cand({ routeNumber: 5, point: at(5, -60) }));
+    const other = Array.from({ length: 6 }, () => cand({ typeCode: 'T2', routeNumber: 1, point: at(10, -66) }));
+    const r = selectPeers([...own, ...near, ...far, ...other], { typeCode: 'T1', routeNumber: 1, pin: at(10, -66) },
+      new Map([[1, at(10, -66)]]));
+    expect(r.tier).toBe('type_all');
+    expect(r.peers.every((p) => p.typeCode === 'T1')).toBe(true);
+    const t1 = selectPeers([...own, ...other], { typeCode: 'T1', routeNumber: 1, pin: null });
+    expect(t1.peers.every((p) => p.typeCode === 'T1')).toBe(true);
+  });
+
   test('no pin orders by weeklyUnits descending', () => {
     const cs = [3, 9, 5, 7, 1].map((u) => cand({ weeklyUnits: u }));
     const r = selectPeers(cs, { typeCode: 'T1', routeNumber: 1, pin: null });

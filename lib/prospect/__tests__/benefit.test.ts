@@ -34,6 +34,10 @@ describe('weeklyBenefit', () => {
     expect(r.incomplete).toBe(true);
   });
 
+  test('empty mix gives 0 benefit and incomplete', () => {
+    expect(weeklyBenefit(10, [], 0.3)).toEqual({ benefitUsd: 0, incomplete: true });
+  });
+
   test('margin 0 gives 0', () => {
     expect(weeklyBenefit(10, [line('A', 1, 3.92)], 0).benefitUsd).toBe(0);
   });
@@ -44,6 +48,11 @@ describe('parseMargin', () => {
     expect(parseMargin('30')).toBeCloseTo(0.3, 10);
     expect(parseMargin('30.5')).toBeCloseTo(0.305, 10);
     expect(parseMargin('0')).toBe(0);
+  });
+
+  test('upper bound 99.9 accepted, 99.91 rejected', () => {
+    expect(parseMargin('99.9')).toBeCloseTo(0.999, 10);
+    expect(parseMargin('99.91')).toBeNull();
   });
 
   test('invalid values', () => {

@@ -36,14 +36,20 @@ function result(over: Record<string, unknown> = {}) {
 let urls: string[] = [];
 let failMain = false;
 let suggestRoute: number | null = 7;
+let networkFail = false;
+let hold: Promise<void> | null = null;
 function mockFetch(res: Record<string, unknown>) {
   urls = [];
   failMain = false;
+  networkFail = false;
+  hold = null;
   suggestRoute = 7;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
     if (url.includes('section=suggest')) return new Response(JSON.stringify({ route: suggestRoute }), { status: 200 });
+    if (!url.includes('section=options') && networkFail) throw new TypeError('network down');
+    if (!url.includes('section=options') && hold) await hold;
     if (!url.includes('section=options') && failMain) return new Response(JSON.stringify({ error: 'Falló la consulta' }), { status: 500 });
     const body = url.includes('section=options') ? OPTIONS : res;
     return new Response(JSON.stringify(body), { status: 200 });
@@ -132,6 +138,57 @@ describe('TabProspecto', () => {
     expect(await screen.findByText('Falló la consulta', {}, { timeout: 2000 })).toBeTruthy();
     expect(screen.queryByText('$16,80')).toBeNull();
     expect(screen.queryByText('Tienda Uno', { exact: false })).toBeNull();
+  });
+
+  test('a network error clears the previous result and shows the error', async () => {
+    mockFetch(result());
+    await fill();
+    await screen.findAllByText('$16,80');
+    networkFail = true;
+    const m = screen.getByLabelText('Margen de la tienda (%)');
+    await userEvent.clear(m);
+    await userEvent.type(m, '46');
+    expect(await screen.findByText('No se pudo conectar con el servidor', {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByText('$16,80')).toBeNull();
+    expect(screen.queryByText('Tienda Uno', { exact: false })).toBeNull();
+  });
+
+  test('an in-flight request shows Cargando… and no stale result', async () => {
+    mockFetch(result());
+    await fill();
+    await screen.findAllByText('$16,80');
+    let release: () => void = () => {};
+    hold = new Promise<void>(r => { release = r; });
+    const m = screen.getByLabelText('Margen de la tienda (%)');
+    await userEvent.clear(m);
+    await userEvent.type(m, '47');
+    expect(await screen.findByText('Cargando…', {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByText('$16,80')).toBeNull();
+    expect(screen.queryByText('Tienda Uno', { exact: false })).toBeNull();
+    release();
+    expect((await screen.findAllByText('$16,80')).length).toBeGreaterThan(0);
+  });
+
+  test('static warnings are role=status, not alerts; only the margin error is an alert', async () => {
+    mockFetch(result({ peerCount: 3, lowPeers: true }));
+    await fill();
+    const banner = await screen.findByText(/Pocos pares \(3\)/);
+    expect(banner.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/unidades brutas \(sin devoluciones\)/)).toBeTruthy();
+    expect(screen.getByText('Beneficio/sem. (mezcla típica)')).toBeTruthy();
+  });
+
+  test('shows the top 15 peers with a Ver todos toggle', async () => {
+    const peers = Array.from({ length: 20 }, (_, i) => ({
+      code: `C${i}`, name: `Tienda ${i}`, routeNumber: 7, weeklyUnits: 10, weeklyBenefitUsd: 1,
+    }));
+    mockFetch(result({ peers, peerCount: 20 }));
+    await fill();
+    await screen.findByText('Tienda 0', { exact: false });
+    expect(screen.queryByText('Tienda 15', { exact: false })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Ver todos (20)' }));
+    expect(screen.getByText('Tienda 19', { exact: false })).toBeTruthy();
   });
 
   test('an invalid margin hides the previous result', async () => {

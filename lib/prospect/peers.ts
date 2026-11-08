@@ -18,6 +18,9 @@ export type PeerTier = 'type_route' | 'type_near_routes' | 'type_all';
 export function selectPeers(
   candidates: PeerCandidate[],
   q: { typeCode: string; routeNumber: number; pin: LatLng | null },
+  /** Centroids of every located routed customer of ANY type; start point fallback when no pin and the chosen
+   *  route has no located same-type customer. Same-type centroids still pick the neighbour routes. */
+  routeCentroidsAll?: Map<number, LatLng>,
 ): { tier: PeerTier; peers: PeerCandidate[] } {
   const sameType = candidates.filter((c) => c.typeCode === q.typeCode);
   const order = (peers: PeerCandidate[]) => [...peers].sort((a, b) => {
@@ -40,7 +43,7 @@ export function selectPeers(
   if (onRoute.length >= MIN_PEERS) return { tier: 'type_route', peers: order(onRoute) };
 
   const centroids = routeCentroids(sameType);
-  const from = q.pin ?? centroids.get(q.routeNumber) ?? null;
+  const from = q.pin ?? routeCentroidsAll?.get(q.routeNumber) ?? centroids.get(q.routeNumber) ?? null;
   if (from) {
     const others = new Map(centroids);
     others.delete(q.routeNumber);

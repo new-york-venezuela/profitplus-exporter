@@ -8,11 +8,12 @@ import { parseGrupo, parseRuta } from '@/lib/clientes/scope';
 import { buildDateWhereClause, jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { parseMargin } from '@/lib/prospect/benefit';
-import { suggestRoute } from '@/lib/prospect/geo';
+import { routeCentroids, suggestRoute } from '@/lib/prospect/geo';
 import { selectPeers, type PeerCandidate } from '@/lib/prospect/peers';
 import { buildResult, type ProductTotals } from '@/lib/prospect/aggregate';
 import { prospectWindow, weeksActive } from '@/lib/prospect/window';
-import { fetchProspectBase, type BaseCustomer, type ProductRow } from '@/lib/prospect/queries';
+import { fetchProspectCustomers, fetchProspectProducts, type BaseCustomer, type ProductRow } from '@/lib/prospect/queries';
+import { captureException } from '@/lib/analytics/posthog';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +46,17 @@ function poolProducts(rows: ProductRow[], peerCodes: Set<string>): ProductTotals
   return [...by.values()];
 }
 
+/** ERP coordinates are an enrichment: a failure degrades to no coordinates (no pin suggestion, peers by units). */
+async function fetchErpCoordinates(): Promise<Awaited<ReturnType<typeof fetchErpCustomers>>> {
+  try {
+    return await fetchErpCustomers(await getPool());
+  } catch (error) {
+    console.error('GET /api/dwh/prospecto: ERP coordinates unavailable', error);
+    captureException(error, 'prospecto-erp');
+    return [];
+  }
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -72,11 +84,13 @@ export async function GET(request: NextRequest) {
   try {
     const w = prospectWindow(new Date());
     const dateWhere = buildDateWhereClause(`custom:${isoOfKey(w.startKey)}:${isoOfKey(w.endKey)}`, 'fs');
-    const [dwh, erpPool] = await Promise.all([getDwhPool(), getPool()]);
-    const [base, erp, flaggedCodes] = await Promise.all([
-      fetchProspectBase(dwh, w),
-      fetchErpCustomers(erpPool),
-      getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD),
+    const full = section !== 'options' && section !== 'suggest';
+    const dwh = await getDwhPool();
+    const [customers, products, flaggedCodes, erp] = await Promise.all([
+      fetchProspectCustomers(dwh, w),
+      full ? fetchProspectProducts(dwh, w) : Promise.resolve([] as ProductRow[]),
+      full ? getFlaggedRootCodes(dateWhere, DEFAULT_ROOT_SHARE_THRESHOLD) : Promise.resolve([] as string[]),
+      section === 'options' ? Promise.resolve([] as Awaited<ReturnType<typeof fetchErpCoordinates>>) : fetchErpCoordinates(),
     ]);
 
     const flagged = new Set(flaggedCodes.map((c) => c.trim()));
@@ -86,7 +100,7 @@ export async function GET(request: NextRequest) {
       if (p && validateCoordinates(p).ok) points.set(e.coCli.trim(), p);
     }
 
-    const sellable = base.customers.filter((c: BaseCustomer) => c.units > 0 && !flagged.has(c.code));
+    const sellable = customers.filter((c: BaseCustomer) => c.units > 0 && !flagged.has(c.code));
     const excludedNoRoute = sellable.filter((c) => c.routeNumber === null).length;
     const routed = sellable.filter((c) => c.routeNumber !== null);
     const candidates: (PeerCandidate & { typeName: string | null })[] = routed
@@ -124,11 +138,12 @@ export async function GET(request: NextRequest) {
     const suggestedRoute = pin ? suggestRoute(pin, routed.map((c) => ({ routeNumber: c.routeNumber, point: points.get(c.code) ?? null }))) : null;
     if (section === 'suggest') return jsonWithCache({ route: suggestedRoute });
 
-    const { tier, peers } = selectPeers(candidates, { typeCode: tipo as string, routeNumber: ruta as number, pin });
+    const centroidsAll = routeCentroids(routed.map((c) => ({ routeNumber: c.routeNumber, point: points.get(c.code) ?? null })));
+    const { tier, peers } = selectPeers(candidates, { typeCode: tipo as string, routeNumber: ruta as number, pin }, centroidsAll);
     const result = buildResult({
       tier,
       peers,
-      products: poolProducts(base.products, new Set(peers.map((p) => p.code))),
+      products: poolProducts(products, new Set(peers.map((p) => p.code))),
       margin: margin as number,
       excludedNoRoute,
     });
@@ -138,7 +153,9 @@ export async function GET(request: NextRequest) {
       peers: result.peers.map((p) => ({ ...p, typeName: typeNames.get(p.code) ?? undefined })),
       suggestedRoute,
     });
-  } catch {
+  } catch (error) {
+    console.error('GET /api/dwh/prospecto failed', error);
+    captureException(error, auth.session.sub);
     return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
   }
 }

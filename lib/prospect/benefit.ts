@@ -26,7 +26,8 @@ export function weeklyBenefit(
   margin: number,
 ): { benefitUsd: number; incomplete: boolean } {
   let benefitUsd = 0;
-  let incomplete = false;
+  // an empty mix has no cost data at all: 0 here is "unknown", so flag it
+  let incomplete = mix.length === 0;
   for (const line of mix) {
     if (line.costUsd === null) {
       incomplete = true;

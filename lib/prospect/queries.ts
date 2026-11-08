@@ -50,6 +50,8 @@ const CUSTOMERS_QUERY = `
     GROUP BY RTRIM(cur.CustomerCode)
     HAVING SUM(fs.QuantitySold) > 0`;
 
+// The USD expression (NetAmount / NULLIF(RateSell, 0)) mirrors dualAmountExpr in app/api/dwh/lib/query-builder.ts
+// (USD side only), so a row without a rate yields NULL, never 0.
 const PRODUCTS_QUERY = `
     SELECT RTRIM(cur.CustomerCode) AS CustomerCode, RTRIM(p.ProductCode) AS ProductCode,
            MAX(ISNULL(p.ProductName, p.ProductCode)) AS ProductName,
@@ -62,14 +64,15 @@ const PRODUCTS_QUERY = `
 const nullableNum = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const nullableStr = (v: unknown): string | null => (v === null || v === undefined ? null : String(v).trim() || null);
 
-export async function fetchProspectBase(
-  pool: sql.ConnectionPool,
-  w: { startKey: number; endKey: number },
-): Promise<{ customers: BaseCustomer[]; products: ProductRow[] }> {
-  const run = (text: string) => pool.request().input('startKey', w.startKey).input('endKey', w.endKey).query(text);
-  const [cust, prod] = await Promise.all([run(CUSTOMERS_QUERY), run(PRODUCTS_QUERY)]);
-  return {
-    customers: cust.recordset.map((r: Record<string, unknown>) => ({
+type Window = { startKey: number; endKey: number };
+const runQuery = (pool: sql.ConnectionPool, w: Window, text: string) =>
+  pool.request().input('startKey', w.startKey).input('endKey', w.endKey).query(text);
+
+/** Customers only (options / suggest do not need the product x customer query). */
+export async function fetchProspectCustomers(pool: sql.ConnectionPool, w: Window): Promise<BaseCustomer[]> {
+  const cust = await runQuery(pool, w, CUSTOMERS_QUERY);
+  return cust.recordset.map(
+    (r: Record<string, unknown>) => ({
       code: String(r.Code).trim(),
       name: String(r.Name ?? r.Code).trim(),
       typeCode: nullableStr(r.TypeCode),
@@ -78,14 +81,18 @@ export async function fetchProspectBase(
       routeName: nullableStr(r.RouteName),
       firstKey: nullableNum(r.FirstKey),
       units: Number(r.Units ?? 0),
-    })),
-    products: prod.recordset.map((r: Record<string, unknown>) => ({
-      customerCode: String(r.CustomerCode).trim(),
-      productCode: String(r.ProductCode).trim(),
-      productName: String(r.ProductName ?? r.ProductCode).trim(),
-      units: Number(r.Units ?? 0),
-      usdNet: nullableNum(r.UsdNet),
-      usdUnits: Number(r.UsdUnits ?? 0),
-    })),
-  };
+    }));
 }
+
+export async function fetchProspectProducts(pool: sql.ConnectionPool, w: Window): Promise<ProductRow[]> {
+  const prod = await runQuery(pool, w, PRODUCTS_QUERY);
+  return prod.recordset.map((r: Record<string, unknown>) => ({
+    customerCode: String(r.CustomerCode).trim(),
+    productCode: String(r.ProductCode).trim(),
+    productName: String(r.ProductName ?? r.ProductCode).trim(),
+    units: Number(r.Units ?? 0),
+    usdNet: nullableNum(r.UsdNet),
+    usdUnits: Number(r.UsdUnits ?? 0),
+  }));
+}
+

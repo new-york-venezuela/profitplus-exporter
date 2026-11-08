@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ProspectoResponse, ProspectoTier } from '../../types';
 
 const nf1 = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -24,14 +25,18 @@ function Card({ title, children, note }: { title: string; children: React.ReactN
 
 function Banner({ children }: { children: React.ReactNode }) {
   return (
-    <div role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded px-4 py-2">
+    <div role="status" className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded px-4 py-2">
       <span aria-hidden="true">⚠ </span>{children}
     </div>
   );
 }
 
+const PEERS_SHOWN = 15;
+
 export function ResultPanel({ data }: { data: ProspectoResponse }) {
+  const [showAll, setShowAll] = useState(false);
   const noPeers = data.peerCount === 0;
+  const shownPeers = showAll ? data.peers : data.peers.slice(0, PEERS_SHOWN);
   const benefitNote = data.benefit
     ? `Rango: ${usd(data.benefit.p25Usd)} – ${usd(data.benefit.p75Usd)}`
     : noPeers ? 'Sin pares suficientes' : 'Sin datos de costo';
@@ -62,6 +67,7 @@ export function ResultPanel({ data }: { data: ProspectoResponse }) {
           {data.peerCount}
         </Card>
       </div>
+      <p className="text-xs text-gray-500">Mediana semanal por tienda, en unidades brutas (sin devoluciones).</p>
 
       {!noPeers && (
         <section className="bg-white border border-gray-200 rounded-lg p-4" aria-label="Mezcla típica de productos">
@@ -100,11 +106,11 @@ export function ResultPanel({ data }: { data: ProspectoResponse }) {
                 <th className="py-1 font-medium">Cliente</th>
                 <th className="py-1 font-medium">Ruta</th>
                 <th className="py-1 font-medium text-right">Unidades/semana</th>
-                <th className="py-1 font-medium text-right">Beneficio/semana</th>
+                <th className="py-1 font-medium text-right">Beneficio/sem. (mezcla típica)</th>
               </tr>
             </thead>
             <tbody>
-              {data.peers.map(p => (
+              {shownPeers.map(p => (
                 <tr key={p.code} className="border-b border-gray-100">
                   <td className="py-1">{p.name}{p.typeName ? <span className="text-xs text-gray-500"> · {p.typeName}</span> : null}</td>
                   <td className="py-1">{p.routeNumber ?? '—'}</td>
@@ -114,6 +120,15 @@ export function ResultPanel({ data }: { data: ProspectoResponse }) {
               ))}
             </tbody>
           </table>
+          {data.peers.length > PEERS_SHOWN && (
+            <button
+              type="button"
+              onClick={() => setShowAll(v => !v)}
+              className="mt-2 text-xs underline text-blue-700"
+            >
+              {showAll ? `Ver menos` : `Ver todos (${data.peers.length})`}
+            </button>
+          )}
         </section>
       )}
     </div>
