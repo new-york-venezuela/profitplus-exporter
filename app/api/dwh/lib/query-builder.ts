@@ -141,28 +141,28 @@ export function dualAmountExpr(factAlias: string, column: string, bsAlias: strin
 /**
  * Which date a fact.Fact_Returns row is attributed to when it is windowed
  * into a period (see migrations/dwh/0036 and docs/ventas-netas-analysis.md):
+ *  - 'devolucion' -> DateKey: the devolución (nota de crédito) date. This is
+ *                    the DEFAULT: returns are reported as an event of the
+ *                    period in which they happened.
  *  - 'factura'    -> OriginalInvoiceDateKey: the date of the factura the
- *                    returned line came from. This is the basis for
- *                    "Ventas netas" (brutas − devoluciones), so a period's net
- *                    matches a per-factura reconciliation. A later devolución
- *                    restates the factura's (earlier) period.
- *  - 'devolucion' -> DateKey: the devolución (nota de crédito) date. Used by
- *                    views that report returns as an event of the period
- *                    (Devoluciones tab, standalone return rates).
+ *                    returned line came from. The per-factura reconciliation
+ *                    basis: a period's net matches a per-factura check, and a
+ *                    later devolución restates the factura's (earlier) period.
+ *                    Must be requested explicitly.
  * OriginalInvoiceDateKey is never NULL after 0036 (unlinked lines fall back
  * to DateKey). fact.Fact_Returns_Legacy has the same column since 0037.
  */
 export type ReturnsBasis = 'factura' | 'devolucion';
 
 export function parseReturnsBasis(value: string | null): ReturnsBasis {
-  return value === 'devolucion' ? 'devolucion' : 'factura';
+  return value === 'factura' ? 'factura' : 'devolucion';
 }
 
 export function returnsDateColumn(basis: ReturnsBasis): 'OriginalInvoiceDateKey' | 'DateKey' {
   return basis === 'factura' ? 'OriginalInvoiceDateKey' : 'DateKey';
 }
 
-export function buildReturnsDateWhereClause(dateRange: string, tableName: string, basis: ReturnsBasis = 'factura'): string {
+export function buildReturnsDateWhereClause(dateRange: string, tableName: string, basis: ReturnsBasis = 'devolucion'): string {
   return buildDateWhereClause(dateRange, tableName, returnsDateColumn(basis));
 }
 

@@ -307,10 +307,19 @@ describe('buildPrevThirtyDayWhereClause', () => {
 });
 
 describe('returns basis helpers', () => {
-  test('parseReturnsBasis defaults to factura', () => {
-    expect(parseReturnsBasis(null)).toBe('factura');
-    expect(parseReturnsBasis('garbage')).toBe('factura');
+test('parseReturnsBasis defaults to devolucion', () => {
+    expect(parseReturnsBasis(null)).toBe('devolucion');
+    expect(parseReturnsBasis('')).toBe('devolucion');
+    expect(parseReturnsBasis('garbage')).toBe('devolucion');
     expect(parseReturnsBasis('devolucion')).toBe('devolucion');
+    expect(parseReturnsBasis('factura')).toBe('factura');
+  });
+
+  test('buildReturnsDateWhereClause defaults to the devolucion date', () => {
+    const def = buildReturnsDateWhereClause('month:2026-11', 'fr');
+    expect(def).toContain('fr.DateKey');
+    expect(def).not.toContain('OriginalInvoiceDateKey');
+    expect(buildReturnsDateWhereClause('month:2026-11', 'fr', 'factura')).toContain('fr.OriginalInvoiceDateKey');
   });
 
   test('returnsDateColumn maps the basis to the Fact_Returns column', () => {
