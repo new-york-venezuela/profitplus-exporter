@@ -217,4 +217,12 @@ describe('GET /api/dwh/seguimiento: history', () => {
     expect(fetchLineReturns).toHaveBeenCalledWith(pool, '2026-10');
     expect(fetchWeekAmounts).toHaveBeenCalledWith(pool, '2026-10');
   });
+
+  test('a returnsBasis=factura param has no effect: same fetch arguments as without it', async () => {
+    await call('?dateRange=30d&returnsBasis=factura');
+    expect(fetchLineReturns).toHaveBeenCalledWith(pool, '2026-10');
+    expect(fetchWeekAmounts).toHaveBeenCalledWith(pool, '2026-10');
+    expect(fetchLineReturns.mock.calls[0]).toHaveLength(2);
+    expect(fetchWeekAmounts.mock.calls[0]).toHaveLength(2);
+  });
 });

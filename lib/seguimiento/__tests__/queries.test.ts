@@ -19,11 +19,11 @@ function fakePool(rows: Record<string, unknown>[][] = []) {
 }
 
 describe('fetchLineReturns', () => {
-  test('windows by original invoice date, converts at the factura rate, joins the current customer', async () => {
+  test('windows by devolución date, converts at the factura rate, joins the current customer', async () => {
     const { pool, queries } = fakePool([[{ CustomerCode: 'C1', LineName: ' Fresco ', Units: 2, ReturnsBs: 10, ReturnsUsd: 1 }]]);
     const out = await fetchLineReturns(pool, '2026-10');
-    expect(queries[0].text).toContain('fr.OriginalInvoiceDateKey >= 20261001');
-    expect(queries[0].text).toContain('fr.OriginalInvoiceDateKey <= 20261031');
+    expect(queries[0].text).toContain('fr.DateKey >= 20261001');
+    expect(queries[0].text).toContain('fr.DateKey <= 20261031');
     expect(queries[0].text).toContain('cur.IsCurrent = 1');
     expect(queries[0].text).toContain('fr.IsVoided = 0');
     expect(out).toEqual([{ customerCode: 'C1', line: 'Fresco', units: 2, returns: { bs: 10, usd: 1 } }]);
@@ -42,7 +42,7 @@ describe('fetchWeekAmounts', () => {
     const out = await fetchWeekAmounts(pool, '2026-10');
     expect(queries).toHaveLength(2);
     expect(queries[0].text).toContain('fs.DateKey >= 20261001');
-    expect(queries[1].text).toContain('fr.OriginalInvoiceDateKey <= 20261031');
+    expect(queries[1].text).toContain('fr.DateKey <= 20261031');
     expect(queries.every(q => q.text.includes('GROUP BY RTRIM(cur.CustomerCode), d.YearWeek') && q.text.includes('cur.IsCurrent = 1'))).toBe(true);
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ customerCode: 'C1', units: 5, returnUnits: 1, sales: { bs: 100, usd: 2 }, returns: { bs: 10, usd: 0.2 } });
@@ -68,7 +68,7 @@ describe('fetchHistory', () => {
       expect(q.text).toContain('cur.IsCurrent = 1');
     }
     expect(queries[0].text).toContain('fs.DateKey >= 20251101');
-    expect(queries[1].text).toContain('fr.OriginalInvoiceDateKey >= 20251101');
+    expect(queries[1].text).toContain('fr.DateKey >= 20251101');
     expect(queries[1].text).toContain('OriginalInvoiceDateKey');
     expect(out.map(p => p.month)).toEqual(['2026-08', '2026-09']);
     expect(out[0]).toMatchObject({ units: 0, returnUnits: 1, returns: { bs: 5, usd: 1 } });
@@ -149,5 +149,37 @@ describe('fetchHistory USD conversion invariant', () => {
     // the rate is joined on the fact row's date, not on the month key
     expect(salesSql).not.toMatch(/fx\.DateKey = d\./);
     expect(returnsSql).not.toMatch(/fx\.DateKey = d\./);
+  });
+});
+
+// The USD rate join legitimately reads OriginalInvoiceDateKey (factura's rate); strip it before checking.
+function withoutRateJoin(text: string): string {
+  return text.replace(/LEFT JOIN[^\n]*(?:\n(?!\s*(?:JOIN|LEFT JOIN|WHERE)\b)[^\n]*)*/g, m => (m.includes('OriginalInvoiceDateKey') ? '' : m));
+}
+
+describe('returns are windowed and bucketed by devolución date', () => {
+  test('month returns, weekly returns and history returns use fr.DateKey for window and Dim_Date bucket', async () => {
+    const a = fakePool([[]]);
+    await fetchLineReturns(a.pool, '2026-10');
+    const b = fakePool([[], []]);
+    await fetchWeekAmounts(b.pool, '2026-10');
+    const c = fakePool([[], []]);
+    await fetchHistory(c.pool, { kind: 'total' }, '2026-10', []);
+    const returnsSql = [a.queries[0].text, b.queries[1].text, c.queries[1].text];
+    for (const text of returnsSql) {
+      expect(text).toContain('fr.DateKey >=');
+      expect(text).toContain('fr.DateKey <=');
+      expect(withoutRateJoin(text)).not.toContain('OriginalInvoiceDateKey');
+    }
+    for (const text of [b.queries[1].text, c.queries[1].text]) {
+      expect(text).toContain('JOIN dim.Dim_Date d ON d.DateKey = fr.DateKey');
+    }
+  });
+
+  test('a return dated in the month for a prior-month factura lands in that month week bucket (SQL buckets by fr.DateKey)', async () => {
+    const { pool, queries } = fakePool([[], [{ CustomerCode: 'C1', YearWeek: '2026-W41', Units: 1, ReturnsBs: 10, ReturnsUsd: null }]]);
+    const out = await fetchWeekAmounts(pool, '2026-10');
+    expect(queries[1].text).toContain('d.DateKey = fr.DateKey');
+    expect(out[0]).toMatchObject({ yearWeek: '2026-W41', returns: { bs: 10, usd: null } });
   });
 });

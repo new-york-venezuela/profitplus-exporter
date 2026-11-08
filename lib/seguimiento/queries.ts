@@ -82,7 +82,7 @@ export async function fetchCustomers(pool: sql.ConnectionPool, asOf: string): Pr
 // Ventas BRUTAS per customer x product line: SUM(Fact_Sales.NetAmount) (sin IVA, before returns),
 // the plan's Global Constraints definition, same as vendedores/route.ts. fact.Fact_Returns is NOT
 // read, so every row is >= 0 and bucketCategoryMix (which drops rows <= 0) never silently loses a
-// line. Switching to ventas netas would need buildReturnsDateWhereClause(..., 'factura') +
+// line. Switching to ventas netas would need buildReturnsDateWhereClause(..., 'devolucion') +
 // returnsUsdConversionJoin per AGENTS.md, and category-mix would then have to handle negative lines.
 export async function fetchLineSales(pool: sql.ConnectionPool, month: string): Promise<CustomerLineSales[]> {
   assertMonth(month);
@@ -189,11 +189,11 @@ const RETURNS_TO_CURRENT_CUSTOMER = `
     JOIN dim.Dim_Customer c ON c.CustomerKey = fr.CustomerKey
     JOIN dim.Dim_Customer cur ON cur.CustomerCode = c.CustomerCode AND cur.IsCurrent = 1`;
 
-// Devoluciones per customer x product line, windowed by the ORIGINAL factura's date (same month
-// window as fetchLineSales) and converted at that factura's rate (AGENTS.md "Ventas brutas / netas").
+// Devoluciones per customer x product line, windowed by the DEVOLUCIÓN date (Seguimiento always
+// uses it and never reads returnsBasis) and converted at the original factura's rate (AGENTS.md "Ventas brutas / netas").
 export async function fetchLineReturns(pool: sql.ConnectionPool, month: string): Promise<CustomerLineReturns[]> {
   assertMonth(month);
-  const where = buildReturnsDateWhereClause(`month:${month}`, 'fr', 'factura');
+  const where = buildReturnsDateWhereClause(`month:${month}`, 'fr');
   const result = await pool.request().query(`
     SELECT RTRIM(cur.CustomerCode) AS CustomerCode, p.LineName AS LineName,
       SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
@@ -213,11 +213,11 @@ export async function fetchLineReturns(pool: sql.ConnectionPool, month: string):
 }
 
 // Per customer x ISO week (Dim_Date.YearWeek), clipped to the month: the window is the month only, so
-// the edge weeks hold just their in-month days. Sales by invoice date, returns by original invoice date.
+// the edge weeks hold just their in-month days. Sales by invoice date, returns by devolución date.
 export async function fetchWeekAmounts(pool: sql.ConnectionPool, month: string): Promise<CustomerWeekAmounts[]> {
   assertMonth(month);
   const salesWhere = buildDateWhereClause(`month:${month}`, 'fs');
-  const returnsWhere = buildReturnsDateWhereClause(`month:${month}`, 'fr', 'factura');
+  const returnsWhere = buildReturnsDateWhereClause(`month:${month}`, 'fr');
   const [sales, returns] = await Promise.all([
     pool.request().query(`
       SELECT RTRIM(cur.CustomerCode) AS CustomerCode, d.YearWeek,
@@ -234,7 +234,7 @@ export async function fetchWeekAmounts(pool: sql.ConnectionPool, month: string):
         SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
       FROM fact.Fact_Returns fr
       ${returnsUsdConversionJoin('fr')}
-      JOIN dim.Dim_Date d ON d.DateKey = fr.OriginalInvoiceDateKey
+      JOIN dim.Dim_Date d ON d.DateKey = fr.DateKey
       ${RETURNS_TO_CURRENT_CUSTOMER}
       WHERE fr.IsVoided = 0 ${returnsWhere}
       GROUP BY RTRIM(cur.CustomerCode), d.YearWeek
@@ -283,7 +283,7 @@ export async function fetchHistory(
   // buildDateWhereClause on a custom range only strips hyphens, so day 31 is a safe upper bound for
   // the DateKey comparison in every month.
   const salesWhere = buildDateWhereClause(range, 'fs');
-  const returnsWhere = buildReturnsDateWhereClause(range, 'fr', 'factura');
+  const returnsWhere = buildReturnsDateWhereClause(range, 'fr');
 
   const conditions: string[] = [];
   const bind = (req: sql.Request): void => {
@@ -327,7 +327,7 @@ export async function fetchHistory(
       SELECT d.YearMonth AS Month, SUM(fr.QuantityReturned) AS Units, ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
       FROM fact.Fact_Returns fr
       ${returnsUsdConversionJoin('fr')}
-      JOIN dim.Dim_Date d ON d.DateKey = fr.OriginalInvoiceDateKey
+      JOIN dim.Dim_Date d ON d.DateKey = fr.DateKey
       ${RETURNS_TO_CURRENT_CUSTOMER}${SCOPE_JOINS}
       WHERE fr.IsVoided = 0 ${returnsWhere}${scopeSql}
       GROUP BY d.YearMonth
