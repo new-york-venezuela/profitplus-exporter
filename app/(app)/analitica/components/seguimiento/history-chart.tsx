@@ -188,7 +188,7 @@ export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLa
   const colorOf = (category: string) => lineColor(category, visible);
   const slotCount = visible.length + 1;
   return (
-    <section aria-label="Historial mes a mes" className="bg-white border border-gray-200 rounded-lg p-4 w-full">
+    <section aria-label="Historial mes a mes" className="relative bg-white border border-gray-200 rounded-lg p-4 w-full">
       <h3 className="text-sm font-bold text-gray-900">Mes a mes · {scopeLabel}</h3>
       <p className="text-xs text-gray-500 mb-2">
         Últimos 12 meses, ventas brutas sin IVA (antes de devoluciones), apiladas por categoría: la mayor del mes abajo, Otros arriba. Un mes sin datos queda vacío.
@@ -245,7 +245,9 @@ export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLa
               <Line yAxisId="units" dataKey="units" name="Unidades brutas" {...trendLineProps()} />
             </ComposedChart>
           </ResponsiveContainer>
-          <table className="sr-only">
+          {/* sr-only goes on a div: on a <table> the 1px size/overflow clip is ignored and the table stretches the page */}
+          <div className="sr-only">
+          <table>
             <caption>Mes a mes por categoría, ventas brutas en {currencyName} · {scopeLabel}</caption>
             <thead>
               <tr>
@@ -269,6 +271,7 @@ export function HistoryChart({ points, currency, partialMonth, endMonth, scopeLa
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </section>
