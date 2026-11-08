@@ -72,6 +72,11 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
   const excludedRequestRef = useRef(0);
   // kind|dateRange of the data on screen: a reload of the same grouping (after a quota save) keeps the selection.
   const loadedKeyRef = useRef<string | null>(null);
+  // The detail renders below the grid, often off-screen: bring it into view when a row is picked.
+  const detailRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (selected !== null) detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [selected]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,7 +276,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
       />
 
       {root && (
-        <section aria-label={`Detalle de ${root.label}`} className="bg-white border border-gray-200 rounded-lg p-4 space-y-5">
+        <section ref={detailRef} aria-label={`Detalle de ${root.label}`} className="scroll-mt-4 bg-white border border-gray-200 rounded-lg p-4 space-y-5">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h3 className="text-sm font-bold text-gray-900">{root.label}</h3>
