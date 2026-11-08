@@ -722,7 +722,7 @@ SELECT COUNT(*) AS Active_Products FROM dim.Dim_Product WHERE IsCurrent = 1 AND 
 ### Net Revenue (Sales − Returns)
 Aggregate sales and returns **separately** and join the monthly totals. Joining the two fact tables row-to-row (e.g. on `DateKey` + `CustomerKey`) fans out: every sales line repeats once per matching return line, so both sums are multiplied. All amounts are BS, before IVA.
 
-Returns are attributed by default to the month of the **devolución** (`fr.DateKey`, the credit note's month), which is what the app does everywhere. The query below instead uses the original factura (`OriginalInvoiceDateKey`), so each month's net revenue is that month's sales minus the returns of those same sales; this is only the app's `factura` basis, selectable on Resumen, Ventas and Devoluciones. Swap in `fr.DateKey` for the default.
+Returns are attributed by default to the month of the **devolución** (`fr.DateKey`, the credit note's month), which is the default everywhere in the app (the `factura` basis is selectable on Resumen, Ventas and Devoluciones). The query below instead uses the original factura (`OriginalInvoiceDateKey`), so each month's net revenue is that month's sales minus the returns of those same sales; this is only the app's `factura` basis, selectable on Resumen, Ventas and Devoluciones. Swap in `fr.DateKey` for the default.
 ```sql
 WITH Sales AS (
     SELECT dt.YearMonth, SUM(fs.NetAmount) AS SalesNet

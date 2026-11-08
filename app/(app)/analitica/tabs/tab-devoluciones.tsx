@@ -362,7 +362,7 @@ export default function TabDevoluciones({
         <p className="text-sm text-gray-500">
           Devoluciones sin IVA <strong>{RETURNS_BASIS_LABEL[returnsBasis]}</strong> y tasa de devolución
           (devoluciones del período ÷ ventas brutas del período, incluida la consignación). La fecha de atribución se elige
-          arriba y vale para todas las pestañas.
+          arriba y vale para Resumen, Ventas y Devoluciones; las demás pestañas usan siempre la fecha de devolución.
         </p>
       </div>
 

@@ -307,7 +307,7 @@ describe('buildPrevThirtyDayWhereClause', () => {
 });
 
 describe('returns basis helpers', () => {
-test('parseReturnsBasis defaults to devolucion', () => {
+  test('parseReturnsBasis defaults to devolucion', () => {
     expect(parseReturnsBasis(null)).toBe('devolucion');
     expect(parseReturnsBasis('')).toBe('devolucion');
     expect(parseReturnsBasis('garbage')).toBe('devolucion');

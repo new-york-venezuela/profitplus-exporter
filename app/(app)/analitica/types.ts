@@ -36,9 +36,9 @@ export interface DualAmount {
   usd: number | null;
 }
 
-// Resumen tab. Every devoluciones figure here is attributed by the ORIGINAL
-// factura's date (ReturnsBasis 'factura'), so salesGross − returns = salesNet
-// for the selected period.
+// Resumen tab. Devoluciones figures follow the global returns basis: by
+// default the devolución date, or the ORIGINAL factura's date when 'factura'
+// is selected. USD is always at the factura's rate.
 export interface ResumenKPIs {
   salesGross: DualAmount;
   returns: DualAmount;
@@ -165,7 +165,7 @@ export interface VentasResponse {
 // Ventas tab — KPI row, scoped to dateRange like every other section,
 // computed directly off Fact_Sales/Fact_Returns (no margin/profit field: DWH
 // has no reliable cost data, see AGENTS.md). Returns follow the request's
-// returnsBasis (default 'factura').
+// returnsBasis (default 'devolucion'; 'factura' is selectable).
 export interface VentasKpis {
   salesGross: DualAmount;
   returns: DualAmount;

@@ -376,8 +376,9 @@ export async function GET(request: NextRequest) {
 
     const trendBucket = parseTrendBucket(searchParams, dateRange);
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    // Devoluciones attributed to the ORIGINAL factura's date, so the KPI
-    // row's brutas − devoluciones = netas for the period (see ReturnsBasis).
+    // Devoluciones follow the global returns basis: by default the devolución
+    // date; 'factura' (the ORIGINAL factura's date) is selectable. USD is
+    // always at the factura's rate (see ReturnsBasis).
     const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', returnsBasis);
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
     // activeCustomersQuery's prev-period subqueries alias Fact_Sales as

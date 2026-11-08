@@ -69,7 +69,7 @@ Suma de las líneas de devolución de clientes (módulo de devoluciones de Profi
 
 El selector **Devoluciones** es global: aparece en Resumen, Ventas y Devoluciones, se conserva al cambiar entre ellas y permite escoger cualquiera de las dos bases. Las demás pestañas (Seguimiento, Clientes, Productos, Finanzas, Histórico 2025 y el perfil del vendedor) siempre usan la fecha de la devolución.
 
-**Indicadores de la pestaña Devoluciones.** Todos usan la fecha de la nota de crédito y comparan contra las ventas brutas del mismo período: *Devoluciones netas*, *Tasa de devolución* (devoluciones ÷ ventas brutas), *Unidades devueltas* (y su proporción sobre las unidades vendidas), *Notas de crédito* (cantidad y promedio), *Producto más devuelto*, *Cliente con más devoluciones* (por Entidad) y *Mayor tasa por vendedor* (solo vendedores con al menos 1% de las ventas brutas del período, para que un vendedor con una sola factura no encabece la lista).
+**Indicadores de la pestaña Devoluciones.** Todos usan la base elegida en el selector (por defecto, la fecha de devolución, es decir, la de la nota de crédito) y comparan contra las ventas brutas del mismo período: *Devoluciones netas*, *Tasa de devolución* (devoluciones ÷ ventas brutas), *Unidades devueltas* (y su proporción sobre las unidades vendidas), *Notas de crédito* (cantidad y promedio), *Producto más devuelto*, *Cliente con más devoluciones* (por Entidad) y *Mayor tasa por vendedor* (solo vendedores con al menos 1% de las ventas brutas del período, para que un vendedor con una sola factura no encabece la lista).
 
 ## Ventas netas
 
@@ -79,7 +79,7 @@ La pestaña **Histórico 2025** muestra solo el año 2025 del sistema anterior y
 
 ## Tasa de devolución
 
-Devoluciones ÷ ventas brutas. Cuando aparece junto a las ventas netas, usa las mismas devoluciones de esa tabla. En la pestaña Devoluciones usa las devoluciones por fecha de devolución.
+Devoluciones ÷ ventas brutas. Cuando aparece junto a las ventas netas, usa las mismas devoluciones de esa tabla. En la pestaña Devoluciones usa las devoluciones según la base elegida en el selector (por defecto, fecha de devolución).
 
 ## Qué no está incluido
 
