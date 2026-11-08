@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import SearchableSelect from '@/lib/components/searchable-select';
 import { Modal } from '@/components/modal';
@@ -36,6 +36,8 @@ export default function TabProspecto(_props: TabComponentProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const suggestSeq = useRef(0);
+
   const marginValid = parseMargin(margenText) !== null;
 
   // Debounce the margin so typing does not fire a request per keystroke.
@@ -65,6 +67,7 @@ export default function TabProspecto(_props: TabComponentProps) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setData(null);
     (async () => {
       try {
         const qs = new URLSearchParams({ tipo, ruta, margen: margenQuery });
@@ -75,7 +78,7 @@ export default function TabProspecto(_props: TabComponentProps) {
         const body: ProspectoResponse = await res.json();
         if (!cancelled) setData(body);
       } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
+        if (!cancelled) { setError('No se pudo conectar con el servidor'); setData(null); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -92,10 +95,12 @@ export default function TabProspecto(_props: TabComponentProps) {
     setPinOpen(false);
     setPin(p);
     setPinNote(null);
+    const seq = ++suggestSeq.current;
     try {
       const res = await fetch(`/api/dwh/prospecto?section=suggest&lat=${p.lat}&lng=${p.lng}`);
-      if (!res.ok) { setPinNote(await errorOf(res)); return; }
+      if (!res.ok) { const m = await errorOf(res); if (seq === suggestSeq.current) setPinNote(m); return; }
       const body: { route: number | null } = await res.json();
+      if (seq !== suggestSeq.current) return;
       if (body.route !== null && body.route !== undefined) {
         setRuta(String(body.route));
         setPinNote(`Ruta sugerida: ${body.route}. Puede cambiarla.`);
@@ -103,7 +108,7 @@ export default function TabProspecto(_props: TabComponentProps) {
         setPinNote('No hay clientes ubicados cerca: elija la ruta manualmente.');
       }
     } catch {
-      setPinNote('No se pudo conectar con el servidor');
+      if (seq === suggestSeq.current) setPinNote('No se pudo conectar con el servidor');
     }
   }
 
@@ -186,7 +191,9 @@ export default function TabProspecto(_props: TabComponentProps) {
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
       )}
-      {!tipo || !ruta ? (
+      {!marginValid ? (
+        <p className="text-sm text-gray-500">Corrija el margen para ver el resultado.</p>
+      ) : !tipo || !ruta ? (
         <p className="text-sm text-gray-500">Elija un tipo de tienda y una ruta (o marque la ubicación en el mapa) para ver el perfil.</p>
       ) : loading && !data ? (
         <div className="text-sm text-gray-500" role="status">Cargando…</div>

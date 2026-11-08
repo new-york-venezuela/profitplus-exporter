@@ -4,7 +4,12 @@ import { cleanup, render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 mock.module('posthog-js', () => ({ default: { capture: () => {}, identify: () => {} } }));
-mock.module('next/dynamic', () => ({ default: () => () => null }));
+// Stub for the client-only pin picker: a button that confirms a fixed pin.
+mock.module('next/dynamic', () => ({
+  default: () => function PinStub({ onConfirm }: { onConfirm: (p: { lat: number; lng: number }) => void }) {
+    return <button type="button" onClick={() => onConfirm({ lat: 10.5, lng: -66.9 })}>stub-confirmar-pin</button>;
+  },
+}));
 
 const { default: TabProspecto } = await import('../../tabs/tab-prospecto');
 
@@ -29,11 +34,17 @@ function result(over: Record<string, unknown> = {}) {
 }
 
 let urls: string[] = [];
+let failMain = false;
+let suggestRoute: number | null = 7;
 function mockFetch(res: Record<string, unknown>) {
   urls = [];
+  failMain = false;
+  suggestRoute = 7;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
+    if (url.includes('section=suggest')) return new Response(JSON.stringify({ route: suggestRoute }), { status: 200 });
+    if (!url.includes('section=options') && failMain) return new Response(JSON.stringify({ error: 'Falló la consulta' }), { status: 500 });
     const body = url.includes('section=options') ? OPTIONS : res;
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof fetch;
@@ -96,7 +107,7 @@ describe('TabProspecto', () => {
     await fill();
     await screen.findAllByText('$16,80');
     { const m = screen.getByLabelText('Margen de la tienda (%)'); await userEvent.clear(m); await userEvent.type(m, '40'); }
-    await waitFor(() => expect(urls.some(u => u.includes('margen=40'))).toBe(true), { timeout: 2000 });
+    await waitFor(() => expect(urls.some(u => new URL(u, 'http://x').searchParams.get('margen') === '40')).toBe(true), { timeout: 2000 });
   });
 
   test('an invalid margin shows an inline error and does not fetch', async () => {
@@ -108,5 +119,42 @@ describe('TabProspecto', () => {
     expect(await screen.findByText(/Margen inválido/)).toBeTruthy();
     await new Promise(r => setTimeout(r, 600));
     expect(urls.length).toBe(before);
+  });
+
+  test('a failed request clears the previous result and shows the error', async () => {
+    mockFetch(result());
+    await fill();
+    await screen.findAllByText('$16,80');
+    failMain = true;
+    const m = screen.getByLabelText('Margen de la tienda (%)');
+    await userEvent.clear(m);
+    await userEvent.type(m, '45');
+    expect(await screen.findByText('Falló la consulta', {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByText('$16,80')).toBeNull();
+    expect(screen.queryByText('Tienda Uno', { exact: false })).toBeNull();
+  });
+
+  test('an invalid margin hides the previous result', async () => {
+    mockFetch(result());
+    await fill();
+    await screen.findAllByText('$16,80');
+    const m = screen.getByLabelText('Margen de la tienda (%)');
+    await userEvent.clear(m);
+    await userEvent.type(m, '100');
+    expect(await screen.findByText(/Corrija el margen/)).toBeTruthy();
+    expect(screen.queryByText('$16,80')).toBeNull();
+  });
+
+  test('confirming a pin pre-fills the suggested route and later requests carry lat/lng', async () => {
+    mockFetch(result());
+    render(<TabProspecto {...props} />);
+    await screen.findByRole('option', { name: /Supermercado/ });
+    await userEvent.selectOptions(screen.getByLabelText('Tipo de tienda'), 'SUP');
+    await userEvent.click(screen.getByRole('button', { name: 'Marcar en el mapa' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'stub-confirmar-pin' }));
+    expect(await screen.findByText(/Ruta sugerida: 7/)).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: 'Ruta' }) as HTMLInputElement).value).toMatch(/Ruta 7/);
+    await waitFor(() => expect(urls.some(u => u.includes('section=suggest') && u.includes('lat=10.5') && u.includes('lng=-66.9'))).toBe(true));
+    await waitFor(() => expect(urls.some(u => !u.includes('section=') && u.includes('ruta=7') && u.includes('lat=10.5') && u.includes('lng=-66.9'))).toBe(true));
   });
 });
