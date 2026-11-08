@@ -183,21 +183,18 @@ export default function TabVentas({
   dateRange,
   currency,
   granularity,
+  returnsBasis,
 }: {
   dateRange: DateRange;
   currency: Currency;
   granularity: Granularity;
+  returnsBasis: ReturnsBasis;
 }) {
   // Three independently-fetched sections, always rendered together (Part 1
   // of docs/superpowers/specs/2026-09-15-analitica-ui-and-margin-design.md
   // — no more groupBy toggle hiding two of the three). Each section keeps
   // its own loading/error/data state so one slow query doesn't block the
   // others from rendering.
-  // Which date devoluciones are attributed to (see ReturnsBasis in
-  // query-builder.ts). 'factura' (default) makes "Ventas netas" match a
-  // per-factura reconciliation; 'devolucion' shows returns in the period the
-  // nota de crédito was issued.
-  const [returnsBasis, setReturnsBasis] = useState<ReturnsBasis>('factura');
   // Trend chart metric. Defaults to units: money is already shown on Resumen.
   // The choice is a per-viewer convenience kept in localStorage (guarded —
   // storage can be blocked or throw).
@@ -578,30 +575,14 @@ export default function TabVentas({
 
   return (
     <div className="p-6 max-w-7xl space-y-8">
-      {/* Returns attribution toggle — applies to every section of this tab
-          except the comparison charts (which plot ventas brutas only). */}
-      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-        <span>Devoluciones:</span>
-        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Fecha de atribución de devoluciones">
-          {(['factura', 'devolucion'] as const).map(b => (
-            <button
-              key={b}
-              onClick={() => setReturnsBasis(b)}
-              aria-pressed={returnsBasis === b}
-              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-                returnsBasis === b ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {RETURNS_BASIS_LABEL[b]}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-gray-500">
-          {returnsBasis === 'factura'
-            ? 'Cada devolución resta del período de su factura original (cuadra con un cálculo por factura; un mes cerrado puede cambiar si llegan devoluciones después).'
-            : 'Cada devolución resta del período en que se emitió la nota de crédito.'}
-        </span>
-      </div>
+      {/* Returns attribution note — the basis itself is the global selector
+          in analitica-client; applies to every section except the comparison
+          charts (which plot ventas brutas only). */}
+      <p className="text-xs text-gray-500">
+        {returnsBasis === 'factura'
+          ? 'Cada devolución resta del período de su factura original (cuadra con un cálculo por factura; un mes cerrado puede cambiar si llegan devoluciones después).'
+          : 'Cada devolución resta del período en que se emitió la nota de crédito.'}
+      </p>
 
       {/* KPIs */}
       <section>
