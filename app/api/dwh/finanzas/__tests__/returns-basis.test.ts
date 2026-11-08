@@ -1,25 +1,43 @@
-import { describe, test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { buildReturnsDateWhereClause } from '../../lib/query-builder';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { NextRequest } from 'next/server';
 
-const src = readFileSync(join(import.meta.dir, '..', 'route.ts'), 'utf8')
-  .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+const queries: string[] = [];
 
-describe('dwh/finanzas always windows returns by devolución date', () => {
-  test('never reads a returnsBasis param', () => {
-    expect(src).not.toMatch(/returnsBasis/);
-  });
+mock.module('@/lib/dwh/access', () => ({
+  requireDwhAccess: async () => ({ ok: true, session: { sub: 'u', role: 'admin' } }),
+}));
+mock.module('@/lib/db/dwh-mssql', () => ({
+  getDwhPool: async () => ({
+    request: () => {
+      const req = {
+        input: () => req,
+        query: async (sql: string) => { queries.push(sql); return { recordset: [] }; },
+      };
+      return req;
+    },
+  }),
+}));
+mock.module('@/app/api/dwh/lib/consignment', () => ({
+  DEFAULT_ROOT_SHARE_THRESHOLD: 0.15,
+  getFlaggedRootCodes: async () => [],
+}));
 
-  test('buildReturnsDateWhereClause is called without a factura basis', () => {
-    const calls = src.match(/buildReturnsDateWhereClause\([^)]*\)/g) ?? [];
-    expect(calls.length).toBeGreaterThan(0);
-    for (const c of calls) expect(c).not.toMatch(/factura/);
-  });
+const { GET } = await import('../route');
 
-  test('default window is on DateKey, not OriginalInvoiceDateKey', () => {
-    const where = buildReturnsDateWhereClause('12m', 'fr');
-    expect(where).toContain('fr.DateKey');
-    expect(where).not.toContain('OriginalInvoiceDateKey');
-  });
+// A WINDOW predicate on the original factura date (the USD rate join
+// "fx.DateKey = fr.OriginalInvoiceDateKey" is deliberately not matched).
+const FACTURA_WINDOW = /fr2?\.OriginalInvoiceDateKey\s*(>=|<=|<|>)/;
+
+describe('GET /api/dwh/finanzas ignores returnsBasis=factura', () => {
+  beforeEach(() => { queries.length = 0; });
+
+  for (const url of ['http://localhost/api/dwh/finanzas?dateRange=month:2026-10&returnsBasis=factura']) {
+    test(`windows returns on fr.DateKey for ${url}`, async () => {
+      await GET(new NextRequest(url));
+      const returnsSql = queries.filter(q => q.includes('Fact_Returns'));
+      expect(returnsSql.length).toBeGreaterThan(0);
+      expect(returnsSql.some(q => q.includes('fr.DateKey >=') || q.includes('fr.DateKey <='))).toBe(true);
+      for (const q of queries) expect(q).not.toMatch(FACTURA_WINDOW);
+    });
+  }
 });

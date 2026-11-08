@@ -396,7 +396,7 @@ export async function GET(request: NextRequest) {
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
       // Profundidad's standalone Tasa dev. keeps the devolución-date basis
-      // (labelled in the UI); the drill-down table above also uses the devolución date.
+      // (labelled in the UI); the drill-down table uses the same devolución-date basis.
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       return section === 'profundidad'
         ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaKey, categoria)
