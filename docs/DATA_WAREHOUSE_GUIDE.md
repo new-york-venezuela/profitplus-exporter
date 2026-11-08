@@ -226,7 +226,7 @@ See `AGENTS.md`'s "Recipes / Product Costing (FIFO)" section for the recipe cost
 | `OriginalInvoiceDateKey` | int | `saFacturaVenta.fec_emis` (YYYYMMDD) | FK → `Dim_Date`. **Never NULL**: when no factura resolves it falls back to `DateKey`. Use it to attribute a return to the month of the sale. |
 | `HasInvoiceLink` | bit | derived | 1 = `OriginalInvoiceDateKey` came from the factura; 0 = fallback to `DateKey`. Mock: 308/308 lines linked by `rowguid_doc`. |
 
-Which date to use: `DateKey` (return date) for anything about the credit note itself (Devoluciones tab, AR, collections, "what was returned this month"); `OriginalInvoiceDateKey` when netting returns against the sales of the same period ("ventas netas de devoluciones" by sale month). Attributing by factura date restates closed months: a July devolución lowers June. Mock June 2026: 1,217,838.70 BS by return date vs 820,999.07 BS by factura date.
+Which date to use: `DateKey` (return date) for anything about the credit note itself (Devoluciones tab, AR, collections, "what was returned this month"); `DateKey` is also the default for "ventas netas" (brutas − devoluciones); the app uses `OriginalInvoiceDateKey` only when the global returns-basis selector (Resumen, Ventas, Devoluciones) is set to `factura`, to net returns against the sales of the same period, and for the USD rate join (USD returns stay at the original factura's rate). Attributing by factura date restates closed months: a July devolución lowers June. Mock June 2026: 1,217,838.70 BS by return date vs 820,999.07 BS by factura date.
 
 Not covered: credit notes booked as plain `N/CR` in `saDocumentoVenta` without a devolución (common before late May 2026 on the mock) are **not** in `Fact_Returns` at all, and `monto_reca` (FX revaluation on the devolución header) is not loaded.
 
@@ -722,7 +722,7 @@ SELECT COUNT(*) AS Active_Products FROM dim.Dim_Product WHERE IsCurrent = 1 AND 
 ### Net Revenue (Sales − Returns)
 Aggregate sales and returns **separately** and join the monthly totals. Joining the two fact tables row-to-row (e.g. on `DateKey` + `CustomerKey`) fans out: every sales line repeats once per matching return line, so both sums are multiplied. All amounts are BS, before IVA.
 
-Returns are attributed to the month of the **original factura** (`OriginalInvoiceDateKey`), so each month's net revenue is that month's sales minus the returns of those same sales. Swap in `fr.DateKey` to attribute by return date instead (the credit note's month).
+Returns are attributed by default to the month of the **devolución** (`fr.DateKey`, the credit note's month), which is what the app does everywhere. The query below instead uses the original factura (`OriginalInvoiceDateKey`), so each month's net revenue is that month's sales minus the returns of those same sales; this is only the app's `factura` basis, selectable on Resumen, Ventas and Devoluciones. Swap in `fr.DateKey` for the default.
 ```sql
 WITH Sales AS (
     SELECT dt.YearMonth, SUM(fs.NetAmount) AS SalesNet
@@ -747,7 +747,7 @@ FROM Sales s
 FULL OUTER JOIN Returns r ON r.YearMonth = s.YearMonth
 ORDER BY YearMonth DESC;
 ```
-For USD, convert each row at its own date's rate before summing (`fs.NetAmount / NULLIF(fx.RateSell, 0)` with `fact.Fact_ExchangeRate fx` joined on `fx.DateKey = fs.DateKey` and the USD `CurrencyKey`). For returns netted against sales, join the rate on `fr.OriginalInvoiceDateKey`: a return line's `reng_neto` is valued at the factura's BS price, so the factura date's rate is the right divisor.
+For USD, convert each row at its own date's rate before summing (`fs.NetAmount / NULLIF(fx.RateSell, 0)` with `fact.Fact_ExchangeRate fx` joined on `fx.DateKey = fs.DateKey` and the USD `CurrencyKey`). For returns (on either basis), join the rate on `fr.OriginalInvoiceDateKey`: a return line's `reng_neto` is valued at the factura's BS price, so the factura date's rate is the right divisor.
 
 ### AR Aging (Current)
 ```sql

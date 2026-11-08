@@ -65,7 +65,7 @@ La gráfica "Tendencia de ventas" muestra **unidades** por defecto, ya que el di
 Suma de las líneas de devolución de clientes (módulo de devoluciones de Profit), sin IVA y sin las anuladas. Cada línea está enlazada a la factura que devuelve, así que una devolución se puede ubicar de dos formas:
 
 - **Por fecha de devolución** (la opción por defecto). La devolución cuenta en el período en que se emitió la nota de crédito. Así, las cifras de un mes cerrado no cambian cuando llegan devoluciones posteriores.
-- **Por fecha de factura.** La devolución resta del período de su factura original. Así, las ventas netas de un mes cuadran con un cálculo hecho factura por factura. Un mes ya cerrado puede cambiar si después llega una devolución de una de sus facturas.
+- **Por fecha de factura.** La devolución resta del período de su factura original. Así, las ventas netas de un mes cuadran con un cálculo hecho factura por factura. Un mes ya cerrado puede cambiar si después llega una devolución de una de sus facturas. Con la base por defecto (fecha de devolución), las ventas netas = brutas − devoluciones ya no cuadran factura por factura; para esa conciliación use *Por fecha de factura*.
 
 El selector **Devoluciones** es global: aparece en Resumen, Ventas y Devoluciones, se conserva al cambiar entre ellas y permite escoger cualquiera de las dos bases. Las demás pestañas (Seguimiento, Clientes, Productos, Finanzas, Histórico 2025 y el perfil del vendedor) siempre usan la fecha de la devolución.
 
