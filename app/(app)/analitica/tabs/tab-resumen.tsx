@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Currency, DateRange, ResumenResponse } from '../types';
+import type { Currency, DateRange, ResumenResponse, ReturnsBasis } from '../types';
+import { RETURNS_BASIS_LABEL } from '../lib/net-sales';
 import { periodLabel } from '../lib/period-label';
 import type { Granularity } from '../lib/granularity';
 import { SectionTitle } from '../components/resumen/stat-card';
@@ -28,10 +29,12 @@ export default function TabResumen({
   dateRange,
   currency,
   granularity,
+  returnsBasis,
 }: {
   dateRange: DateRange;
   currency: Currency;
   granularity: Granularity;
+  returnsBasis: ReturnsBasis;
 }) {
   const [data, setData] = useState<ResumenResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -43,7 +46,7 @@ export default function TabResumen({
       setError(null);
       setLoading(true);
       try {
-        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}&granularity=${granularity}`);
+        const res = await fetch(`/api/dwh/resumen?dateRange=${dateRange}&granularity=${granularity}&returnsBasis=${returnsBasis}`);
         if (cancelled) return;
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -63,7 +66,7 @@ export default function TabResumen({
     return () => {
       cancelled = true;
     };
-  }, [dateRange, granularity]);
+  }, [dateRange, granularity, returnsBasis]);
 
   if (loading) {
     return (
@@ -95,10 +98,11 @@ export default function TabResumen({
     <div className="p-6 w-full space-y-6">
       {/* KPI row — every figure is for the selected range (periodo). */}
       <p className="text-xs text-gray-500">
-        Período: {periodo}. Devoluciones atribuidas a la fecha de su factura original, sin IVA.
+        Período: {periodo}. Devoluciones {RETURNS_BASIS_LABEL[returnsBasis]}, sin IVA.
       </p>
       <section>
         <SectionTitle>Ventas del período</SectionTitle>
+        <p className="text-xs text-gray-500 mb-2">Devoluciones y neto {RETURNS_BASIS_LABEL[returnsBasis]}.</p>
         <VentasStrip kpis={data.kpis} currency={currency} />
       </section>
       <section>
@@ -114,6 +118,7 @@ export default function TabResumen({
           openingLabel={data.openingSnapshotKey != null ? `al ${formatSnapshotDate(data.openingSnapshotKey)}` : undefined}
         />
       </section>
+      <p className="text-xs text-gray-500">Gráfico: devoluciones {RETURNS_BASIS_LABEL[returnsBasis]}.</p>
       <SalesReturnsChart rows={data.monthlyTrend} trendMode={data.trendMode} currency={currency} />
     </div>
   );

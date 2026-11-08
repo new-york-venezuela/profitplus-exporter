@@ -4,7 +4,7 @@ import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { DEFAULT_ROOT_SHARE_THRESHOLD, getFlaggedRootCodes } from '@/app/api/dwh/lib/consignment';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
-  buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, jsonWithCache,
+  buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, parseReturnsBasis, returnsDateColumn, getDimensionSpec, jsonWithCache,
   usdConversionJoin, returnsUsdConversionJoin, returnsAmountSubqueries, dualAmountExpr, rangeEndDateKey, rangeStartDateKey, previousDayKey,
 } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual, sumDual } from '@/app/(app)/analitica/lib/net-sales';
@@ -31,7 +31,9 @@ export const dynamic = 'force-dynamic';
 // *expression*, and SQL Server rejects a subquery that references the outer
 // query's un-grouped Dim_Date columns. Both sides are range-scoped, so the
 // aggregate 'range' bucket can't sum returns outside the period.
-function monthlyTrendQuery(dateWhere: string, returnsDateWhere: string, bucket: TrendBucket): string {
+function monthlyTrendQuery(
+  dateWhere: string, returnsDateWhere: string, bucket: TrendBucket, returnsColumn: 'DateKey' | 'OriginalInvoiceDateKey',
+): string {
   return `
     WITH sales AS (
       SELECT
@@ -49,7 +51,7 @@ function monthlyTrendQuery(dateWhere: string, returnsDateWhere: string, bucket: 
         ${dualAmountExpr('fr', 'NetAmount', 'ReturnsNetBs', 'ReturnsNetUsd', 'frfx')}
       FROM fact.Fact_Returns fr
       ${returnsUsdConversionJoin('fr', 'frfx')}
-      JOIN dim.Dim_Date dr ON dr.DateKey = fr.OriginalInvoiceDateKey
+      JOIN dim.Dim_Date dr ON dr.DateKey = fr.${returnsColumn}
       WHERE fr.IsVoided = 0 ${returnsDateWhere}
       GROUP BY ${bucket.keyExpr('dr')}
     )
@@ -367,6 +369,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
+  const returnsBasis = parseReturnsBasis(searchParams.get('returnsBasis'));
 
   try {
     const pool = await getDwhPool();
@@ -375,7 +378,7 @@ export async function GET(request: NextRequest) {
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
     // Devoluciones attributed to the ORIGINAL factura's date, so the KPI
     // row's brutas − devoluciones = netas for the period (see ReturnsBasis).
-    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', returnsBasis);
     const collectionsDateWhere = buildDateWhereClause(dateRange, 'fc');
     // activeCustomersQuery's prev-period subqueries alias Fact_Sales as
     // `prev_fs`, not `fs` — reusing an `fs`-aliased clause there would
@@ -399,7 +402,7 @@ export async function GET(request: NextRequest) {
     const openingEndKey = previousDayKey(rangeStartDateKey(dateRange));
 
     const [trend, topCustomers, topProducts, salesReps, latestSnapshot, totals, activeCustomersResult, customerKpis, openingSnapshot] = await Promise.all([
-      pool.request().query(monthlyTrendQuery(salesDateWhere, returnsDateWhere, trendBucket)),
+      pool.request().query(monthlyTrendQuery(salesDateWhere, returnsDateWhere, trendBucket, returnsDateColumn(returnsBasis))),
       pool.request().query(topCustomersQuery(salesDateWhere)),
       pool.request().query(topProductsQuery(salesDateWhere)),
       pool.request().query(salesRepQuery(salesDateWhere, returnsDateWhere)),
@@ -500,6 +503,7 @@ export async function GET(request: NextRequest) {
     const response: ResumenResponse = {
       monthlyTrend,
       trendMode: trendBucket.mode,
+      returnsBasis,
       topCustomers: topCustomersMapped,
       topProducts: topProductsMapped,
       salesReps: salesRepsMapped,

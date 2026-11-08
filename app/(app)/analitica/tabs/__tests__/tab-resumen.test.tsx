@@ -20,6 +20,7 @@ const response = {
   salesReps: [],
   snapshotDateKey: 20260930,
   openingSnapshotKey: 20260825,
+  returnsBasis: 'devolucion',
 };
 
 beforeEach(() => {
@@ -30,25 +31,25 @@ afterEach(cleanup);
 describe('TabResumen', () => {
   test('loading and error states render without the pace strip', async () => {
     globalThis.fetch = mock(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
-    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="devolucion" />);
     expect(screen.getByText('Cargando…')).toBeTruthy();
     expect(screen.queryByText(/Día laborable/)).toBeNull();
   });
 
   test('error message is shown', async () => {
     globalThis.fetch = mock(async () => json({ error: 'Error al consultar el Data Warehouse' }, false, 500)) as unknown as typeof fetch;
-    render(<TabResumen dateRange="30d" currency="usd" granularity="month" />);
+    render(<TabResumen dateRange="30d" currency="usd" granularity="month" returnsBasis="devolucion" />);
     expect(await screen.findByText('Error al consultar el Data Warehouse')).toBeTruthy();
   });
 
   test('empty body shows the empty state', async () => {
-    render(<TabResumen dateRange="30d" currency="bs" granularity="month" />);
+    render(<TabResumen dateRange="30d" currency="bs" granularity="month" returnsBasis="devolucion" />);
     expect(await screen.findByText('Sin datos disponibles todavía.')).toBeTruthy();
   });
 
   test('renders the four sections in order and drops removed blocks', async () => {
     globalThis.fetch = mock(async () => json(response)) as unknown as typeof fetch;
-    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="devolucion" />);
     const h = [
       await screen.findByRole('heading', { name: 'Ventas del período' }),
       screen.getByRole('heading', { name: 'Clientes' }),
@@ -66,17 +67,29 @@ describe('TabResumen', () => {
 
   test('Saldo inicial and Pendiente each name their own snapshot date', async () => {
     globalThis.fetch = mock(async () => json(response)) as unknown as typeof fetch;
-    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="devolucion" />);
     expect(await screen.findByText('al 25/08/2026')).toBeTruthy();
     expect(screen.getByText('al 30/09/2026')).toBeTruthy();
   });
 
   test('does not render Top 10 clientes, Top 10 productos or Desempeño por vendedor', async () => {
     globalThis.fetch = mock(async () => json(response)) as unknown as typeof fetch;
-    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" />);
+    render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="devolucion" />);
     await screen.findByRole('heading', { name: 'Ventas del período' });
     expect(screen.queryByText('Top 10 clientes')).toBeNull();
     expect(screen.queryByText('Top 10 productos')).toBeNull();
     expect(screen.queryByText('Desempeño por vendedor')).toBeNull();
+  });
+
+  test('sends returnsBasis, labels it, and refetches when it changes', async () => {
+    const fetchMock = mock(async () => json(response));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const { rerender } = render(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="devolucion" />);
+    await screen.findByRole('heading', { name: 'Ventas del período' });
+    expect((fetchMock.mock.calls[0] as unknown[])[0]).toContain('returnsBasis=devolucion');
+    expect(screen.getAllByText(/por fecha de devolución/).length).toBeGreaterThan(0);
+    rerender(<TabResumen dateRange="month:2026-09" currency="usd" granularity="month" returnsBasis="factura" />);
+    await screen.findAllByText(/por fecha de factura/);
+    expect(fetchMock.mock.calls.some(c => String((c as unknown[])[0]).includes('returnsBasis=factura'))).toBe(true);
   });
 });

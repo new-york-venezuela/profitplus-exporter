@@ -123,6 +123,7 @@ export interface ResumenResponse {
   snapshotDateKey: number | null;
   // Snapshot behind kpis.receivableOpening: the latest on/before the day before the range starts. Null when none exists.
   openingSnapshotKey: number | null;
+  returnsBasis: ReturnsBasis; // which date the returns were attributed by
   kpis: ResumenKPIs;
 }
 

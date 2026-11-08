@@ -128,4 +128,28 @@ describe('GET /api/dwh/resumen', () => {
     expect(kpis.customersWithSales).toBe(95);
     expect(kpis.activeCustomerCodes).toBe(85);
   });
+
+  test('defaults to the devolución date: window and trend bucket use fr.DateKey', async () => {
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10'));
+    expect((await res.json()).returnsBasis).toBe('devolucion');
+    const withReturns = queries.filter(s => s.includes('Fact_Returns'));
+    expect(withReturns.length).toBeGreaterThan(0);
+    for (const q of withReturns) {
+      // The USD rate join legitimately stays on the factura date; the window must not.
+      expect(q).not.toContain('fr.OriginalInvoiceDateKey >=');
+      expect(q).toContain('fr.DateKey >=');
+    }
+    const trend = queries.find(s => s.includes('rets AS') && s.includes('Bucket'))!;
+    expect(trend).toContain('dr.DateKey = fr.DateKey');
+  });
+
+  test('returnsBasis=factura windows and buckets returns by the original factura date', async () => {
+    const res = await GET(new NextRequest('http://localhost/api/dwh/resumen?dateRange=month:2026-10&returnsBasis=factura'));
+    expect((await res.json()).returnsBasis).toBe('factura');
+    const trend = queries.find(s => s.includes('rets AS') && s.includes('Bucket'))!;
+    expect(trend).toContain('dr.DateKey = fr.OriginalInvoiceDateKey');
+    expect(trend).toContain('fr.OriginalInvoiceDateKey >=');
+    const totals = queries.find(s => s.includes('AS SalesGrossPeriodBs'))!;
+    expect(totals).toContain('fr.OriginalInvoiceDateKey >=');
+  });
 });
