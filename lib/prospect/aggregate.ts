@@ -42,6 +42,7 @@ export function quantile(sorted: number[], q: number): number | null {
 function cost(rows: ProductTotals[]): number | null {
   const usdUnits = rows.reduce((s, r) => s + r.usdUnits, 0);
   if (usdUnits <= 0) return null;
+  // Caller contract: usdNet is non-null whenever usdUnits > 0.
   const usdNet = rows.reduce((s, r) => s + (r.usdNet ?? 0), 0);
   return usdNet / usdUnits;
 }
@@ -83,12 +84,12 @@ export function buildResult(args: {
   const mix = buildMix(products);
   const at = (u: number) => weeklyBenefit(u, mix, margin);
   const med = at(units.median);
-  const allNull = mix.every((l) => l.costUsd === null);
+  const noData = mix.length === 0 || mix.every((l) => l.costUsd === null);
   return {
     ...base,
     units,
     mix,
-    benefit: {
+    benefit: noData ? null : {
       medianUsd: med.benefitUsd,
       p25Usd: at(units.p25).benefitUsd,
       p75Usd: at(units.p75).benefitUsd,
@@ -99,7 +100,7 @@ export function buildResult(args: {
       name: p.name,
       routeNumber: p.routeNumber,
       weeklyUnits: p.weeklyUnits,
-      weeklyBenefitUsd: allNull ? null : at(p.weeklyUnits).benefitUsd,
+      weeklyBenefitUsd: noData ? null : at(p.weeklyUnits).benefitUsd,
     })),
   };
 }

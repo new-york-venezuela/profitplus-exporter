@@ -66,7 +66,13 @@ describe('buildResult', () => {
       tier: 'type_all', peers: [peer('a', 10)], products: [prod('P', 100, null)], margin: 0.3, excludedNoRoute: 0,
     });
     expect(r.peers[0].weeklyBenefitUsd).toBeNull();
-    expect(r.benefit!.incomplete).toBe(true);
+    expect(r.benefit).toBeNull();
+  });
+  test('empty mix with peers gives null benefit, not zero', () => {
+    const r = buildResult({ tier: 'type_all', peers: [peer('a', 10)], products: [], margin: 0.3, excludedNoRoute: 0 });
+    expect(r.units).toEqual({ median: 10, p25: 10, p75: 10 });
+    expect(r.benefit).toBeNull();
+    expect(r.peers[0].weeklyBenefitUsd).toBeNull();
   });
   test('empty peers', () => {
     const r = buildResult({ tier: 'type_all', peers: [], products: [], margin: 0.3, excludedNoRoute: 0 });

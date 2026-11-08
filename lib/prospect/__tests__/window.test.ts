@@ -24,6 +24,12 @@ describe('prospectWindow', () => {
     // Sun 2026-11-08 -> Sunday 2026-11-01
     expect(prospectWindow(new Date(2026, 10, 8, 23, 30))).toEqual({ startKey: 20260810, endKey: 20261101 });
   });
+  test('year boundary', () => {
+    expect(prospectWindow(new Date(2026, 0, 7, 12, 0))).toEqual({ startKey: 20251013, endKey: 20260104 });
+  });
+  test('DST date (Monday 2026-03-09)', () => {
+    expect(prospectWindow(new Date(2026, 2, 9, 9, 0))).toEqual({ startKey: 20251215, endKey: 20260308 });
+  });
   test('Monday: ends yesterday', () => {
     expect(prospectWindow(new Date(2026, 10, 9, 0, 5))).toEqual({ startKey: 20260817, endKey: 20261108 });
   });
