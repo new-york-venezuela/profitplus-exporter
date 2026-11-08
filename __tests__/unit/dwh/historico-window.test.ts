@@ -10,6 +10,6 @@ describe('Histórico window', () => {
   });
   test('sales and returns use the same bounds on their own date columns', () => {
     expect(HISTORICO_SALES_WINDOW).toBe('AND fsl.DateKey BETWEEN 20250101 AND 20251231');
-    expect(HISTORICO_RETURNS_WINDOW).toBe('AND frl.OriginalInvoiceDateKey BETWEEN 20250101 AND 20251231');
+    expect(HISTORICO_RETURNS_WINDOW).toBe('AND frl.DateKey BETWEEN 20250101 AND 20251231');
   });
 });
