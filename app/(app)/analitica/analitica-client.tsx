@@ -5,7 +5,9 @@ import type { ComponentType } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { localIsoDate } from '@/lib/local-date';
-import type { Currency, DateRange } from './types';
+import type { Currency, DateRange, ReturnsBasis } from './types';
+import { RETURNS_BASIS_TABS, resolveReturnsBasis } from './lib/returns-basis';
+import ReturnsBasisSelector from './components/returns-basis-selector';
 import { allowedGranularities, resolveGranularity } from './lib/granularity';
 import type { Granularity } from './lib/granularity';
 import { TAB_KEYS, TAB_LABELS, resolveActiveTab, type TabKey } from './lib/tab-keys';
@@ -25,6 +27,7 @@ export interface TabComponentProps {
   dateRange: DateRange;
   currency: Currency;
   granularity: Granularity;
+  returnsBasis: ReturnsBasis;
 }
 
 interface TabDef {
@@ -142,6 +145,8 @@ function AnaliticaClientInner() {
   const granularityParam = searchParams.get('granularity');
   const granularity: Granularity = resolveGranularity(dateRange, granularityParam);
   const allowedGranularity = allowedGranularities(dateRange);
+
+  const returnsBasis = resolveReturnsBasis(searchParams.get('returnsBasis'));
 
   const currencyParam = searchParams.get('currency');
   // Fallback currency for when the URL has no `currency` param: seeded from
@@ -365,6 +370,12 @@ function AnaliticaClientInner() {
                 </div>
               </div>
             )}
+            {RETURNS_BASIS_TABS.has(activeTab as TabKey) && (
+              <ReturnsBasisSelector
+                value={returnsBasis}
+                onChange={b => updateParams({ returnsBasis: b })}
+              />
+            )}
             {/* Currency toggle */}
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               <button
@@ -420,7 +431,7 @@ function AnaliticaClientInner() {
           const TabComponent = tab.component;
           return (
             <div key={tab.key} className={tab.key === activeTab ? 'h-full print:h-auto' : 'hidden'}>
-              <TabComponent dateRange={dateRange} currency={currency} granularity={granularity} />
+              <TabComponent dateRange={dateRange} currency={currency} granularity={granularity} returnsBasis={returnsBasis} />
             </div>
           );
         })}
