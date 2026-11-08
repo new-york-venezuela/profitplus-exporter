@@ -1,5 +1,7 @@
 # Ventas netas: why Analítica did not match the Excel, and what changed
 
+> **Update (2026-11-08):** the factura-date rule described below is no longer the default. Returns now default to the devolución's own date (`DateKey`); the factura basis (`OriginalInvoiceDateKey`) survives only as the global `returnsBasis` selector on Resumen, Ventas and Devoluciones. All other tabs, including Histórico 2025, count returns by the devolución date. Returns USD still converts at the original factura's rate. The analysis below is kept as history. See docs/superpowers/specs/2026-11-08-global-returns-basis-design.md.
+
 > **Note (2026-10-11):** the Vendedores, Matriz Vendedor-Producto and Histórico sections below refer to tabs since removed (Vendedores, Matriz Vendedor-Producto) or windowed to calendar 2025 (Histórico 2025). See docs/superpowers/plans/2026-10-11-sales-tabs-consolidation.md.
 
 Date: 2026-10-04. Branch `fix/ventas-netas`. The numbers below come from the dev DWH (`DWH_AlimentosNY` on localhost) and the mock ERP `Ncake_a`. That data is small, so re-check the percentages on production before you rely on them.

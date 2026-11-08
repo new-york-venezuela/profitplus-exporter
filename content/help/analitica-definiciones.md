@@ -6,7 +6,7 @@ Todas las cifras de Analítica salen del Data Warehouse, que se actualiza desde 
 
 La pestaña **Resumen** muestra, para el período elegido:
 
-- **Ventas del período:** tres tarjetas, *Ventas brutas*, *Devoluciones* y *Neto* (neto = brutas − devoluciones, con las devoluciones por fecha de su factura original). Cada una indica unidades, clientes/tiendas (clientes distintos con facturas, con devoluciones o con ventas netas positivas) y precio promedio (monto ÷ unidades); la de devoluciones añade la tasa de devolución. Un precio sin unidades se muestra "Sin datos". Las tres **incluyen la consignación** en montos, unidades y clientes, igual que la gráfica, la pestaña Ventas y la *Facturación*; por eso no coinciden con el Total de Seguimiento, que la excluye.
+- **Ventas del período:** tres tarjetas, *Ventas brutas*, *Devoluciones* y *Neto* (neto = brutas − devoluciones, con las devoluciones por fecha de la devolución, o de su factura original si elige esa base en el selector). Cada una indica unidades, clientes/tiendas (clientes distintos con facturas, con devoluciones o con ventas netas positivas) y precio promedio (monto ÷ unidades); la de devoluciones añade la tasa de devolución. Un precio sin unidades se muestra "Sin datos". Las tres **incluyen la consignación** en montos, unidades y clientes, igual que la gráfica, la pestaña Ventas y la *Facturación*; por eso no coinciden con el Total de Seguimiento, que la excluye.
 - **Clientes:** *Total* = clientes vigentes (no inactivos) en el maestro, sin contar las raíces de consignación; *Activos* = de esos mismos clientes, los que tienen al menos una factura en el período, y su porcentaje del total; *Nuevos* = registrados en el período, sin el lote migrado en la puesta en marcha. Las tres tarjetas son **sin consignación**, como en Seguimiento.
 - **Cuentas por cobrar:** *Saldo inicial* (el snapshot de CxC más reciente en o antes del día anterior al período; la tarjeta indica su fecha, o "Sin snapshot" si no hay ninguno) + *Facturación* (ventas brutas sin IVA) − *Cobros* (con IVA) y *Pendiente*, que no es el resultado de esa suma sino el saldo real de todas las facturas abiertas según el snapshot más reciente al último día del período (la tarjeta indica su fecha). Sin snapshot muestra "Sin datos".
 - **Ventas netas y devoluciones:** barras apiladas (netas + devoluciones = brutas) por día, semana o mes, con la tasa de devolución como línea sobre el eje derecho.
@@ -64,18 +64,18 @@ La gráfica "Tendencia de ventas" muestra **unidades** por defecto, ya que el di
 
 Suma de las líneas de devolución de clientes (módulo de devoluciones de Profit), sin IVA y sin las anuladas. Cada línea está enlazada a la factura que devuelve, así que una devolución se puede ubicar de dos formas:
 
-- **Por fecha de factura** (la opción por defecto). La devolución resta del período de su factura original. Así, las ventas netas de un mes cuadran con un cálculo hecho factura por factura. Un mes ya cerrado puede cambiar si después llega una devolución de una de sus facturas.
-- **Por fecha de devolución.** La devolución cuenta en el período en que se emitió la nota de crédito. La pestaña Devoluciones y las tasas de devolución que aparecen solas usan esta fecha, y lo indican.
+- **Por fecha de devolución** (la opción por defecto). La devolución cuenta en el período en que se emitió la nota de crédito. Así, las cifras de un mes cerrado no cambian cuando llegan devoluciones posteriores.
+- **Por fecha de factura.** La devolución resta del período de su factura original. Así, las ventas netas de un mes cuadran con un cálculo hecho factura por factura. Un mes ya cerrado puede cambiar si después llega una devolución de una de sus facturas.
 
-En la pestaña Ventas puede escoger cualquiera de las dos con el selector **Devoluciones**.
+El selector **Devoluciones** es global: aparece en Resumen, Ventas y Devoluciones, se conserva al cambiar entre ellas y permite escoger cualquiera de las dos bases. Las demás pestañas (Seguimiento, Clientes, Productos, Finanzas, Histórico 2025 y el perfil del vendedor) siempre usan la fecha de la devolución.
 
 **Indicadores de la pestaña Devoluciones.** Todos usan la fecha de la nota de crédito y comparan contra las ventas brutas del mismo período: *Devoluciones netas*, *Tasa de devolución* (devoluciones ÷ ventas brutas), *Unidades devueltas* (y su proporción sobre las unidades vendidas), *Notas de crédito* (cantidad y promedio), *Producto más devuelto*, *Cliente con más devoluciones* (por Entidad) y *Mayor tasa por vendedor* (solo vendedores con al menos 1% de las ventas brutas del período, para que un vendedor con una sola factura no encabece la lista).
 
 ## Ventas netas
 
-**Ventas netas = Ventas brutas − Devoluciones**, con las devoluciones por fecha de factura (o según el selector de la pestaña Ventas).
+**Ventas netas = Ventas brutas − Devoluciones**, con las devoluciones por fecha de devolución (o por fecha de factura, según el selector global de Resumen, Ventas y Devoluciones).
 
-La pestaña **Histórico 2025** muestra solo el año 2025 del sistema anterior y sigue la misma regla (devoluciones por fecha de la factura original); las devoluciones de facturas anteriores a enero 2025 quedan fuera de esa pestaña, y enero y febrero de 2026 del sistema anterior no se muestran en ninguna.
+La pestaña **Histórico 2025** muestra solo el año 2025 del sistema anterior y cuenta las devoluciones por su propia fecha (la de la nota de crédito), dentro de 2025; las devoluciones registradas fuera de 2025 quedan fuera de esa pestaña, y enero y febrero de 2026 del sistema anterior no se muestran en ninguna.
 
 ## Tasa de devolución
 
@@ -147,4 +147,4 @@ Para que un Excel cuadre con las ventas netas de Analítica:
 2. Use montos sin IVA: la base de cada línea, no el total neto con IVA del documento.
 3. Reste el descuento global de la factura.
 4. Filtre por fecha de factura e incluya todo el último día. Las fechas tienen hora, así que un filtro `BETWEEN '…-01' AND '…-30'` deja fuera las facturas del 30 después de medianoche.
-5. Reste solo las devoluciones del módulo de devoluciones, ubicadas en el mes de su factura original.
+5. Reste solo las devoluciones del módulo de devoluciones, ubicadas en el mes de la devolución (o en el de su factura original, si quiere cuadrar con el selector de base *Por fecha de factura*).

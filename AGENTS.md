@@ -139,6 +139,8 @@ app/(app)/
     tabs/tab-resumen.tsx + components/resumen/ — Resumen tab (ventas-strip, clientes-cards, cxc-cards, sales-returns-chart, stat-card)
     tabs/tab-seguimiento.tsx + components/seguimiento/ — Seguimiento tab (seller-grid, weekly-matrix, history-chart, status-badge, excluded-section, root-views customer list, visuals MonthPaceStrip)
     lib/tab-keys.ts — tab registry (TAB_KEYS/TAB_LABELS/resolveActiveTab); an unknown or retired ?tab= resolves to Resumen
+    lib/returns-basis.ts — global returns-basis selector state (`returnsBasis=devolucion|factura`, default devolucion), used by Resumen/Ventas/Devoluciones
+    components/returns-basis-selector.tsx — the Devoluciones basis selector shown on Resumen, Ventas and Devoluciones
   inventario/                — stock/adjustments module, gated on the 'inventory' module
   mapa/                      — customer map, gated on the 'geo' module
   pricing/                   — tabs: Segmentos, Listas, Promociones, Vencimientos; gated on 'pricing_view'/'pricing_edit'
@@ -542,11 +544,13 @@ briefly inherit the previous user's identified state.
 - **DWH `mssql` queries** (`app/api/dwh/*`) currently take no user-controlled input beyond the
   session — if you add a filter (date range, warehouse, etc.), use `.input()` there too
 - **Ventas brutas / netas** — `salesGross` = `SUM(Fact_Sales.NetAmount)` (sin IVA, before returns);
-  `salesNet` always means brutas − devoluciones, with returns windowed by `OriginalInvoiceDateKey`
-  (`buildReturnsDateWhereClause(..., 'factura')`) and converted to USD at the factura's rate
-  (`returnsUsdConversionJoin`). Use the devolución date (`'devolucion'`) only for views that report
-  returns as events, and label it. See `content/help/analitica-definiciones.md` and
-  `docs/ventas-netas-analysis.md`
+  `salesNet` always means brutas − devoluciones. Returns are windowed by the devolución's own date
+  (`DateKey`, `buildReturnsDateWhereClause(..., 'devolucion')`) by default; the `'factura'` basis
+  (`OriginalInvoiceDateKey`) exists only through the global `returnsBasis=devolucion|factura` selector on
+  Resumen / Ventas / Devoluciones (`app/(app)/analitica/lib/returns-basis.ts`). Every other tab (Seguimiento,
+  Clientes, Productos, Finanzas, Histórico 2025, Vendedor 360) always counts returns by the devolución date.
+  Returns USD always converts at the ORIGINAL factura's rate (`returnsUsdConversionJoin`), whatever the basis.
+  See `content/help/analitica-definiciones.md` and `docs/ventas-netas-analysis.md`
 - **CSV encoding** — always use `buildCsv()` from `lib/csv.ts`; never construct CSV manually
 - **Dropdown selectors** — any `<select>` whose option list is data-driven and can grow past a handful of
   items (e.g. a picker over `Dim_Customer`, `Dim_SalesRep`, or similar) must use
