@@ -364,8 +364,8 @@ export async function GET(request: NextRequest) {
     // customerQuery's correlated returns subquery aliases Fact_Returns as
     // `fr2` (via spec.correlate), not `fr`, so it needs its own date-where
     // clause built against that alias.
-    // Devoluciones by ORIGINAL factura date (brutas − devoluciones = netas).
-    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2', 'factura');
+    // Devoluciones by their own devolución date (this tab ignores returnsBasis).
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2');
 
     const sc = customerScope(scope, 'c');
     const req = pool.request();

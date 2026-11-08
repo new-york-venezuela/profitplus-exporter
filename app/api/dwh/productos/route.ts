@@ -41,8 +41,8 @@ function isProductosGroupBy(value: string | null): value is ProductosGroupBy {
 }
 
 // Each drill level also carries that group's devoluciones attributed by the
-// ORIGINAL factura date (returnsDateWhere is built on OriginalInvoiceDateKey),
-// so the row's brutas − devoluciones = netas for the period.
+// devolución date (returnsDateWhere is built on DateKey; this tab ignores
+// returnsBasis), USD at the original factura's rate.
 function lineaQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
   return `
     SELECT TOP 30
@@ -396,7 +396,7 @@ export async function GET(request: NextRequest) {
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
       // Profundidad's standalone Tasa dev. keeps the devolución-date basis
-      // (labelled in the UI); the drill-down table above uses factura date.
+      // (labelled in the UI); the drill-down table above also uses the devolución date.
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       return section === 'profundidad'
         ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaKey, categoria)
@@ -418,7 +418,7 @@ export async function GET(request: NextRequest) {
     const pool = await getDwhPool();
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
-    const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
+    const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr');
     const returnsTiendaWhere = `${tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
 
     let recordset: Record<string, unknown>[];

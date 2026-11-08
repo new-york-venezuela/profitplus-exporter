@@ -34,8 +34,8 @@ function fxJoin(alias: string, currency: AmountCurrency, fxAlias: string, column
 
 // Ingresos operativos = ventas brutas − devoluciones (Fact_Sales.NetAmount −
 // Fact_Returns.NetAmount), i.e. the same "Ventas netas" as the Ventas tab:
-// devoluciones attributed to the ORIGINAL factura's date and, in USD,
-// converted at that factura's rate.
+// devoluciones windowed by their own devolución date (this tab ignores
+// returnsBasis) and, in USD, converted at the original factura's rate.
 function salesGrossQuery(dateWhere: string, currency: AmountCurrency): string {
   return `
     SELECT ISNULL(${sumAmount('fs.NetAmount', currency, 'fx')}, 0) AS SalesGross,
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
     const pool = await getDwhPool();
 
     const salesDateWhere = buildDateWhereClause(dateRange, 'fs');
-    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr', 'factura');
+    const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr');
     const expenseDateWhere = buildDateWhereClause(dateRange, 'fe');
     // dwh.vw_GastosOperativos is queried with alias 'v' (see
     // expenseCategoryQuery above) — a separate date-where from
