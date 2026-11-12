@@ -101,7 +101,7 @@ export default function EntidadTreeTable({ rows, columns, fetchChildren }: Props
   }
 
   return (
-    <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
+    <div className="overflow-x-auto bg-white border border-gray-300 rounded-lg shadow-sm">
       <table className="min-w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200">

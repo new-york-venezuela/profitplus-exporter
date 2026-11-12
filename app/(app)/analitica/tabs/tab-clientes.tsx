@@ -32,7 +32,7 @@ function EmptyState({ message }: { message?: string }) {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -310,7 +310,7 @@ export default function TabClientes({
 
   return shell(
       <div className="space-y-6 print:hidden">
-      <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-200 rounded-lg p-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <div>
           <h2 className="text-sm font-bold text-gray-900">Nivel de análisis</h2>
           <p className="text-xs text-gray-500">
@@ -363,7 +363,7 @@ export default function TabClientes({
         )}
       </ChartCard>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <h2 className="text-sm font-bold text-gray-900">
           {clienteDimension === 'cliente_entidad' ? 'Clientes' : 'Tiendas'} perdidos
         </h2>
@@ -412,7 +412,7 @@ export default function TabClientes({
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Segmentación de clientes (Pareto)</h2>

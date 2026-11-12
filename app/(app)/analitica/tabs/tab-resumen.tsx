@@ -95,14 +95,14 @@ export default function TabResumen({
   const periodo = periodLabel(dateRange);
 
   return (
-    <div className="p-6 w-full space-y-6">
+    <div className="p-4 w-full space-y-3">
       {/* KPI row — every figure is for the selected range (periodo). */}
       <p className="text-xs text-gray-500">
         Período: {periodo}. Devoluciones {RETURNS_BASIS_LABEL[returnsBasis]}, sin IVA.
       </p>
       <section>
         <SectionTitle>Ventas del período</SectionTitle>
-        <p className="text-xs text-gray-500 mb-2">Devoluciones y neto {RETURNS_BASIS_LABEL[returnsBasis]}.</p>
+        <p className="text-xs text-gray-500 mb-1">Devoluciones y neto {RETURNS_BASIS_LABEL[returnsBasis]}.</p>
         <VentasStrip kpis={data.kpis} currency={currency} />
       </section>
       <section>

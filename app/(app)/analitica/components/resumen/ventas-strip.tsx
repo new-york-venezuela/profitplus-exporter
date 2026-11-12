@@ -7,7 +7,7 @@ const nf = (n: number) => n.toLocaleString('es-VE');
 
 // One basis per card: amounts, units, clientes and price all include consignment (the amounts match the chart,
 // the Ventas tab and + Facturación). Clientes counts distinct customer codes on every card.
-const BASIS = <p className="text-[11px] text-gray-400">Incluye consignación</p>;
+const BASIS = <p className="text-[11px] text-gray-500">Incluye consignación</p>;
 
 function price(amount: DualAmount, units: number, currency: Currency): string {
   const avg = averagePrice(amount, units);
@@ -18,7 +18,7 @@ export function VentasStrip({ kpis, currency }: { kpis: ResumenKPIs; currency: C
   const netUnits = kpis.unitsSold - kpis.unitsReturned;
   const rate = kpis.returnRate === null ? '—' : `${(kpis.returnRate * 100).toFixed(1)}%`;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
       <StatCard label="Ventas brutas" value={moneyLabel(kpis.salesGross, currency)}>
         <Row label="Unidades" value={nf(kpis.unitsSold)} />
         <Row label="Clientes / tiendas" value={nf(kpis.customersWithSales)} />

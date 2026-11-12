@@ -57,7 +57,7 @@ function pct(n: number | null): string {
 
 function KpiCard({ label, value, tone, title }: { label: string; value: string; tone?: 'default' | 'warn'; title?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4" title={title}>
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4" title={title}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
     </div>
@@ -66,7 +66,7 @@ function KpiCard({ label, value, tone, title }: { label: string; value: string; 
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -252,7 +252,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
         Compras se usa como proxy de costo directo — Profit Plus no registra costo de producto (ver Data Warehouse Guide).
       </p>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-gray-900">Margen Operativo</h2>
           <span title={MARGIN_TOOLTIP} className="cursor-help text-xs text-gray-400">ⓘ</span>
@@ -301,7 +301,7 @@ export default function TabFinanzas({ dateRange, currency }: { dateRange: DateRa
         )}
       </ChartCard>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <h2 className="text-sm font-bold text-gray-900">Gastos operativos por categoría</h2>
         <p className="text-xs text-gray-500 mb-3">
           Desglose de egresos operativos por categoría, con detalle por concepto (o por proveedor en Compras)

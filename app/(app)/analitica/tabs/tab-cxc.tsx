@@ -44,7 +44,7 @@ function formatSnapshotDate(key: number | null): string {
 
 function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-2xl font-bold ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
     </div>
@@ -53,7 +53,7 @@ function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -225,7 +225,7 @@ export default function TabCxc({ dateRange, currency, granularity }: { dateRange
         </ChartCard>
 
         {/* Top debtors */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
           <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
             <div>
               <h2 className="text-sm font-bold text-gray-900">Mayor concentración de crédito</h2>

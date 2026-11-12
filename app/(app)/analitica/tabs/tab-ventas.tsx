@@ -18,7 +18,7 @@ import type {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -37,7 +37,7 @@ function EmptyState({ message }: { message?: string }) {
 
 function KpiCard({ label, value, delta, title }: { label: string; value: string; delta?: { pct: number | null; label: string }; title?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4" title={title}>
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4" title={title}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       {delta && (

@@ -64,7 +64,7 @@ function ChartTooltip({ active, payload, currency }: { active?: boolean; payload
 export function SalesReturnsChart({ rows, trendMode, currency }: { rows: MonthlyTrendRow[]; trendMode: BucketMode; currency: Currency }) {
   const data = buildChartRows(rows, trendMode, currency);
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 w-full">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 w-full">
       <SectionTitle>Ventas netas y devoluciones</SectionTitle>
       <p className="text-xs text-gray-500 mb-2">Ventas netas + devoluciones = ventas brutas (sin IVA, devoluciones por fecha de factura)</p>
       {data.length === 0 ? (

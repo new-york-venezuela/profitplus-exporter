@@ -48,7 +48,7 @@ function EmptyState({ message }: { message?: string }) {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -329,7 +329,7 @@ export default function TabProductos({
         </nav>
       )}
 
-      <div id="productos-drilldown-section" className="bg-white border border-gray-200 rounded-lg p-4">
+      <div id="productos-drilldown-section" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
           <h2 className="text-sm font-bold text-gray-900">Ventas y rotación por producto</h2>
           <div className="flex items-center gap-4 flex-wrap">

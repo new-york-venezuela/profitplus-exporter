@@ -426,7 +426,7 @@ export default function TabDevoluciones({
       {/* Por vendedor */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por vendedor</h3>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
           {salesrepLoading ? (
             <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
           ) : salesrepError ? (
@@ -440,7 +440,7 @@ export default function TabDevoluciones({
       {/* Por producto */}
       <section>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por producto</h3>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
           {productoLoading ? (
             <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
           ) : productoError ? (
@@ -470,7 +470,7 @@ export default function TabDevoluciones({
             </button>
           </div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
           {clienteLoading ? (
             <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
           ) : clienteError ? (

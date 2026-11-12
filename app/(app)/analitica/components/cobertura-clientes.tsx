@@ -352,11 +352,11 @@ export default function CoberturaClientes({
         </div>
 
         {sorted.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-sm text-gray-400">
+          <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-8 text-center text-sm text-gray-400">
             Ningún cliente coincide con los filtros.
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
+          <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">

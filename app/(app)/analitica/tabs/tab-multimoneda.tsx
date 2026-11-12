@@ -18,7 +18,7 @@ function formatRate(n: number): string {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -95,7 +95,7 @@ export default function TabMultimoneda({ dateRange }: { dateRange: DateRange; cu
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      <div className="bg-white border border-gray-200 rounded-lg p-4 inline-block">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 inline-block">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Tasa BCV actual</p>
         <p className="text-2xl font-bold text-gray-900">
           {data.currentRate !== null ? `Bs. ${formatRate(data.currentRate)} / USD` : 'Sin datos'}

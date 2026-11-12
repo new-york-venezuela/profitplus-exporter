@@ -273,7 +273,7 @@ function AnaliticaClientInner() {
   const activeTabDef = useMemo(() => TABS.find(t => t.key === activeTab), [activeTab]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 print:h-auto print:overflow-visible">
+    <div className="flex flex-col h-screen bg-gray-100 print:h-auto print:overflow-visible">
       {/* Global header — hidden on print; SellerProfile renders its own
           print-only header (seller name/date range/"Generado:") instead. */}
       <div className="border-b border-gray-200 bg-white px-6 py-4 print:hidden">

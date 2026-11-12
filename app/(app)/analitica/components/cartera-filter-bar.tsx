@@ -31,7 +31,7 @@ export default function CarteraFilterBar({
   }, []);
 
   return (
-    <div className="flex items-center gap-3 flex-wrap bg-white border border-gray-200 rounded-lg p-4 print:hidden">
+    <div className="flex items-center gap-3 flex-wrap bg-white border border-gray-300 rounded-lg shadow-sm p-4 print:hidden">
       <div>
         <h2 className="text-sm font-bold text-gray-900">Grupo y ruta</h2>
         <p className="text-xs text-gray-500 max-w-xl">

@@ -58,7 +58,7 @@ export function KindSwitch({ value, onChange, rows }: { value: KindFilter; onCha
   );
 }
 
-const cardClass = 'bg-white border border-gray-200 rounded-lg p-4';
+const cardClass = 'bg-white border border-gray-300 rounded-lg shadow-sm p-4';
 
 export function KindComparisonPanel({ rows, currency }: { rows: readonly KindRow[]; currency: Currency }) {
   const p = kindStats(rows, 'patrimonio');

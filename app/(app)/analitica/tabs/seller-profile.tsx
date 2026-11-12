@@ -55,7 +55,7 @@ function VerdictCard({ label, value, chip, status, subtitle }: {
   label: string; value: string; chip: string; status: Status; subtitle?: string;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-avoid">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 print:break-inside-avoid">
       <h3 className="text-xs font-semibold text-gray-500 uppercase mb-1">{label}</h3>
       <div className="text-2xl font-bold text-gray-900">{value}</div>
       <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${STATUS_CHIP[status]}`}>{chip}</span>
@@ -70,7 +70,7 @@ function Section({ title, summary, defaultOpen = false, children }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section aria-label={title} className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-avoid">
+    <section aria-label={title} className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 print:break-inside-avoid">
       <button
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
@@ -344,7 +344,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
             />
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-avoid">
+          <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 print:break-inside-avoid">
             <h2 className="text-sm font-bold text-gray-900 mb-2">Qué mirar</h2>
             {findings.length === 0 ? (
               <p className="text-sm text-gray-400">Sin alertas: no hay metas incumplidas ni tendencias a la baja.</p>
@@ -367,7 +367,7 @@ export default function SellerProfile({ salesRepKey, dateRange, currency, onBack
               {editingMetas ? 'Ocultar metas' : 'Editar metas'}
             </button>
             {editingMetas && (
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg p-3">
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-gray-600 bg-white border border-gray-300 rounded-lg shadow-sm p-3">
                 <span>Ventas: <QuotaEditor currentValue={targetRow.salesQuotaUsd} field="salesQuotaUsd" suffix="USD" onSave={saveQuotaField} /></span>
                 <span>Visitas por semana: <QuotaEditor currentValue={targetRow.weeklyVisitQuota} field="weeklyVisitQuota" onSave={saveQuotaField} /></span>
                 <span>Clientes nuevos: <QuotaEditor currentValue={targetRow.newCustomerQuota} field="newCustomerQuota" onSave={saveQuotaField} /></span>

@@ -19,7 +19,7 @@ export function KpiCard({
   const isGood =
     delta && delta.pct !== null && ((delta.goodDirection ?? 'up') === 'up' ? delta.pct >= 0 : delta.pct <= 0);
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4" title={title}>
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4" title={title}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`${valueClassName ?? 'text-2xl font-bold'} ${tone === 'warn' ? 'text-orange-600' : 'text-gray-900'}`}>{value}</p>
       {subtitle && <p className="text-xs mt-1 text-gray-500">{subtitle}</p>}

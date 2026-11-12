@@ -12,7 +12,7 @@ export function CxcCards({ kpis, currency, snapshotLabel, openingLabel }: {
   kpis: ResumenKPIs; currency: Currency; snapshotLabel?: string; openingLabel?: string;
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
       <StatCard label="Saldo inicial" value={amount(kpis.receivableOpening, currency)}>
         <p>{openingLabel ?? 'Sin snapshot'}</p>
       </StatCard>

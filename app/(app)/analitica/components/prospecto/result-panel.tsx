@@ -15,7 +15,7 @@ const TIER_TEXT: Record<ProspectoTier, string> = {
 
 function Card({ title, children, note }: { title: string; children: React.ReactNode; note?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{title}</p>
       <div className="text-2xl font-bold text-gray-900">{children}</div>
       {note && <p className="text-xs text-gray-500 mt-1">{note}</p>}
@@ -70,7 +70,7 @@ export function ResultPanel({ data }: { data: ProspectoResponse }) {
       <p className="text-xs text-gray-500">Mediana semanal por tienda, en unidades brutas (sin devoluciones).</p>
 
       {!noPeers && (
-        <section className="bg-white border border-gray-200 rounded-lg p-4" aria-label="Mezcla típica de productos">
+        <section className="bg-white border border-gray-300 rounded-lg shadow-sm p-4" aria-label="Mezcla típica de productos">
           <h2 className="text-sm font-bold text-gray-900 mb-2">Mezcla típica de productos</h2>
           {data.mix.length === 0 ? (
             <p className="text-sm text-gray-400">Sin datos</p>
@@ -98,7 +98,7 @@ export function ResultPanel({ data }: { data: ProspectoResponse }) {
       )}
 
       {!noPeers && (
-        <section className="bg-white border border-gray-200 rounded-lg p-4" aria-label="Pares más cercanos">
+        <section className="bg-white border border-gray-300 rounded-lg shadow-sm p-4" aria-label="Pares más cercanos">
           <h2 className="text-sm font-bold text-gray-900 mb-2">Pares más cercanos</h2>
           <table className="w-full text-sm">
             <thead>

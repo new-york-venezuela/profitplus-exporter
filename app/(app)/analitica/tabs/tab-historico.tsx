@@ -11,7 +11,7 @@ import type {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
@@ -30,7 +30,7 @@ function EmptyState({ message }: { message?: string }) {
 
 function KpiCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
     </div>
@@ -322,7 +322,7 @@ export default function TabHistorico({ currency }: { currency: Currency }) {
         )}
         {!clienteLoading && !clienteError && clienteData && clienteData.rows.length === 0 && <EmptyState />}
         {!clienteLoading && !clienteError && clienteData && clienteData.rows.length > 0 && (
-          <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
+          <div className="overflow-x-auto bg-white border border-gray-300 rounded-lg shadow-sm">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">

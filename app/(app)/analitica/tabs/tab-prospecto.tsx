@@ -114,7 +114,7 @@ export default function TabProspecto(_props: TabComponentProps) {
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label htmlFor="prospecto-tipo" className="block text-xs font-semibold text-gray-500 mb-1">Tipo de tienda</label>
