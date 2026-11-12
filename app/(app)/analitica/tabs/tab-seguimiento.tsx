@@ -5,12 +5,14 @@ import posthog from 'posthog-js';
 import type { HistoryPoint, RootKind, SeguimientoExcludedInvoice, SeguimientoInvoiceLine, SeguimientoResponse, SeguimientoRoot } from '@/lib/seguimiento/types';
 import { EMPTY_TARGET_ROW, QuotaEditor, saveSellerTargetField, type SellerTargetRow } from '../components/quota-editor';
 import { ExcludedSection, type ExcludedState } from '../components/seguimiento/excluded-section';
-import { monthLabel } from '../components/seguimiento/fmt';
+import { GoalKpiCard } from '../components/seguimiento/goal-kpi-card';
+import { addDuals, monthLabel, units } from '../components/seguimiento/fmt';
 import { HistoryChart } from '../components/seguimiento/history-chart';
 import { NewCustomersTable } from '../components/seguimiento/new-customers-section';
 import { CustomerList } from '../components/seguimiento/root-views';
 import { SellerGrid } from '../components/seguimiento/seller-grid';
-import { MonthPaceStrip } from '../components/seguimiento/visuals';
+import { MonthPaceStrip, QuotaBar, UnitsBar } from '../components/seguimiento/visuals';
+import { moneyLabel, priceLabel } from '../lib/format';
 import { WeeklyMatrix } from '../components/seguimiento/weekly-matrix';
 import type { Currency, DateRange } from '../types';
 import SellerProfile from './seller-profile';
@@ -243,6 +245,9 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
     return ok;
   };
 
+  const total = data.total;
+  const hasConsignment = data.roots.some(r => r.excludedSales.bs > 0);
+
   const subtitleOf = (r: SeguimientoRoot) => [
     `${r.customerCount} clientes`,
     kind === 'vendedor' ? r.routeLabels.join(', ') : r.sellerKeys.length > 1 ? `${r.sellerKeys.length} vendedores` : '',
@@ -261,6 +266,28 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
         {toggles}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <GoalKpiCard
+          label="Ventas brutas"
+          value={moneyLabel(total.sales, currency)}
+          bar={<QuotaBar actual={total.sales} quotaUsd={total.salesQuotaUsd} projected={total.projected} currency={currency} partial={total.quotaPartial} />}
+          notes={[
+            total.avgPrice ? `Precio prom. ${priceLabel(total.avgPrice, currency)}` : null,
+            hasConsignment ? `Con consignación: ${moneyLabel(addDuals(total.sales, total.excludedSales), currency)}` : null,
+            hasConsignment && total.projectedWithConsignment ? `Proyección con consignación: ${moneyLabel(total.projectedWithConsignment, currency)}` : null,
+          ]}
+        />
+        <GoalKpiCard
+          label="Unidades vendidas"
+          value={units(total.units)}
+          bar={<UnitsBar actual={total.units} quota={total.unitsQuota ?? null} projected={total.projectedUnits ?? null} partial={total.unitsQuotaPartial ?? false} />}
+          notes={[
+            hasConsignment && total.unitsWithConsignment != null ? `Con consignación: ${units(total.unitsWithConsignment)}` : null,
+            hasConsignment && total.projectedUnitsWithConsignment != null ? `Proyección con consignación: ${units(total.projectedUnitsWithConsignment)}` : null,
+          ]}
+        />
+      </div>
+
       {data.roots.length === 0 ? (
         <div className="h-40 flex items-center justify-center text-sm text-gray-400">Sin datos para este mes.</div>
       ) : (
@@ -276,7 +303,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
       />
 
       {root && (
-        <section ref={detailRef} aria-label={`Detalle de ${root.label}`} className="scroll-mt-4 bg-white border border-gray-200 rounded-lg p-4 space-y-5">
+        <section ref={detailRef} aria-label={`Detalle de ${root.label}`} className="scroll-mt-4 bg-white border border-gray-300 rounded-lg shadow-sm p-4 space-y-5">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h3 className="text-sm font-bold text-gray-900">{root.label}</h3>
@@ -320,7 +347,7 @@ export default function TabSeguimiento({ dateRange, currency }: { dateRange: Dat
       {history.error ? (
         <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{history.error}</p>
       ) : history.loading ? (
-        <div className="text-sm text-gray-500 bg-white border border-gray-200 rounded-lg p-4">Cargando historial…</div>
+        <div className="text-sm text-gray-500 bg-white border border-gray-300 rounded-lg shadow-sm p-4">Cargando historial…</div>
       ) : (
         <HistoryChart
           points={history.points}

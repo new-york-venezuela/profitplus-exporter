@@ -2,10 +2,13 @@
 
 import type { MixSegment } from '@/lib/seguimiento/category-mix';
 import type { MonthPace } from '@/lib/seguimiento/month-pace';
-import type { WeekCell, WeekHeader } from '@/lib/seguimiento/types';
+import { quotaBarGeometry } from '@/lib/seguimiento/quotas';
+import type { Dual, NewCustomersInfo, WeekCell, WeekHeader } from '@/lib/seguimiento/types';
 import type { VisitCompliance } from '@/lib/seguimiento/visit-compliance';
+import { moneyLabel, usdLabel } from '../../lib/format';
+import type { Currency } from '../../types';
 import { lineColor } from './colors';
-import { pct } from './fmt';
+import { pct, units } from './fmt';
 
 export function WeekStrip({ weeks, headers }: { weeks: WeekCell[]; headers: WeekHeader[] }) {
   const labelOf = (i: number) => headers[i]?.label ?? weeks[i].yearWeek;
@@ -49,6 +52,123 @@ export function WeekDots({ headers, activeWeeks }: { headers: WeekHeader[]; acti
   );
 }
 
+function barTone(ratio: number | null, muted: boolean): string {
+  if (muted || ratio === null) return 'bg-gray-400';
+  if (ratio >= 1) return 'bg-green-500';
+  if (ratio >= 0.8) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+export function QuotaBar({
+  actual, quotaUsd, projected, currency, shared = false, partial = false,
+}: {
+  actual: Dual;
+  quotaUsd: number | null;
+  projected: Dual | null;
+  currency: Currency;
+  shared?: boolean;
+  partial?: boolean;
+}) {
+  const geometry = quotaBarGeometry(actual.usd, quotaUsd, projected?.usd ?? null);
+  if (!geometry || quotaUsd === null) {
+    return (
+      <div className="text-xs text-gray-500">
+        <div className="font-medium text-gray-900">{moneyLabel(actual, currency)}</div>
+        <div className="text-gray-400">Sin meta</div>
+      </div>
+    );
+  }
+  // The bar compares against a USD goal, so every figure on it is in USD whatever the
+  // selected currency (a Bs. actual next to a $ goal read as a mismatch).
+  const actualLabel = moneyLabel(actual, 'usd');
+  const projectedLabel = projected ? moneyLabel(projected, 'usd') : '—';
+  const quotaLabel = usdLabel(quotaUsd);
+  const ratio = projected?.usd != null && quotaUsd ? projected.usd / quotaUsd : actual.usd != null && quotaUsd ? actual.usd / quotaUsd : null;
+  return (
+    <div className="text-xs text-gray-600">
+      <div
+        role="img"
+        aria-label={`Ventas ${actualLabel}, meta ${quotaLabel}, proyección ${projectedLabel}`}
+        className="relative h-3 rounded bg-gray-100 overflow-visible"
+      >
+        <div
+          data-testid="quota-bar-fill"
+          data-pct={geometry.fillPct}
+          className={`absolute inset-y-0 left-0 rounded ${barTone(ratio, shared)}`}
+          style={{ width: `${geometry.fillPct}%` }}
+        />
+        <div
+          data-testid="quota-bar-target"
+          data-pct={geometry.targetPct}
+          title="Meta"
+          className="absolute -top-1 -bottom-1 w-0.5 bg-gray-800"
+          style={{ left: `${geometry.targetPct}%` }}
+        />
+        {geometry.projectionPct !== null && (
+          <div
+            data-testid="quota-bar-projection"
+            data-pct={geometry.projectionPct}
+            title="Proyección al cierre del mes"
+            className="absolute -top-2 text-[10px] leading-none text-blue-700 -translate-x-1/2"
+            style={{ left: `${geometry.projectionPct}%` }}
+          >
+            ▼
+          </div>
+        )}
+      </div>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-2">
+        <span className="font-medium text-gray-900">{actualLabel}</span>
+        <span>Meta {quotaLabel}</span>
+        <span>Proy. {projectedLabel}</span>
+      </div>
+      {currency !== 'usd' && <div className="text-gray-400">Meta en USD</div>}
+      {(shared || partial) && (
+        <div className="text-amber-700">{shared ? 'Meta compartida' : 'Meta parcial'}</div>
+      )}
+    </div>
+  );
+}
+
+// Same bar as QuotaBar, for units sold vs the unit goal (units are currency-free).
+export function UnitsBar({ actual, quota, projected, shared = false, partial = false }: {
+  actual: number;
+  quota: number | null;
+  projected: number | null;
+  shared?: boolean;
+  partial?: boolean;
+}) {
+  const geometry = quotaBarGeometry(actual, quota, projected);
+  if (!geometry || quota === null) {
+    return (
+      <div className="text-xs text-gray-500">
+        <span className="font-medium text-gray-900">{units(actual)}</span> uds · <span className="text-gray-400">Sin meta de unidades</span>
+      </div>
+    );
+  }
+  const ratio = projected !== null ? projected / quota : actual / quota;
+  return (
+    <div className="text-xs text-gray-600">
+      <div
+        role="img"
+        aria-label={`Unidades ${units(actual)}, meta ${units(quota)}, proyección ${projected === null ? 'sin datos' : units(projected)}`}
+        className="relative h-3 rounded bg-gray-100 overflow-visible"
+      >
+        <div data-testid="units-bar-fill" data-pct={geometry.fillPct} className={`absolute inset-y-0 left-0 rounded ${barTone(ratio, shared)}`} style={{ width: `${geometry.fillPct}%` }} />
+        <div data-testid="units-bar-target" data-pct={geometry.targetPct} title="Meta de unidades" className="absolute -top-1 -bottom-1 w-0.5 bg-gray-800" style={{ left: `${geometry.targetPct}%` }} />
+        {geometry.projectionPct !== null && (
+          <div title="Proyección al cierre del mes" className="absolute -top-2 text-[10px] leading-none text-blue-700 -translate-x-1/2" style={{ left: `${geometry.projectionPct}%` }}>▼</div>
+        )}
+      </div>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-2">
+        <span className="font-medium text-gray-900">{units(actual)} uds</span>
+        <span>Meta {units(quota)}</span>
+        <span>Proy. {projected === null ? '—' : units(projected)}</span>
+      </div>
+      {(shared || partial) && <div className="text-amber-700">{shared ? 'Meta compartida' : 'Meta parcial'}</div>}
+    </div>
+  );
+}
+
 export function MixBar({ segments, visibleLines }: { segments: MixSegment[]; visibleLines: readonly string[] }) {
   if (segments.length === 0) return <div className="text-xs text-gray-400">Sin ventas</div>;
   const label = segments.map(s => `${s.line} ${Math.round(s.share * 100)}%`).join(', ');
@@ -63,6 +183,27 @@ export function MixBar({ segments, visibleLines }: { segments: MixSegment[]; vis
         />
       ))}
     </div>
+  );
+}
+
+export function NewCustomersChip({ info }: { info: NewCustomersInfo }) {
+  const { count, quota, partial } = info;
+  let text: string;
+  let tone: string;
+  if (quota === null) {
+    text = `Nuevos ${count} (sin meta)`;
+    tone = 'bg-gray-100 text-gray-600';
+  } else {
+    text = `Nuevos ${count} / ${quota}${partial ? '*' : ''}`;
+    tone = count >= quota ? 'bg-green-100 text-green-800' : count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800';
+  }
+  return (
+    <span
+      title={partial ? 'Meta parcial: falta la meta de algún vendedor' : 'Clientes registrados en el mes (sin el lote de migración) frente a la meta'}
+      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {text}
+    </span>
   );
 }
 

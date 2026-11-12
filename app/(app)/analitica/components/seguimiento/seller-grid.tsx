@@ -76,7 +76,7 @@ export function SellerGrid({ roots, total, kind, currency, selected, onSelect }:
   // Goals exist per seller and in the Total row only (a seller's goal covers their whole portfolio).
   const rootsHaveGoals = kind === 'vendedor';
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-x-auto">
       <table aria-label="Cuadrícula de seguimiento" className="min-w-full text-xs">
         <thead>
           <tr className="text-gray-500 text-left">

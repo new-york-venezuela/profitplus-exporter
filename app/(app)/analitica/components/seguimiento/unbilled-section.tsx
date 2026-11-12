@@ -23,7 +23,7 @@ export function UnbilledSection({ customers, asOf }: { customers: SeguimientoCus
   const shown = showAll ? rows : rows.slice(0, CARDS_COLLAPSED);
 
   return (
-    <section aria-label="Clientes sin facturar" className="bg-white border border-gray-200 rounded-lg p-4 print:break-inside-auto">
+    <section aria-label="Clientes sin facturar" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 print:break-inside-auto">
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-bold text-gray-900">Clientes sin facturar en su período</h2>
         <p role="status" className="text-xs text-gray-600">

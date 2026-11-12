@@ -16,7 +16,7 @@ export function ExcludedSection({ roots, currency, openFor, state, onToggle }: {
 }) {
   if (roots.length === 0) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
       <h3 className="text-sm font-bold text-gray-900 mb-1">Facturas excluidas — patrón de consignación</h3>
       <p className="text-xs text-gray-500 mb-3">
         Facturas emitidas de forma agregada a nivel de cadena (no por tienda): no es posible atribuir de forma confiable qué

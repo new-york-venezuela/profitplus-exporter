@@ -43,16 +43,16 @@ async function select(name: string) {
 }
 
 describe('TabSeguimiento', () => {
-  test('loads vendedor roots by default: month pace and one grid row per seller, no goal cards', async () => {
+  test('loads vendedor roots by default: month pace and one grid row per seller, goal cards on top', async () => {
     await loaded();
     expect(urls()[0]).toContain('kind=vendedor');
     expect(urls()[0]).toContain('dateRange=30d');
     expect(within(grid()).getByRole('button', { name: /^Ana/ })).toBeTruthy();
     expect(within(grid()).getByRole('button', { name: /^Beto/ })).toBeTruthy();
     expect(screen.getByText(/Día laborable 10 de 22/)).toBeTruthy();
-    // the old KPI cards are gone
-    expect(screen.queryByRole('region', { name: 'Ventas brutas' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Unidades vendidas' })).toBeNull();
+    // the two goal KPI cards sit above the grid
+    expect(screen.getByRole('region', { name: 'Ventas brutas' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Unidades vendidas' })).toBeTruthy();
     expect(screen.queryByText('Visitas vencidas')).toBeNull();
     expect(screen.queryByRole('article')).toBeNull();
     // nothing selected yet: no detail
