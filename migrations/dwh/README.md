@@ -31,6 +31,17 @@ This is the DWH's only non-T-SQL data source — see `0037`'s header comment for
 
 **Coverage is partial by nature, not a bug**: only products with an active recipe get real cost data (`CostSourceFlag` is `'RECIPE_FIFO'`/`'RECIPE_ESTIMATED'`); everything else stays `'NO_COST_DATA'`, same as before. Cost is now genuinely point-in-time, not a current-cost proxy: `dwh.fn_IngredientCostAsOf` reconstructs each raw material's remaining FIFO layers as of the sale's own date (from `saCostoHistoricoSalida`'s per-event timestamps), so two sales of the same product on different dates correctly get different costs when the ingredient's price changed in between. `stg.RecipeLine` mirrors each recipe's ingredient list into the DWH so this can run as one set-based T-SQL query per (product, date) pair instead of a per-sale round trip. The one remaining simplification: no recipe versioning exists, so this is "what today's recipe would have cost on that date," not "what the recipe as it was defined back then would have cost."
 
+## Orphan fact rows (0041)
+
+The `Load_Fact_Sales/Returns/Purchases` MERGEs have no delete path, so a document deleted or
+renumbered in the ERP after it was loaded would stay in the DWH and double-count (seen with
+`F09760` next to `F009760`). `dwh.Reconcile_Orphan_Facts` removes fact lines whose
+(document, line) no longer exists in the ERP header+detail. `bun run dwh:reconcile` is a dry run;
+add `-- --apply` to delete (rows are logged in `dwh.ReconcileLog`). `dwh:incremental-load` applies it
+after the loads. It throws and deletes nothing when a table's orphans exceed `@MaxOrphanPercent`
+(default 5%) or the ERP source is empty. Voided documents are not orphans (they still exist,
+`IsVoided = 1`). Not part of `INCREMENTAL_LOAD`, which the customer-mapping restate reuses.
+
 ## Incremental watermark strategy
 
 `saFacturaVentaReng`, `saDevolucionClienteReng`, and `saCobroDocReng` — the three "Reng" line/detail
