@@ -54,12 +54,23 @@ describe('getCostLayers', () => {
       SELECT CHE.cantidad, CHE.cantidad_usada, CHE.costo, CHE.fecha_emision
       FROM saCostoHistoricoEntrada CHE
       JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
-      WHERE A.co_art = @coArt AND (CHE.cantidad - CHE.cantidad_usada) > 0
+      WHERE A.co_art = @coArt AND (CHE.cantidad - CHE.cantidad_usada) > 0 AND CHE.costo > 0
       ORDER BY CHE.fecha_emision ASC
     `);
     expect(layers).toHaveLength(raw.recordset.length);
     expect(layers[0]!.remaining).toBeCloseTo(raw.recordset[0]!.cantidad - raw.recordset[0]!.cantidad_usada, 5);
     expect(layers[0]!.costBsd).toBeCloseTo(raw.recordset[0]!.costo, 5);
+  });
+
+  test('never returns a zero-cost layer (an unpriced layer must read as "no data", not as free stock)', async () => {
+    const r = await pool.request().query(`
+      SELECT TOP 1 RTRIM(A.co_art) AS coArt
+      FROM saCostoHistoricoEntrada CHE
+      JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
+      WHERE (CHE.cantidad - CHE.cantidad_usada) > 0 AND CHE.costo = 0`);
+    if (r.recordset.length === 0) throw new Error('No article with an open zero-cost layer in this ERP database');
+    const layers = await getCostLayers(pool, r.recordset[0].coArt);
+    expect(layers.every(l => l.costBsd > 0)).toBe(true);
   });
 
   test('returns an empty array for an article with no purchase history', async () => {

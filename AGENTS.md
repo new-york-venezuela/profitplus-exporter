@@ -116,6 +116,10 @@ migrations/mssql/0018      — route procs: pApiInsertarZona (CCSnnn zone, idemp
                               pApiRestaurarRutaCliente (rollback only: accepts NULL/free-text frecu_vist)
 migrations/mssql/0019      — credit terms: 35-day term (000015), pApiActualizarCondicionPagoCliente, pApiCorregirVencimientosFacturasCliente,
                               pApiRestaurar* (audit tables __exporter_credit_term_*_fixes keyed by run_id)
+migrations/mssql/0020      — pApiCrearAjusteInventario auto-fill cost now comes only from the latest COMP/PROV purchase layer (ties -> lowest rengNum, so a
+                              purchase's tiny rengNum-2 extra line is never picked); AJUS/DCLI layers are never a cost source (they propagated the 0002 doubling bug)
+migrations/mssql/0021      — pApiCorregirCostoCapaAjuste / pApiRestaurarCostoCapasAjuste + __exporter_ajuste_cost_fixes (run_id audit): fix `costo` of OPEN AJUS layers only
+scripts/repair-ajuste-costs.ts — bun run ajuste-costs:repair (dry-run default; --apply --confirm-db <DB_NAME>; --rollback <runId>; --min-ratio, default 1.5); pure rule in lib/inventory/ajuste-cost-repair.ts
 migrations/dwh/            — numbered .sql files for DWH_AlimentosNY (dim/fact schema +
                               Load_*/Snapshot_* procs); see migrations/dwh/README.md
 migrations/mssql/           — numbered .sql files installing app-specific ERP stored procedures
@@ -318,7 +322,8 @@ every request recomputes from current ERP state, which is what makes it
 "live"):
 1. `erp-layers.ts` pulls `saCostoHistoricoEntrada` rows for the article
    (joined via `saArticulo.rowguid`, **not** `co_art` — that table has no
-   `co_art` column), oldest-first, pre-filtered to `cantidad - cantidad_usada > 0`.
+   `co_art` column), oldest-first, pre-filtered to `cantidad - cantidad_usada > 0` **and `costo > 0`**: a zero-cost layer (stock added by an
+   adjustment with no cost reference) is skipped so it reads as "Sin datos", never as free stock.
 2. `fifo.ts`'s `computeFifoCost(layers, quantity)` walks those layers
    oldest→newest, consuming from each until the recipe line's quantity is
    covered — correctly spanning multiple layers when one alone isn't
