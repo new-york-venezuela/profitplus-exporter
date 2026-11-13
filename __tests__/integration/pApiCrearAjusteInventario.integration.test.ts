@@ -162,8 +162,8 @@ beforeAll(async () => {
       FROM saCostoHistoricoEntrada CHE
       JOIN saArticulo A ON A.rowguid = CHE.cod_articulo_rowguid
       JOIN saArtUnidad au ON au.co_art = A.co_art
-      WHERE CHE.tipo_doc <> 'AJUS' AND CHE.costo > 0
-      ORDER BY CHE.fecha_emision DESC
+      WHERE CHE.tipo_doc IN ('COMP', 'PROV') AND CHE.costo > 0
+      ORDER BY CHE.fecha_emision DESC, CHE.rengNum ASC
     `);
   if (pricedArticleResult.recordset.length > 0) {
     pricedArticle = {
@@ -285,6 +285,74 @@ describe('pApiCrearAjusteInventario', () => {
 
     await cleanupAjuste(ajueNum);
     await restoreStock(pricedArticle.co_art, WAREHOUSE, beforeStock);
+  });
+
+  test('auto-filled cost ignores inflated AJUS layers and uses the latest purchase cost', async () => {
+    if (!pricedArticle) {
+      throw new Error('No article with purchase cost history found for this test scenario');
+    }
+    const beforeStock = await getStock(pricedArticle.co_art, WAREHOUSE);
+    const inflated = pricedArticle.expectedCost * 10;
+
+    // An earlier adjustment left a (wrong) expensive AJUS layer as the newest layer.
+    const first = await callProcedure([{
+      co_tipo: 'E00003', co_art: pricedArticle.co_art, co_alma: WAREHOUSE,
+      co_uni: pricedArticle.co_uni, total_art: 1, cost_unit: inflated, permitir_negativo: true,
+    }]);
+    const firstNum = (first.output.sAjueNumOut as string).trim();
+
+    const second = await callProcedure([{
+      co_tipo: 'E00003', co_art: pricedArticle.co_art, co_alma: WAREHOUSE,
+      co_uni: pricedArticle.co_uni, total_art: 1, cost_unit: null, permitir_negativo: true,
+    }]);
+    const secondNum = (second.output.sAjueNumOut as string).trim();
+
+    const layer = await pool.request().input('n', sql.Char(20), secondNum).query(`
+      SELECT CHE.costo
+      FROM saCostoHistoricoEntrada CHE
+      JOIN saAjusteReng AR ON AR.rowguid = CHE.doc_orig
+      WHERE CHE.tipo_doc = 'AJUS' AND AR.ajue_num = @n
+    `);
+    expect(Number(layer.recordset[0].costo)).toBe(pricedArticle.expectedCost);
+
+    await cleanupAjuste(secondNum);
+    await cleanupAjuste(firstNum);
+    await restoreStock(pricedArticle.co_art, WAREHOUSE, beforeStock);
+  });
+
+  test('auto-filled cost takes the main purchase line, not the tiny extra line of the same invoice', async () => {
+    // Purchase invoices write a main line (rengNum 1) plus a tiny extra line (rengNum 2, e.g. 0.05) at the same timestamp.
+    const found = await pool.request().query(`
+      SELECT TOP 1 A.co_art, au.co_uni, M.costo AS mainCosto
+      FROM saCostoHistoricoEntrada X
+      JOIN saCostoHistoricoEntrada M ON M.cod_articulo_rowguid = X.cod_articulo_rowguid
+        AND M.fecha_emision = X.fecha_emision AND M.tipo_doc = 'COMP' AND M.rengNum = 1 AND M.costo > 100 * X.costo
+      JOIN saArticulo A ON A.rowguid = X.cod_articulo_rowguid
+      JOIN saArtUnidad au ON au.co_art = A.co_art
+      WHERE X.tipo_doc = 'COMP' AND X.rengNum = 2 AND X.costo > 0
+        AND NOT EXISTS (SELECT 1 FROM saCostoHistoricoEntrada N WHERE N.cod_articulo_rowguid = X.cod_articulo_rowguid
+                        AND N.tipo_doc IN ('COMP','PROV') AND N.fecha_emision > X.fecha_emision)
+      ORDER BY X.fecha_emision DESC`);
+    if (found.recordset.length === 0) {
+      throw new Error('No article whose latest purchase invoice has a tiny extra line found for this test scenario');
+    }
+    const art = {
+      co_art: (found.recordset[0].co_art as string).trim(),
+      co_uni: (found.recordset[0].co_uni as string).trim(),
+      mainCosto: Number(found.recordset[0].mainCosto),
+    };
+    const beforeStock = await getStock(art.co_art, WAREHOUSE);
+    const result = await callProcedure([{
+      co_tipo: 'E00003', co_art: art.co_art, co_alma: WAREHOUSE,
+      co_uni: art.co_uni, total_art: 1, cost_unit: null, permitir_negativo: true,
+    }]);
+    const ajueNum = (result.output.sAjueNumOut as string).trim();
+    const line = await pool.request().input('n', sql.Char(20), ajueNum)
+      .query(`SELECT cost_unit FROM saAjusteReng WHERE ajue_num = @n`);
+    expect(Number(line.recordset[0].cost_unit)).toBe(art.mainCosto);
+
+    await cleanupAjuste(ajueNum);
+    await restoreStock(art.co_art, WAREHOUSE, beforeStock);
   });
 
   test('rejects negative stock and leaves no trace (header, line, stock all unchanged)', async () => {

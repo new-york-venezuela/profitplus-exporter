@@ -30,6 +30,7 @@
     "send-invoice-reminders": "bun --bun run scripts/send-invoice-reminders.ts",
     "pricing:sweep-promotions": "bun --bun run scripts/sweep-promotions.ts",
     "statements:export": "bun --bun run scripts/export-statements.ts",
+    "ajuste-costs:repair": "bun --bun run scripts/repair-ajuste-costs.ts",
     "credit-terms:apply": "bun --bun run scripts/credit-terms-apply.ts",
     "mapping:apply": "bun --bun run scripts/mapping-apply.ts",
     "pricing:import-lists": "bun --bun run scripts/pricing-lists-import.ts",
