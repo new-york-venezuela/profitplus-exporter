@@ -16,7 +16,7 @@ export async function fetchRetenciones(
     dateClause = 'AND d.fec_emis BETWEEN @startDate AND @endDate';
   }
   const result = await request.query(`
-    SELECT d.co_tipo_doc, d.nro_doc, d.fec_emis, c.cli_des,
+    SELECT d.co_tipo_doc, d.nro_doc, d.fec_emis, d.co_cli, c.cli_des,
            v.ven_des AS vendedor, s.seg_des AS tipo_cliente,
            d.monto_imp, d.saldo
     FROM saDocumentoVenta d

@@ -23,6 +23,7 @@ describe('fetchRetenciones', () => {
     expect(q).toContain('c.contrib = 1');
     expect(q).toContain("d.co_tipo_doc IN ('FACT', 'N/CR', 'N/DB')");
     expect(q).toContain("COALESCE(NULLIF(RTRIM(d.co_ven), ''), RTRIM(c.co_ven))");
+    expect(q).toContain('d.co_cli');
     expect(q).toContain('saVendedor');
     expect(q).toContain('saSegmento');
     expect(q).not.toContain('BETWEEN');
