@@ -6,6 +6,7 @@ import { getPool }    from '@/lib/db/mssql';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
+import { runQueryReport } from '@/lib/reports/query-reports';
 import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
 
 export async function GET(
@@ -24,6 +25,21 @@ export async function GET(
   }
 
   const sp    = request.nextUrl.searchParams;
+
+  if (config.queryType === 'query') {
+    try {
+      const pool = await getPool();
+      const rows = await runQueryReport(reportId, pool, {
+        startDate: parseDate(sp.get('startDate')) ?? undefined,
+        endDate:   parseDate(sp.get('endDate'))   ?? undefined,
+      });
+      return NextResponse.json({ rows: rows.slice(0, 100), total: rows.length });
+    } catch (error) {
+      console.error('Preview error:', error);
+      return NextResponse.json({ error: 'Error al consultar la base de datos' }, { status: 500 });
+    }
+  }
+
   const def   = getPreviousMonthRange();
   const start = parseDate(sp.get('startDate')) ?? def.startDate;
   const end   = parseDate(sp.get('endDate'))   ?? def.endDate;

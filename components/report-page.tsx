@@ -49,8 +49,10 @@ export function ReportPage({ config, defaultDates }: Props) {
       setError(null);
       try {
         const url = new URL(`/api/reports/${config.id}/preview`, window.location.origin);
-        url.searchParams.set('startDate', start);
-        url.searchParams.set('endDate', end);
+        if (!config.snapshot) {
+          url.searchParams.set('startDate', start);
+          url.searchParams.set('endDate', end);
+        }
         url.searchParams.set('cols', cols);
         Object.entries(sels).forEach(([key, value]) => {
           url.searchParams.set(key, value);
@@ -67,7 +69,7 @@ export function ReportPage({ config, defaultDates }: Props) {
         setLoading(false);
       }
     },
-    [config.id, hasColumns],
+    [config.id, config.snapshot, hasColumns],
   );
 
   // Fetch on mount. fetchPreview's own setState calls are all inside its
@@ -99,11 +101,13 @@ export function ReportPage({ config, defaultDates }: Props) {
 
   function handleExport() {
     const params = new URLSearchParams({
-      startDate,
-      endDate,
       cols: colsParam,
       format: exportFormat,
     });
+    if (!config.snapshot) {
+      params.set('startDate', startDate);
+      params.set('endDate', endDate);
+    }
     Object.entries(selectors).forEach(([key, value]) => {
       params.set(key, value);
     });
@@ -125,11 +129,13 @@ export function ReportPage({ config, defaultDates }: Props) {
 
       {/* Controls card */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6 space-y-5">
-        <DateRangePicker
-          startDate={startDate}
-          endDate={endDate}
-          onChange={handleDateChange}
-        />
+        {!config.snapshot && (
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onChange={handleDateChange}
+          />
+        )}
 
         {config.selectors && config.selectors.length > 0 && (
           <div className="space-y-3">

@@ -22,8 +22,9 @@ export interface Selector {
 export interface ReportConfig {
   id:          string;                    // matches URL param: "ventas" | "compras"
   label:       string;                    // displayed in UI: "Libro de Ventas"
-  queryType:   'view' | 'procedure';
-  sourceName:  string;                    // SQL view name or stored procedure name
+  queryType:   'view' | 'procedure' | 'query';
+  sourceName?: string;                    // SQL view name or stored procedure name (omitted for 'query')
+  snapshot?:   boolean;                   // point-in-time report: no date range
   dateColumn?: string;                    // required when queryType === 'view'
   selectors?:  Selector[];                // optional filters like sucursal
   columns:     ColumnDef[];
