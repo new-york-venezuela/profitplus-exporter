@@ -32,8 +32,10 @@ export interface ReportConfig {
 
 import { VENTAS_CONFIG }  from './ventas';
 import { COMPRAS_CONFIG } from './compras';
+import { RETENCIONES_CONFIG } from './retenciones';
 
 export const REPORTS: Record<string, ReportConfig> = {
   ventas:  VENTAS_CONFIG,
   compras: COMPRAS_CONFIG,
+  retenciones: RETENCIONES_CONFIG,
 };
