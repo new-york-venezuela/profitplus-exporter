@@ -33,9 +33,11 @@ export interface ReportConfig {
 import { VENTAS_CONFIG }  from './ventas';
 import { COMPRAS_CONFIG } from './compras';
 import { RETENCIONES_CONFIG } from './retenciones';
+import { CXC_PENDIENTES_CONFIG } from './cxc-pendientes';
 
 export const REPORTS: Record<string, ReportConfig> = {
   ventas:  VENTAS_CONFIG,
   compras: COMPRAS_CONFIG,
   retenciones: RETENCIONES_CONFIG,
+  'cxc-pendientes': CXC_PENDIENTES_CONFIG,
 };

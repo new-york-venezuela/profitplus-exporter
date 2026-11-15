@@ -1,6 +1,7 @@
 import type sql from 'mssql';
 import { trimStrings } from '@/lib/trim-strings';
 import { RETENCIONES_REPORT } from './retenciones';
+import { CXC_PENDIENTES_REPORT } from './cxc-pendientes';
 
 export interface QueryFilters {
   startDate?: string;
@@ -14,6 +15,7 @@ export interface QueryReport {
 
 export const QUERY_REPORTS: Record<string, QueryReport> = {
   retenciones: RETENCIONES_REPORT,
+  'cxc-pendientes': CXC_PENDIENTES_REPORT,
 };
 
 export async function runQueryReport(
