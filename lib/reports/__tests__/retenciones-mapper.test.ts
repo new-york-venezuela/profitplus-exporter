@@ -19,6 +19,9 @@ describe('mapRetencionesRows', () => {
   test('rounds to 2 decimals', () => {
     expect(mapRetencionesRows([{ ...base, monto_imp: 33.33 }])[0].retencion_75).toBe(25);
   });
+  test('integer-cent rounding: IVA 1.30 -> 0.98', () => {
+    expect(mapRetencionesRows([{ ...base, monto_imp: 1.3 }])[0].retencion_75).toBe(0.98);
+  });
   test('null monto_imp -> null, not 0', () => {
     const [r] = mapRetencionesRows([{ ...base, monto_imp: null }]);
     expect(r.iva_total).toBeNull();
@@ -34,8 +37,8 @@ describe('mapRetencionesRows', () => {
     expect(mapRetencionesRows([{ ...base, tipo_cliente: '' }])[0].tipo_cliente).toBe('Sin asignar');
     expect(mapRetencionesRows([{ ...base, tipo_cliente: null }])[0].tipo_cliente).toBe('Sin asignar');
   });
-  test('blank vendedor stays empty', () => {
-    expect(mapRetencionesRows([{ ...base, vendedor: '' }])[0].vendedor).toBe('');
-    expect(mapRetencionesRows([{ ...base, vendedor: null }])[0].vendedor).toBe('');
+  test('blank vendedor -> Sin asignar', () => {
+    expect(mapRetencionesRows([{ ...base, vendedor: '' }])[0].vendedor).toBe('Sin asignar');
+    expect(mapRetencionesRows([{ ...base, vendedor: null }])[0].vendedor).toBe('Sin asignar');
   });
 });

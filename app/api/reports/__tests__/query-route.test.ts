@@ -3,16 +3,18 @@ import { NextRequest } from 'next/server';
 
 let session: { sub: string; role: string; name: string } | null = { sub: 'u1', role: 'user', name: 'U' };
 let rowsToReturn: Record<string, unknown>[] = [];
+let shouldThrow = false;
+const exceptions: unknown[][] = [];
 
 mock.module('@/lib/auth/get-session', () => ({ getSession: async () => session }));
 mock.module('@/lib/db/mssql', () => ({ getPool: async () => ({}) }));
 mock.module('@/lib/reports/query-reports', () => ({
   QUERY_REPORTS: {},
-  runQueryReport: async () => rowsToReturn,
+  runQueryReport: async () => { if (shouldThrow) throw new Error('boom'); return rowsToReturn; },
 }));
 mock.module('@/lib/analytics/posthog', () => ({
   captureEvent: () => {},
-  captureException: () => {},
+  captureException: (...args: unknown[]) => { exceptions.push(args); },
 }));
 mock.module('@/lib/reports/registry', () => ({
   REPORTS: {
@@ -38,6 +40,8 @@ const ctx = (report: string) => ({ params: Promise.resolve({ report }) });
 beforeEach(() => {
   session = { sub: 'u1', role: 'user', name: 'U' };
   rowsToReturn = [];
+  shouldThrow = false;
+  exceptions.length = 0;
 });
 
 describe('query reports routes', () => {
@@ -66,6 +70,20 @@ describe('query reports routes', () => {
     expect(text).toContain('Columna A');
     expect(text).toContain('Columna B');
     expect(res.headers.get('Content-Disposition')).toMatch(/fakeq_\d{4}-\d{2}-\d{2}\.csv/);
+  });
+  test('snapshot filename uses the local calendar date', async () => {
+    const d = new Date();
+    const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const res = await exporter.GET(req('fakeq/export?format=csv'), ctx('fakeq'));
+    expect(res.headers.get('Content-Disposition')).toContain(`fakeq_${local}.csv`);
+  });
+  test('preview failure is captured with session and report', async () => {
+    shouldThrow = true;
+    const res = await preview.GET(req('fakeq/preview'), ctx('fakeq'));
+    expect(res.status).toBe(500);
+    expect(exceptions).toHaveLength(1);
+    expect(exceptions[0][1]).toBe('u1');
+    expect(exceptions[0][2]).toEqual({ report: 'fakeq' });
   });
   test('bad format -> 400', async () => {
     const res = await exporter.GET(req('fakeq/export?format=bad'), ctx('fakeq'));

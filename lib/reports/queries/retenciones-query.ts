@@ -13,7 +13,7 @@ export async function fetchRetenciones(
   if (filters.startDate && filters.endDate) {
     request.input('startDate', sql.Date, new Date(`${filters.startDate}T00:00:00Z`));
     request.input('endDate', sql.Date, new Date(`${filters.endDate}T00:00:00Z`));
-    dateClause = 'AND d.fec_emis BETWEEN @startDate AND @endDate';
+    dateClause = 'AND d.fec_emis >= @startDate AND d.fec_emis < DATEADD(day, 1, @endDate)';
   }
   const result = await request.query(`
     SELECT d.co_tipo_doc, d.nro_doc, d.fec_emis, d.co_cli, c.cli_des,

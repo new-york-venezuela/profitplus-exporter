@@ -99,7 +99,8 @@ export async function GET(
     if (config.queryType === 'query') {
       rows = await runQueryReport(reportId, pool, { startDate: start, endDate: end });
       track(rows.length);
-      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const stem = !config.snapshot && start && end
         ? `${reportId}_${start}_${end}`
         : `${reportId}_${today}`;

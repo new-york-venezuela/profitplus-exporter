@@ -38,7 +38,7 @@ describe('mapCxcPendientesRows', () => {
   });
   test('vendedor / tipo_cliente as in retenciones', () => {
     const [r] = mapCxcPendientesRows([{ ...base, vendedor: null, tipo_cliente: ' ' }]);
-    expect(r.vendedor).toBe('');
+    expect(r.vendedor).toBe('Sin asignar');
     expect(r.tipo_cliente).toBe('Sin asignar');
   });
 });

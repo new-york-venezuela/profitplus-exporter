@@ -32,7 +32,8 @@ describe('fetchRetenciones', () => {
   test('binds dates when given', async () => {
     const { pool, inputs, queries } = fakePool();
     await fetchRetenciones(pool, { startDate: '2026-01-01', endDate: '2026-01-31' });
-    expect(queries[0]).toContain('d.fec_emis BETWEEN @startDate AND @endDate');
+    expect(queries[0]).toContain('d.fec_emis >= @startDate');
+    expect(queries[0]).toContain('d.fec_emis < DATEADD(day, 1, @endDate)');
     expect(inputs.map(i => i.name)).toEqual(['startDate', 'endDate']);
     expect(inputs.every(i => i.type === sql.Date)).toBe(true);
   });

@@ -41,6 +41,12 @@ describe('fetchCxcPendientes', () => {
     expect(rows[0].lines).toEqual([{ tipoImp: '1', base: 100, iva: 16 }]);
     expect(rows[1].lines).toEqual([]);
   });
+  test('null aggregates stay null, lineBase handles null monto_imp', async () => {
+    const { pool, queries } = fakePool([{ nro_doc: 'A' }], [{ doc_num: 'A', tipo_imp: 'E', base: null, iva: null }]);
+    const rows = await fetchCxcPendientes(pool, {});
+    expect(rows[0].lines).toEqual([{ tipoImp: 'E', base: null, iva: null }]);
+    expect(queries.find(q => q.includes('saFacturaVentaReng'))!).toContain('r.reng_neto - ISNULL(r.monto_imp, 0)');
+  });
   test('binds dates with half-open end', async () => {
     const { pool, inputs, queries } = fakePool([], []);
     await fetchCxcPendientes(pool, { startDate: '2026-01-01', endDate: '2026-01-31' });

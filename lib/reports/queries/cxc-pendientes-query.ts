@@ -1,10 +1,6 @@
 import sql from 'mssql';
 import type { QueryFilters } from '../query-reports';
-import type { LineAgg } from '../tax-buckets';
-
-// PROVISIONAL: confirm against live ERP so that base + exento + iva = total_neto (plan Task 1/5).
-// KB says reng_neto includes tax; unverified.
-const lineBaseExpr = 'r.reng_neto - r.monto_imp';
+import { lineBaseExpr, type LineAgg } from '../tax-buckets';
 
 // NOTE: column names (saSegmento.seg_des, saVendedor.ven_des, saFacturaVentaReng.*,
 // saDocumentoVenta.fec_venc/total_neto, ...) are sourced from the Profit Plus knowledge
@@ -56,8 +52,8 @@ export async function fetchCxcPendientes(
     const key = String(l.doc_num).trim();
     const agg: LineAgg = {
       tipoImp: String(l.tipo_imp ?? '').trim(),
-      base: Number(l.base ?? 0),
-      iva: Number(l.iva ?? 0),
+      base: l.base == null ? null : Number(l.base),
+      iva: l.iva == null ? null : Number(l.iva),
     };
     const list = byDoc.get(key);
     if (list) list.push(agg); else byDoc.set(key, [agg]);

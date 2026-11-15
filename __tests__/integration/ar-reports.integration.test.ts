@@ -19,7 +19,7 @@ describe('AR reports (read-only ERP)', () => {
     for (const r of withLines) {
       const b = splitTaxBuckets(r.lines as LineAgg[])!;
       expect(r.total_neto, `total_neto missing for ${String(r.nro_doc).trim()}`).not.toBeNull();
-      const diff = Math.abs(b.base + b.exento + b.iva - Number(r.total_neto));
+      const diff = Math.abs((b.base ?? NaN) + (b.exento ?? NaN) + (b.iva ?? NaN) - Number(r.total_neto));
       expect({ nro_doc: String(r.nro_doc).trim(), ok: diff <= 0.01 })
         .toEqual({ nro_doc: String(r.nro_doc).trim(), ok: true });
     }

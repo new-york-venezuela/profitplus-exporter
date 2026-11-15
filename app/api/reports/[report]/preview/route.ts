@@ -7,6 +7,7 @@ import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
 import { runQueryReport } from '@/lib/reports/query-reports';
+import { captureException } from '@/lib/analytics/posthog';
 import { mapComprasRows } from '@/lib/routes/api/reports/compras-csv';
 
 export async function GET(
@@ -36,6 +37,7 @@ export async function GET(
       return NextResponse.json({ rows: rows.slice(0, 100), total: rows.length });
     } catch (error) {
       console.error('Preview error:', error);
+      captureException(error, session.sub, { report: reportId });
       return NextResponse.json({ error: 'Error al consultar la base de datos' }, { status: 500 });
     }
   }

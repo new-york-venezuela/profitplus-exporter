@@ -246,7 +246,7 @@ positive values plus the tipo doc column). The 75 % column is `IVA total x 0.75`
 distinguished (known limitation). A document with no line rows shows blank base/exento/IVA, never 0. **PROVISIONAL**: `EXEMPT_TIPO_IMP`
 (`lib/reports/tax-buckets.ts`) and the line-base expression (`lineBaseExpr` in `lib/reports/queries/cxc-pendientes-query.ts`) are unverified
 until reconciled against the live ERP with `bun run test:ar-reports-erp` (read-only, excluded from `test`/`test:unit`); if it fails, fix the
-expression, not the tolerance. Spec: `docs/superpowers/specs/2026-11-15-ar-reports-design.md`.
+expression, not the tolerance. Known limitations: in Retenciones, N/CR rows show the stored positive IVA and 75 %, so summing those columns mixes credit-note IVA; filter by `Tipo de documento` first. A partly paid document with a retention already registered still shows its full 75 % as pending, because the report is driven by `saldo <> 0`. Spec: `docs/superpowers/specs/2026-11-15-ar-reports-design.md`.
 
 ## Adding a New Report (ERP, live-query)
 
