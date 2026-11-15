@@ -19,6 +19,8 @@ describe('visibleNavSections', () => {
     expect(hrefs(none)).toEqual([
       '/reports/ventas',
       '/reports/compras',
+      '/reports/retenciones',
+      '/reports/cxc-pendientes',
       '/firmas',
       '/qr',
     ]);

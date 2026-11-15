@@ -61,6 +61,7 @@ lib/
   reports/registry.ts      — ColumnDef, ReportConfig, REPORTS map
   reports/ventas.ts        — Ventas report config
   reports/compras.ts       — Compras report config
+  reports/retenciones.ts, cxc-pendientes.ts (+ -mapper.ts), tax-buckets.ts, query-reports.ts, queries/ — AR snapshot reports (query-type, see "AR reports")
   services/                — email-service.ts, password-reset-service.ts, forgot-password-service.ts
   errors/password-reset.ts — typed error classes for the password-reset flow
   components/reports/      — shared report UI (e.g. SucursalSelector.tsx)
@@ -154,7 +155,7 @@ app/(app)/
   recetas/                   — recipe management + live FIFO product costing, gated on the 'recipes' module
   admin/users/                — user + per-user module-grant management (admin only)
   admin/config-inventario/    — inventory module settings (admin only)
-  reports/ventas, reports/compras — ERP report exports (no module gate, all authenticated users)
+  reports/ventas, reports/compras, reports/retenciones, reports/cxc-pendientes — ERP report exports (no module gate, all authenticated users)
 
 app/api/
   dwh/resumen/                — Resumen API: kpis (ventas, devoluciones, neto, clientes total/activos/nuevos, CxC opening/billed/collected/receivable), monthlyTrend, gated on 'dwh'
@@ -234,6 +235,18 @@ means:
 
 The CSV builder (`lib/csv.ts`) prepends a UTF-8 BOM (`﻿`) so Excel
 on Spanish Windows auto-detects the encoding without the Import Wizard.
+
+## AR reports (`/reports/retenciones`, `/reports/cxc-pendientes`)
+
+Two read-only ERP snapshot reports (query-type, `lib/reports/queries/`, no module gate). Population: open documents only (`saldo <> 0`, not
+`anulado`); Retenciones = FACT / N/CR / N/DB of customers with `saCliente.contrib = 1`, Facturas pendientes = open FACT. Seller falls back
+from the document's `co_ven` to the customer's. Customer type is `saCliente.co_seg` (`saSegmento.seg_des`). They are as-of-today snapshots; the
+date range is an optional filter on the issue date and is ignored when blank. No sign flip: values are shown as stored (N/CR rows keep raw
+positive values plus the tipo doc column). The 75 % column is `IVA total x 0.75`, a plain calculation; customers that withhold 100 % are not
+distinguished (known limitation). A document with no line rows shows blank base/exento/IVA, never 0. **PROVISIONAL**: `EXEMPT_TIPO_IMP`
+(`lib/reports/tax-buckets.ts`) and the line-base expression (`lineBaseExpr` in `lib/reports/queries/cxc-pendientes-query.ts`) are unverified
+until reconciled against the live ERP with `bun run test:ar-reports-erp` (read-only, excluded from `test`/`test:unit`); if it fails, fix the
+expression, not the tolerance. Known limitations: in Retenciones, N/CR rows show the stored positive IVA and 75 %, so summing those columns mixes credit-note IVA; filter by `Tipo de documento` first. A partly paid document with a retention already registered still shows its full 75 % as pending, because the report is driven by `saldo <> 0`. Spec: `docs/superpowers/specs/2026-11-15-ar-reports-design.md`.
 
 ## Adding a New Report (ERP, live-query)
 

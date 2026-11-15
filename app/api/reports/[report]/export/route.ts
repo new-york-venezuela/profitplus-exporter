@@ -8,6 +8,7 @@ import { buildXlsx }  from '@/lib/xlsx';
 import { getPreviousMonthRange, parseDate } from '@/lib/dates';
 import { trimStrings } from '@/lib/trim-strings';
 import { mapVentasRows } from '@/lib/reports/ventas-mapper';
+import { runQueryReport } from '@/lib/reports/query-reports';
 import { mapComprasRows, buildComprasCsv } from '@/lib/routes/api/reports/compras-csv';
 import { captureEvent, captureException } from '@/lib/analytics/posthog';
 
@@ -21,6 +22,29 @@ function resolveColumns(config: (typeof REPORTS)[string], colsParam: string | nu
   return config.columns
     .filter(c => c.defaultVisible || c.alwaysVisible)
     .sort((a, b) => a.defaultOrder - b.defaultOrder);
+}
+
+function respondFile(
+  cols: ReturnType<typeof resolveColumns>,
+  rows: Record<string, unknown>[],
+  format: 'xlsx' | 'csv',
+  stem: string,
+): NextResponse {
+  if (format === 'xlsx') {
+    const buffer = buildXlsx(cols, rows);
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${stem}.xlsx"`,
+      },
+    });
+  }
+  return new NextResponse(buildCsv(cols, rows), {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${stem}.csv"`,
+    },
+  });
 }
 
 export async function GET(
@@ -40,9 +64,10 @@ export async function GET(
   }
 
   const sp     = request.nextUrl.searchParams;
+  const isQuery = config.queryType === 'query';
   const def    = getPreviousMonthRange();
-  const start  = parseDate(sp.get('startDate')) ?? def.startDate;
-  const end    = parseDate(sp.get('endDate'))   ?? def.endDate;
+  const start  = isQuery ? parseDate(sp.get('startDate')) ?? undefined : parseDate(sp.get('startDate')) ?? def.startDate;
+  const end    = isQuery ? parseDate(sp.get('endDate'))   ?? undefined : parseDate(sp.get('endDate'))   ?? def.endDate;
   const cols   = resolveColumns(config, sp.get('cols'));
 
   const formatParam = sp.get('format') ?? 'xlsx'; // Default to xlsx
@@ -71,6 +96,17 @@ export async function GET(
     const pool = await getPool();
     let rows: Record<string, unknown>[];
 
+    if (config.queryType === 'query') {
+      rows = await runQueryReport(reportId, pool, { startDate: start, endDate: end });
+      track(rows.length);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const stem = !config.snapshot && start && end
+        ? `${reportId}_${start}_${end}`
+        : `${reportId}_${today}`;
+      return respondFile(cols, rows, format, stem);
+    }
+
     if (config.queryType === 'view') {
       const dc  = config.dateColumn!;
       const res = await pool.request()
@@ -96,15 +132,7 @@ export async function GET(
 
         track(comprasRows.length);
 
-        if (format === 'xlsx') {
-          const buffer = buildXlsx(cols, comprasRows);
-          return new NextResponse(new Uint8Array(buffer), {
-            headers: {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              'Content-Disposition': `attachment; filename="${reportId}_${start}_${end}.xlsx"`,
-            },
-          });
-        }
+        if (format === 'xlsx') return respondFile(cols, comprasRows, 'xlsx', `${reportId}_${start}_${end}`);
 
         // CSV fallback for compras
         return new NextResponse(buildComprasCsv(cols, comprasRows), {
@@ -122,26 +150,7 @@ export async function GET(
 
     track(rows.length);
 
-    if (format === 'xlsx') {
-      const buffer = buildXlsx(cols, rows);
-      const filename = `${reportId}_${start}_${end}.xlsx`;
-      return new NextResponse(new Uint8Array(buffer), {
-        headers: {
-          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-        },
-      });
-    }
-
-    // CSV fallback
-    const csv = buildCsv(cols, rows);
-    const filename = `${reportId}_${start}_${end}.csv`;
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
-    });
+    return respondFile(cols, rows, format, `${reportId}_${start}_${end}`);
   } catch (error) {
     console.error('Export error:', error);
     captureException(error, session.sub, { report: reportId, format });

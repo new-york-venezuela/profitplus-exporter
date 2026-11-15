@@ -35,6 +35,8 @@ const NAV_SECTIONS: NavSectionDef[] = [
     links: [
       { href: '/reports/ventas', label: 'Ventas', description: 'Exporta el reporte de ventas a CSV o Excel.' },
       { href: '/reports/compras', label: 'Compras', description: 'Exporta el reporte de compras a CSV o Excel.' },
+      { href: '/reports/retenciones', label: 'Comprobantes de Retenciones', description: 'Retenciones pendientes de clientes contribuyentes especiales.' },
+      { href: '/reports/cxc-pendientes', label: 'Facturas pendientes por cobrar', description: 'Facturas abiertas con base, exento e IVA por cliente.' },
     ],
   },
   {
