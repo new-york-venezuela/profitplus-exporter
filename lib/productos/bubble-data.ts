@@ -16,8 +16,8 @@ export interface BubblePoint {
   net: number;
 }
 
-const DEFAULT_CAP = 150;
-const DEFAULT_CLAMP = 2;
+export const BUBBLE_CAP = 150;
+export const BUBBLE_CLAMP = 2;
 
 /**
  * Bubble-plot points: x = avg units/month, size = net sales (selected currency),
@@ -32,8 +32,8 @@ export function buildBubbleData(
   currency: Currency,
   opts: { cap?: number; clampPct?: number } = {},
 ): { points: BubblePoint[]; missing: number; truncated: number } {
-  const cap = opts.cap ?? DEFAULT_CAP;
-  const clamp = opts.clampPct ?? DEFAULT_CLAMP;
+  const cap = opts.cap ?? BUBBLE_CAP;
+  const clamp = opts.clampPct ?? BUBBLE_CLAMP;
   const all: BubblePoint[] = [];
   let missing = 0;
   for (const r of rows) {

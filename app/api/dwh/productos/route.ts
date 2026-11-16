@@ -324,7 +324,7 @@ async function fetchCatalogoPeriod(
 
 async function handleCatalogo(
   dateRange: string, nivel: Nivel, filter: ItemFilter, tienda: TiendaFilter | null,
-  categoria: string | null, currency: Currency,
+  categoria: string | null, currency: Currency, distinctId: string,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
   // No comparable previous window (e.g. a closed past YTD year) -> the prior queries do not run.
@@ -333,7 +333,12 @@ async function handleCatalogo(
   const [cur, prev] = await Promise.all([
     fetchCatalogoPeriod(pool, nivel, filter, tienda, categoria, buildDateWhereClause(dateRange, 'fs'), buildReturnsDateWhereClause(dateRange, 'fr')),
     prevSalesWhere !== null && prevReturnsWhere !== null
-      ? fetchCatalogoPeriod(pool, nivel, filter, tienda, categoria, prevSalesWhere, prevReturnsWhere)
+      ? fetchCatalogoPeriod(pool, nivel, filter, tienda, categoria, prevSalesWhere, prevReturnsWhere).catch(err => {
+        // The comparison is optional: a prior-period failure must not fail the whole catalogo.
+        console.error('GET /api/dwh/productos (catalogo prior period) failed', err);
+        captureException(err, distinctId);
+        return null;
+      })
       : Promise.resolve(null),
   ]);
 
@@ -344,10 +349,9 @@ async function handleCatalogo(
       prevNetByKey.set(key, subtractDual(dualFromRow(r.SalesGrossBs, r.SalesGrossUsd), prev.returnsByKey.get(key) ?? { bs: 0, usd: 0 }));
     }
   }
-  const sales = { recordset: cur.sales };
   const returnsByKey = cur.returnsByKey;
 
-  const base = sales.recordset.map(r => {
+  const base = cur.sales.map(r => {
     const key = String(r.Key).trim();
     const gross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
     const ret = returnsByKey.get(key) ?? { bs: 0, usd: 0 };
@@ -495,7 +499,7 @@ export async function GET(request: NextRequest) {
   if (section === 'catalogo') {
     try {
       const currency: Currency = searchParams.get('currency') === 'usd' ? 'usd' : 'bs';
-      return await handleCatalogo(dateRange, nivel, itemFilter, tienda, categoria, currency);
+      return await handleCatalogo(dateRange, nivel, itemFilter, tienda, categoria, currency, auth.session.sub);
     } catch (err) {
       console.error('GET /api/dwh/productos (catalogo) failed', err);
       captureException(err, auth.session.sub);

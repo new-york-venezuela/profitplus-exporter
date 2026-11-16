@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 interface Captured { sql: string; inputs: Record<string, unknown> }
 const queries: Captured[] = [];
 let respond: (text: string) => unknown[] = () => [];
+const captured: unknown[] = [];
 function makeRequest() {
   const inputs: Record<string, unknown> = {};
   const req = {
@@ -12,6 +13,10 @@ function makeRequest() {
   };
   return req;
 }
+mock.module('@/lib/analytics/posthog', () => ({
+  captureException: (err: unknown) => { captured.push(err); },
+  captureEvent: () => {},
+}));
 mock.module('@/lib/db/dwh-mssql', () => ({ getDwhPool: async () => ({ request: makeRequest }) }));
 mock.module('@/lib/dwh/access', () => ({
   requireDwhAccess: async () => ({ ok: true, session: { sub: '1', role: 'admin', name: 'T' } }),
@@ -19,7 +24,7 @@ mock.module('@/lib/dwh/access', () => ({
 const { GET } = await import('../route');
 
 const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/productos?${qs}`));
-beforeEach(() => { queries.length = 0; respond = () => []; });
+beforeEach(() => { queries.length = 0; captured.length = 0; respond = () => []; });
 
 const salesQ = () => queries.find(q => q.sql.includes('fact.Fact_Sales'))!;
 const returnsQ = () => queries.find(q => q.sql.includes('fact.Fact_Returns'))!;
@@ -215,5 +220,27 @@ describe('GET /api/dwh/productos?filtros=1', () => {
   test('a database error is a 500', async () => {
     respond = () => { throw new Error('boom'); };
     expect((await get('filtros=1')).status).toBe(500);
+  });
+  test('a failing prior-period query degrades to null trends, still 200 with current numbers', async () => {
+    const errSpy = mock(() => {});
+    const orig = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    respond = text => {
+      if (text.includes('20260901')) throw new Error('prior timeout');
+      return respondBoth(text);
+    };
+    try {
+      const res = await get('section=catalogo&nivel=linea&dateRange=month:2026-10');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const pan = body.rows.find((r: { key: string }) => r.key === 'Panaderia');
+      expect(pan.salesNet).toEqual({ bs: 720, usd: 14 });
+      expect(pan.prevNet).toBeNull();
+      expect(pan.trendPct).toBeNull();
+      expect(captured).toHaveLength(1);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      console.error = orig;
+    }
   });
 });

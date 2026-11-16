@@ -40,12 +40,12 @@ describe('GroupShareMatrixTable', () => {
     expect(screen.getByText('900')).toBeTruthy();
     expect(screen.getByText('90.0%')).toBeTruthy();
     const heads = screen.getAllByRole('columnheader').map(h => h.textContent);
-    expect(heads.indexOf('Alfa')).toBeLessThan(heads.indexOf('Beta'));
+    expect(heads).toEqual(['Línea', 'Alfa', 'Beta', 'Total']);
   });
   test('ventas: columns ordered by sales desc', () => {
     renderMatrix();
     const heads = screen.getAllByRole('columnheader').map(h => h.textContent);
-    expect(heads.indexOf('Beta')).toBeLessThan(heads.indexOf('Alfa'));
+    expect(heads).toEqual(['Línea', 'Beta', 'Alfa', 'Total']);
   });
   test('shading proportional to share', () => {
     renderMatrix();

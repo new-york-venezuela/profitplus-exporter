@@ -4,7 +4,7 @@ import { useState } from 'react';
 import {
   ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ReferenceLine, Cell,
 } from 'recharts';
-import { buildBubbleData, type BubblePoint, type BubbleY } from '@/lib/productos/bubble-data';
+import { BUBBLE_CAP, BUBBLE_CLAMP, buildBubbleData, type BubblePoint, type BubbleY } from '@/lib/productos/bubble-data';
 import type { ParetoClass } from '@/lib/productos/pareto';
 import { moneyLabel, qty } from '../../lib/format';
 import { pct, signedPct } from '../../lib/productos-format';
@@ -121,10 +121,10 @@ export default function BubblePlot({
 
       <p className="mt-2 text-xs text-gray-500">
         Eje X: unidades por mes (promedio); tamaño de la burbuja: ventas netas. Clic en una burbuja para ir a su fila.
-        {yMode === 'trend' && ' La tendencia se recorta a ±200 % en el gráfico; el valor real se ve al pasar el cursor.'}
+        {yMode === 'trend' && ` La tendencia se recorta a ±${BUBBLE_CLAMP * 100} % en el gráfico; el valor real se ve al pasar el cursor.`}
       </p>
       {missing > 0 && <p className="text-xs text-gray-400">{missing} sin datos</p>}
-      {truncated > 0 && <p className="text-xs text-gray-400">Mostrando los 150 principales</p>}
+      {truncated > 0 && <p className="text-xs text-gray-400">Mostrando los {BUBBLE_CAP} principales</p>}
     </div>
   );
 }

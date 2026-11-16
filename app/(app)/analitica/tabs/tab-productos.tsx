@@ -283,7 +283,7 @@ export default function TabProductos({
             <BarChart data={porLineaMesChartData} margin={{ top: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => (shareMode ? `${Math.round(Number(v) * 100)}%` : qty(Number(v)))} />
+              <YAxis tick={{ fontSize: 12 }} domain={shareMode ? [0, 1] : undefined} tickFormatter={v => (shareMode ? `${Math.round(Number(v) * 100)}%` : qty(Number(v)))} />
               <Tooltip
                 formatter={(value, name, entry) => {
                   const row = porLineaMesData.rows.find(r => r.bucket === (entry.payload as { bucket: string })?.bucket);
