@@ -9,13 +9,14 @@ import type { DualAmount } from '@/app/(app)/analitica/types';
 import { buildGroupShareMatrix } from '@/lib/productos/group-share';
 import { CLIENTES_GROUPS_QUERY } from '@/lib/clientes/scope';
 import { bindItemFilter, itemFilterSql, parseItemFilter, returnsItemFilterSql, type ItemFilter } from '@/lib/productos/item-filter';
+import { buildClienteBreakdown, OVERDUE_LOOKBACK_MONTHS, type ClienteRaw } from '@/lib/productos/customer-breakdown';
 import { classifyPareto } from '@/lib/productos/pareto';
 import { fetchCategorias, fetchGroupShare, parseCategoria } from '@/lib/productos/queries';
 import { bindTienda, parseTienda, tiendaKeysSql, type TiendaFilter } from '@/lib/productos/tienda-filter';
 import type {
   UnitsByLineaResponse, UnitsByLineaMonthRow,
   ProductosGroupShareResponse, ProductosCategoriasResponse,
-  CatalogoRow, CatalogoResponse, ProductosFiltrosResponse, Currency,
+  CatalogoRow, CatalogoResponse, ProductosFiltrosResponse, Currency, ProductoClientesResponse,
 } from '@/app/(app)/analitica/types';
 
 export const dynamic = 'force-dynamic';
@@ -402,6 +403,149 @@ async function handleCatalogo(
   return jsonWithCache(response);
 }
 
+// Customer breakdown of one item (section=clientes). A client is a legal entity, or a lone customer
+// with no entity (id `C:<code>`), always resolved through the customer's CURRENT Dim_Customer row so
+// SCD versions of a store count once and client nets add up to the item's net.
+const CLIENT_ID_EXPR = `CASE WHEN le.LegalEntityKey IS NOT NULL THEN CAST(le.LegalEntityKey AS varchar(20)) ELSE 'C:' + RTRIM(c.CustomerCode) END`;
+
+function clientJoins(fact: string): string {
+  return `
+    JOIN dim.Dim_Customer c ON c.CustomerKey = ${fact}.CustomerKey
+    LEFT JOIN dim.Dim_Customer cur ON cur.CustomerCode = c.CustomerCode AND cur.IsCurrent = 1
+    LEFT JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = cur.LegalEntityKey`;
+}
+
+function clienteSalesQuery(nivel: Nivel, where: string): string {
+  const k = catalogoKeys(nivel, 'p');
+  return `
+    SELECT
+      ${CLIENT_ID_EXPR} AS ClientId,
+      MAX(COALESCE(le.LegalEntityName, cur.CustomerName, c.CustomerName, RTRIM(c.CustomerCode))) AS Name,
+      MAX(RTRIM(COALESCE(rootc.ErpSegmentCode, cur.ErpSegmentCode))) AS GroupCode,
+      MAX(seg.SegmentName) AS GroupName,
+      COUNT(DISTINCT RTRIM(c.CustomerCode)) AS PosItem,
+      SUM(fs.QuantitySold) AS Units,
+      ${dualAmountExpr('fs', 'NetAmount', 'GrossBs', 'GrossUsd')}
+    FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    ${clientJoins('fs')}
+    LEFT JOIN dim.Dim_Customer rootc ON rootc.CustomerCode = le.RootCustomerCode AND rootc.IsCurrent = 1
+    LEFT JOIN dim.Dim_Segment seg ON seg.ErpSegmentCode = COALESCE(rootc.ErpSegmentCode, cur.ErpSegmentCode)
+    WHERE fs.IsVoided = 0 AND ${k.key} = @itemKey ${where}
+    GROUP BY ${CLIENT_ID_EXPR}
+  `;
+}
+
+function clienteReturnsQuery(nivel: Nivel, where: string): string {
+  const k = catalogoKeys(nivel, 'pr');
+  return `
+    SELECT
+      ${CLIENT_ID_EXPR} AS ClientId,
+      ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
+    FROM fact.Fact_Returns fr
+    ${returnsUsdConversionJoin('fr', 'fx')}
+    JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
+    ${clientJoins('fr')}
+    WHERE fr.IsVoided = 0 AND ${k.key} = @itemKey ${where}
+    GROUP BY ${CLIENT_ID_EXPR}
+  `;
+}
+
+// Tiendas of each client with ANY sale in the range (item key and item filters do not apply).
+function clienteTotalQuery(where: string): string {
+  return `
+    SELECT ${CLIENT_ID_EXPR} AS ClientId, COUNT(DISTINCT RTRIM(c.CustomerCode)) AS PosTotal
+    FROM fact.Fact_Sales fs
+    ${clientJoins('fs')}
+    WHERE fs.IsVoided = 0 ${where}
+    GROUP BY ${CLIENT_ID_EXPR}
+  `;
+}
+
+function clienteHistoryQuery(nivel: Nivel, where: string): string {
+  const k = catalogoKeys(nivel, 'p');
+  return `
+    SELECT
+      ${CLIENT_ID_EXPR} AS ClientId,
+      COUNT(DISTINCT fs.DateKey) AS Orders,
+      MIN(fs.DateKey) AS FirstKey,
+      MAX(fs.DateKey) AS LastKey
+    FROM fact.Fact_Sales fs
+    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
+    ${clientJoins('fs')}
+    WHERE fs.IsVoided = 0 AND ${k.key} = @itemKey ${where}
+    GROUP BY ${CLIENT_ID_EXPR}
+  `;
+}
+
+function dateKeyUtc(d: Date): number {
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+}
+
+async function handleClientes(
+  dateRange: string, nivel: Nivel, itemKey: string, filter: ItemFilter, tienda: TiendaFilter | null,
+  categoria: string | null, currency: Currency,
+): Promise<NextResponse> {
+  const pool = await getDwhPool();
+  const now = new Date();
+  const todayKey = dateKeyUtc(now);
+  const startKey = dateKeyUtc(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - OVERDUE_LOOKBACK_MONTHS, now.getUTCDate())));
+
+  const tiendaSales = tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
+  const tiendaReturns = tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
+  const salesFilters = `${tiendaSales} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''} ${itemFilterSql(filter)}`;
+  const returnsFilters = `${tiendaReturns} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''} ${returnsItemFilterSql(filter)}`;
+
+  const make = (withItem: boolean, withFilters: boolean) => {
+    const req = pool.request();
+    bindTienda(req, tienda);
+    if (withItem) req.input('itemKey', itemKey);
+    if (withFilters) {
+      if (categoria !== null) req.input('categoria', categoria);
+      bindItemFilter(req, filter);
+    }
+    return req;
+  };
+
+  const [sales, returns, totals, history] = await Promise.all([
+    make(true, true).query(clienteSalesQuery(nivel, `${buildDateWhereClause(dateRange, 'fs')} ${salesFilters}`)),
+    make(true, true).query(clienteReturnsQuery(nivel, `${buildReturnsDateWhereClause(dateRange, 'fr')} ${returnsFilters}`)),
+    make(false, false).query(clienteTotalQuery(`${buildDateWhereClause(dateRange, 'fs')} ${tiendaSales}`)),
+    make(true, true).query(clienteHistoryQuery(nivel, `AND fs.DateKey >= ${startKey} AND fs.DateKey <= ${todayKey} ${salesFilters}`)),
+  ]);
+
+  const returnsById = new Map<string, DualAmount>();
+  for (const r of returns.recordset) returnsById.set(String(r.ClientId).trim(), dualFromRow(r.ReturnsBs, r.ReturnsUsd));
+  const totalById = new Map<string, number>();
+  for (const r of totals.recordset) totalById.set(String(r.ClientId).trim(), Number(r.PosTotal ?? 0));
+  const historyById = new Map<string, Record<string, unknown>>();
+  for (const r of history.recordset) historyById.set(String(r.ClientId).trim(), r);
+
+  const raw: ClienteRaw[] = sales.recordset.map(r => {
+    const id = String(r.ClientId).trim();
+    const h = historyById.get(id);
+    const posItem = Number(r.PosItem ?? 0);
+    return {
+      id,
+      name: String(r.Name ?? id).trim(),
+      groupCode: r.GroupCode === null || r.GroupCode === undefined ? null : String(r.GroupCode).trim(),
+      groupName: r.GroupName === null || r.GroupName === undefined ? null : String(r.GroupName).trim(),
+      posItem,
+      posTotal: Math.max(totalById.get(id) ?? 0, posItem),
+      gross: dualFromRow(r.GrossBs, r.GrossUsd),
+      returns: returnsById.get(id) ?? { bs: 0, usd: 0 },
+      units: Number(r.Units ?? 0),
+      orders: h ? Number(h.Orders ?? 0) : 0,
+      firstOrderKey: h && h.FirstKey != null ? Number(h.FirstKey) : null,
+      lastOrderKey: h && h.LastKey != null ? Number(h.LastKey) : null,
+    };
+  });
+
+  const response: ProductoClientesResponse = { nivel, key: itemKey, ...buildClienteBreakdown(raw, { currency, todayKey }) };
+  return jsonWithCache(response);
+}
+
 async function handleFiltros(): Promise<NextResponse> {
   const pool = await getDwhPool();
   const [lineas, sublineas, grupos] = await Promise.all([
@@ -502,6 +646,21 @@ export async function GET(request: NextRequest) {
       return await handleCatalogo(dateRange, nivel, itemFilter, tienda, categoria, currency, auth.session.sub);
     } catch (err) {
       console.error('GET /api/dwh/productos (catalogo) failed', err);
+      captureException(err, auth.session.sub);
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
+  if (section === 'clientes') {
+    const itemKey = (searchParams.get('key') ?? '').trim();
+    if (!isNivel(nivelParam) || itemKey === '') {
+      return NextResponse.json({ error: 'Parámetros no válidos' }, { status: 400 });
+    }
+    try {
+      const currency: Currency = searchParams.get('currency') === 'usd' ? 'usd' : 'bs';
+      return await handleClientes(dateRange, nivelParam, itemKey, itemFilter, tienda, categoria, currency);
+    } catch (err) {
+      console.error('GET /api/dwh/productos (clientes) failed', err);
       captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }

@@ -7,9 +7,10 @@ import type { CatalogoRow, Currency, DualAmount } from '../../types';
 import { pct, signedPct } from '../../lib/productos-format';
 import ParetoBadge from './pareto-badge';
 
-// Return rate (returns ÷ gross, Bs) is highlighted ABOVE these: amber > 4%, red > 8%. Exactly 4% is neutral.
-export const RETURN_RATE_WARN = 0.04;
-export const RETURN_RATE_ALERT = 0.08;
+import { RETURN_RATE_ALERT, RETURN_RATE_WARN } from '@/lib/productos/thresholds';
+
+// Return rate thresholds live in lib/productos/thresholds.ts; re-exported so existing importers keep working.
+export { RETURN_RATE_ALERT, RETURN_RATE_WARN };
 
 export interface MasterTableProps {
   rows: CatalogoRow[];

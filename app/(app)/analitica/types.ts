@@ -695,3 +695,33 @@ export interface DevolucionesKpisResponse {
   returnsBasis: 'factura' | 'devolucion';
   kpis: DevolucionesKpis;
 }
+
+// Productos customer breakdown (section=clientes): one row per client (legal entity, or a lone customer).
+export interface ClienteRow {
+  id: string;
+  name: string;
+  group: { code: string; name: string } | null;
+  posItem: number;
+  posTotal: number;
+  net: DualAmount;
+  sharePct: number | null;
+  units: number;
+  avgPrice: DualAmount;
+  returnRate: number | null;
+  returnWarn: boolean;
+  highReturn: boolean;
+  orders: number;
+  lastOrderDate: string | null;
+  daysSinceLastOrder: number | null;
+  avgGapDays: number | null;
+  overdue: boolean | null;
+}
+// Named ProductoClientesResponse: ClientesResponse is already the Clientes tab response.
+export interface ProductoClientesResponse {
+  nivel: 'linea' | 'sublinea' | 'sku';
+  key: string;
+  itemNet: DualAmount;
+  itemReturnRate: number | null;
+  top3SharePct: number | null;
+  rows: ClienteRow[];
+}
