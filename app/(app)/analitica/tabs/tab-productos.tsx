@@ -11,6 +11,7 @@ import { trendClickPatch, useProductosParams, type Nivel, type ProductosParams }
 import ControlBar from '../components/productos/control-bar';
 import MasterTable from '../components/productos/master-table';
 import BubblePlot from '../components/productos/bubble-plot';
+import { normalizeStack } from '@/lib/productos/normalize-stack';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
 import type { SearchableSelectOption } from '@/lib/components/searchable-select';
 import type {
@@ -54,10 +55,13 @@ function EmptyState({ message }: { message?: string }) {
   );
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-      <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+        {actions}
+      </div>
       {subtitle && <p className="text-xs text-gray-500 mb-3">{subtitle}</p>}
       {!subtitle && <div className="mb-3" />}
       {children}
@@ -158,6 +162,7 @@ export default function TabProductos({
   const trendUrl = `/api/dwh/productos?${trendParams.toString()}`;
 
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const [shareMode, setShareMode] = useState(false);
   const catalogo = useSection<CatalogoResponse>(catalogoUrl);
   const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
   const trend = useSection<UnitsByLineaResponse>(trendUrl);
@@ -178,10 +183,13 @@ export default function TabProductos({
   const porLineaMesData = trend.data;
   const trendMode = porLineaMesData?.trendMode ?? 'month';
   const porLineaMesLabels = bucketLabels(trendMode, (porLineaMesData?.rows ?? []).map(r => r.bucket));
+  const trendKeys = porLineaMesData?.lineas ?? [];
+  const trendShares = normalizeStack((porLineaMesData?.rows ?? []).map(r => r.units), trendKeys);
   const porLineaMesChartData = (porLineaMesData?.rows ?? []).map((r, i) => ({
-    ...r.units,
+    ...(shareMode ? trendShares[i] : r.units),
     label: porLineaMesLabels[i],
     bucket: r.bucket,
+    realUnits: r.units,
     title: bucketTitle(trendMode, r.bucket),
   }));
 
@@ -226,7 +234,10 @@ export default function TabProductos({
             <GroupShareMatrixTable
               matrix={grupos.data ?? { columns: [], rows: [] }}
               currency={currency}
+              metric={params.metric}
               rowHeader={NIVEL_LABEL[params.nivel]}
+              open={params.matriz}
+              onToggle={() => setParams({ matriz: !params.matriz })}
             />
             <p className="mt-2 text-xs text-gray-400">
               Solo ventas positivas y las 30 filas con más ventas: puede no cuadrar exactamente con la tabla de arriba.
@@ -254,6 +265,12 @@ export default function TabProductos({
       <ChartCard
         title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por ${NIVEL_SERIES_LABEL[params.nivel]}`}
         subtitle="Clic en un segmento para filtrar la tabla"
+        actions={(
+          <div role="group" aria-label="Escala del gráfico" className="inline-flex rounded border border-gray-300 text-xs overflow-hidden shrink-0">
+            <button type="button" aria-pressed={!shareMode} onClick={() => setShareMode(false)} className={`px-2 py-1 ${!shareMode ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>Absoluto</button>
+            <button type="button" aria-pressed={shareMode} onClick={() => setShareMode(true)} className={`px-2 py-1 ${shareMode ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>100 %</button>
+          </div>
+        )}
       >
         {trend.loading ? (
           <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
@@ -266,15 +283,16 @@ export default function TabProductos({
             <BarChart data={porLineaMesChartData} margin={{ top: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => qty(Number(v))} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => (shareMode ? `${Math.round(Number(v) * 100)}%` : qty(Number(v)))} />
               <Tooltip
                 formatter={(value, name, entry) => {
                   const row = porLineaMesData.rows.find(r => r.bucket === (entry.payload as { bucket: string })?.bucket);
                   const lineaName = String(name);
+                  const realUnits = (entry.payload as { realUnits?: Record<string, number> })?.realUnits?.[lineaName] ?? Number(value);
                   const salesGrossAmount = row?.salesGross[lineaName] ?? { bs: 0, usd: 0 };
                   const totalBs = row?.totalSalesGross.bs ?? 0;
                   const share = totalBs > 0 ? salesGrossAmount.bs / totalBs : null;
-                  return [`${qty(Number(value))} u. — ${moneyLabel(salesGrossAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
+                  return [`${qty(realUnits)} u. — ${moneyLabel(salesGrossAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
                 }}
                 labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
               />

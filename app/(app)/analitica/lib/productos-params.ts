@@ -15,6 +15,7 @@ export interface ProductosParams {
   sublineas: string[];
   grupo: string | null;
   q: string;
+  matriz: boolean;
 }
 
 const NIVELES: Nivel[] = ['linea', 'sublinea', 'sku'];
@@ -41,6 +42,7 @@ export function parseProductosParams(sp: URLSearchParams): ProductosParams {
     sublineas: list(sp.get('sublineas')),
     grupo: scalar(sp.get('grupo')),
     q: (sp.get('q') ?? '').trim(),
+    matriz: sp.get('matriz') !== '0',
   };
 }
 
@@ -48,7 +50,7 @@ export function applyProductosParams(sp: URLSearchParams, patch: Partial<Product
   const next = parseProductosParams(sp);
   const merged: ProductosParams = { ...next, ...patch };
   const out = new URLSearchParams(sp.toString());
-  for (const k of ['nivel', 'metric', 'tienda', 'categoria', 'lineas', 'sublineas', 'grupo', 'q']) out.delete(k);
+  for (const k of ['nivel', 'metric', 'tienda', 'categoria', 'lineas', 'sublineas', 'grupo', 'q', 'matriz']) out.delete(k);
   if (merged.nivel !== 'linea') out.set('nivel', merged.nivel);
   if (merged.metric !== 'ventas') out.set('metric', merged.metric);
   if (merged.tienda) out.set('tienda', merged.tienda);
@@ -57,6 +59,7 @@ export function applyProductosParams(sp: URLSearchParams, patch: Partial<Product
   if (merged.sublineas.length > 0) out.set('sublineas', merged.sublineas.join(','));
   if (merged.grupo) out.set('grupo', merged.grupo);
   if (merged.q.trim()) out.set('q', merged.q.trim());
+  if (!merged.matriz) out.set('matriz', '0');
   return out;
 }
 

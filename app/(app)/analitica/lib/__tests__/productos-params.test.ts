@@ -5,7 +5,7 @@ describe('parseProductosParams', () => {
   test('defaults', () => {
     expect(parseProductosParams(new URLSearchParams())).toEqual({
       nivel: 'linea', metric: 'ventas', tienda: null, categoria: null,
-      lineas: [], sublineas: [], grupo: null, q: '',
+      lineas: [], sublineas: [], grupo: null, q: '', matriz: true,
     });
   });
   test('garbled values fall back to defaults', () => {
@@ -17,7 +17,7 @@ describe('parseProductosParams', () => {
     const p = parseProductosParams(new URLSearchParams('nivel=sku&metric=unidades&lineas=a,b&sublineas=c&grupo=G&q=pan&tienda=T&categoria=Fresco'));
     expect(p).toEqual({
       nivel: 'sku', metric: 'unidades', tienda: 'T', categoria: 'Fresco',
-      lineas: ['a', 'b'], sublineas: ['c'], grupo: 'G', q: 'pan',
+      lineas: ['a', 'b'], sublineas: ['c'], grupo: 'G', q: 'pan', matriz: true,
     });
   });
 });
@@ -39,6 +39,22 @@ describe('applyProductosParams', () => {
       nivel: 'linea', metric: 'ventas', lineas: [], q: '', tienda: null, grupo: null, categoria: null,
     });
     expect(out.toString()).toBe('');
+  });
+});
+
+describe('matriz param', () => {
+  test('matriz=0 parses to false, garbled to true', () => {
+    expect(parseProductosParams(new URLSearchParams('matriz=0')).matriz).toBe(false);
+    expect(parseProductosParams(new URLSearchParams('matriz=zzz')).matriz).toBe(true);
+    expect(parseProductosParams(new URLSearchParams('matriz=1')).matriz).toBe(true);
+  });
+  test('closed writes matriz=0, open omits it, other params preserved', () => {
+    const closed = applyProductosParams(new URLSearchParams('tab=productos'), { matriz: false });
+    expect(closed.get('matriz')).toBe('0');
+    expect(closed.get('tab')).toBe('productos');
+    const open = applyProductosParams(closed, { matriz: true });
+    expect(open.has('matriz')).toBe(false);
+    expect(applyProductosParams(closed, { q: 'x' }).get('matriz')).toBe('0');
   });
 });
 

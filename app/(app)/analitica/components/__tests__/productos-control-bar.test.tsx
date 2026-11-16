@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 const params = {
   nivel: 'linea' as const, metric: 'ventas' as const, tienda: null, categoria: null,
-  lineas: [], sublineas: [], grupo: null, q: '',
+  lineas: [], sublineas: [], grupo: null, q: '', matriz: true,
 };
 
 function setup() {
