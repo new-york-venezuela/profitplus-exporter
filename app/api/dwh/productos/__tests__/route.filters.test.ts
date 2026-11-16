@@ -90,14 +90,15 @@ describe('GET /api/dwh/productos section=grupos', () => {
     expect(queries[0].sql).toContain('cur.IsCurrent = 1');
     expect(queries[0].inputs).toMatchObject({ categoria: 'Congelado', tiendaCode: 'J123' });
   });
-  test('sublinea without linea falls back to the linea level (no @linea in the SQL)', async () => {
-    const body = await (await get('section=grupos&groupBy=sublinea&dateRange=month:2026-10')).json();
-    expect(body.level).toBe('linea');
-    expect(queries[0].sql).not.toContain('@linea');
+  test('nivel is an alias of groupBy and item filters are bound, not interpolated', async () => {
+    const body = await (await get('section=grupos&nivel=sublinea&lineas=Panaderia&grupo=S1&dateRange=month:2026-10')).json();
+    expect(body.level).toBe('sublinea');
+    expect(queries[0].sql).toContain('@linea0');
+    expect(queries[0].inputs).toMatchObject({ linea0: 'Panaderia', grupo: 'S1' });
   });
-  test('sku level binds linea and sublinea', async () => {
-    await get('section=grupos&groupBy=sku&linea=Panaderia&sublinea=Artesanal&dateRange=month:2026-10');
-    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia', sublinea: 'Artesanal' });
+  test('sku level binds the line and subline filters', async () => {
+    await get('section=grupos&groupBy=sku&lineas=Panaderia&sublineas=Artesanal&dateRange=month:2026-10');
+    expect(queries[0].inputs).toMatchObject({ linea0: 'Panaderia', sublinea0: 'Artesanal' });
   });
   test('an empty result is an empty matrix, not an error', async () => {
     const body = await (await get('section=grupos&groupBy=linea')).json();

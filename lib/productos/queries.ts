@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import { dualAmountExpr, usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
 import type { GroupShareRaw } from './group-share';
+import { bindItemFilter, itemFilterSql, type ItemFilter } from './item-filter';
 import { bindTienda, tiendaKeysSql, type TiendaFilter } from './tienda-filter';
 
 // dateWhere comes from buildDateWhereClause(range, 'fs'); every user-controlled value is bound with .input().
@@ -17,8 +18,7 @@ export function parseCategoria(raw: string | null): string | null {
 export interface GroupShareQueryOptions {
   dateWhere: string;
   level: ProductosLevel;
-  linea: string | null;
-  sublinea: string | null;
+  filter: ItemFilter;
   tienda: TiendaFilter | null;
   categoria: string | null;
 }
@@ -32,17 +32,13 @@ function labelExpr(level: ProductosLevel): string {
 // Every invoice is attributed to the customer's CURRENT group: the invoice's (possibly old SCD2)
 // Dim_Customer row is resolved by CustomerCode to the IsCurrent = 1 row.
 export async function fetchGroupShare(pool: sql.ConnectionPool, o: GroupShareQueryOptions): Promise<GroupShareRaw[]> {
-  if (o.level !== 'linea' && o.linea === null) throw new Error('linea requerida para este nivel');
-  if (o.level === 'sku' && o.sublinea === null) throw new Error('sublinea requerida para este nivel');
   const scope = [
-    o.level !== 'linea' ? `AND ISNULL(p.LineName, '${NO_LINEA}') = @linea` : '',
-    o.level === 'sku' ? `AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea` : '',
+    itemFilterSql(o.filter),
     o.tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(o.tienda)})` : '',
     o.categoria !== null ? 'AND p.CategoryName = @categoria' : '',
   ].join(' ');
   const req = pool.request();
-  if (o.level !== 'linea') req.input('linea', o.linea);
-  if (o.level === 'sku') req.input('sublinea', o.sublinea);
+  bindItemFilter(req, o.filter);
   bindTienda(req, o.tienda);
   if (o.categoria !== null) req.input('categoria', o.categoria);
   const label = labelExpr(o.level);

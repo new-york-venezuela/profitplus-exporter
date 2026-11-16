@@ -146,8 +146,8 @@ export default function TabProductos({
       setLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, groupBy });
-        if (groupBy !== 'linea' && linea) params.set('linea', linea);
-        if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
+        if (groupBy !== 'linea' && linea) params.set('lineas', linea);
+        if (groupBy === 'sku' && sublinea) params.set('sublineas', sublinea);
         if (tienda) params.set('tienda', tienda);
         if (categoria) params.set('categoria', categoria);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);
@@ -238,8 +238,8 @@ export default function TabProductos({
       setGrupoLoading(true);
       try {
         const params = new URLSearchParams({ dateRange, section: 'grupos', groupBy });
-        if (groupBy !== 'linea' && linea) params.set('linea', linea);
-        if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
+        if (groupBy !== 'linea' && linea) params.set('lineas', linea);
+        if (groupBy === 'sku' && sublinea) params.set('sublineas', sublinea);
         if (tienda) params.set('tienda', tienda);
         if (categoria) params.set('categoria', categoria);
         const res = await fetch(`/api/dwh/productos?${params.toString()}`);

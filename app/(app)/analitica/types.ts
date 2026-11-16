@@ -1,6 +1,7 @@
 import type { BucketMode } from './lib/granularity';
 import type { DepthTier } from '@/lib/dwh/depth-tier';
 import type { GroupShareMatrix } from '@/lib/productos/group-share';
+import type { ParetoClass } from '@/lib/productos/pareto';
 export type Currency = 'bs' | 'usd';
 // '12m' | '30d' | `month:${YYYY-MM}` | `ytd:${YYYY}` | `custom:${YYYY-MM-DD}:${YYYY-MM-DD}` — a custom
 // range is encoded as a single string (not separate start/end props) so it
@@ -430,6 +431,33 @@ export interface ProfundidadLineaResponse {
 // Productos tab - product x customer-group share matrix (section=grupos) and the category filter options.
 export interface ProductosGroupShareResponse extends GroupShareMatrix { level: 'linea' | 'sublinea' | 'sku' }
 export interface ProductosCategoriasResponse { categorias: string[] }
+
+// Productos master table (section=catalogo): one row per línea, sublínea or SKU.
+export interface CatalogoRow {
+  key: string;
+  label: string;
+  code: string | null;
+  linea: string;
+  sublinea: string;
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
+  units: number;
+  monthCount: number;
+  avgUnitsPerMonth: number;
+  avgPrice: DualAmount;
+  returnRate: number | null;
+  clientCount: number;
+  posCount: number;
+  sharePct: number | null;
+  pareto: ParetoClass | null;
+}
+export interface CatalogoResponse { rows: CatalogoRow[]; nivel: 'linea' | 'sublinea' | 'sku' }
+export interface ProductosFiltrosResponse {
+  lineas: string[];
+  sublineas: { linea: string; sublinea: string }[];
+  grupos: { code: string; name: string }[];
+}
 
 // Productos tab — units sold by month, stacked by línea (top lines by
 // volume; the rest bucketed as "Otras" to keep the stack legible).
