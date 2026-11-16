@@ -133,7 +133,7 @@ describe('GET /api/dwh/productos section=catalogo trend', () => {
   const isPrev = (t: string) => t.includes('20260901');
   const isRet = (t: string) => t.includes('fact.Fact_Returns');
   const row = (over: Record<string, unknown>) => ({ ...SALES[0], ...over });
-  const find = (body: { rows: { key: string }[] }, key: string) => body.rows.find(r => r.key === key) as Record<string, any>;
+  const find = (body: { rows: { key: string }[] }, key: string) => body.rows.find(r => r.key === key) as Record<string, unknown>;
 
   test('prior window SQL on both sales and returns, same filter binds', async () => {
     await get('section=catalogo&lineas=Panaderia&q=pan&tienda=e:7&categoria=Fresco&dateRange=month:2026-10');
