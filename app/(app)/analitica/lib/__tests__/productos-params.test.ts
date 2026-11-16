@@ -1,0 +1,43 @@
+import { describe, expect, test } from 'bun:test';
+import { applyProductosParams, parseProductosParams } from '../productos-params';
+
+describe('parseProductosParams', () => {
+  test('defaults', () => {
+    expect(parseProductosParams(new URLSearchParams())).toEqual({
+      nivel: 'linea', metric: 'ventas', tienda: null, categoria: null,
+      lineas: [], sublineas: [], grupo: null, q: '',
+    });
+  });
+  test('garbled values fall back to defaults', () => {
+    const p = parseProductosParams(new URLSearchParams('nivel=zzz&metric=foo'));
+    expect(p.nivel).toBe('linea');
+    expect(p.metric).toBe('ventas');
+  });
+  test('reads lists and scalars', () => {
+    const p = parseProductosParams(new URLSearchParams('nivel=sku&metric=unidades&lineas=a,b&sublineas=c&grupo=G&q=pan&tienda=T&categoria=Fresco'));
+    expect(p).toEqual({
+      nivel: 'sku', metric: 'unidades', tienda: 'T', categoria: 'Fresco',
+      lineas: ['a', 'b'], sublineas: ['c'], grupo: 'G', q: 'pan',
+    });
+  });
+});
+
+describe('applyProductosParams', () => {
+  test('preserves other params and round-trips', () => {
+    const sp = new URLSearchParams('tab=productos&dateRange=30d&currency=usd');
+    const out = applyProductosParams(sp, { nivel: 'sublinea', lineas: ['a', 'b'], q: 'x' });
+    expect(out.get('tab')).toBe('productos');
+    expect(out.get('dateRange')).toBe('30d');
+    expect(out.get('currency')).toBe('usd');
+    expect(out.get('lineas')).toBe('a,b');
+    expect(parseProductosParams(out)).toMatchObject({ nivel: 'sublinea', lineas: ['a', 'b'], q: 'x' });
+    expect(sp.has('nivel')).toBe(false);
+  });
+  test('omits defaults and empties', () => {
+    const sp = new URLSearchParams('nivel=sku&metric=unidades&lineas=a&q=z&tienda=T&grupo=G&categoria=C');
+    const out = applyProductosParams(sp, {
+      nivel: 'linea', metric: 'ventas', lineas: [], q: '', tienda: null, grupo: null, categoria: null,
+    });
+    expect(out.toString()).toBe('');
+  });
+});
