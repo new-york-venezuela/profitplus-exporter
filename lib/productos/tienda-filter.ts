@@ -9,7 +9,7 @@ export function parseTienda(param: string | null): TiendaFilter | null {
   const v = param.trim();
   if (v === '') return null;
   if (v.startsWith('e:')) {
-    const raw = v.slice(2).trim();
+    const raw = v.slice(2);
     if (!/^\d+$/.test(raw)) return null;
     const key = Number(raw);
     // LegalEntityKey is an int32 column: out-of-range values would make mssql throw.
