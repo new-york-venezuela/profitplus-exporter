@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { moneyLabel, priceLabel, qty } from '../../lib/format';
 import type { Metric, Nivel } from '../../lib/productos-params';
 import type { CatalogoRow, Currency, DualAmount } from '../../types';
@@ -20,7 +20,12 @@ export interface MasterTableProps {
   loading: boolean;
   error: string | null;
   highlightKey?: string | null;
+  expandedKeys?: ReadonlySet<string>;
+  onToggleRow?: (key: string) => void;
+  renderExpanded?: (row: CatalogoRow) => React.ReactNode;
 }
+
+const NO_EXPANDED: ReadonlySet<string> = new Set();
 
 type SortKey = 'label' | 'pareto' | 'net' | 'trend' | 'gross' | 'returnRate' | 'units' | 'avgUnits' | 'avgPrice' | 'reach';
 type SortDir = 'asc' | 'desc';
@@ -125,7 +130,7 @@ function ReturnRateBadge({ rate }: { rate: number | null }) {
   );
 }
 
-export default function MasterTable({ rows, currency, metric, nivel, loading, error, highlightKey = null }: MasterTableProps) {
+export default function MasterTable({ rows, currency, metric, nivel, loading, error, highlightKey = null, expandedKeys = NO_EXPANDED, onToggleRow, renderExpanded }: MasterTableProps) {
   const [sort, setSort] = useState<{ metric: Metric; key: SortKey; dir: SortDir } | null>(null);
   // A metric switch resets to that metric's default sort.
   const active = sort !== null && sort.metric === metric ? sort : { metric, ...defaultSort(metric) };
@@ -186,14 +191,29 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {sorted.map(row => (
+          {sorted.map(row => {
+            const expanded = expandedKeys.has(row.key);
+            const panelId = `prod-detail-${row.key}`;
+            return (
+            <Fragment key={row.key}>
             <tr
-              key={row.key}
               id={`prod-row-${row.key}`}
               aria-current={highlightKey === row.key ? 'true' : undefined}
-              className={`align-top ${highlightKey === row.key ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : 'hover:bg-gray-50'}`}
+              onClick={onToggleRow ? () => onToggleRow(row.key) : undefined}
+              className={`align-top ${onToggleRow ? 'cursor-pointer ' : ''}${highlightKey === row.key ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : 'hover:bg-gray-50'}`}
             >
               <td className="px-3 py-2 text-gray-800">
+                {onToggleRow && (
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={panelId}
+                    aria-label={`${expanded ? 'Contraer' : 'Expandir'} clientes de ${row.label}`}
+                    className="mr-2 inline-block w-4 text-gray-500 hover:text-gray-900"
+                  >
+                    <span aria-hidden="true">{expanded ? '▼' : '▶'}</span>
+                  </button>
+                )}
                 <span data-label className="font-medium">{row.label}</span>
                 {nivel === 'sku' && row.code && row.code !== row.label && (
                   <div className="text-xs text-gray-500 tabular-nums">{row.code}</div>
@@ -227,7 +247,14 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
                 {plural(row.clientCount, 'cliente', 'clientes')} · {plural(row.posCount, 'tienda', 'tiendas')}
               </td>
             </tr>
-          ))}
+            {expanded && renderExpanded && (
+              <tr className="bg-gray-50/60">
+                <td id={panelId} colSpan={COLUMNS.length} className="p-0">{renderExpanded(row)}</td>
+              </tr>
+            )}
+            </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

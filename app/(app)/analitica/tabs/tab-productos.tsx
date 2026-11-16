@@ -11,11 +11,13 @@ import { trendClickPatch, useProductosParams, type Nivel, type ProductosParams }
 import ControlBar from '../components/productos/control-bar';
 import MasterTable from '../components/productos/master-table';
 import BubblePlot from '../components/productos/bubble-plot';
+import CustomerAccordion from '../components/productos/customer-accordion';
+import { useClientesBreakdown } from '../lib/use-clientes-breakdown';
 import { normalizeStack } from '@/lib/productos/normalize-stack';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
 import type { SearchableSelectOption } from '@/lib/components/searchable-select';
 import type {
-  CatalogoResponse, Currency, DateRange, UnitsByLineaResponse,
+  CatalogoResponse, CatalogoRow, Currency, DateRange, UnitsByLineaResponse,
   ProductosCategoriasResponse, ProductosFiltrosResponse, ProductosGroupShareResponse,
 } from '../types';
 
@@ -128,6 +130,12 @@ function useOnce<T>(url: string, fallback: T): T {
   return value;
 }
 
+// Mounted only while its row is expanded, so only open rows fetch (cached per URL in the hook).
+function ClientesPanel({ url, currency }: { url: string; currency: Currency }) {
+  return <CustomerAccordion state={useClientesBreakdown(url)} currency={currency} />;
+}
+
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
 const EMPTY_FILTROS: ProductosFiltrosResponse = { lineas: [], sublineas: [], grupos: [] };
 
 export default function TabProductos({
@@ -162,6 +170,20 @@ export default function TabProductos({
   const trendUrl = `/api/dwh/productos?${trendParams.toString()}`;
 
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  // Expansion belongs to the catalogue it was opened on: any change of nivel, filters, range, currency
+  // or tienda changes catalogoUrl and drops it (derived from props, no effect).
+  const [expansion, setExpansion] = useState<{ scope: string; keys: ReadonlySet<string> }>({ scope: '', keys: new Set() });
+  const expandedKeys: ReadonlySet<string> = expansion.scope === catalogoUrl ? expansion.keys : EMPTY_KEYS;
+  function toggleRow(key: string) {
+    const next = new Set(expandedKeys);
+    if (!next.delete(key)) next.add(key);
+    setExpansion({ scope: catalogoUrl, keys: next });
+  }
+  function clientesUrl(row: CatalogoRow): string {
+    const q = filterParams({ dateRange, section: 'clientes', currency }, params);
+    q.set('key', row.key);
+    return `/api/dwh/productos?${q.toString()}`;
+  }
   const [shareMode, setShareMode] = useState(false);
   const catalogo = useSection<CatalogoResponse>(catalogoUrl);
   const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
@@ -177,6 +199,9 @@ export default function TabProductos({
 
   function handleBubbleSelect(key: string) {
     setHighlightKey(key);
+    if (!expandedKeys.has(key)) {
+      setExpansion({ scope: catalogoUrl, keys: new Set(expandedKeys).add(key) });
+    }
     document.getElementById(`prod-row-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
@@ -218,6 +243,9 @@ export default function TabProductos({
           loading={catalogo.loading}
           error={catalogo.error}
           highlightKey={highlightKey}
+          expandedKeys={expandedKeys}
+          onToggleRow={toggleRow}
+          renderExpanded={row => <ClientesPanel url={clientesUrl(row)} currency={currency} />}
         />
       </section>
 

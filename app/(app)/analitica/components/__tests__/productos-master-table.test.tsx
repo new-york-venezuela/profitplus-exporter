@@ -224,4 +224,52 @@ describe('ParetoBadge', () => {
     expect(container.querySelector('#prod-row-Pizza')!.className).toContain('ring-amber-400');
     expect(container.querySelector('#prod-row-Panaderia')!.hasAttribute('aria-current')).toBe(false);
   });
+
+  describe('expansion', () => {
+    test('chevron toggles aria-expanded and renders the expanded row full width under the row', async () => {
+      const calls: string[] = [];
+      const { rerender } = renderTable({
+        expandedKeys: new Set<string>(), onToggleRow: k => calls.push(k), renderExpanded: r => <p>Detalle {r.key}</p>,
+      });
+      const btn = screen.getByRole('button', { name: /Expandir clientes de Pizza/ });
+      expect(btn.getAttribute('aria-expanded')).toBe('false');
+      await userEvent.click(btn);
+      expect(calls).toEqual(['Pizza']);
+      rerender(<MasterTable rows={ROWS} currency="bs" metric="ventas" nivel="linea" loading={false} error={null}
+        expandedKeys={new Set(['Pizza'])} onToggleRow={() => {}} renderExpanded={r => <p>Detalle {r.key}</p>} />);
+      const open = screen.getByRole('button', { name: /Contraer clientes de Pizza/ });
+      expect(open.getAttribute('aria-expanded')).toBe('true');
+      const panel = document.getElementById(open.getAttribute('aria-controls')!)!;
+      expect(panel.textContent).toContain('Detalle Pizza');
+      const tr = panel.closest('tr')!;
+      expect(tr.previousElementSibling!.id).toBe('prod-row-Pizza');
+      expect(Number(panel.getAttribute('colspan') ?? panel.closest('td')!.getAttribute('colspan'))).toBe(10);
+      expect(screen.queryByText('Detalle Panaderia')).toBeNull();
+      expect(screen.getByRole('button', { name: /Expandir clientes de Panaderia/ }).getAttribute('aria-expanded')).toBe('false');
+    });
+
+    test('clicking the row toggles; header clicks do not', async () => {
+      const calls: string[] = [];
+      renderTable({ expandedKeys: new Set<string>(), onToggleRow: k => calls.push(k), renderExpanded: () => null });
+      await userEvent.click(screen.getByText('Pasteleria', { selector: '[data-label]' }));
+      expect(calls).toEqual(['Pasteleria']);
+      await userEvent.click(screen.getByRole('columnheader', { name: /Unidades/ }).querySelector('button')!);
+      expect(calls).toEqual(['Pasteleria']);
+    });
+
+    test('keyboard: Enter on the chevron toggles once', async () => {
+      const calls: string[] = [];
+      renderTable({ expandedKeys: new Set<string>(), onToggleRow: k => calls.push(k), renderExpanded: () => null });
+      screen.getByRole('button', { name: /Expandir clientes de Pizza/ }).focus();
+      await userEvent.keyboard('{Enter}');
+      expect(calls).toEqual(['Pizza']);
+    });
+
+    test('sorting keeps expansion by key', async () => {
+      renderTable({ expandedKeys: new Set(['Pizza']), onToggleRow: () => {}, renderExpanded: () => <p>Detalle</p> });
+      await userEvent.click(screen.getByRole('columnheader', { name: /^Unidades/ }).querySelector('button')!);
+      await userEvent.click(screen.getByRole('columnheader', { name: /^Unidades/ }).querySelector('button')!);
+      expect(screen.getByText('Detalle').closest('tr')!.previousElementSibling!.id).toBe('prod-row-Pizza');
+    });
+  });
 });
