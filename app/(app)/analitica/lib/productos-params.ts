@@ -60,6 +60,20 @@ export function applyProductosParams(sp: URLSearchParams, patch: Partial<Product
   return out;
 }
 
+export interface TrendSeriesMeta { linea?: string; sublinea?: string; code?: string }
+
+// What clicking a trend-chart series does to the bar: drill one level down into that item.
+// "Otras" and series without the needed metadata do nothing (null).
+export function trendClickPatch(nivel: Nivel, meta: TrendSeriesMeta | undefined, label: string): Partial<ProductosParams> | null {
+  if (label === 'Otras') return null;
+  if (nivel === 'linea') return { lineas: [label], sublineas: [], nivel: 'sublinea' };
+  if (nivel === 'sublinea') {
+    if (!meta?.linea || !meta.sublinea) return null;
+    return { lineas: [meta.linea], sublineas: [meta.sublinea], nivel: 'sku' };
+  }
+  return meta?.code ? { q: meta.code } : null;
+}
+
 export function useProductosParams(): [ProductosParams, (patch: Partial<ProductosParams>) => void] {
   const router = useRouter();
   const pathname = usePathname();

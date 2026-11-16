@@ -433,7 +433,10 @@ export interface UnitsByLineaMonthRow {
 export interface UnitsByLineaResponse {
   rows: UnitsByLineaMonthRow[];
   trendMode: BucketMode;
-  lineas: string[]; // ordered list of línea names present (series keys), "Otras" last if present
+  lineas: string[]; // ordered series labels present (the item at `nivel`), "Otras" last if present
+  nivel?: 'linea' | 'sublinea' | 'sku';
+  // Per series label: the parts needed to map a click back to a filter ("Otras" has none)
+  seriesMeta?: Record<string, { linea?: string; sublinea?: string; code?: string }>;
 }
 
 // Finanzas tab

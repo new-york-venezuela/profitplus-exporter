@@ -68,33 +68,56 @@ function tiendasQuery(): string {
   `;
 }
 
-// Units sold per trend bucket (day/week/month), stacked by línea — top 7 líneas by total volume in
-// range get their own series, the rest are bucketed into "Otras" so the
-// stacked bar chart stays legible regardless of how many líneas exist.
-function topLineasQuery(dateWhere: string, tiendaWhere: string): string {
+// Units sold per trend bucket (day/week/month), stacked by the item at the active nivel (línea,
+// sublínea or SKU). The top 10 series by total volume in range get their own series, the rest are
+// bucketed into "Otras" so the stacked bar chart stays legible however many items exist. The bar's
+// item filters apply to both queries.
+const TREND_TOP = 10;
+
+function trendKeys(nivel: Nivel) {
+  const line = `ISNULL(p.LineName, '${NO_LINEA}')`;
+  const sub = `ISNULL(p.SubLineName, '${NO_SUBLINEA}')`;
+  if (nivel === 'linea') return { group: line, key: line, label: line, code: 'NULL', linea: line, sublinea: 'NULL' };
+  if (nivel === 'sublinea') {
+    const key = `${line} + ' › ' + ${sub}`;
+    return { group: `${line}, ${sub}`, key, label: key, code: 'NULL', linea: line, sublinea: sub };
+  }
+  const code = 'RTRIM(p.ProductCode)';
+  return {
+    group: code, key: code, label: `MAX(ISNULL(p.ProductName, ${code}))`, code,
+    linea: `MAX(${line})`, sublinea: `MAX(${sub})`,
+  };
+}
+
+function topSeriesQuery(nivel: Nivel, dateWhere: string, filterWhere: string): string {
+  const k = trendKeys(nivel);
   return `
-    SELECT TOP 7 ISNULL(p.LineName, '${NO_LINEA}') AS LineName, SUM(fs.QuantitySold) AS QuantitySold
+    SELECT TOP ${TREND_TOP}
+      ${k.key} AS SeriesKey, ${k.label} AS Label, ${k.code} AS Code,
+      ${k.linea} AS Linea, ${k.sublinea} AS Sublinea,
+      SUM(fs.QuantitySold) AS QuantitySold
     FROM fact.Fact_Sales fs
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-    GROUP BY ISNULL(p.LineName, '${NO_LINEA}')
-    ORDER BY QuantitySold DESC
+    WHERE fs.IsVoided = 0 ${dateWhere} ${filterWhere}
+    GROUP BY ${k.group}
+    ORDER BY QuantitySold DESC, ${k.key}
   `;
 }
 
-function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: TrendBucket): string {
+function unitsByLineaMonthQuery(nivel: Nivel, dateWhere: string, filterWhere: string, bucket: TrendBucket): string {
+  const k = trendKeys(nivel);
   return `
     SELECT
       ${bucket.keyExpr('d')} AS Bucket,
-      ISNULL(p.LineName, '${NO_LINEA}') AS LineName,
+      ${k.key} AS SeriesKey,
       SUM(fs.QuantitySold) AS QuantitySold,
       ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')}
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
     JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-    GROUP BY ${bucket.keyExpr('d')}, ISNULL(p.LineName, '${NO_LINEA}')
+    WHERE fs.IsVoided = 0 ${dateWhere} ${filterWhere}
+    GROUP BY ${bucket.keyExpr('d')}, ${k.group}
     ORDER BY ${bucket.keyExpr('d')}
   `;
 }
@@ -105,18 +128,33 @@ function bindFilters(req: { input(name: string, value: unknown): unknown }, tien
 }
 
 async function handlePorLineaMes(
-  dateWhere: string, salesFilterWhere: string, tienda: TiendaFilter | null, categoria: string | null, trend: TrendBucket,
+  nivel: Nivel, dateWhere: string, salesFilterWhere: string, filter: ItemFilter,
+  tienda: TiendaFilter | null, categoria: string | null, trend: TrendBucket,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
   bindFilters(topReq, tienda, categoria);
-  const topResult = await topReq.query(topLineasQuery(dateWhere, salesFilterWhere));
-  const topLineas = new Set(topResult.recordset.map(r => String(r.LineName)));
+  bindItemFilter(topReq, filter);
+  const topResult = await topReq.query(topSeriesQuery(nivel, dateWhere, salesFilterWhere));
+  // Series label by key; two SKUs can share a name, so a repeated label gets its code appended.
+  const labelByKey = new Map<string, string>();
+  const seriesMeta: Record<string, { linea?: string; sublinea?: string; code?: string }> = {};
+  const usedLabels = new Set<string>();
+  for (const r of topResult.recordset) {
+    const key = String(r.SeriesKey).trim();
+    let label = String(r.Label ?? key).trim();
+    if (usedLabels.has(label)) label = `${label} (${key})`;
+    usedLabels.add(label);
+    labelByKey.set(key, label);
+    if (nivel === 'sublinea') seriesMeta[label] = { linea: String(r.Linea).trim(), sublinea: String(r.Sublinea).trim() };
+    else if (nivel === 'sku') seriesMeta[label] = { linea: String(r.Linea).trim(), sublinea: String(r.Sublinea).trim(), code: key };
+  }
 
   const monthReq = pool.request();
   bindFilters(monthReq, tienda, categoria);
-  const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, salesFilterWhere, trend));
+  bindItemFilter(monthReq, filter);
+  const monthResult = await monthReq.query(unitsByLineaMonthQuery(nivel, dateWhere, salesFilterWhere, trend));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
   // Tracks whether ANY row contributing to a given salesGross[linea]/totalSalesGross
@@ -130,8 +168,7 @@ async function handlePorLineaMes(
 
   for (const r of monthResult.recordset) {
     const bucketKey = String(r.Bucket); // bucket key (YYYY-MM-DD | YYYY-Www | YYYY-MM | 'range')
-    const rawLinea = String(r.LineName);
-    const linea = topLineas.has(rawLinea) ? rawLinea : 'Otras';
+    const linea = labelByKey.get(String(r.SeriesKey).trim()) ?? 'Otras';
     if (linea === 'Otras') hasOtras = true;
     else if (!lineasSeen.includes(linea)) lineasSeen.push(linea);
 
@@ -181,7 +218,7 @@ async function handlePorLineaMes(
   const rows = Array.from(byMonth.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
   const lineas = hasOtras ? [...lineasSeen, 'Otras'] : lineasSeen;
 
-  const response: UnitsByLineaResponse = { rows, lineas, trendMode: trend.mode };
+  const response: UnitsByLineaResponse = { rows, lineas, trendMode: trend.mode, nivel, seriesMeta };
   return jsonWithCache(response);
 }
 
@@ -392,20 +429,20 @@ export async function GET(request: NextRequest) {
   }
 
   const section = searchParams.get('section');
-  if (section === 'porLineaMes') {
-    try {
-      const dateWhere = buildDateWhereClause(dateRange, 'fs');
-      const salesFilterWhere = `${tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
-      return await handlePorLineaMes(dateWhere, salesFilterWhere, tienda, categoria, parseTrendBucket(searchParams, dateRange));
-    } catch {
-      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
-    }
-  }
-
   // `groupBy` is still accepted as an alias of `nivel`.
   const nivelParam = searchParams.get('nivel') ?? searchParams.get('groupBy');
   const nivel: Nivel = isNivel(nivelParam) ? nivelParam : 'linea';
   const itemFilter = parseItemFilter(searchParams);
+
+  if (section === 'porLineaMes') {
+    try {
+      const dateWhere = buildDateWhereClause(dateRange, 'fs');
+      const salesFilterWhere = `${tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''} ${itemFilterSql(itemFilter)}`;
+      return await handlePorLineaMes(nivel, dateWhere, salesFilterWhere, itemFilter, tienda, categoria, parseTrendBucket(searchParams, dateRange));
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
 
   if (section === 'catalogo') {
     try {

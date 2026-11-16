@@ -7,7 +7,7 @@ import {
 import { moneyLabel, qty } from '../lib/format';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
-import { useProductosParams, type Nivel, type ProductosParams } from '../lib/productos-params';
+import { trendClickPatch, useProductosParams, type Nivel, type ProductosParams } from '../lib/productos-params';
 import ControlBar from '../components/productos/control-bar';
 import MasterTable from '../components/productos/master-table';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
@@ -17,10 +17,12 @@ import type {
   ProductosCategoriasResponse, ProductosFiltrosResponse, ProductosGroupShareResponse,
 } from '../types';
 
-// Stable palette cycled across whatever líneas a given date range/tienda
-// filter surfaces — "Otras" (always last in `lineas`, see route.ts) gets the
-// trailing gray so it reads as a catch-all rather than another real línea.
-const LINEA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#6b7280'];
+// Stable palette across the (up to 10) series a given range/filter surfaces — "Otras" (always last
+// in `lineas`, see route.ts) gets the trailing gray so it reads as a catch-all, not another series.
+const LINEA_COLORS = [
+  '#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed',
+  '#0891b2', '#db2777', '#65a30d', '#ea580c', '#475569',
+];
 
 function lineaColor(linea: string, lineas: string[]): string {
   if (linea === 'Otras') return '#9ca3af';
@@ -34,6 +36,8 @@ function pct(n: number | null): string {
 }
 
 const NIVEL_LABEL: Record<Nivel, string> = { linea: 'Línea', sublinea: 'Sublínea', sku: 'SKU' };
+
+const NIVEL_SERIES_LABEL: Record<Nivel, string> = { linea: 'línea', sublinea: 'sublínea', sku: 'SKU' };
 
 const NIVEL_SUBTITLE: Record<Nivel, string> = {
   linea: 'Una fila por línea de producto',
@@ -149,19 +153,18 @@ export default function TabProductos({
 
   const catalogoUrl = `/api/dwh/productos?${filterParams({ dateRange, section: 'catalogo', currency }, params).toString()}`;
   const gruposUrl = `/api/dwh/productos?${filterParams({ dateRange, section: 'grupos' }, params).toString()}`;
-  const trendParams = new URLSearchParams({ dateRange, section: 'porLineaMes', granularity });
-  if (params.tienda) trendParams.set('tienda', params.tienda);
-  if (params.categoria) trendParams.set('categoria', params.categoria);
+  const trendParams = filterParams({ dateRange, section: 'porLineaMes', granularity }, params);
   const trendUrl = `/api/dwh/productos?${trendParams.toString()}`;
 
   const catalogo = useSection<CatalogoResponse>(catalogoUrl);
   const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
   const trend = useSection<UnitsByLineaResponse>(trendUrl);
 
-  // Clicking a línea's segment filters the table to that línea's sublíneas. "Otras" is not a real línea.
-  function handleStackSegmentClick(lineaName: string) {
-    if (lineaName === 'Otras') return;
-    setParams({ lineas: [lineaName], nivel: 'sublinea' });
+  // Clicking a series drills one level down (see trendClickPatch). "Otras" does nothing.
+  function handleStackSegmentClick(seriesName: string) {
+    const patch = trendClickPatch(trend.data?.nivel ?? params.nivel, trend.data?.seriesMeta?.[seriesName], seriesName);
+    if (patch === null) return;
+    setParams(patch);
     document.getElementById('productos-master-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -224,10 +227,10 @@ export default function TabProductos({
         )}
       </ChartCard>
 
-      {/* Unidades vendidas por mes, apiladas por línea */}
+      {/* Unidades vendidas por período, apiladas por el ítem del nivel activo */}
       <ChartCard
-        title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por línea`}
-        subtitle="Clic en un segmento para ver las sublíneas de esa línea"
+        title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por ${NIVEL_SERIES_LABEL[params.nivel]}`}
+        subtitle="Clic en un segmento para filtrar la tabla"
       >
         {trend.loading ? (
           <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
