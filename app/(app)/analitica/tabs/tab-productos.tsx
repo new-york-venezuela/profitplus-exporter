@@ -10,6 +10,7 @@ import type { Granularity } from '../lib/granularity';
 import { trendClickPatch, useProductosParams, type Nivel, type ProductosParams } from '../lib/productos-params';
 import ControlBar from '../components/productos/control-bar';
 import MasterTable from '../components/productos/master-table';
+import BubblePlot from '../components/productos/bubble-plot';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
 import type { SearchableSelectOption } from '@/lib/components/searchable-select';
 import type {
@@ -156,6 +157,7 @@ export default function TabProductos({
   const trendParams = filterParams({ dateRange, section: 'porLineaMes', granularity }, params);
   const trendUrl = `/api/dwh/productos?${trendParams.toString()}`;
 
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const catalogo = useSection<CatalogoResponse>(catalogoUrl);
   const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
   const trend = useSection<UnitsByLineaResponse>(trendUrl);
@@ -166,6 +168,11 @@ export default function TabProductos({
     if (patch === null) return;
     setParams(patch);
     document.getElementById('productos-master-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function handleBubbleSelect(key: string) {
+    setHighlightKey(key);
+    document.getElementById(`prod-row-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   const porLineaMesData = trend.data;
@@ -202,6 +209,7 @@ export default function TabProductos({
           nivel={params.nivel}
           loading={catalogo.loading}
           error={catalogo.error}
+          highlightKey={highlightKey}
         />
       </section>
 
@@ -224,6 +232,21 @@ export default function TabProductos({
               Solo ventas positivas y las 30 filas con más ventas: puede no cuadrar exactamente con la tabla de arriba.
             </p>
           </>
+        )}
+      </ChartCard>
+
+      <ChartCard
+        title="Volumen, ventas y tendencia por fila"
+        subtitle="Cada burbuja es una fila de la tabla; sigue el nivel y los filtros de la barra"
+      >
+        {catalogo.loading ? (
+          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
+        ) : catalogo.error ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{catalogo.error}</p>
+        ) : (catalogo.data?.rows ?? []).length === 0 ? (
+          <EmptyState />
+        ) : (
+          <BubblePlot rows={catalogo.data?.rows ?? []} currency={currency} onSelect={handleBubbleSelect} />
         )}
       </ChartCard>
 

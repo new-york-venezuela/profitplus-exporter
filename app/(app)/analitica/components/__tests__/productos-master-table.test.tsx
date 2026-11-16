@@ -48,7 +48,7 @@ describe('MasterTable', () => {
     renderTable();
     const headers = screen.getAllByRole('columnheader').map(h => h.textContent!.replace(/[▲▼↕]/g, '').trim());
     expect(headers).toEqual([
-      'Línea', 'Pareto', 'Ventas netas', 'Ventas brutas', 'Tasa dev.', 'Unidades', 'Unid./mes', 'Precio prom.', 'Alcance',
+      'Línea', 'Pareto', 'Ventas netas', 'Δ vs. período anterior', 'Ventas brutas', 'Tasa dev.', 'Unidades', 'Unid./mes', 'Precio prom.', 'Alcance',
     ]);
   });
 
@@ -112,7 +112,7 @@ describe('MasterTable', () => {
         row({ key: 'x', label: 'x', returnRate: null }),
       ],
     });
-    const rateCell = (label: string) => within(screen.getByText(label, { selector: '[data-label]' }).closest('tr')!).getAllByRole('cell')[4];
+    const rateCell = (label: string) => within(screen.getByText(label, { selector: '[data-label]' }).closest('tr')!).getAllByRole('cell')[5];
     expect(rateCell('n').querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('neutral');
     expect(rateCell('n').textContent).toContain('4.0%');
     expect(rateCell('w').querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('warn');
@@ -127,14 +127,14 @@ describe('MasterTable', () => {
     const cells = within(screen.getByText('Nulo').closest('tr')!).getAllByRole('cell');
     expect(cells[2].textContent).toContain('Sin datos');
     expect(cells[2].textContent).not.toContain('$0');
-    expect(cells[3].textContent).toContain('Sin datos');
+    expect(cells[4].textContent).toContain('Sin datos');
   });
 
   test('net shows the share of total; gross shows returns in red', () => {
     renderTable({ rows: [row({ key: 'P', label: 'P', salesGross: { bs: 1000, usd: 20 }, returns: { bs: 80, usd: 2 }, salesNet: { bs: 920, usd: 18 }, sharePct: 0.25 })] });
     const cells = within(screen.getByText('P', { selector: '[data-label]' }).closest('tr')!).getAllByRole('cell');
     expect(cells[2].textContent).toContain('25.0% del total');
-    const ret = cells[3].querySelector('[data-returns]')!;
+    const ret = cells[4].querySelector('[data-returns]')!;
     expect(ret.textContent).toContain('80');
     expect(ret.className).toContain('text-red');
   });
@@ -187,6 +187,41 @@ describe('ParetoBadge', () => {
   test('average price with zero units is "Sin datos", never a zero price', () => {
     renderTable({ rows: [row({ key: 'Z', label: 'Z', units: 0, avgPrice: { bs: 0, usd: 0 } })] });
     const cells = within(screen.getByRole('table', { name: 'Catálogo de productos' })).getAllByRole('row')[1].querySelectorAll('td');
-    expect(cells[7].textContent).toBe('Sin datos');
+    expect(cells[8].textContent).toBe('Sin datos');
+  });
+
+  test('trend cell shows signed pct with arrow, "Sin datos" for null', () => {
+    renderTable({ rows: [
+      row({ key: 'Up', label: 'Up', salesNet: { bs: 900, usd: 18 }, trendPct: 0.125 }),
+      row({ key: 'Down', label: 'Down', salesNet: { bs: 800, usd: 16 }, trendPct: -0.08 }),
+      row({ key: 'None', label: 'None', salesNet: { bs: 700, usd: 14 }, trendPct: null }),
+    ] });
+    const table = screen.getByRole('table', { name: 'Catálogo de productos' });
+    const cells = within(table).getAllByRole('row').slice(1).map(r => within(r).getAllByRole('cell')[3]);
+    expect(cells[0].textContent).toBe('▲+12.5%');
+    expect(cells[0].querySelector('[data-trend]')!.getAttribute('data-trend')).toBe('up');
+    expect(cells[1].textContent).toBe('▼−8.0%');
+    expect(cells[1].querySelector('[data-trend]')!.getAttribute('data-trend')).toBe('down');
+    expect(cells[2].textContent).toBe('Sin datos');
+  });
+
+  test('sorting by the trend column puts null last in both directions', async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: [
+      row({ key: 'A', label: 'A', trendPct: 0.1 }),
+      row({ key: 'B', label: 'B', trendPct: null }),
+      row({ key: 'C', label: 'C', trendPct: -0.5 }),
+    ] });
+    await user.click(screen.getByRole('button', { name: /Δ vs\. período anterior/ }));
+    expect(bodyLabels()).toEqual(['A', 'C', 'B']);
+    await user.click(screen.getByRole('button', { name: /Δ vs\. período anterior/ }));
+    expect(bodyLabels()).toEqual(['C', 'A', 'B']);
+  });
+
+  test('rows have ids and the highlighted row is marked', () => {
+    const { container } = renderTable({ highlightKey: 'Pizza' });
+    expect(container.querySelector('#prod-row-Pizza')!.getAttribute('aria-current')).toBe('true');
+    expect(container.querySelector('#prod-row-Pizza')!.className).toContain('ring-amber-400');
+    expect(container.querySelector('#prod-row-Panaderia')!.hasAttribute('aria-current')).toBe(false);
   });
 });

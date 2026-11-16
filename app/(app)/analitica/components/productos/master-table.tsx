@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { moneyLabel, priceLabel, qty } from '../../lib/format';
 import type { Metric, Nivel } from '../../lib/productos-params';
 import type { CatalogoRow, Currency, DualAmount } from '../../types';
+import { pct, signedPct } from '../../lib/productos-format';
 import ParetoBadge from './pareto-badge';
 
 // Return rate (returns ÷ gross, Bs) is highlighted ABOVE these: amber > 4%, red > 8%. Exactly 4% is neutral.
@@ -17,9 +18,10 @@ export interface MasterTableProps {
   nivel: Nivel;
   loading: boolean;
   error: string | null;
+  highlightKey?: string | null;
 }
 
-type SortKey = 'label' | 'pareto' | 'net' | 'gross' | 'returnRate' | 'units' | 'avgUnits' | 'avgPrice' | 'reach';
+type SortKey = 'label' | 'pareto' | 'net' | 'trend' | 'gross' | 'returnRate' | 'units' | 'avgUnits' | 'avgPrice' | 'reach';
 type SortDir = 'asc' | 'desc';
 
 const NIVEL_LABEL: Record<Nivel, string> = { linea: 'Línea', sublinea: 'Sublínea', sku: 'SKU' };
@@ -29,6 +31,7 @@ const COLUMNS: { key: SortKey; label: string | null; title?: string; align: 'lef
   { key: 'label', label: null, align: 'left' },
   { key: 'pareto', label: 'Pareto', title: 'Clase ABC por ventas netas: A hasta el 80% acumulado, B hasta el 95%, C el resto', align: 'left' },
   { key: 'net', label: 'Ventas netas', title: 'Ventas brutas menos devoluciones (por fecha de devolución), sin IVA', align: 'right' },
+  { key: 'trend', label: 'Δ vs. período anterior', title: 'Variación de las ventas netas frente al período anterior de igual duración', align: 'right' },
   { key: 'gross', label: 'Ventas brutas', title: 'Ventas sin IVA antes de devoluciones; debajo, las devoluciones', align: 'right' },
   { key: 'returnRate', label: 'Tasa dev.', title: 'Devoluciones ÷ ventas brutas (Bs)', align: 'right' },
   { key: 'units', label: 'Unidades', align: 'right' },
@@ -46,6 +49,7 @@ function sortValue(row: CatalogoRow, key: SortKey, currency: Currency): number |
     case 'label': return row.label;
     case 'pareto': return row.pareto === null ? null : PARETO_RANK[row.pareto];
     case 'net': return pick(row.salesNet, currency);
+    case 'trend': return row.trendPct;
     case 'gross': return pick(row.salesGross, currency);
     case 'returnRate': return row.returnRate;
     case 'units': return row.units;
@@ -84,8 +88,17 @@ function amountText(amount: DualAmount, currency: Currency, format = moneyLabel)
   return pick(amount, currency) === null ? 'Sin datos' : format(amount, currency);
 }
 
-function pct(n: number): string {
-  return `${(n * 100).toFixed(1)}%`;
+function TrendCell({ trendPct }: { trendPct: number | null }) {
+  if (trendPct === null) return <span className="text-gray-400">Sin datos</span>;
+  const text = signedPct(trendPct);
+  const tone = text.startsWith('+') ? 'up' : text.startsWith('−') ? 'down' : 'flat';
+  const cls = tone === 'up' ? 'text-green-700' : tone === 'down' ? 'text-red-700' : 'text-gray-600';
+  return (
+    <span data-trend={tone} className={`inline-flex items-center gap-1 font-medium tabular-nums ${cls}`}>
+      <span aria-hidden="true">{tone === 'up' ? '▲' : tone === 'down' ? '▼' : '■'}</span>
+      {text}
+    </span>
+  );
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -111,7 +124,7 @@ function ReturnRateBadge({ rate }: { rate: number | null }) {
   );
 }
 
-export default function MasterTable({ rows, currency, metric, nivel, loading, error }: MasterTableProps) {
+export default function MasterTable({ rows, currency, metric, nivel, loading, error, highlightKey = null }: MasterTableProps) {
   const [sort, setSort] = useState<{ metric: Metric; key: SortKey; dir: SortDir } | null>(null);
   // A metric switch resets to that metric's default sort.
   const active = sort !== null && sort.metric === metric ? sort : { metric, ...defaultSort(metric) };
@@ -173,7 +186,12 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
         </thead>
         <tbody className="divide-y divide-gray-100">
           {sorted.map(row => (
-            <tr key={row.key} className="align-top hover:bg-gray-50">
+            <tr
+              key={row.key}
+              id={`prod-row-${row.key}`}
+              aria-current={highlightKey === row.key ? 'true' : undefined}
+              className={`align-top ${highlightKey === row.key ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : 'hover:bg-gray-50'}`}
+            >
               <td className="px-3 py-2 text-gray-800">
                 <span data-label className="font-medium">{row.label}</span>
                 {nivel === 'sku' && row.code && row.code !== row.label && (
@@ -193,6 +211,7 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
                 <div className="font-medium text-gray-900">{amountText(row.salesNet, currency)}</div>
                 {row.sharePct !== null && <div className="text-xs text-gray-500">{pct(row.sharePct)} del total</div>}
               </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap"><TrendCell trendPct={row.trendPct} /></td>
               <td className="px-3 py-2 text-right tabular-nums">
                 <div className="text-gray-900">{amountText(row.salesGross, currency)}</div>
                 <div data-returns title="Devoluciones" className="text-xs text-red-600">
