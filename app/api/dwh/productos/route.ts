@@ -385,8 +385,10 @@ export async function GET(request: NextRequest) {
   if (searchParams.get('tiendas') === '1') {
     try {
       const pool = await getDwhPool();
-      const entidades = await pool.request().query(entidadesQuery());
-      const tiendas = await pool.request().query(tiendasQuery());
+      const [entidades, tiendas] = await Promise.all([
+        pool.request().query(entidadesQuery()),
+        pool.request().query(tiendasQuery()),
+      ]);
       return jsonWithCache({
         tiendas: [
           ...entidades.recordset.map(r => ({

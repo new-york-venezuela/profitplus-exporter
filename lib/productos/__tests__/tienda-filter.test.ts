@@ -7,6 +7,19 @@ describe('parseTienda', () => {
     expect(parseTienda('t:J123')).toEqual({ kind: 'tienda', code: 'J123' });
     expect(parseTienda('J123')).toEqual({ kind: 'tienda', code: 'J123' });
   });
+  test('bare numeric value is a store code', () => expect(parseTienda('42')).toEqual({ kind: 'tienda', code: '42' }));
+  test('entity key beyond int32 or unsafe -> null', () => {
+    expect(parseTienda('e:99999999999999999999')).toBeNull();
+    expect(parseTienda('e:2147483648')).toBeNull();
+  });
+  test('entity key at int32 max is accepted', () => expect(parseTienda('e:2147483647')).toEqual({ kind: 'entidad', key: 2147483647 }));
+  test('whole value is trimmed; inner space after prefix is invalid', () => {
+    expect(parseTienda(' e:12 ')).toEqual({ kind: 'entidad', key: 12 });
+    expect(parseTienda('e: 12')).toBeNull();
+  });
+  test('uppercase E:12 is not the entity prefix, it is a bare store code', () => {
+    expect(parseTienda('E:12')).toEqual({ kind: 'tienda', code: 'E:12' });
+  });
   test('invalid -> null', () => {
     for (const v of ['e:abc', 'e:', 't:', '', '  ', null]) expect(parseTienda(v)).toBeNull();
   });

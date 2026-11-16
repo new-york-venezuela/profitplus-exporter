@@ -189,6 +189,16 @@ describe('consolidation queries (disposable DWH)', () => {
     expect(tienda.rows[0].totalBs).toBe(1500);
   });
 
+  test('fetchGroupShare: entidad filter counts every store of the casa matriz incl. old SCD2 keys, excludes other entities', async () => {
+    const month = buildDateWhereClause('month:2026-10', 'fs');
+    const le1 = (await pool.request().query(`SELECT LegalEntityKey FROM dim.Dim_LegalEntity WHERE RTRIM(RootCustomerCode) = 'C1'`)).recordset[0].LegalEntityKey as number;
+    const base = { dateWhere: month, linea: null, sublinea: null, categoria: null } as const;
+    const m = buildGroupShareMatrix(await fetchGroupShare(pool, { ...base, level: 'linea', tienda: { kind: 'entidad', key: le1 } }));
+    expect(m.rows.map(r => [r.label, r.totalBs])).toEqual([['Panaderia', 3500]]);   // I1 1000 + I2 500 (C1) + I3 2000 (C2 old key); C3/C4/C5 excluded
+    expect(m.rows[0].cells.S1.salesBs).toBe(3500);
+    expect(Object.keys(m.rows[0].cells)).toEqual(['S1']);                           // no I7 (C3, S2) and no I5 (C4, Sin grupo)
+  });
+
   test('fetchGroupShare: a hostile category is a parameter and simply matches nothing', async () => {
     const month = buildDateWhereClause('month:2026-10', 'fs');
     const raw = await fetchGroupShare(pool, { dateWhere: month, level: 'linea', linea: null, sublinea: null, tienda: null, categoria: "Fresco' OR 1=1 --" });

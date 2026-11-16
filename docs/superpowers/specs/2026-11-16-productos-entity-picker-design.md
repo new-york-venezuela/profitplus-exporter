@@ -23,7 +23,7 @@ Only one sensible way: reuse `Dim_LegalEntity` (same entity model as Ventas) rat
 - Entity filter resolves through CURRENT rows: codes where `IsCurrent = 1 AND LegalEntityKey = @key`, then all SCD versions of those codes (old versions have NULL `LegalEntityKey`).
 - One shared SQL fragment for entity/store, used by sales, returns, profundidad, porLineaMes and grupos (`lib/productos/queries.ts`).
 - `?tiendas=1` returns options with a `group` field; `SearchableSelect` gets optional `group` rendering headers (backwards compatible).
-- Profundidad hides the tier column only for a single store, not an entity (builder's call).
+- Profundidad hides the tier column whenever a tienda/entidad filter is set: tiers come from client penetration (ClientCount / TotalClients), and with one entity or store selected TotalClients = 1, so every row would read "Primera".
 
 ## Tests
 Picker payload (both groups, deduped), entity filter binding/SQL, store filter unchanged, SearchableSelect group rendering.

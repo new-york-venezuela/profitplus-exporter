@@ -153,6 +153,24 @@ describe('GET /api/dwh/productos?tiendas=1', () => {
     expect(queries[0].sql).toContain('LegalEntityKey = @entidadKey');
     expect(queries[0].inputs).toMatchObject({ entidadKey: 7 });
   });
+  test('tienda=e:7 reaches the returns SQL on the default drill and on profundidad', async () => {
+    await get('dateRange=month:2026-10&tienda=e:7');
+    const returnsQ = queries.filter(q => q.sql.includes('fr.CustomerKey IN'));
+    expect(returnsQ.length).toBeGreaterThan(0);
+    for (const q of returnsQ) {
+      expect(q.sql).toContain('@entidadKey');
+      expect(q.inputs).toMatchObject({ entidadKey: 7 });
+      expect(q.sql).not.toContain('@tiendaCode');
+    }
+    queries.length = 0;
+    await get('section=profundidad&dateRange=month:2026-10&tienda=e:7');
+    const profQ = queries.filter(q => q.sql.includes('fr.CustomerKey IN'));
+    expect(profQ.length).toBeGreaterThan(0);
+    for (const q of profQ) {
+      expect(q.sql).toContain('@entidadKey');
+      expect(q.inputs).toMatchObject({ entidadKey: 7 });
+    }
+  });
   test('tienda=e:abc is ignored', async () => {
     await get('section=porLineaMes&tienda=e:abc&dateRange=month:2026-10');
     expect(queries[0].inputs.entidadKey).toBeUndefined();

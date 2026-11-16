@@ -11,7 +11,10 @@ export function parseTienda(param: string | null): TiendaFilter | null {
   if (v.startsWith('e:')) {
     const raw = v.slice(2).trim();
     if (!/^\d+$/.test(raw)) return null;
-    return { kind: 'entidad', key: Number(raw) };
+    const key = Number(raw);
+    // LegalEntityKey is an int32 column: out-of-range values would make mssql throw.
+    if (!Number.isSafeInteger(key) || key > 2147483647) return null;
+    return { kind: 'entidad', key };
   }
   if (v.startsWith('t:')) {
     const code = v.slice(2).trim();

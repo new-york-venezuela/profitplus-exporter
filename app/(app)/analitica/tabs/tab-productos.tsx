@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { moneyLabel } from '../lib/format';
 import SearchableSelect from '@/lib/components/searchable-select';
-import { isSingleStore, parseTienda } from '@/lib/productos/tienda-filter';
+import { parseTienda } from '@/lib/productos/tienda-filter';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
@@ -488,7 +488,7 @@ export default function TabProductos({
         ) : profundidadError ? (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
         ) : (
-          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={isSingleStore(parseTienda(tienda))} />
+          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={tienda !== null} />
         )}
       </ChartCard>
     </div>
