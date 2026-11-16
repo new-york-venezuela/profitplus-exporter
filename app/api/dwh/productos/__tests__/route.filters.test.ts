@@ -75,6 +75,16 @@ describe('GET /api/dwh/productos section=profundidad tier', () => {
   });
 });
 
+describe('GET /api/dwh/productos default drill still scopes by linea/sublinea', () => {
+  test('sublinea and sku drills bind the singular params', async () => {
+    await get('groupBy=sku&linea=Panaderia&sublinea=Artesanal&dateRange=month:2026-10');
+    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia', sublinea: 'Artesanal' });
+    queries.length = 0;
+    await get('groupBy=sublinea&linea=Panaderia&dateRange=month:2026-10');
+    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia' });
+  });
+});
+
 describe('GET /api/dwh/productos section=grupos', () => {
   test('returns the share matrix for the drill level and binds category and tienda', async () => {
     respond = () => [
