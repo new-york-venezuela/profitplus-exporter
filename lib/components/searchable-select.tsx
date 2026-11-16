@@ -1,10 +1,12 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 
 export interface SearchableSelectOption {
   value: string;
   label: string;
+  // Optional: a non-selectable header is shown whenever the group changes in the filtered list.
+  group?: string;
 }
 
 export interface SearchableSelectProps {
@@ -90,17 +92,27 @@ export default function SearchableSelect({
           {filtered.length === 0 ? (
             <li className="px-2 py-1 text-gray-400">Sin resultados</li>
           ) : (
-            filtered.map(o => (
-              <li key={o.value}>
-                <button
-                  type="button"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => selectOption(o.value)}
-                  className="block w-full text-left px-2 py-1 hover:bg-gray-50"
-                >
-                  {o.label}
-                </button>
-              </li>
+            filtered.map((o, i) => (
+              <Fragment key={o.value}>
+                {o.group && o.group !== filtered[i - 1]?.group && (
+                  <li
+                    role="presentation"
+                    className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-gray-400 bg-gray-50"
+                  >
+                    {o.group}
+                  </li>
+                )}
+                <li>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => selectOption(o.value)}
+                    className="block w-full text-left px-2 py-1 hover:bg-gray-50"
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              </Fragment>
             ))
           )}
         </ul>

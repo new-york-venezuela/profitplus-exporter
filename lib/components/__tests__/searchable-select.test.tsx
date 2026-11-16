@@ -56,3 +56,37 @@ describe('SearchableSelect', () => {
     expect(onChange).toHaveBeenCalledWith(null);
   });
 });
+
+describe('SearchableSelect groups', () => {
+  const grouped = [
+    { value: 'e:1', label: 'Matriz Uno', group: 'Casas matriz' },
+    { value: 't:1', label: 'Tienda Uno', group: 'Tiendas' },
+    { value: 't:2', label: 'Tienda Dos', group: 'Tiendas' },
+  ];
+  function setupGrouped() {
+    const onChange = mock<(v: string | null) => void>(() => {});
+    render(<SearchableSelect value={null} onChange={onChange} options={grouped} ariaLabel="Elegir" />);
+    return { onChange, user: userEvent.setup(), input: screen.getByRole('textbox', { name: 'Elegir' }) };
+  }
+
+  test('renders one header per group, in order', async () => {
+    const { user, input } = setupGrouped();
+    await user.click(input);
+    const headers = screen.getAllByRole('presentation').map(h => h.textContent);
+    expect(headers).toEqual(['Casas matriz', 'Tiendas']);
+    expect(screen.queryByRole('button', { name: 'Casas matriz' })).toBeNull();
+  });
+
+  test('options without group render no headers', async () => {
+    const { user, input } = setup();
+    await user.click(input);
+    expect(screen.queryAllByRole('presentation')).toHaveLength(0);
+  });
+
+  test('a query matching one group hides the other header', async () => {
+    const { user, input } = setupGrouped();
+    await user.click(input);
+    await user.type(input, 'Tienda');
+    expect(screen.getAllByRole('presentation').map(h => h.textContent)).toEqual(['Tiendas']);
+  });
+});

@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { moneyLabel } from '../lib/format';
 import SearchableSelect from '@/lib/components/searchable-select';
+import { isSingleStore, parseTienda } from '@/lib/productos/tienda-filter';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
@@ -86,7 +87,7 @@ export default function TabProductos({
   const [linea, setLinea] = useState<string | null>(null);
   const [sublinea, setSublinea] = useState<string | null>(null);
   const [tienda, setTienda] = useState<string | null>(null);
-  const [tiendas, setTiendas] = useState<{ value: string; label: string }[]>([]);
+  const [tiendas, setTiendas] = useState<{ value: string; label: string; group?: string }[]>([]);
   const [categoria, setCategoria] = useState<string | null>(null);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [grupoData, setGrupoData] = useState<ProductosGroupShareResponse | null>(null);
@@ -110,7 +111,7 @@ export default function TabProductos({
       try {
         const res = await fetch('/api/dwh/productos?tiendas=1');
         if (cancelled || !res.ok) return;
-        const body: { tiendas?: { value: string; label: string }[] } = await res.json().catch(() => ({}));
+        const body: { tiendas?: { value: string; label: string; group?: string }[] } = await res.json().catch(() => ({}));
         if (!cancelled) setTiendas(body.tiendas ?? []);
       } catch {
         // Non-critical — filter just stays empty if this fails.
@@ -346,13 +347,13 @@ export default function TabProductos({
               </select>
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-600">
-              Tienda:
+              Entidad / tienda:
               <SearchableSelect
                 value={tienda}
                 onChange={setTienda}
                 options={tiendas}
                 allLabel="Todas"
-                placeholder="Buscar tienda..."
+                placeholder="Buscar entidad o tienda..."
                 className="max-w-[220px]"
               />
             </label>
@@ -487,7 +488,7 @@ export default function TabProductos({
         ) : profundidadError ? (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
         ) : (
-          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={Boolean(tienda)} />
+          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={isSingleStore(parseTienda(tienda))} />
         )}
       </ChartCard>
     </div>
