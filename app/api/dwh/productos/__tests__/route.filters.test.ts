@@ -121,11 +121,43 @@ describe('GET /api/dwh/productos?categorias=1', () => {
 
 describe('GET /api/dwh/productos?tiendas=1', () => {
   test('lists each customer once by CustomerCode, named by its current row', async () => {
-    respond = () => [{ CustomerCode: 'J123  ', CustomerName: 'Tienda Uno' }];
+    respond = text => (text.includes('CustomerCode') && !text.includes('LegalEntityName') ? [{ CustomerCode: 'J123  ', CustomerName: 'Tienda Uno' }] : []);
     const body = await (await get('tiendas=1')).json();
-    expect(body.tiendas).toEqual([{ value: 'J123', label: 'Tienda Uno' }]);
-    expect(queries[0].sql).toContain('IsCurrent = 1');
-    expect(queries[0].sql).not.toMatch(/GROUP BY c\.CustomerKey/);
+    expect(body.tiendas).toEqual([{ value: 't:J123', label: 'Tienda Uno', group: 'Tiendas' }]);
+    const q = queries.find(x => !x.sql.includes('LegalEntityName'))!;
+    expect(q.sql).toContain('IsCurrent = 1');
+    expect(q.sql).not.toMatch(/GROUP BY c\.CustomerKey/);
+  });
+  test('lists casas matriz first, with store count label and prefixed values', async () => {
+    respond = text => (text.includes('LegalEntityName')
+      ? [{ LegalEntityKey: 7, LegalEntityName: 'Matriz Uno', StoreCount: 4 }]
+      : [{ CustomerCode: 'J123  ', CustomerName: 'Tienda Uno' }]);
+    const body = await (await get('tiendas=1')).json();
+    expect(body.tiendas).toEqual([
+      { value: 'e:7', label: 'Matriz Uno · 4 tiendas', group: 'Casas matriz' },
+      { value: 't:J123', label: 'Tienda Uno', group: 'Tiendas' },
+    ]);
+    const eq = queries.find(x => x.sql.includes('LegalEntityName'))!;
+    expect(eq.sql).toContain('StoreCount > 1');
+  });
+  test('tienda=t:J123 binds the store code like the bare form', async () => {
+    await get('section=porLineaMes&tienda=t:J123&dateRange=month:2026-10');
+    expect(queries[0].inputs).toMatchObject({ tiendaCode: 'J123' });
+  });
+  test('tienda=e:7 filters by legal entity on porLineaMes and grupos', async () => {
+    await get('section=porLineaMes&tienda=e:7&dateRange=month:2026-10');
+    expect(queries[0].sql).toContain('LegalEntityKey = @entidadKey');
+    expect(queries[0].inputs).toMatchObject({ entidadKey: 7 });
+    queries.length = 0;
+    await get('section=grupos&groupBy=linea&tienda=e:7&dateRange=month:2026-10');
+    expect(queries[0].sql).toContain('LegalEntityKey = @entidadKey');
+    expect(queries[0].inputs).toMatchObject({ entidadKey: 7 });
+  });
+  test('tienda=e:abc is ignored', async () => {
+    await get('section=porLineaMes&tienda=e:abc&dateRange=month:2026-10');
+    expect(queries[0].inputs.entidadKey).toBeUndefined();
+    expect(queries[0].inputs.tiendaCode).toBeUndefined();
+    expect(queries[0].sql).not.toContain('@entidadKey');
   });
   test('the tienda filter matches every SCD version of the customer code', async () => {
     await get('section=porLineaMes&tienda=J123&dateRange=month:2026-10');

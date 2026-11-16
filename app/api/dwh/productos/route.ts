@@ -7,6 +7,7 @@ import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { classifyTier, DEFAULT_TIER_THRESHOLDS } from '@/lib/dwh/depth-tier';
 import { buildGroupShareMatrix } from '@/lib/productos/group-share';
 import { fetchCategorias, fetchGroupShare, parseCategoria } from '@/lib/productos/queries';
+import { bindTienda, parseTienda, tiendaKeysSql, type TiendaFilter } from '@/lib/productos/tienda-filter';
 import type {
   ProductosResponse, ProductosRow, GroupBy,
   ProfundidadLineaResponse, ProfundidadLineaRow,
@@ -120,7 +121,21 @@ function skuQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: stri
 // A tienda is a customer (CustomerCode), not a Dim_Customer row: the dimension is SCD2, so one
 // customer can own several CustomerKeys (one per tracked change). The picker lists each code once
 // (named by its CURRENT row) and the filter matches every version of that code.
-const TIENDA_KEYS = 'SELECT tk.CustomerKey FROM dim.Dim_Customer tk WHERE tk.CustomerCode = @tiendaCode';
+// Casas matriz: legal entities with more than one store and at least one non-voided sale.
+function entidadesQuery(): string {
+  return `
+    SELECT le.LegalEntityKey, le.LegalEntityName, le.StoreCount
+    FROM dim.Dim_LegalEntity le
+    WHERE le.StoreCount > 1
+      AND EXISTS (
+        SELECT 1 FROM dim.Dim_Customer cur
+        JOIN dim.Dim_Customer c ON c.CustomerCode = cur.CustomerCode
+        JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
+        WHERE cur.IsCurrent = 1 AND cur.LegalEntityKey = le.LegalEntityKey AND fs.IsVoided = 0
+      )
+    ORDER BY le.LegalEntityName
+  `;
+}
 
 function tiendasQuery(): string {
   return `
@@ -210,25 +225,25 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: 
   `;
 }
 
-function bindFilters(req: { input(name: string, value: unknown): unknown }, tiendaCode: string | null, categoria: string | null): void {
-  if (tiendaCode !== null) req.input('tiendaCode', tiendaCode);
+function bindFilters(req: { input(name: string, value: unknown): unknown }, tienda: TiendaFilter | null, categoria: string | null): void {
+  bindTienda(req, tienda);
   if (categoria !== null) req.input('categoria', categoria);
 }
 
 async function handleProfundidad(
   dateWhere: string, returnsDateWhere: string, salesFilterWhere: string, tiendaOnlyWhere: string,
-  tiendaCode: string | null, categoria: string | null,
+  tienda: TiendaFilter | null, categoria: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
-  const returnsTiendaWhere = tiendaCode !== null ? `AND fr.CustomerKey IN (${TIENDA_KEYS})` : '';
+  const returnsTiendaWhere = tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
 
   const rowsReq = pool.request();
-  bindFilters(rowsReq, tiendaCode, categoria);
+  bindFilters(rowsReq, tienda, categoria);
   const rowsResult = await rowsReq.query(profundidadLineaQuery(dateWhere, returnsDateWhere, salesFilterWhere, returnsTiendaWhere));
 
   // Denominator: all clients/stores active in range (category NOT applied).
   const totalsReq = pool.request();
-  bindFilters(totalsReq, tiendaCode, null);
+  bindFilters(totalsReq, tienda, null);
   const totalsResult = await totalsReq.query(activeTotalsQuery(dateWhere, tiendaOnlyWhere));
   const totalClients = Number(totalsResult.recordset[0]?.TotalClients ?? 0);
   const totalStores = Number(totalsResult.recordset[0]?.TotalStores ?? 0);
@@ -263,17 +278,17 @@ async function handleProfundidad(
 }
 
 async function handlePorLineaMes(
-  dateWhere: string, salesFilterWhere: string, tiendaCode: string | null, categoria: string | null, trend: TrendBucket,
+  dateWhere: string, salesFilterWhere: string, tienda: TiendaFilter | null, categoria: string | null, trend: TrendBucket,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
-  bindFilters(topReq, tiendaCode, categoria);
+  bindFilters(topReq, tienda, categoria);
   const topResult = await topReq.query(topLineasQuery(dateWhere, salesFilterWhere));
   const topLineas = new Set(topResult.recordset.map(r => String(r.LineName)));
 
   const monthReq = pool.request();
-  bindFilters(monthReq, tiendaCode, categoria);
+  bindFilters(monthReq, tienda, categoria);
   const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, salesFilterWhere, trend));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
@@ -345,11 +360,11 @@ async function handlePorLineaMes(
 
 async function handleGrupos(
   dateRange: string, level: 'linea' | 'sublinea' | 'sku', linea: string | null, sublinea: string | null,
-  tiendaCode: string | null, categoria: string | null,
+  tienda: TiendaFilter | null, categoria: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
   const raw = await fetchGroupShare(pool, {
-    dateWhere: buildDateWhereClause(dateRange, 'fs'), level, linea, sublinea, tiendaCode, categoria,
+    dateWhere: buildDateWhereClause(dateRange, 'fs'), level, linea, sublinea, tienda, categoria,
   });
   const response: ProductosGroupShareResponse = { ...buildGroupShareMatrix(raw), level };
   return jsonWithCache(response);
@@ -364,16 +379,25 @@ export async function GET(request: NextRequest) {
   const groupByParam = searchParams.get('groupBy');
   const lineaParam = searchParams.get('linea');
   const sublineaParam = searchParams.get('sublinea');
-  const tiendaParam = searchParams.get('tienda');
-  const tiendaCode = tiendaParam && tiendaParam.trim() !== '' ? tiendaParam.trim() : null;
+  const tienda = parseTienda(searchParams.get('tienda'));
   const categoria = parseCategoria(searchParams.get('categoria'));
 
   if (searchParams.get('tiendas') === '1') {
     try {
       const pool = await getDwhPool();
-      const result = await pool.request().query(tiendasQuery());
+      const entidades = await pool.request().query(entidadesQuery());
+      const tiendas = await pool.request().query(tiendasQuery());
       return jsonWithCache({
-        tiendas: result.recordset.map(r => ({ value: String(r.CustomerCode).trim(), label: r.CustomerName })),
+        tiendas: [
+          ...entidades.recordset.map(r => ({
+            value: `e:${Number(r.LegalEntityKey)}`,
+            label: `${String(r.LegalEntityName).trim()} · ${Number(r.StoreCount)} tiendas`,
+            group: 'Casas matriz' as const,
+          })),
+          ...tiendas.recordset.map(r => ({
+            value: `t:${String(r.CustomerCode).trim()}`, label: r.CustomerName, group: 'Tiendas' as const,
+          })),
+        ],
       });
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
@@ -396,7 +420,7 @@ export async function GET(request: NextRequest) {
   if (groupBy === 'sublinea' && !lineaParam) groupBy = 'linea';
   if (groupBy === 'sku' && (!lineaParam || !sublineaParam)) groupBy = 'linea';
 
-  const tiendaOnlyWhere = tiendaCode !== null ? `AND fs.CustomerKey IN (${TIENDA_KEYS})` : '';
+  const tiendaOnlyWhere = tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
   const salesFilterWhere = `${tiendaOnlyWhere} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
 
   const section = searchParams.get('section');
@@ -407,8 +431,8 @@ export async function GET(request: NextRequest) {
       // (labelled in the UI); the drill-down table uses the same devolución-date basis.
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       return section === 'profundidad'
-        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaCode, categoria)
-        : await handlePorLineaMes(dateWhere, salesFilterWhere, tiendaCode, categoria, parseTrendBucket(searchParams, dateRange));
+        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tienda, categoria)
+        : await handlePorLineaMes(dateWhere, salesFilterWhere, tienda, categoria, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -416,7 +440,7 @@ export async function GET(request: NextRequest) {
 
   if (section === 'grupos') {
     try {
-      return await handleGrupos(dateRange, groupBy, lineaParam, sublineaParam, tiendaCode, categoria);
+      return await handleGrupos(dateRange, groupBy, lineaParam, sublineaParam, tienda, categoria);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -427,27 +451,27 @@ export async function GET(request: NextRequest) {
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
     const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr');
-    const returnsTiendaWhere = `${tiendaCode !== null ? `AND fr.CustomerKey IN (${TIENDA_KEYS})` : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
+    const returnsTiendaWhere = `${tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
 
     if (groupBy === 'sku') {
       const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
-      bindFilters(req, tiendaCode, categoria);
+      bindFilters(req, tienda, categoria);
       const result = await req.query(skuQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
       breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
     } else if (groupBy === 'sublinea') {
       const req = pool.request().input('linea', lineaParam);
-      bindFilters(req, tiendaCode, categoria);
+      bindFilters(req, tienda, categoria);
       const result = await req.query(sublineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
     } else {
       const req = pool.request();
-      bindFilters(req, tiendaCode, categoria);
+      bindFilters(req, tienda, categoria);
       const result = await req.query(lineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
     }
