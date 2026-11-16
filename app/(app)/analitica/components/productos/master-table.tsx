@@ -204,29 +204,33 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
               className={`align-top ${onToggleRow ? 'cursor-pointer ' : ''}${highlightKey === row.key ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : 'hover:bg-gray-50'}`}
             >
               <td className="px-3 py-2 text-gray-800">
-                {onToggleRow && (
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-controls={expanded && renderExpanded ? panelId : undefined}
-                    aria-label={`${expanded ? 'Contraer' : 'Expandir'} clientes de ${row.label}`}
-                    className="mr-2 inline-block w-4 text-gray-500 hover:text-gray-900"
-                  >
-                    <span aria-hidden="true">{expanded ? '▼' : '▶'}</span>
-                  </button>
-                )}
-                <span data-label className="font-medium">{row.label}</span>
-                {nivel === 'sku' && row.code && row.code !== row.label && (
-                  <div className="text-xs text-gray-500 tabular-nums">{row.code}</div>
-                )}
-                {nivel === 'sublinea' && <div className="text-xs text-gray-500">{row.linea}</div>}
-                {nivel === 'sku' && (
-                  <div title={`${row.linea} › ${row.sublinea}`} className="mt-1 flex items-center gap-1 text-[11px] text-gray-600">
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5">{row.linea}</span>
-                    <span aria-hidden="true" className="text-gray-400">›</span>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5">{row.sublinea}</span>
+                <div className="flex items-start gap-2">
+                  {onToggleRow && (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-controls={expanded && renderExpanded ? panelId : undefined}
+                      aria-label={`${expanded ? 'Contraer' : 'Expandir'} clientes de ${row.label}`}
+                      className="mt-0.5 w-4 shrink-0 text-center text-xs leading-5 text-gray-500 hover:text-gray-900"
+                    >
+                      <span aria-hidden="true">{expanded ? '▼' : '▶'}</span>
+                    </button>
+                  )}
+                  <div className="min-w-0">
+                    <span data-label className="font-medium">{row.label}</span>
+                    {nivel === 'sku' && row.code && row.code !== row.label && (
+                      <div className="text-xs text-gray-500 tabular-nums">{row.code}</div>
+                    )}
+                    {nivel === 'sublinea' && <div className="text-xs text-gray-500">{row.linea}</div>}
+                    {nivel === 'sku' && (
+                      <div title={`${row.linea} › ${row.sublinea}`} className="mt-1 flex items-center gap-1 text-[11px] text-gray-600">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5">{row.linea}</span>
+                        <span aria-hidden="true" className="text-gray-400">›</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5">{row.sublinea}</span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </td>
               <td className="px-3 py-2"><ParetoBadge value={row.pareto} /></td>
               <td className={`px-3 py-2 text-right tabular-nums ${highlight('net')}`}>
