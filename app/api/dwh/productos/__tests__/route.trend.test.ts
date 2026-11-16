@@ -74,4 +74,50 @@ describe('GET /api/dwh/productos section=porLineaMes follows nivel and the bar f
     expect(body.lineas).toEqual(['Pan Campesino']);
     expect(body.seriesMeta['Pan Campesino'].code).toBe('P1');
   });
+
+  test('lineas follow the top-series (units-desc) order, not bucket-row order, with Otras last', async () => {
+    respond = text => text.includes('TOP 10')
+      ? [
+        { SeriesKey: 'A', Linea: 'x', Sublinea: 'y', Code: null, Label: 'Alfa' },
+        { SeriesKey: 'B', Linea: 'x', Sublinea: 'y', Code: null, Label: 'Beta' },
+        { SeriesKey: 'C', Linea: 'x', Sublinea: 'y', Code: null, Label: 'Gamma' },
+      ]
+      : [
+        { Bucket: '2026-10', SeriesKey: 'C', QuantitySold: 1, SalesGrossBs: 1, SalesGrossUsd: 1 },
+        { Bucket: '2026-10', SeriesKey: 'Z', QuantitySold: 1, SalesGrossBs: 1, SalesGrossUsd: 1 },
+        { Bucket: '2026-10', SeriesKey: 'A', QuantitySold: 1, SalesGrossBs: 1, SalesGrossUsd: 1 },
+      ];
+    const body = await (await get('section=porLineaMes&dateRange=month:2026-10')).json();
+    expect(body.lineas).toEqual(['Alfa', 'Gamma', 'Otras']);
+  });
+
+  test('two SKUs sharing a product name get a " (code)" suffix', async () => {
+    respond = text => text.includes('TOP 10')
+      ? [
+        { SeriesKey: 'P1', Linea: 'x', Sublinea: 'y', Code: 'P1', Label: 'Pan' },
+        { SeriesKey: 'P2', Linea: 'x', Sublinea: 'y', Code: 'P2', Label: 'Pan' },
+      ]
+      : [
+        { Bucket: '2026-10', SeriesKey: 'P1', QuantitySold: 5, SalesGrossBs: 10, SalesGrossUsd: 2 },
+        { Bucket: '2026-10', SeriesKey: 'P2', QuantitySold: 3, SalesGrossBs: 6, SalesGrossUsd: 1 },
+      ];
+    const body = await (await get('section=porLineaMes&nivel=sku&dateRange=month:2026-10')).json();
+    expect(body.lineas).toEqual(['Pan', 'Pan (P2)']);
+    expect(body.seriesMeta['Pan (P2)'].code).toBe('P2');
+  });
+
+  test('series outside the top-N collapse into a single Otras', async () => {
+    const top = Array.from({ length: 10 }, (_, i) => ({ SeriesKey: `S${i}`, Linea: 'x', Sublinea: 'y', Code: `S${i}`, Label: `Prod ${i}` }));
+    respond = text => text.includes('TOP 10')
+      ? top
+      : [
+        ...top.map(t => ({ Bucket: '2026-10', SeriesKey: t.SeriesKey, QuantitySold: 1, SalesGrossBs: 1, SalesGrossUsd: 1 })),
+        { Bucket: '2026-10', SeriesKey: 'S10', QuantitySold: 2, SalesGrossBs: 2, SalesGrossUsd: 2 },
+        { Bucket: '2026-10', SeriesKey: 'S11', QuantitySold: 3, SalesGrossBs: 3, SalesGrossUsd: 3 },
+      ];
+    const body = await (await get('section=porLineaMes&nivel=sku&dateRange=month:2026-10')).json();
+    expect(body.lineas).toHaveLength(11);
+    expect(body.lineas[10]).toBe('Otras');
+    expect(body.rows[0].units.Otras).toBe(5);
+  });
 });

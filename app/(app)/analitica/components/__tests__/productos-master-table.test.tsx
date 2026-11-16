@@ -183,4 +183,10 @@ describe('ParetoBadge', () => {
     const { container } = render(<ParetoBadge value={null} />);
     expect(container.textContent).toBe('—');
   });
+
+  test('average price with zero units is "Sin datos", never a zero price', () => {
+    renderTable({ rows: [row({ key: 'Z', label: 'Z', units: 0, avgPrice: { bs: 0, usd: 0 } })] });
+    const cells = within(screen.getByRole('table', { name: 'Catálogo de productos' })).getAllByRole('row')[1].querySelectorAll('td');
+    expect(cells[7].textContent).toBe('Sin datos');
+  });
 });

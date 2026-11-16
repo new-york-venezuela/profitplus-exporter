@@ -49,4 +49,16 @@ describe('ControlBar', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith({ q: 'pan' });
   });
+  test('external q change updates the input', () => {
+    const onChange = mock<(p: object) => void>(() => {});
+    const props = {
+      onChange, tiendas: [], categorias: [], lineaOptions: [], sublineaOptions: [], grupoOptions: [],
+    };
+    const { rerender } = render(<ControlBar params={params} {...props} />);
+    const input = screen.getByPlaceholderText('Buscar por código o nombre de SKU...') as HTMLInputElement;
+    expect(input.value).toBe('');
+    rerender(<ControlBar params={{ ...params, q: 'P123' }} {...props} />);
+    expect(input.value).toBe('P123');
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

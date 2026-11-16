@@ -202,7 +202,7 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
               <td className="px-3 py-2 text-right"><ReturnRateBadge rate={row.returnRate} /></td>
               <td className={`px-3 py-2 text-right tabular-nums text-gray-900 ${highlight('units')}`}>{qty(row.units)}</td>
               <td className="px-3 py-2 text-right tabular-nums text-gray-700">{qty(row.avgUnitsPerMonth)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-gray-700">{amountText(row.avgPrice, currency, priceLabel)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-gray-700">{row.units === 0 ? 'Sin datos' : amountText(row.avgPrice, currency, priceLabel)}</td>
               <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
                 {plural(row.clientCount, 'cliente', 'clientes')} · {plural(row.posCount, 'tienda', 'tiendas')}
               </td>

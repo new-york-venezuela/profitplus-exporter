@@ -33,22 +33,36 @@ function segClass(active: boolean) {
 export default function ControlBar({
   params, onChange, tiendas, categorias, lineaOptions, sublineaOptions, grupoOptions,
 }: ControlBarProps) {
-  const [q, setQ] = useState(params.q);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [emitted, setEmitted] = useState<string | null>(null);
+  const [seenQ, setSeenQ] = useState(params.q);
   const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const lastEmitted = useRef(params.q);
+  const qRef = useRef(params.q);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep the box in sync when the URL changes from elsewhere.
-  useEffect(() => { setQ(params.q); lastEmitted.current = params.q; }, [params.q]);
+  // Latest callbacks/values for the debounce timer, updated after commit (never during render).
+  useEffect(() => { onChangeRef.current = onChange; qRef.current = params.q; });
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
+  // params.q changed: our own emitted value arriving keeps the draft until it matches;
+  // anything else (e.g. a trend click) is external and wins over the draft.
+  if (params.q !== seenQ) {
+    setSeenQ(params.q);
+    if (params.q === emitted) {
+      if (draft === params.q) setDraft(null);
+    } else {
+      setDraft(null);
+    }
+  }
+  const q = draft ?? params.q;
+
   function handleSearch(v: string) {
-    setQ(v);
+    setDraft(v);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      if (v !== lastEmitted.current) {
-        lastEmitted.current = v;
+      timer.current = null;
+      if (v !== qRef.current) {
+        setEmitted(v);
         onChangeRef.current({ q: v });
       }
     }, SEARCH_DELAY_MS);

@@ -59,4 +59,9 @@ describe('classifyPareto', () => {
     const r = classifyPareto(items([['a', 0], ['b', -3], ['n', null]]));
     expect(obj(r)).toEqual({ a: 'C', b: 'C', n: null });
   });
+
+  test('non-finite values are null class and excluded from the total', () => {
+    const r = classifyPareto(items([['a', 60], ['b', 40], ['n', NaN], ['i', Infinity], ['m', -Infinity]]));
+    expect(obj(r)).toEqual({ a: 'A', b: 'A', n: null, i: null, m: null });
+  });
 });

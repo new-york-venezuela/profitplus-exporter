@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { captureException } from '@/lib/analytics/posthog';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
@@ -216,7 +217,10 @@ async function handlePorLineaMes(
   }
 
   const rows = Array.from(byMonth.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
-  const lineas = hasOtras ? [...lineasSeen, 'Otras'] : lineasSeen;
+  // Legend / colour order follows the top-series order (units descending), not bucket-row order.
+  const seen = new Set(lineasSeen);
+  const ordered = Array.from(labelByKey.values()).filter(l => seen.has(l));
+  const lineas = hasOtras ? [...ordered, 'Otras'] : ordered;
 
   const response: UnitsByLineaResponse = { rows, lineas, trendMode: trend.mode, nivel, seriesMeta };
   return jsonWithCache(response);
@@ -405,7 +409,9 @@ export async function GET(request: NextRequest) {
           })),
         ],
       });
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (tiendas) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
@@ -413,7 +419,9 @@ export async function GET(request: NextRequest) {
   if (searchParams.get('filtros') === '1') {
     try {
       return await handleFiltros();
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (filtros) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
@@ -423,7 +431,9 @@ export async function GET(request: NextRequest) {
       const pool = await getDwhPool();
       const response: ProductosCategoriasResponse = { categorias: await fetchCategorias(pool) };
       return jsonWithCache(response);
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (categorias) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
@@ -439,7 +449,9 @@ export async function GET(request: NextRequest) {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
       const salesFilterWhere = `${tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''} ${itemFilterSql(itemFilter)}`;
       return await handlePorLineaMes(nivel, dateWhere, salesFilterWhere, itemFilter, tienda, categoria, parseTrendBucket(searchParams, dateRange));
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (porLineaMes) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
@@ -448,7 +460,9 @@ export async function GET(request: NextRequest) {
     try {
       const currency: Currency = searchParams.get('currency') === 'usd' ? 'usd' : 'bs';
       return await handleCatalogo(dateRange, nivel, itemFilter, tienda, categoria, currency);
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (catalogo) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
@@ -456,7 +470,9 @@ export async function GET(request: NextRequest) {
   if (section === 'grupos') {
     try {
       return await handleGrupos(dateRange, nivel, itemFilter, tienda, categoria);
-    } catch {
+    } catch (err) {
+      console.error('GET /api/dwh/productos (grupos) failed', err);
+      captureException(err, auth.session.sub);
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
