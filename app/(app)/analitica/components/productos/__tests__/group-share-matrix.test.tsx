@@ -8,17 +8,17 @@ afterEach(cleanup);
 
 const matrix: GroupShareMatrix = {
   columns: [
-    { code: 'S1', name: 'Abasto', salesBs: 3500 },
-    { code: 'S2', name: 'Restaurante', salesBs: 700 },
-    { code: '__sin_grupo__', name: 'Sin grupo', salesBs: 300 },
+    { code: 'S1', name: 'Abasto', salesBs: 3500, units: 0 },
+    { code: 'S2', name: 'Restaurante', salesBs: 700, units: 0 },
+    { code: '__sin_grupo__', name: 'Sin grupo', salesBs: 300, units: 0 },
   ],
   rows: [
-    { label: 'Panaderia', totalBs: 4200, totalUsd: 84, cells: {
-      S1: { salesBs: 3500, salesUsd: 70, share: 3500 / 4200 },
-      S2: { salesBs: 400, salesUsd: 8, share: 400 / 4200 },
-      __sin_grupo__: { salesBs: 300, salesUsd: null, share: 300 / 4200 },
+    { label: 'Panaderia', totalBs: 4200, totalUsd: 84, totalUnits: 0, cells: {
+      S1: { salesBs: 3500, salesUsd: 70, share: 3500 / 4200, units: 0, unitShare: 0 },
+      S2: { salesBs: 400, salesUsd: 8, share: 400 / 4200, units: 0, unitShare: 0 },
+      __sin_grupo__: { salesBs: 300, salesUsd: null, share: 300 / 4200, units: 0, unitShare: 0 },
     } },
-    { label: 'Pizza', totalBs: 700, totalUsd: 14, cells: { S2: { salesBs: 700, salesUsd: 14, share: 1 } } },
+    { label: 'Pizza', totalBs: 700, totalUsd: 14, totalUnits: 0, cells: { S2: { salesBs: 700, salesUsd: 14, share: 1, units: 0, unitShare: 0 } } },
   ],
 };
 

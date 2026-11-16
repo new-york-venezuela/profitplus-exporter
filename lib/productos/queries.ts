@@ -44,7 +44,8 @@ export async function fetchGroupShare(pool: sql.ConnectionPool, o: GroupShareQue
   const label = labelExpr(o.level);
   const result = await req.query(`
     SELECT ${label} AS Label, RTRIM(cur.ErpSegmentCode) AS GroupCode, sg.SegmentName AS GroupName,
-           ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')}
+           ${dualAmountExpr('fs', 'NetAmount', 'SalesBs', 'SalesUsd')},
+           SUM(fs.QuantitySold) AS Units
     FROM fact.Fact_Sales fs
     ${usdConversionJoin('fs')}
     JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
@@ -60,6 +61,7 @@ export async function fetchGroupShare(pool: sql.ConnectionPool, o: GroupShareQue
     groupName: r.GroupName ? String(r.GroupName).trim() : null,
     salesBs: Number(r.SalesBs ?? 0),
     salesUsd: r.SalesUsd === null || r.SalesUsd === undefined ? null : Number(r.SalesUsd),
+    units: Number(r.Units ?? 0),
   }));
 }
 

@@ -64,8 +64,8 @@ describe('GET /api/dwh/productos without a known section', () => {
 describe('GET /api/dwh/productos section=grupos', () => {
   test('returns the share matrix for the drill level and binds category and tienda', async () => {
     respond = () => [
-      { Label: 'Panaderia', GroupCode: 'S1', GroupName: 'Abasto', SalesBs: 3500, SalesUsd: 70 },
-      { Label: 'Panaderia', GroupCode: null, GroupName: null, SalesBs: 300, SalesUsd: null },
+      { Label: 'Panaderia', GroupCode: 'S1', GroupName: 'Abasto', SalesBs: 3500, SalesUsd: 70, Units: 35 },
+      { Label: 'Panaderia', GroupCode: null, GroupName: null, SalesBs: 300, SalesUsd: null, Units: 15 },
     ];
     const res = await get('section=grupos&groupBy=linea&dateRange=month:2026-10&categoria=Congelado&tienda=J123');
     expect(res.status).toBe(200);
@@ -73,6 +73,9 @@ describe('GET /api/dwh/productos section=grupos', () => {
     expect(body.level).toBe('linea');
     expect(body.columns.map((c: { name: string }) => c.name)).toEqual(['Abasto', 'Sin grupo']);
     expect(body.rows[0].cells.S1.share).toBeCloseTo(3500 / 3800, 8);
+    expect(body.rows[0].cells.S1.unitShare).toBeCloseTo(35 / 50, 8);
+    expect(body.rows[0].totalUnits).toBe(50);
+    expect(queries[0].sql).toContain('SUM(fs.QuantitySold) AS Units');
     expect(queries[0].sql).toContain('cur.IsCurrent = 1');
     expect(queries[0].inputs).toMatchObject({ categoria: 'Congelado', tiendaCode: 'J123' });
   });

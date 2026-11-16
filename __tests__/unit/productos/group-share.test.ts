@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { NO_GROUP_CODE, buildGroupShareMatrix, type GroupShareRaw } from '../../../lib/productos/group-share';
 
-const raw = (label: string, groupCode: string | null, groupName: string | null, salesBs: number, salesUsd: number | null): GroupShareRaw =>
-  ({ label, groupCode, groupName, salesBs, salesUsd });
+const raw = (label: string, groupCode: string | null, groupName: string | null, salesBs: number, salesUsd: number | null, units = 0): GroupShareRaw =>
+  ({ label, groupCode, groupName, salesBs, salesUsd, units });
 
 describe('buildGroupShareMatrix', () => {
   const data = [
@@ -46,5 +46,43 @@ describe('buildGroupShareMatrix', () => {
   test('nothing positive gives an empty matrix', () => {
     expect(buildGroupShareMatrix([])).toEqual({ columns: [], rows: [] });
     expect(buildGroupShareMatrix([raw('A', 'S1', 'Abasto', -1, null)])).toEqual({ columns: [], rows: [] });
+  });
+});
+
+
+const r = (label: string, groupCode: string | null, salesBs: number, units: number, salesUsd: number | null = null): GroupShareRaw =>
+  ({ label, groupCode, groupName: groupCode ? `N-${groupCode}` : null, salesBs, salesUsd, units });
+
+describe('buildGroupShareMatrix units', () => {
+  const raw = [
+    r('Panaderia', 'S1', 3000, 30), r('Panaderia', 'S1', 500, 5), r('Panaderia', 'S2', 500, 15), r('Panaderia', null, 1000, 50),
+    r('Pizza', 'S2', 700, 7),
+  ];
+  const m = buildGroupShareMatrix(raw);
+  const pan = m.rows.find(x => x.label === 'Panaderia')!;
+  test('aggregates units per cell, row total and column', () => {
+    expect(pan.cells.S1.units).toBe(35);
+    expect(pan.cells.S2.units).toBe(15);
+    expect(pan.totalUnits).toBe(100);
+    expect(m.columns.find(c => c.code === 'S1')!.units).toBe(35);
+    expect(m.columns.find(c => c.code === 'S2')!.units).toBe(22);
+  });
+  test('unitShare sums to 1 per row', () => {
+    const sum = Object.values(pan.cells).reduce((a, c) => a + c.unitShare, 0);
+    expect(sum).toBeCloseTo(1, 10);
+    expect(pan.cells.S1.unitShare).toBeCloseTo(0.35, 10);
+  });
+  test('sales shares are unchanged', () => {
+    expect(pan.totalBs).toBe(5000);
+    expect(pan.cells.S1.share).toBeCloseTo(3500 / 5000, 10);
+    expect(m.columns.map(c => c.code)).toEqual(['S1', 'S2', '__sin_grupo__']);
+  });
+  test('sales > 0 with zero units gives unitShare 0, not NaN', () => {
+    const z = buildGroupShareMatrix([r('Agua', 'S1', 100, 0)]);
+    expect(z.rows[0].totalUnits).toBe(0);
+    expect(z.rows[0].cells.S1.unitShare).toBe(0);
+  });
+  test('zero-sales rows are still omitted', () => {
+    expect(buildGroupShareMatrix([r('X', 'S1', 0, 10)]).rows).toEqual([]);
   });
 });
