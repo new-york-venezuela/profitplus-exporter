@@ -1,5 +1,4 @@
 import type { BucketMode } from './lib/granularity';
-import type { DepthTier } from '@/lib/dwh/depth-tier';
 import type { GroupShareMatrix } from '@/lib/productos/group-share';
 import type { ParetoClass } from '@/lib/productos/pareto';
 export type Currency = 'bs' | 'usd';
@@ -389,43 +388,6 @@ export interface ClientesChurnedResponse {
   // (mirrors buildPrevPeriodDateWhereClause's own null case) — the UI
   // should show "no disponible" rather than an empty table in that case.
   available: boolean;
-}
-
-// Productos tab
-export interface ProductosRow {
-  sku: string;
-  linea: string;
-  sublinea: string;
-  rotacion: number; // units sold (QuantitySold) in range
-  salesGross: DualAmount;
-  returns: DualAmount; // by original factura date
-  salesNet: DualAmount; // salesGross − returns
-  margin: number | null; // GrossProfitAmount / NetAmount — null while Fact_Sales has no cost data
-  salesShare: number | null; // salesGross / sum(salesGross) across all rows at this drill level
-}
-
-export interface ProductosResponse {
-  rows: ProductosRow[];
-  groupBy: GroupBy; // 'linea' | 'sublinea' | 'sku'
-  breadcrumb: Array<{ label: string; groupBy: GroupBy }>;
-}
-
-// Productos tab — Profundidad de Línea table (top-15 SKUs by sales, flat
-// leaderboard, independent of the línea/sublínea/sku drill-down above).
-export interface ProfundidadLineaRow {
-  sku: string;
-  clientCount: number;
-  clientShare: number | null; // clientCount / total distinct clients active in range
-  storeCount: number;
-  storeShare: number | null; // storeCount / total distinct stores active in range
-  avgMonthlyPrice: DualAmount; // avg NetAmount per unit, averaged over months with sales
-  avgMonthlyUnits: number; // QuantitySold / distinct months with sales in range
-  returnRate: number | null;
-  tier: DepthTier; // primera/segunda/addon from clientShare vs DEFAULT_TIER_THRESHOLDS
-}
-
-export interface ProfundidadLineaResponse {
-  rows: ProfundidadLineaRow[];
 }
 
 // Productos tab - product x customer-group share matrix (section=grupos) and the category filter options.

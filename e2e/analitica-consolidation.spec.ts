@@ -59,7 +59,12 @@ async function mockClientes(page: Page) {
   return seen;
 }
 
-const PROFUNDIDAD = { rows: [{ sku: 'Pan Baguette', clientCount: 8, clientShare: 0.8, storeCount: 9, storeShare: 0.75, avgMonthlyPrice: { bs: 50, usd: 1 }, avgMonthlyUnits: 100, returnRate: 0.01, tier: 'primera' }] };
+const CATALOGO = { nivel: 'linea', rows: [{
+  key: 'Panaderia', label: 'Panaderia', code: null, linea: 'Panaderia', sublinea: '',
+  salesGross: { bs: 1000, usd: 20 }, returns: { bs: 0, usd: 0 }, salesNet: { bs: 1000, usd: 20 },
+  units: 1200, monthCount: 1, avgUnitsPerMonth: 1200, avgPrice: { bs: 0.83, usd: 0.02 }, returnRate: 0,
+  clientCount: 8, posCount: 9, sharePct: 1, pareto: 'A',
+}] };
 const GRUPOS = {
   level: 'linea',
   columns: [{ code: 'S1', name: 'Abasto', salesBs: 3500 }, { code: 'S2', name: 'Restaurante', salesBs: 400 }, { code: '__sin_grupo__', name: 'Sin grupo', salesBs: 300 }],
@@ -76,13 +81,11 @@ async function mockProductos(page: Page) {
     const p = url.searchParams;
     if (p.get('tiendas') === '1') return route.fulfill({ json: { tiendas: [] } });
     if (p.get('categorias') === '1') return route.fulfill({ json: { categorias: ['Congelado', 'Fresco'] } });
-    if (p.get('section') === 'profundidad') return route.fulfill({ json: PROFUNDIDAD });
+    if (p.get('filtros') === '1') return route.fulfill({ json: { lineas: ['Panaderia'], sublineas: [{ linea: 'Panaderia', sublinea: 'Artesanal' }], grupos: [{ code: 'S1', name: 'Abasto' }] } });
     if (p.get('section') === 'porLineaMes') return route.fulfill({ json: { rows: [], lineas: [], trendMode: 'month' } });
     if (p.get('section') === 'grupos') return route.fulfill({ json: GRUPOS });
-    return route.fulfill({ json: {
-      rows: [{ sku: '', linea: 'Panaderia', sublinea: '', rotacion: 1200, salesShare: 1, salesGross: { bs: 1000, usd: 20 }, returns: { bs: 0, usd: 0 }, salesNet: { bs: 1000, usd: 20 }, margin: null }],
-      groupBy: 'linea', breadcrumb: [{ label: 'Líneas', groupBy: 'linea' }],
-    } });
+    if (p.get('section') === 'catalogo') return route.fulfill({ json: CATALOGO });
+    return route.fulfill({ status: 400, json: { error: 'Sección no válida' } });
   });
   return seen;
 }
@@ -133,26 +136,33 @@ test.describe('analitica consolidation (mocked API)', () => {
     await expect(section.getByText('Ningún cliente coincide con los filtros.')).toBeVisible();
   });
 
-  test('Productos: category filter reaches every request; matrix and tier badge render', async ({ adminPage }) => {
+  test('Productos: category filter reaches every request; master table and matrix render', async ({ adminPage }) => {
     const seen = await mockProductos(adminPage);
     await adminPage.goto('/analitica?tab=productos');
-    await expect(adminPage.getByRole('table', { name: 'Participación por grupo de cliente' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('table', { name: 'Catálogo de productos' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByTitle('Clase Pareto A')).toBeVisible();
+    await expect(adminPage.getByText('8 clientes · 9 tiendas')).toBeVisible();
+    await expect(adminPage.getByRole('table', { name: 'Participación por grupo de cliente' })).toBeVisible();
     await expect(adminPage.getByRole('columnheader', { name: 'Abasto' })).toBeVisible();
     await expect(adminPage.getByRole('columnheader', { name: 'Sin grupo' })).toBeVisible();
     await expect(adminPage.getByRole('cell', { name: '83%' })).toBeVisible();
-    await expect(adminPage.getByText('Primera línea')).toBeVisible();
-    await adminPage.getByLabel('Filtrar por categoría').selectOption('Fresco');
-    await expect.poll(() => seen.some(s => s.includes('section=grupos') && s.includes('categoria=Fresco'))).toBe(true);
-    await expect.poll(() => seen.some(s => s.includes('section=profundidad') && s.includes('categoria=Fresco'))).toBe(true);
-    await expect.poll(() => seen.some(s => !s.includes('section=') && s.includes('categoria=Fresco'))).toBe(true);
+    await adminPage.getByRole('combobox', { name: 'Categoría', exact: true }).selectOption('Fresco');
+    await expect(adminPage).toHaveURL(/categoria=Fresco/);
+    for (const section of ['catalogo', 'grupos', 'porLineaMes']) {
+      await expect.poll(() => seen.some(s => s.includes(`section=${section}`) && s.includes('categoria=Fresco'))).toBe(true);
+    }
   });
 
-  test('Productos: drilling into a line re-scopes the matrix to sub-lines', async ({ adminPage }) => {
+  test('Productos: the nivel switch re-scopes the master table and the matrix', async ({ adminPage }) => {
     const seen = await mockProductos(adminPage);
     await adminPage.goto('/analitica?tab=productos');
-    await expect(adminPage.locator('#productos-drilldown-section')).toBeVisible({ timeout: 15_000 });
-    await adminPage.locator('#productos-drilldown-section').getByText('Panaderia').click();
-    await expect.poll(() => seen.some(s => s.includes('section=grupos') && s.includes('groupBy=sublinea') && s.includes('linea=Panaderia'))).toBe(true);
+    await expect(adminPage.getByRole('table', { name: 'Catálogo de productos' })).toBeVisible({ timeout: 15_000 });
+    await adminPage.getByRole('group', { name: 'Nivel' }).getByRole('button', { name: 'Sublínea' }).click();
+    await expect(adminPage).toHaveURL(/nivel=sublinea/);
+    await expect(adminPage).toHaveURL(/tab=productos/);
+    for (const section of ['catalogo', 'grupos']) {
+      await expect.poll(() => seen.some(s => s.includes(`section=${section}`) && s.includes('nivel=sublinea'))).toBe(true);
+    }
   });
 
   test('Histórico states the 2025 window', async ({ adminPage }) => {
@@ -236,11 +246,13 @@ test.describe('analitica consolidation @mssql', () => {
     await expect(adminPage.getByText('Cumplimiento de visitas')).toBeVisible({ timeout: 30_000 });
   });
 
-  test('Productos shows the category filter and the group matrix on real data', async ({ adminPage }) => {
+  test('Productos shows the category filter, the master table and the group matrix on real data', async ({ adminPage }) => {
     await adminPage.goto('/analitica?tab=productos');
-    await expect(adminPage.getByLabel('Filtrar por categoría')).toBeVisible({ timeout: 30_000 });
+    const categoria = adminPage.getByRole('combobox', { name: 'Categoría', exact: true });
+    await expect(categoria).toBeVisible({ timeout: 30_000 });
+    await expect(adminPage.getByRole('table', { name: 'Catálogo de productos' })).toBeVisible({ timeout: 30_000 });
     await expect(adminPage.getByRole('table', { name: 'Participación por grupo de cliente' })).toBeVisible({ timeout: 30_000 });
-    await adminPage.getByLabel('Filtrar por categoría').selectOption({ index: 1 });
+    await categoria.selectOption({ index: 1 });
     await expect(adminPage.getByRole('table', { name: 'Participación por grupo de cliente' })).toBeVisible({ timeout: 30_000 });
   });
 

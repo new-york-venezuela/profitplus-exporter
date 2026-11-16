@@ -9,8 +9,8 @@ describe('GET /api/dwh/productos', () => {
     expect(res.status).toBe(401);
   });
 
-  test('rejects unauthenticated requests with 401 for section=profundidad', async () => {
-    const req = new NextRequest('http://localhost/api/dwh/productos?section=profundidad');
+  test('rejects unauthenticated requests with 401 for section=catalogo', async () => {
+    const req = new NextRequest('http://localhost/api/dwh/productos?section=catalogo');
     const res = await GET(req);
     expect(res.status).toBe(401);
   });

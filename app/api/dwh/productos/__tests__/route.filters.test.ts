@@ -22,66 +22,42 @@ const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/produc
 beforeEach(() => { queries.length = 0; respond = () => []; });
 
 describe('GET /api/dwh/productos category filter', () => {
-  test('the drill filters sales AND the returns subquery by the bound category', async () => {
-    const res = await get('dateRange=month:2026-10&groupBy=linea&categoria=Fresco');
+  const salesQ = () => queries.find(q => q.sql.includes('fact.Fact_Sales'))!;
+  test('catalogo filters sales AND returns by the bound category', async () => {
+    const res = await get('section=catalogo&nivel=linea&dateRange=month:2026-10&categoria=Fresco');
     expect(res.status).toBe(200);
-    expect(queries[0].sql).toContain('p.CategoryName = @categoria');
-    expect(queries[0].sql).toContain('pr.CategoryName = @categoria');
-    expect(queries[0].inputs.categoria).toBe('Fresco');
+    expect(salesQ().sql).toContain('p.CategoryName = @categoria');
+    expect(queries.find(q => q.sql.includes('fact.Fact_Returns'))!.sql).toContain('pr.CategoryName = @categoria');
+    expect(salesQ().inputs.categoria).toBe('Fresco');
   });
   test('a hostile category string is only ever a parameter value', async () => {
     const hostile = "Fresco' OR 1=1 --";
-    await get(`dateRange=month:2026-10&groupBy=linea&categoria=${encodeURIComponent(hostile)}`);
-    expect(queries[0].sql).not.toContain('OR 1=1');
-    expect(queries[0].inputs.categoria).toBe(hostile);
+    await get(`section=catalogo&dateRange=month:2026-10&categoria=${encodeURIComponent(hostile)}`);
+    for (const q of queries) expect(q.sql).not.toContain('OR 1=1');
+    expect(salesQ().inputs.categoria).toBe(hostile);
   });
   test('an over-long or empty category is ignored', async () => {
-    await get(`groupBy=linea&categoria=${'x'.repeat(61)}`);
-    expect(queries[0].sql).not.toContain('@categoria');
+    await get(`section=catalogo&categoria=${'x'.repeat(61)}`);
+    expect(salesQ().sql).not.toContain('@categoria');
     queries.length = 0;
-    await get('groupBy=linea&categoria=');
-    expect(queries[0].sql).not.toContain('@categoria');
+    await get('section=catalogo&categoria=');
+    expect(salesQ().sql).not.toContain('@categoria');
   });
-  test('sublinea drill keeps linea and category bound together', async () => {
-    await get('groupBy=sublinea&linea=Panaderia&categoria=Congelado');
-    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia', categoria: 'Congelado' });
-  });
-  test('stacked chart and presence table honor the category; the presence denominator does not', async () => {
-    respond = text => (text.includes('TotalClients') ? [{ TotalClients: 10, TotalStores: 12 }] : []);
-    await get('section=profundidad&categoria=Fresco&dateRange=month:2026-10');
-    const rowsQuery = queries.find(q => q.sql.includes('ClientCount'))!;
-    const totalsQuery = queries.find(q => q.sql.includes('TotalClients'))!;
-    expect(rowsQuery.sql).toContain('p.CategoryName = @categoria');
-    expect(totalsQuery.sql).not.toContain('CategoryName');
-    queries.length = 0;
+  test('the stacked chart honors the category', async () => {
     await get('section=porLineaMes&categoria=Fresco&dateRange=month:2026-10');
+    expect(queries.length).toBeGreaterThan(0);
     expect(queries.every(q => q.sql.includes('p.CategoryName = @categoria'))).toBe(true);
   });
 });
 
-describe('GET /api/dwh/productos section=profundidad tier', () => {
-  test('rows carry the tier derived from client penetration', async () => {
-    respond = text => (text.includes('TotalClients')
-      ? [{ TotalClients: 10, TotalStores: 12 }]
-      : [
-        { Sku: 'Pan Baguette', ClientCount: 8, StoreCount: 9, MonthCount: 1, SalesGrossBs: 1000, SalesGrossUsd: 20, QuantitySold: 100, ReturnsNetBs: 10 },
-        { Sku: 'Pizza', ClientCount: 4, StoreCount: 5, MonthCount: 1, SalesGrossBs: 500, SalesGrossUsd: 10, QuantitySold: 50, ReturnsNetBs: 0 },
-        { Sku: 'Rara', ClientCount: 1, StoreCount: 1, MonthCount: 1, SalesGrossBs: 50, SalesGrossUsd: null, QuantitySold: 5, ReturnsNetBs: 0 },
-      ]);
-    const body = await (await get('section=profundidad&dateRange=month:2026-10')).json();
-    expect(body.rows.map((r: { sku: string; tier: string }) => [r.sku, r.tier])).toEqual([
-      ['Pan Baguette', 'primera'], ['Pizza', 'segunda'], ['Rara', 'addon'],
-    ]);
-  });
-});
-
-describe('GET /api/dwh/productos default drill still scopes by linea/sublinea', () => {
-  test('sublinea and sku drills bind the singular params', async () => {
-    await get('groupBy=sku&linea=Panaderia&sublinea=Artesanal&dateRange=month:2026-10');
-    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia', sublinea: 'Artesanal' });
-    queries.length = 0;
-    await get('groupBy=sublinea&linea=Panaderia&dateRange=month:2026-10');
-    expect(queries[0].inputs).toMatchObject({ linea: 'Panaderia' });
+describe('GET /api/dwh/productos without a known section', () => {
+  test('the removed default drill and section=profundidad are a 400, with no query run', async () => {
+    for (const qs of ['dateRange=month:2026-10', 'groupBy=sku&linea=Panaderia&sublinea=Artesanal', 'section=profundidad']) {
+      const res = await get(qs);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'Sección no válida' });
+    }
+    expect(queries).toHaveLength(0);
   });
 });
 
@@ -164,22 +140,14 @@ describe('GET /api/dwh/productos?tiendas=1', () => {
     expect(queries[0].sql).toContain('LegalEntityKey = @entidadKey');
     expect(queries[0].inputs).toMatchObject({ entidadKey: 7 });
   });
-  test('tienda=e:7 reaches the returns SQL on the default drill and on profundidad', async () => {
-    await get('dateRange=month:2026-10&tienda=e:7');
+  test('tienda=e:7 reaches the catalogo returns SQL as the entity key, never the store code', async () => {
+    await get('section=catalogo&dateRange=month:2026-10&tienda=e:7');
     const returnsQ = queries.filter(q => q.sql.includes('fr.CustomerKey IN'));
     expect(returnsQ.length).toBeGreaterThan(0);
     for (const q of returnsQ) {
       expect(q.sql).toContain('@entidadKey');
       expect(q.inputs).toMatchObject({ entidadKey: 7 });
       expect(q.sql).not.toContain('@tiendaCode');
-    }
-    queries.length = 0;
-    await get('section=profundidad&dateRange=month:2026-10&tienda=e:7');
-    const profQ = queries.filter(q => q.sql.includes('fr.CustomerKey IN'));
-    expect(profQ.length).toBeGreaterThan(0);
-    for (const q of profQ) {
-      expect(q.sql).toContain('@entidadKey');
-      expect(q.inputs).toMatchObject({ entidadKey: 7 });
     }
   });
   test('tienda=e:abc is ignored', async () => {

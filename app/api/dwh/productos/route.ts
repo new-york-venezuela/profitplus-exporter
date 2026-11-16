@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
-import { buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsAmountSubqueries, returnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type { DualAmount } from '@/app/(app)/analitica/types';
-import { classifyTier, DEFAULT_TIER_THRESHOLDS } from '@/lib/dwh/depth-tier';
 import { buildGroupShareMatrix } from '@/lib/productos/group-share';
 import { CLIENTES_GROUPS_QUERY } from '@/lib/clientes/scope';
 import { bindItemFilter, itemFilterSql, parseItemFilter, returnsItemFilterSql, type ItemFilter } from '@/lib/productos/item-filter';
@@ -13,8 +12,6 @@ import { classifyPareto } from '@/lib/productos/pareto';
 import { fetchCategorias, fetchGroupShare, parseCategoria } from '@/lib/productos/queries';
 import { bindTienda, parseTienda, tiendaKeysSql, type TiendaFilter } from '@/lib/productos/tienda-filter';
 import type {
-  ProductosResponse, ProductosRow, GroupBy,
-  ProfundidadLineaResponse, ProfundidadLineaRow,
   UnitsByLineaResponse, UnitsByLineaMonthRow,
   ProductosGroupShareResponse, ProductosCategoriasResponse,
   CatalogoRow, CatalogoResponse, ProductosFiltrosResponse, Currency,
@@ -26,101 +23,16 @@ export const dynamic = 'force-dynamic';
 // migrations/dwh/), not the raw Profit Plus ERP — no COLLATE/RTRIM gymnastics
 // needed here, that work already happened at load time.
 //
-// Drill-down is by product line name rather than by dim.Dim_Product surrogate
-// key, matching the pattern used in the ventas route (drilling by the group
-// label itself). LineName/SubLineName are 1:1 with their codes in the
-// dimension table, so this is safe and avoids widening the shared
-// ProductosRow contract with a drill key field.
-//
-// GrossProfitAmount is currently NULL for all Fact_Sales rows (CostSourceFlag
-// = 'NO_COST_DATA', see migrations/dwh/0009_fact_sales.sql) — margin will
-// read as "—" until a cost source is wired up. The query and mapping below
-// are written to work correctly once that data is populated.
+// Sections: catalogo (master table), grupos (group-share matrix), porLineaMes
+// (units trend), plus the tiendas=1 / categorias=1 / filtros=1 option lists.
 
-type ProductosGroupBy = 'linea' | 'sublinea' | 'sku';
+type Nivel = 'linea' | 'sublinea' | 'sku';
 
 const NO_LINEA = 'Sin línea';
 const NO_SUBLINEA = 'Sin sublínea';
 
-function isProductosGroupBy(value: string | null): value is ProductosGroupBy {
+function isNivel(value: string | null): value is Nivel {
   return value === 'linea' || value === 'sublinea' || value === 'sku';
-}
-
-// Each drill level also carries that group's devoluciones attributed by the
-// devolución date (returnsDateWhere is built on DateKey; this tab ignores
-// returnsBasis), USD at the original factura's rate.
-function lineaQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
-  return `
-    SELECT TOP 30
-      ISNULL(p.LineName, '${NO_LINEA}') AS GroupLabel,
-      SUM(fs.QuantitySold) AS QuantitySold,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
-      ${returnsAmountSubqueries({
-        alias: 'fr',
-        fxAlias: 'frfx',
-        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
-        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = ISNULL(p.LineName, '${NO_LINEA}') ${returnsDateWhere} ${returnsTiendaWhere}`,
-        bsAlias: 'ReturnsBs',
-        usdAlias: 'ReturnsUsd',
-      })},
-      SUM(fs.GrossProfitAmount) AS GrossProfitAmount
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-    GROUP BY ISNULL(p.LineName, '${NO_LINEA}')
-    ORDER BY SalesGrossBs DESC
-  `;
-}
-
-function sublineaQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
-  return `
-    SELECT TOP 30
-      ISNULL(p.SubLineName, '${NO_SUBLINEA}') AS GroupLabel,
-      SUM(fs.QuantitySold) AS QuantitySold,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
-      ${returnsAmountSubqueries({
-        alias: 'fr',
-        fxAlias: 'frfx',
-        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
-        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = @linea AND ISNULL(pr.SubLineName, '${NO_SUBLINEA}') = ISNULL(p.SubLineName, '${NO_SUBLINEA}') ${returnsDateWhere} ${returnsTiendaWhere}`,
-        bsAlias: 'ReturnsBs',
-        usdAlias: 'ReturnsUsd',
-      })},
-      SUM(fs.GrossProfitAmount) AS GrossProfitAmount
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere} AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
-    GROUP BY ISNULL(p.SubLineName, '${NO_SUBLINEA}')
-    ORDER BY SalesGrossBs DESC
-  `;
-}
-
-function skuQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: string, returnsTiendaWhere: string): string {
-  return `
-    SELECT TOP 50
-      ISNULL(p.ProductName, p.ProductCode) AS GroupLabel,
-      SUM(fs.QuantitySold) AS QuantitySold,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
-      ${returnsAmountSubqueries({
-        alias: 'fr',
-        fxAlias: 'frfx',
-        extraJoins: 'JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey',
-        where: `AND ISNULL(pr.LineName, '${NO_LINEA}') = @linea AND ISNULL(pr.SubLineName, '${NO_SUBLINEA}') = @sublinea AND ISNULL(pr.ProductName, pr.ProductCode) = ISNULL(p.ProductName, p.ProductCode) ${returnsDateWhere} ${returnsTiendaWhere}`,
-        bsAlias: 'ReturnsBs',
-        usdAlias: 'ReturnsUsd',
-      })},
-      SUM(fs.GrossProfitAmount) AS GrossProfitAmount
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-      AND ISNULL(p.LineName, '${NO_LINEA}') = @linea
-      AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea
-    GROUP BY ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesGrossBs DESC
-  `;
 }
 
 // A tienda is a customer (CustomerCode), not a Dim_Customer row: the dimension is SCD2, so one
@@ -153,49 +65,6 @@ function tiendasQuery(): string {
         WHERE c.CustomerCode = cur.CustomerCode AND fs.IsVoided = 0
       )
     ORDER BY CustomerName
-  `;
-}
-
-// Top-15 SKUs by sales net, flat leaderboard independent of the línea/
-// sublínea/sku breadcrumb above. Clientes = distinct legal entities
-// (Dim_LegalEntity), tiendas = distinct Dim_Customer rows — the same
-// entidad/tienda distinction query-builder.ts's cliente_entidad/cliente_tienda
-// dimensions use elsewhere, inlined here since this query also needs
-// per-product returns and a distinct-month count in the same pass.
-function profundidadLineaQuery(dateWhere: string, returnsDateWhere: string, tiendaWhere: string, returnsTiendaWhere: string): string {
-  return `
-    SELECT TOP 15
-      ISNULL(p.ProductName, p.ProductCode) AS Sku,
-      COUNT(DISTINCT le.LegalEntityKey) AS ClientCount,
-      COUNT(DISTINCT fs.CustomerKey) AS StoreCount,
-      COUNT(DISTINCT d.YearMonth) AS MonthCount,
-      ${dualAmountExpr('fs', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
-      SUM(fs.QuantitySold) AS QuantitySold,
-      ISNULL((SELECT SUM(fr.NetAmount) FROM fact.Fact_Returns fr
-              WHERE fr.ProductKey = p.ProductKey AND fr.IsVoided = 0 ${returnsDateWhere} ${returnsTiendaWhere}), 0) AS ReturnsNetBs
-    FROM fact.Fact_Sales fs
-    ${usdConversionJoin('fs')}
-    JOIN dim.Dim_Product p ON p.ProductKey = fs.ProductKey
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
-    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
-    GROUP BY p.ProductKey, ISNULL(p.ProductName, p.ProductCode)
-    ORDER BY SalesGrossBs DESC
-  `;
-}
-
-// Total distinct clients/stores active (any sale) in the same range — the
-// denominator for each row's clientShare/storeShare above.
-function activeTotalsQuery(dateWhere: string, tiendaWhere: string): string {
-  return `
-    SELECT
-      COUNT(DISTINCT le.LegalEntityKey) AS TotalClients,
-      COUNT(DISTINCT fs.CustomerKey) AS TotalStores
-    FROM fact.Fact_Sales fs
-    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
-    JOIN dim.Dim_LegalEntity le ON le.LegalEntityKey = c.LegalEntityKey
-    WHERE fs.IsVoided = 0 ${dateWhere} ${tiendaWhere}
   `;
 }
 
@@ -233,53 +102,6 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: 
 function bindFilters(req: { input(name: string, value: unknown): unknown }, tienda: TiendaFilter | null, categoria: string | null): void {
   bindTienda(req, tienda);
   if (categoria !== null) req.input('categoria', categoria);
-}
-
-async function handleProfundidad(
-  dateWhere: string, returnsDateWhere: string, salesFilterWhere: string, tiendaOnlyWhere: string,
-  tienda: TiendaFilter | null, categoria: string | null,
-): Promise<NextResponse> {
-  const pool = await getDwhPool();
-  const returnsTiendaWhere = tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
-
-  const rowsReq = pool.request();
-  bindFilters(rowsReq, tienda, categoria);
-  const rowsResult = await rowsReq.query(profundidadLineaQuery(dateWhere, returnsDateWhere, salesFilterWhere, returnsTiendaWhere));
-
-  // Denominator: all clients/stores active in range (category NOT applied).
-  const totalsReq = pool.request();
-  bindFilters(totalsReq, tienda, null);
-  const totalsResult = await totalsReq.query(activeTotalsQuery(dateWhere, tiendaOnlyWhere));
-  const totalClients = Number(totalsResult.recordset[0]?.TotalClients ?? 0);
-  const totalStores = Number(totalsResult.recordset[0]?.TotalStores ?? 0);
-
-  const rows: ProfundidadLineaRow[] = rowsResult.recordset.map(r => {
-    const clientCount = Number(r.ClientCount);
-    const storeCount = Number(r.StoreCount);
-    const monthCount = Number(r.MonthCount) || 1;
-    const salesGrossBs = Number(r.SalesGrossBs);
-    const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
-    const quantitySold = Number(r.QuantitySold);
-    const returnsNetBs = Number(r.ReturnsNetBs);
-    const clientShare = totalClients > 0 ? clientCount / totalClients : null;
-
-    return {
-      sku: String(r.Sku),
-      clientCount,
-      clientShare,
-      storeCount,
-      storeShare: totalStores > 0 ? storeCount / totalStores : null,
-      avgMonthlyPrice: quantitySold > 0
-        ? { bs: salesGrossBs / quantitySold, usd: salesGrossUsd === null ? null : salesGrossUsd / quantitySold }
-        : { bs: 0, usd: 0 },
-      avgMonthlyUnits: quantitySold / monthCount,
-      returnRate: salesGrossBs > 0 ? returnsNetBs / salesGrossBs : null,
-      tier: classifyTier(clientShare, salesGrossBs > 0, DEFAULT_TIER_THRESHOLDS),
-    };
-  });
-
-  const response: ProfundidadLineaResponse = { rows };
-  return jsonWithCache(response);
 }
 
 async function handlePorLineaMes(
@@ -364,7 +186,7 @@ async function handlePorLineaMes(
 }
 
 async function handleGrupos(
-  dateRange: string, level: ProductosGroupBy, filter: ItemFilter, tienda: TiendaFilter | null, categoria: string | null,
+  dateRange: string, level: Nivel, filter: ItemFilter, tienda: TiendaFilter | null, categoria: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
   const raw = await fetchGroupShare(pool, {
@@ -378,7 +200,7 @@ async function handleGrupos(
 // key here (no per-row correlated subqueries, no TOP caps). Customers resolve through their CURRENT
 // Dim_Customer row so SCD versions of one store count once; LEFT JOINs keep sales of customers with
 // no current row or no legal entity.
-function catalogoKeys(nivel: ProductosGroupBy, p: string) {
+function catalogoKeys(nivel: Nivel, p: string) {
   const line = `ISNULL(${p}.LineName, '${NO_LINEA}')`;
   const sub = `ISNULL(${p}.SubLineName, '${NO_SUBLINEA}')`;
   if (nivel === 'linea') return { group: line, key: line, label: line, code: 'NULL', linea: line, sublinea: "''" };
@@ -390,7 +212,7 @@ function catalogoKeys(nivel: ProductosGroupBy, p: string) {
   };
 }
 
-function catalogoSalesQuery(nivel: ProductosGroupBy, where: string): string {
+function catalogoSalesQuery(nivel: Nivel, where: string): string {
   const k = catalogoKeys(nivel, 'p');
   return `
     SELECT
@@ -413,7 +235,7 @@ function catalogoSalesQuery(nivel: ProductosGroupBy, where: string): string {
   `;
 }
 
-function catalogoReturnsQuery(nivel: ProductosGroupBy, where: string): string {
+function catalogoReturnsQuery(nivel: Nivel, where: string): string {
   const k = catalogoKeys(nivel, 'pr');
   return `
     SELECT
@@ -428,7 +250,7 @@ function catalogoReturnsQuery(nivel: ProductosGroupBy, where: string): string {
 }
 
 async function handleCatalogo(
-  dateRange: string, nivel: ProductosGroupBy, filter: ItemFilter, tienda: TiendaFilter | null,
+  dateRange: string, nivel: Nivel, filter: ItemFilter, tienda: TiendaFilter | null,
   categoria: string | null, currency: Currency,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
@@ -524,9 +346,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const dateRange = searchParams.get('dateRange') ?? '12m';
-  const groupByParam = searchParams.get('groupBy');
-  const lineaParam = searchParams.get('linea');
-  const sublineaParam = searchParams.get('sublinea');
   const tienda = parseTienda(searchParams.get('tienda'));
   const categoria = parseCategoria(searchParams.get('categoria'));
 
@@ -572,32 +391,20 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Fall back to a shallower level if the params needed to scope a deeper
-  // drill are missing (e.g. a stale/hand-built URL) rather than erroring.
-  let groupBy: ProductosGroupBy = isProductosGroupBy(groupByParam) ? groupByParam : 'linea';
-  if (groupBy === 'sublinea' && !lineaParam) groupBy = 'linea';
-  if (groupBy === 'sku' && (!lineaParam || !sublineaParam)) groupBy = 'linea';
-
-  const tiendaOnlyWhere = tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
-  const salesFilterWhere = `${tiendaOnlyWhere} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
-
   const section = searchParams.get('section');
-  if (section === 'profundidad' || section === 'porLineaMes') {
+  if (section === 'porLineaMes') {
     try {
       const dateWhere = buildDateWhereClause(dateRange, 'fs');
-      // Profundidad's standalone Tasa dev. keeps the devolución-date basis
-      // (labelled in the UI); the drill-down table uses the same devolución-date basis.
-      const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
-      return section === 'profundidad'
-        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tienda, categoria)
-        : await handlePorLineaMes(dateWhere, salesFilterWhere, tienda, categoria, parseTrendBucket(searchParams, dateRange));
+      const salesFilterWhere = `${tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
+      return await handlePorLineaMes(dateWhere, salesFilterWhere, tienda, categoria, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
   }
 
-  const nivelParam = searchParams.get('nivel') ?? groupByParam;
-  const nivel: ProductosGroupBy = isProductosGroupBy(nivelParam) ? nivelParam : 'linea';
+  // `groupBy` is still accepted as an alias of `nivel`.
+  const nivelParam = searchParams.get('nivel') ?? searchParams.get('groupBy');
+  const nivel: Nivel = isNivel(nivelParam) ? nivelParam : 'linea';
   const itemFilter = parseItemFilter(searchParams);
 
   if (section === 'catalogo') {
@@ -617,66 +424,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  try {
-    const pool = await getDwhPool();
-
-    const dateWhere = buildDateWhereClause(dateRange, 'fs');
-    const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr');
-    const returnsTiendaWhere = `${tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
-
-    let recordset: Record<string, unknown>[];
-    const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
-
-    if (groupBy === 'sku') {
-      const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
-      bindFilters(req, tienda, categoria);
-      const result = await req.query(skuQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
-      recordset = result.recordset;
-      breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
-      breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
-    } else if (groupBy === 'sublinea') {
-      const req = pool.request().input('linea', lineaParam);
-      bindFilters(req, tienda, categoria);
-      const result = await req.query(sublineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
-      recordset = result.recordset;
-      breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
-    } else {
-      const req = pool.request();
-      bindFilters(req, tienda, categoria);
-      const result = await req.query(lineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
-      recordset = result.recordset;
-    }
-
-    const totalSalesGross = recordset.reduce((sum, r) => sum + Number(r.SalesGrossBs), 0);
-
-    const rows: ProductosRow[] = recordset.map(r => {
-      const salesGrossBs = Number(r.SalesGrossBs);
-      const salesGrossUsd = r.SalesGrossUsd === null ? null : Number(r.SalesGrossUsd);
-      const rotacion = Number(r.QuantitySold);
-      const grossProfit = r.GrossProfitAmount === null || r.GrossProfitAmount === undefined
-        ? null
-        : Number(r.GrossProfitAmount);
-      const margin = grossProfit !== null && salesGrossBs !== 0 ? grossProfit / salesGrossBs : null;
-      const salesShare = totalSalesGross > 0 ? salesGrossBs / totalSalesGross : null;
-      const label = String(r.GroupLabel);
-
-      return {
-        sku: groupBy === 'sku' ? label : '',
-        linea: groupBy === 'linea' ? label : (lineaParam ?? ''),
-        sublinea: groupBy === 'sku' ? (sublineaParam ?? '') : groupBy === 'sublinea' ? label : '',
-        rotacion,
-        salesShare,
-        salesGross: { bs: salesGrossBs, usd: salesGrossUsd },
-        returns: dualFromRow(r.ReturnsBs, r.ReturnsUsd),
-        salesNet: subtractDual({ bs: salesGrossBs, usd: salesGrossUsd }, dualFromRow(r.ReturnsBs, r.ReturnsUsd)),
-        margin,
-      };
-    });
-
-    const response: ProductosResponse = { rows, groupBy: groupBy as GroupBy, breadcrumb };
-
-    return jsonWithCache(response);
-  } catch {
-    return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
-  }
+  return NextResponse.json({ error: 'Sección no válida' }, { status: 400 });
 }

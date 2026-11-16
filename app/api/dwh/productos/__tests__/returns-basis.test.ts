@@ -31,7 +31,7 @@ const FACTURA_WINDOW = /fr2?\.OriginalInvoiceDateKey\s*(>=|<=|<|>)/;
 describe('GET /api/dwh/productos ignores returnsBasis=factura', () => {
   beforeEach(() => { queries.length = 0; });
 
-  for (const url of ['http://localhost/api/dwh/productos?dateRange=month:2026-10&returnsBasis=factura&groupBy=linea', 'http://localhost/api/dwh/productos?dateRange=month:2026-10&returnsBasis=factura&section=profundidad']) {
+  for (const url of ['http://localhost/api/dwh/productos?dateRange=month:2026-10&returnsBasis=factura&section=catalogo&nivel=linea', 'http://localhost/api/dwh/productos?dateRange=month:2026-10&returnsBasis=factura&section=catalogo&nivel=sku']) {
     test(`windows returns on fr.DateKey for ${url}`, async () => {
       await GET(new NextRequest(url));
       const returnsSql = queries.filter(q => q.includes('Fact_Returns'));

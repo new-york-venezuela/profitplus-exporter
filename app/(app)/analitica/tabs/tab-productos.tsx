@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import { moneyLabel } from '../lib/format';
-import SearchableSelect from '@/lib/components/searchable-select';
-import { parseTienda } from '@/lib/productos/tienda-filter';
+import { moneyLabel, qty } from '../lib/format';
 import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
+import { useProductosParams, type Nivel, type ProductosParams } from '../lib/productos-params';
+import ControlBar from '../components/productos/control-bar';
+import MasterTable from '../components/productos/master-table';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
-import { DepthTable } from '../components/productos/depth-table';
+import type { SearchableSelectOption } from '@/lib/components/searchable-select';
 import type {
-  Currency, DateRange, ProductosResponse, ProductosRow,
-  ProfundidadLineaResponse, UnitsByLineaResponse,
-  ProductosCategoriasResponse, ProductosGroupShareResponse,
+  CatalogoResponse, Currency, DateRange, UnitsByLineaResponse,
+  ProductosCategoriasResponse, ProductosFiltrosResponse, ProductosGroupShareResponse,
 } from '../types';
 
 // Stable palette cycled across whatever líneas a given date range/tienda
@@ -28,16 +28,18 @@ function lineaColor(linea: string, lineas: string[]): string {
   return LINEA_COLORS[idx % LINEA_COLORS.length];
 }
 
-type ProductosGroupBy = 'linea' | 'sublinea' | 'sku';
-
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function qty(n: number): string {
-  return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(n);
-}
+const NIVEL_LABEL: Record<Nivel, string> = { linea: 'Línea', sublinea: 'Sublínea', sku: 'SKU' };
+
+const NIVEL_SUBTITLE: Record<Nivel, string> = {
+  linea: 'Una fila por línea de producto',
+  sublinea: 'Una fila por sublínea',
+  sku: 'Todos los SKU con ventas en el período',
+};
 
 function EmptyState({ message }: { message?: string }) {
   return (
@@ -58,21 +60,66 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
   );
 }
 
-const COLUMN_LABEL: Record<ProductosGroupBy, string> = {
-  linea: 'Línea',
-  sublinea: 'Sublínea',
-  sku: 'SKU',
-};
-
-function rowLabel(row: ProductosRow, groupBy: ProductosGroupBy): string {
-  if (groupBy === 'sku') return row.sku;
-  if (groupBy === 'sublinea') return row.sublinea;
-  return row.linea;
+// The bar's item filters as query params (shared by section=catalogo and section=grupos).
+function filterParams(base: Record<string, string>, p: ProductosParams): URLSearchParams {
+  const params = new URLSearchParams({ ...base, nivel: p.nivel });
+  if (p.tienda) params.set('tienda', p.tienda);
+  if (p.categoria) params.set('categoria', p.categoria);
+  if (p.lineas.length > 0) params.set('lineas', p.lineas.join(','));
+  if (p.sublineas.length > 0) params.set('sublineas', p.sublineas.join(','));
+  if (p.grupo) params.set('grupo', p.grupo);
+  if (p.q) params.set('q', p.q);
+  return params;
 }
 
-function rowKey(row: ProductosRow, i: number): string {
-  return `${row.linea}-${row.sublinea}-${row.sku}-${i}`;
+// Fetches JSON for `url`; a stale response (the effect was cleaned up, request aborted) is ignored.
+// Loading is derived: the last settled result belongs to a different URL.
+function useSection<T>(url: string): { data: T | null; loading: boolean; error: string | null } {
+  const [settled, setSettled] = useState<{ url: string; data: T | null; error: string | null } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (!controller.signal.aborted) setSettled({ url, data: null, error: body.error ?? 'Error desconocido' });
+          return;
+        }
+        const body: T = await res.json();
+        if (!controller.signal.aborted) setSettled({ url, data: body, error: null });
+      } catch {
+        if (!controller.signal.aborted) setSettled({ url, data: null, error: 'No se pudo conectar con el servidor' });
+      }
+    })();
+    return () => controller.abort();
+  }, [url]);
+  const current = settled !== null && settled.url === url;
+  return { data: current ? settled.data : null, loading: !current, error: current ? settled.error : null };
 }
+
+// Option lists for the bar: fetched once, non-critical (a failed list just stays empty).
+function useOnce<T>(url: string, fallback: T): T {
+  const [value, setValue] = useState<T>(fallback);
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (controller.signal.aborted || !res.ok) return;
+        const body: T = await res.json();
+        if (!controller.signal.aborted) setValue(body);
+      } catch {
+        // Non-critical.
+      }
+    })();
+    return () => controller.abort();
+  }, [url]);
+  return value;
+}
+
+const EMPTY_FILTROS: ProductosFiltrosResponse = { lineas: [], sublineas: [], grupos: [] };
 
 export default function TabProductos({
   dateRange,
@@ -83,221 +130,42 @@ export default function TabProductos({
   currency: Currency;
   granularity: Granularity;
 }) {
-  const [groupBy, setGroupBy] = useState<ProductosGroupBy>('linea');
-  const [linea, setLinea] = useState<string | null>(null);
-  const [sublinea, setSublinea] = useState<string | null>(null);
-  const [tienda, setTienda] = useState<string | null>(null);
-  const [tiendas, setTiendas] = useState<{ value: string; label: string; group?: string }[]>([]);
-  const [categoria, setCategoria] = useState<string | null>(null);
-  const [categorias, setCategorias] = useState<string[]>([]);
-  const [grupoData, setGrupoData] = useState<ProductosGroupShareResponse | null>(null);
-  const [grupoLoading, setGrupoLoading] = useState<boolean>(true);
-  const [grupoError, setGrupoError] = useState<string | null>(null);
-  const [data, setData] = useState<ProductosResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useProductosParams();
 
-  const [profundidadData, setProfundidadData] = useState<ProfundidadLineaResponse | null>(null);
-  const [profundidadLoading, setProfundidadLoading] = useState<boolean>(true);
-  const [profundidadError, setProfundidadError] = useState<string | null>(null);
+  const tiendas = useOnce<{ tiendas?: SearchableSelectOption[] }>('/api/dwh/productos?tiendas=1', {}).tiendas ?? [];
+  const categorias = useOnce<ProductosCategoriasResponse>('/api/dwh/productos?categorias=1', { categorias: [] }).categorias ?? [];
+  const filtros = useOnce<ProductosFiltrosResponse>('/api/dwh/productos?filtros=1', EMPTY_FILTROS);
 
-  const [porLineaMesData, setPorLineaMesData] = useState<UnitsByLineaResponse | null>(null);
-  const [porLineaMesLoading, setPorLineaMesLoading] = useState<boolean>(true);
-  const [porLineaMesError, setPorLineaMesError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadTiendas() {
-      try {
-        const res = await fetch('/api/dwh/productos?tiendas=1');
-        if (cancelled || !res.ok) return;
-        const body: { tiendas?: { value: string; label: string; group?: string }[] } = await res.json().catch(() => ({}));
-        if (!cancelled) setTiendas(body.tiendas ?? []);
-      } catch {
-        // Non-critical — filter just stays empty if this fails.
-      }
+  const lineaOptions = useMemo(() => (filtros.lineas ?? []).map(l => ({ value: l, label: l })), [filtros]);
+  // Sublíneas narrow to the selected líneas; the filter matches by sublínea name.
+  const sublineaOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of filtros.sublineas ?? []) {
+      if (params.lineas.length === 0 || params.lineas.includes(s.linea)) names.add(s.sublinea);
     }
-    loadTiendas();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return [...names].sort((a, b) => a.localeCompare(b, 'es')).map(s => ({ value: s, label: s }));
+  }, [filtros, params.lineas]);
+  const grupoOptions = useMemo(() => (filtros.grupos ?? []).map(g => ({ value: g.code, label: g.name })), [filtros]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadCategorias() {
-      try {
-        const res = await fetch('/api/dwh/productos?categorias=1');
-        if (cancelled || !res.ok) return;
-        const body: ProductosCategoriasResponse = await res.json().catch(() => ({ categorias: [] }));
-        if (!cancelled) setCategorias(body.categorias ?? []);
-      } catch {
-        // Non-critical: the filter just stays empty.
-      }
-    }
-    loadCategorias();
-    return () => { cancelled = true; };
-  }, []);
+  const catalogoUrl = `/api/dwh/productos?${filterParams({ dateRange, section: 'catalogo', currency }, params).toString()}`;
+  const gruposUrl = `/api/dwh/productos?${filterParams({ dateRange, section: 'grupos' }, params).toString()}`;
+  const trendParams = new URLSearchParams({ dateRange, section: 'porLineaMes', granularity });
+  if (params.tienda) trendParams.set('tienda', params.tienda);
+  if (params.categoria) trendParams.set('categoria', params.categoria);
+  const trendUrl = `/api/dwh/productos?${trendParams.toString()}`;
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, groupBy });
-        if (groupBy !== 'linea' && linea) params.set('linea', linea);
-        if (groupBy === 'sku' && sublinea) params.set('sublinea', sublinea);
-        if (tienda) params.set('tienda', tienda);
-        if (categoria) params.set('categoria', categoria);
-        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
-          return;
-        }
-        const body: ProductosResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
-      } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, groupBy, linea, sublinea, tienda, categoria]);
+  const catalogo = useSection<CatalogoResponse>(catalogoUrl);
+  const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
+  const trend = useSection<UnitsByLineaResponse>(trendUrl);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setProfundidadError(null);
-      setProfundidadLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, section: 'profundidad' });
-        if (tienda) params.set('tienda', tienda);
-        if (categoria) params.set('categoria', categoria);
-        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setProfundidadError(body.error ?? 'Error desconocido');
-          return;
-        }
-        setProfundidadData(await res.json());
-      } catch {
-        if (!cancelled) setProfundidadError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setProfundidadLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, tienda, categoria]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setPorLineaMesError(null);
-      setPorLineaMesLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, section: 'porLineaMes', granularity });
-        if (tienda) params.set('tienda', tienda);
-        if (categoria) params.set('categoria', categoria);
-        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setPorLineaMesError(body.error ?? 'Error desconocido');
-          return;
-        }
-        setPorLineaMesData(await res.json());
-      } catch {
-        if (!cancelled) setPorLineaMesError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setPorLineaMesLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, granularity, tienda, categoria]);
-
-  // Follows the drill state so the matrix always matches the table above it.
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setGrupoError(null);
-      setGrupoLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, section: 'grupos', groupBy });
-        if (groupBy !== 'linea' && linea) params.set('lineas', linea);
-        if (groupBy === 'sku' && sublinea) params.set('sublineas', sublinea);
-        if (tienda) params.set('tienda', tienda);
-        if (categoria) params.set('categoria', categoria);
-        const res = await fetch(`/api/dwh/productos?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setGrupoError(body.error ?? 'Error desconocido');
-          return;
-        }
-        setGrupoData(await res.json());
-      } catch {
-        if (!cancelled) setGrupoError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setGrupoLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [dateRange, groupBy, linea, sublinea, tienda, categoria]);
-
-  function handleRowClick(row: ProductosRow) {
-    if (groupBy === 'linea') {
-      setLinea(row.linea);
-      setSublinea(null);
-      setGroupBy('sublinea');
-    } else if (groupBy === 'sublinea') {
-      setSublinea(row.sublinea);
-      setGroupBy('sku');
-    }
-  }
-
-  function handleBreadcrumbClick(crumbGroupBy: ProductosGroupBy) {
-    if (crumbGroupBy === 'linea') {
-      setLinea(null);
-      setSublinea(null);
-      setGroupBy('linea');
-    } else if (crumbGroupBy === 'sublinea') {
-      setSublinea(null);
-      setGroupBy('sublinea');
-    }
-  }
-
-  // Clicking a línea's segment within a month's stacked bar drills the
-  // existing línea/sublínea/sku table straight to that línea's sublíneas
-  // (reusing handleRowClick's own state-setting logic) and scrolls it into
-  // view — "Otras" isn't a real línea (see route.ts), so it isn't drillable.
+  // Clicking a línea's segment filters the table to that línea's sublíneas. "Otras" is not a real línea.
   function handleStackSegmentClick(lineaName: string) {
     if (lineaName === 'Otras') return;
-    setLinea(lineaName);
-    setSublinea(null);
-    setGroupBy('sublinea');
-    document.getElementById('productos-drilldown-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setParams({ lineas: [lineaName], nivel: 'sublinea' });
+    document.getElementById('productos-master-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  const drillable = groupBy !== 'sku';
-  // Margen needs product cost, which Fact_Sales doesn't carry yet (GrossProfitAmount is NULL);
-  // the column only shows when at least one row has it.
-  const hasMargin = (data?.rows ?? []).some(r => r.margin !== null);
+  const porLineaMesData = trend.data;
   const trendMode = porLineaMesData?.trendMode ?? 'month';
   const porLineaMesLabels = bucketLabels(trendMode, (porLineaMesData?.rows ?? []).map(r => r.bucket));
   const porLineaMesChartData = (porLineaMesData?.rows ?? []).map((r, i) => ({
@@ -309,124 +177,45 @@ export default function TabProductos({
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
-      {/* Breadcrumb */}
-      {data && data.breadcrumb.length > 0 && (
-        <nav className="flex items-center gap-1 text-sm text-gray-500">
-          {data.breadcrumb.map((crumb, i) => (
-            <span key={`${crumb.groupBy}-${i}`} className="flex items-center gap-1">
-              {i > 0 && <span className="text-gray-300">/</span>}
-              {i === data.breadcrumb.length - 1 ? (
-                <span className="font-medium text-gray-800">{crumb.label}</span>
-              ) : (
-                <button
-                  onClick={() => handleBreadcrumbClick(crumb.groupBy as ProductosGroupBy)}
-                  className="hover:text-blue-600 hover:underline"
-                >
-                  {crumb.label}
-                </button>
-              )}
-            </span>
-          ))}
-        </nav>
-      )}
+      <ControlBar
+        params={params}
+        onChange={setParams}
+        tiendas={tiendas}
+        categorias={categorias}
+        lineaOptions={lineaOptions}
+        sublineaOptions={sublineaOptions}
+        grupoOptions={grupoOptions}
+      />
 
-      <div id="productos-drilldown-section" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-        <div className="flex items-start justify-between flex-wrap gap-3 mb-1">
-          <h2 className="text-sm font-bold text-gray-900">Ventas y rotación por producto</h2>
-          <div className="flex items-center gap-4 flex-wrap">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              Categoría:
-              <select
-                aria-label="Filtrar por categoría"
-                className="border border-gray-200 rounded px-2 py-1 text-sm"
-                value={categoria ?? ''}
-                onChange={e => setCategoria(e.target.value || null)}
-              >
-                <option value="">Todas</option>
-                {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              Entidad / tienda:
-              <SearchableSelect
-                value={tienda}
-                onChange={setTienda}
-                options={tiendas}
-                allLabel="Todas"
-                placeholder="Buscar entidad o tienda..."
-                className="max-w-[220px]"
-              />
-            </label>
-          </div>
-        </div>
+      <section id="productos-master-section" aria-labelledby="productos-master-title" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+        <h2 id="productos-master-title" className="text-sm font-bold text-gray-900">Catálogo de productos</h2>
         <p className="text-xs text-gray-500 mb-3">
-          {groupBy === 'linea' && 'Ventas brutas, devoluciones (por fecha de factura), ventas netas y unidades por línea de producto, sin IVA — clic en una fila para ver sus sublíneas'}
-          {groupBy === 'sublinea' && 'Sublíneas de la línea seleccionada — clic en una fila para ver sus productos'}
-          {groupBy === 'sku' && 'Productos individuales de la sublínea seleccionada'}
+          {NIVEL_SUBTITLE[params.nivel]}, sin IVA. Devoluciones por fecha de devolución; clic en un encabezado para ordenar.
         </p>
-
-        {loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</p>
-        ) : !data || data.rows.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                    {COLUMN_LABEL[groupBy]}
-                  </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas brutas</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Devoluciones</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ventas netas</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase" title="Participación en las ventas brutas del nivel">% del total</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Cantidad</th>
-                  {hasMargin && (
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase" title="Requiere costo de producto; n/d donde no hay costo cargado">Margen %</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.rows.map((row, i) => (
-                  <tr
-                    key={rowKey(row, i)}
-                    onClick={drillable ? () => handleRowClick(row) : undefined}
-                    className={`${i % 2 === 1 ? 'bg-gray-50' : ''} ${drillable ? 'cursor-pointer hover:bg-blue-50' : ''}`}
-                  >
-                    <td className="px-3 py-2 text-gray-800">{rowLabel(row, groupBy)}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(row.salesGross, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(row.returns, currency)}</td>
-                    <td className="px-3 py-2 text-right text-gray-900">{moneyLabel(row.salesNet, currency)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{pct(row.salesShare)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600">{qty(row.rotacion)}</td>
-                    {hasMargin && <td className="px-3 py-2 text-right text-gray-600">{row.margin === null ? 'n/d' : pct(row.margin)}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        <MasterTable
+          rows={catalogo.data?.rows ?? []}
+          currency={currency}
+          metric={params.metric}
+          nivel={params.nivel}
+          loading={catalogo.loading}
+          error={catalogo.error}
+        />
+      </section>
 
       <ChartCard
         title="Participación por grupo de cliente"
-        subtitle="Qué parte de las ventas brutas de cada fila va a cada grupo de cliente (grupo actual del cliente en Profit Plus) — sigue el nivel y los filtros de la tabla de arriba"
+        subtitle="Qué parte de las ventas brutas de cada fila va a cada grupo de cliente (grupo actual del cliente en Profit Plus) — sigue el nivel y los filtros de la barra"
       >
-        {grupoLoading ? (
+        {grupos.loading ? (
           <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : grupoError ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{grupoError}</p>
+        ) : grupos.error ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{grupos.error}</p>
         ) : (
           <>
             <GroupShareMatrixTable
-              matrix={grupoData ?? { columns: [], rows: [] }}
+              matrix={grupos.data ?? { columns: [], rows: [] }}
               currency={currency}
-              rowHeader={COLUMN_LABEL[groupBy]}
+              rowHeader={NIVEL_LABEL[params.nivel]}
             />
             <p className="mt-2 text-xs text-gray-400">
               Solo ventas positivas y las 30 filas con más ventas: puede no cuadrar exactamente con la tabla de arriba.
@@ -440,10 +229,10 @@ export default function TabProductos({
         title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por línea`}
         subtitle="Clic en un segmento para ver las sublíneas de esa línea"
       >
-        {porLineaMesLoading ? (
+        {trend.loading ? (
           <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : porLineaMesError ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{porLineaMesError}</p>
+        ) : trend.error ? (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{trend.error}</p>
         ) : !porLineaMesData || porLineaMesChartData.length === 0 ? (
           <EmptyState />
         ) : (
@@ -476,19 +265,6 @@ export default function TabProductos({
               ))}
             </BarChart>
           </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      <ChartCard
-        title="Presencia y profundidad por producto"
-        subtitle="Top 15 productos por ventas brutas — clientes y tiendas que lo compran (y su % de los activos), clasificación por penetración de clientes, precio y unidades promedio mensuales, tasa de devolución (devoluciones por fecha de devolución ÷ ventas brutas)"
-      >
-        {profundidadLoading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : profundidadError ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{profundidadError}</p>
-        ) : (
-          <DepthTable rows={profundidadData?.rows ?? []} currency={currency} hideTier={tienda !== null} />
         )}
       </ChartCard>
     </div>

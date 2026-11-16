@@ -23,6 +23,11 @@ export function priceLabel(amount: DualAmount, currency: Currency): string {
   return `${currency === 'usd' ? '$' : 'Bs. '}${format.format(n)}`;
 }
 
+// Unit counts (up to 2 decimals, es-VE grouping); shared by the Productos table and chart.
+export function qty(n: number): string {
+  return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(n);
+}
+
 // Recharts already hands this a single already-selected number (the chart's
 // data-mapping step picks .bs/.usd before the chart renders — see every
 // tab's chartData useMemo) — this formats that bare number/array, it does
