@@ -118,6 +118,24 @@ describe('overdue', () => {
   });
 });
 
+describe('returns-only client', () => {
+  test('negative net, null rate, nets sum to item net, item rate uses total gross', () => {
+    const r = buildClienteBreakdown([
+      raw({ id: 'a', gross: { bs: 100, usd: 10 }, returns: { bs: 10, usd: 1 } }),
+      raw({ id: 'z', gross: { bs: 0, usd: 0 }, returns: { bs: 20, usd: 2 }, units: 0, posItem: 0 }),
+    ], bs);
+    const z = r.rows.find(x => x.id === 'z')!;
+    expect(z.net).toEqual({ bs: -20, usd: -2 });
+    expect(z.returnRate).toBeNull();
+    expect(z.highReturn).toBe(false);
+    expect(z.overdue).toBeNull();
+    expect(r.rows[1].id).toBe('z');
+    expect(r.itemNet).toEqual({ bs: 70, usd: 7 });
+    expect(r.rows.reduce((s, x) => s + x.net.bs, 0)).toBe(r.itemNet.bs);
+    expect(r.itemReturnRate).toBeCloseTo(0.3, 10);
+  });
+});
+
 describe('group', () => {
   test('group badge only when both code and name', () => {
     const r = buildClienteBreakdown([raw({ id: 'a', groupCode: 'G1', groupName: 'Cadenas' }), raw({ id: 'b', groupCode: 'G1' })], bs);

@@ -442,11 +442,16 @@ function clienteReturnsQuery(nivel: Nivel, where: string): string {
   return `
     SELECT
       ${CLIENT_ID_EXPR} AS ClientId,
+      MAX(COALESCE(le.LegalEntityName, cur.CustomerName, c.CustomerName, RTRIM(c.CustomerCode))) AS Name,
+      MAX(RTRIM(COALESCE(rootc.ErpSegmentCode, cur.ErpSegmentCode))) AS GroupCode,
+      MAX(seg.SegmentName) AS GroupName,
       ${dualAmountExpr('fr', 'NetAmount', 'ReturnsBs', 'ReturnsUsd')}
     FROM fact.Fact_Returns fr
     ${returnsUsdConversionJoin('fr', 'fx')}
     JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey
     ${clientJoins('fr')}
+    LEFT JOIN dim.Dim_Customer rootc ON rootc.CustomerCode = le.RootCustomerCode AND rootc.IsCurrent = 1
+    LEFT JOIN dim.Dim_Segment seg ON seg.ErpSegmentCode = COALESCE(rootc.ErpSegmentCode, cur.ErpSegmentCode)
     WHERE fr.IsVoided = 0 AND ${k.key} = @itemKey ${where}
     GROUP BY ${CLIENT_ID_EXPR}
   `;
@@ -522,25 +527,33 @@ async function handleClientes(
   const historyById = new Map<string, Record<string, unknown>>();
   for (const r of history.recordset) historyById.set(String(r.ClientId).trim(), r);
 
-  const raw: ClienteRaw[] = sales.recordset.map(r => {
+  const optStr = (v: unknown): string | null => (v === null || v === undefined ? null : String(v).trim());
+  const toRaw = (r: Record<string, unknown>, gross: DualAmount, units: number, posItem: number): ClienteRaw => {
     const id = String(r.ClientId).trim();
     const h = historyById.get(id);
-    const posItem = Number(r.PosItem ?? 0);
     return {
       id,
       name: String(r.Name ?? id).trim(),
-      groupCode: r.GroupCode === null || r.GroupCode === undefined ? null : String(r.GroupCode).trim(),
-      groupName: r.GroupName === null || r.GroupName === undefined ? null : String(r.GroupName).trim(),
+      groupCode: optStr(r.GroupCode),
+      groupName: optStr(r.GroupName),
       posItem,
       posTotal: Math.max(totalById.get(id) ?? 0, posItem),
-      gross: dualFromRow(r.GrossBs, r.GrossUsd),
+      gross,
       returns: returnsById.get(id) ?? { bs: 0, usd: 0 },
-      units: Number(r.Units ?? 0),
+      units,
       orders: h ? Number(h.Orders ?? 0) : 0,
       firstOrderKey: h && h.FirstKey != null ? Number(h.FirstKey) : null,
       lastOrderKey: h && h.LastKey != null ? Number(h.LastKey) : null,
     };
-  });
+  };
+
+  const raw: ClienteRaw[] = sales.recordset.map(r => toRaw(r, dualFromRow(r.GrossBs, r.GrossUsd), Number(r.Units ?? 0), Number(r.PosItem ?? 0)));
+  // Clients with returns but no sales in the range stay listed (negative net) so client nets add up
+  // to the item's net on the catalogo row, which subtracts ALL of the item's returns.
+  const salesIds = new Set(raw.map(r => r.id));
+  for (const r of returns.recordset) {
+    if (!salesIds.has(String(r.ClientId).trim())) raw.push(toRaw(r, { bs: 0, usd: 0 }, 0, 0));
+  }
 
   const response: ProductoClientesResponse = { nivel, key: itemKey, ...buildClienteBreakdown(raw, { currency, todayKey }) };
   return jsonWithCache(response);

@@ -126,6 +126,19 @@ describe('GET /api/dwh/productos section=clientes', () => {
     expect(b).toMatchObject({ group: null, posTotal: 1, net: { bs: 200, usd: null }, orders: 0, overdue: null, lastOrderDate: null });
     expect(b.avgPrice.usd).toBeNull();
   });
+  test('a client with returns but no sales is listed and nets reconcile with gross - returns', async () => {
+    respond = text => (text.includes('fact.Fact_Returns')
+      ? [...RETURNS, { ClientId: 'C:R9', Name: 'Solo Dev', GroupCode: null, GroupName: null, ReturnsBs: 50, ReturnsUsd: 1 }]
+      : respondAll(text));
+    const body = await (await get('section=clientes&nivel=linea&key=Pizza')).json();
+    const r9 = body.rows.find((r: { id: string }) => r.id === 'C:R9');
+    expect(r9).toMatchObject({ name: 'Solo Dev', net: { bs: -50, usd: -1 }, units: 0, posItem: 0, returnRate: null, overdue: null });
+    expect(body.rows).toHaveLength(3);
+    expect(body.rows[2].id).toBe('C:R9');
+    expect(body.itemNet.bs).toBe(1000 - 130);
+    expect(body.rows.reduce((s: number, r: { net: { bs: number } }) => s + r.net.bs, 0)).toBe(body.itemNet.bs);
+    expect(body.itemReturnRate).toBeCloseTo(130 / 1000, 10);
+  });
   test('currency=usd sorts null USD last', async () => {
     respond = respondAll;
     const body = await (await get('section=clientes&nivel=linea&key=Pizza&currency=usd')).json();
