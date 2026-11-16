@@ -75,3 +75,5 @@ data/customer-mapping/*.diff.csv
 data/*
 !data/**/*.md
 !data/.gitkeep
+
+tmp
