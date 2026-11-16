@@ -14,7 +14,7 @@ function row(over: Partial<CatalogoRow>): CatalogoRow {
     key: 'K', label: 'K', code: null, linea: 'Panaderia', sublinea: '',
     salesGross: { bs: 1000, usd: 20 }, returns: { bs: 0, usd: 0 }, salesNet: { bs: 1000, usd: 20 },
     units: 100, monthCount: 1, avgUnitsPerMonth: 100, avgPrice: { bs: 10, usd: 0.2 },
-    returnRate: 0, clientCount: 1, posCount: 1, sharePct: 0.5, pareto: 'A',
+    returnRate: 0, clientCount: 1, posCount: 1, sharePct: 0.5, pareto: 'A', prevNet: null, trendPct: null,
     ...over,
   };
 }

@@ -413,6 +413,8 @@ export interface CatalogoRow {
   posCount: number;
   sharePct: number | null;
   pareto: ParetoClass | null;
+  prevNet: DualAmount | null;
+  trendPct: number | null;
 }
 export interface CatalogoResponse { rows: CatalogoRow[]; nivel: 'linea' | 'sublinea' | 'sku' }
 export interface ProductosFiltrosResponse {

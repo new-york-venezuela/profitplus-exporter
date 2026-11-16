@@ -3,7 +3,7 @@ import { captureException } from '@/lib/analytics/posthog';
 import { requireDwhAccess } from '@/lib/dwh/access';
 import { getDwhPool } from '@/lib/db/dwh-mssql';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
-import { buildDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
+import { buildDateWhereClause, buildPrevPeriodDateWhereClause, buildReturnsDateWhereClause, jsonWithCache, usdConversionJoin, returnsUsdConversionJoin, dualAmountExpr } from '@/app/api/dwh/lib/query-builder';
 import { dualFromRow, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import type { DualAmount } from '@/app/(app)/analitica/types';
 import { buildGroupShareMatrix } from '@/lib/productos/group-share';
@@ -290,15 +290,21 @@ function catalogoReturnsQuery(nivel: Nivel, where: string): string {
   `;
 }
 
-async function handleCatalogo(
-  dateRange: string, nivel: Nivel, filter: ItemFilter, tienda: TiendaFilter | null,
-  categoria: string | null, currency: Currency,
-): Promise<NextResponse> {
-  const pool = await getDwhPool();
+interface CatalogoPeriod {
+  sales: Record<string, unknown>[];
+  returnsByKey: Map<string, DualAmount>;
+}
+
+// Runs the grouped sales + returns pair for one period. The current and previous windows share
+// the same builders, filters, binds and key expression; only the date WHERE strings differ.
+async function fetchCatalogoPeriod(
+  pool: Awaited<ReturnType<typeof getDwhPool>>, nivel: Nivel, filter: ItemFilter, tienda: TiendaFilter | null,
+  categoria: string | null, salesDateWhere: string, returnsDateWhere: string,
+): Promise<CatalogoPeriod> {
   const tiendaSales = tienda !== null ? `AND fs.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
   const tiendaReturns = tienda !== null ? `AND fr.CustomerKey IN (${tiendaKeysSql(tienda)})` : '';
-  const salesWhere = `${buildDateWhereClause(dateRange, 'fs')} ${tiendaSales} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''} ${itemFilterSql(filter)}`;
-  const returnsWhere = `${buildReturnsDateWhereClause(dateRange, 'fr')} ${tiendaReturns} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''} ${returnsItemFilterSql(filter)}`;
+  const salesWhere = `${salesDateWhere} ${tiendaSales} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''} ${itemFilterSql(filter)}`;
+  const returnsWhere = `${returnsDateWhere} ${tiendaReturns} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''} ${returnsItemFilterSql(filter)}`;
 
   const salesReq = pool.request();
   bindFilters(salesReq, tienda, categoria);
@@ -313,6 +319,33 @@ async function handleCatalogo(
 
   const returnsByKey = new Map<string, DualAmount>();
   for (const r of returns.recordset) returnsByKey.set(String(r.Key).trim(), dualFromRow(r.ReturnsBs, r.ReturnsUsd));
+  return { sales: sales.recordset, returnsByKey };
+}
+
+async function handleCatalogo(
+  dateRange: string, nivel: Nivel, filter: ItemFilter, tienda: TiendaFilter | null,
+  categoria: string | null, currency: Currency,
+): Promise<NextResponse> {
+  const pool = await getDwhPool();
+  // No comparable previous window (e.g. a closed past YTD year) -> the prior queries do not run.
+  const prevSalesWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
+  const prevReturnsWhere = buildPrevPeriodDateWhereClause(dateRange, 'fr');
+  const [cur, prev] = await Promise.all([
+    fetchCatalogoPeriod(pool, nivel, filter, tienda, categoria, buildDateWhereClause(dateRange, 'fs'), buildReturnsDateWhereClause(dateRange, 'fr')),
+    prevSalesWhere !== null && prevReturnsWhere !== null
+      ? fetchCatalogoPeriod(pool, nivel, filter, tienda, categoria, prevSalesWhere, prevReturnsWhere)
+      : Promise.resolve(null),
+  ]);
+
+  const prevNetByKey = new Map<string, DualAmount>();
+  if (prev) {
+    for (const r of prev.sales) {
+      const key = String(r.Key).trim();
+      prevNetByKey.set(key, subtractDual(dualFromRow(r.SalesGrossBs, r.SalesGrossUsd), prev.returnsByKey.get(key) ?? { bs: 0, usd: 0 }));
+    }
+  }
+  const sales = { recordset: cur.sales };
+  const returnsByKey = cur.returnsByKey;
 
   const base = sales.recordset.map(r => {
     const key = String(r.Key).trim();
@@ -348,7 +381,10 @@ async function handleCatalogo(
   const rows: CatalogoRow[] = base
     .map(b => {
       const v = valueOf(b.salesNet);
-      return { ...b, sharePct: v !== null && total > 0 ? v / total : null, pareto: pareto.get(b.key) ?? null };
+      const prevNet = prevNetByKey.get(b.key) ?? null;
+      const prevV = prevNet === null ? null : valueOf(prevNet);
+      const trendPct = v !== null && prevV !== null && prevV > 0 ? (v - prevV) / prevV : null;
+      return { ...b, sharePct: v !== null && total > 0 ? v / total : null, pareto: pareto.get(b.key) ?? null, prevNet, trendPct };
     })
     .sort((a, b) => {
       const av = valueOf(a.salesNet); const bv = valueOf(b.salesNet);

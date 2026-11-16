@@ -66,13 +66,13 @@ describe('GET /api/dwh/productos section=catalogo', () => {
     expect(body.rows[0].returnRate).toBeNull();
   });
   test('groups by the right expression per nivel, one sales and one returns query', async () => {
-    await get('section=catalogo&nivel=sublinea&dateRange=month:2026-10');
+    await get('section=catalogo&nivel=sublinea&dateRange=ytd:2020');
     expect(queries).toHaveLength(2);
     expect(salesQ().sql).toContain('GROUP BY');
     expect(salesQ().sql).toContain('SubLineName');
     expect(returnsQ().sql).toContain('JOIN dim.Dim_Product pr ON pr.ProductKey = fr.ProductKey');
     queries.length = 0;
-    await get('section=catalogo&nivel=sku&dateRange=month:2026-10');
+    await get('section=catalogo&nivel=sku&dateRange=ytd:2020');
     expect(salesQ().sql).toContain('RTRIM(p.ProductCode)');
     expect(returnsQ().sql).toContain('RTRIM(pr.ProductCode)');
   });
@@ -120,6 +120,81 @@ describe('GET /api/dwh/productos section=catalogo', () => {
     respond = () => { throw new Error('boom'); };
     const res = await get('section=catalogo');
     expect(res.status).toBe(500);
+  });
+});
+
+describe('GET /api/dwh/productos section=catalogo trend', () => {
+  // month:2026-10 -> previous window is September 2026 (20260901..20260930)
+  const isPrev = (t: string) => t.includes('20260901');
+  const isRet = (t: string) => t.includes('fact.Fact_Returns');
+  const row = (over: Record<string, unknown>) => ({ ...SALES[0], ...over });
+  const find = (body: { rows: { key: string }[] }, key: string) => body.rows.find(r => r.key === key) as Record<string, any>;
+
+  test('prior window SQL on both sales and returns, same filter binds', async () => {
+    await get('section=catalogo&lineas=Panaderia&q=pan&tienda=e:7&categoria=Fresco&dateRange=month:2026-10');
+    expect(queries).toHaveLength(4);
+    const prev = queries.filter(q => isPrev(q.sql));
+    expect(prev).toHaveLength(2);
+    for (const q of prev) {
+      expect(q.sql).toContain('@linea0');
+      expect(q.sql).toContain('@q');
+      expect(q.sql).toContain('@entidadKey');
+      expect(q.sql).toContain('@categoria');
+      expect(q.inputs).toMatchObject({ linea0: 'Panaderia', q: '%pan%', entidadKey: 7, categoria: 'Fresco' });
+    }
+    expect(prev.some(q => q.sql.includes('fact.Fact_Sales') && q.sql.includes('fs.DateKey >= 20260901'))).toBe(true);
+    expect(prev.some(q => isRet(q.sql) && q.sql.includes('fr.DateKey >= 20260901'))).toBe(true);
+  });
+  test('trendPct net 150 vs prev 100 = 0.5 (bs and usd)', async () => {
+    respond = t => (isRet(t) ? [] : isPrev(t)
+      ? [row({ SalesGrossBs: 100, SalesGrossUsd: 10 })]
+      : [row({ SalesGrossBs: 150, SalesGrossUsd: 15 })]);
+    const bs = find(await (await get('section=catalogo&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(bs.prevNet).toEqual({ bs: 100, usd: 10 });
+    expect(bs.trendPct).toBeCloseTo(0.5, 8);
+    const usd = find(await (await get('section=catalogo&currency=usd&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(usd.trendPct).toBeCloseTo(0.5, 8);
+  });
+  test('prior net subtracts prior returns', async () => {
+    respond = t => (isRet(t)
+      ? (isPrev(t) ? [{ Key: 'Panaderia', ReturnsBs: 50, ReturnsUsd: 5 }] : [])
+      : isPrev(t) ? [row({ SalesGrossBs: 150, SalesGrossUsd: 15 })] : [row({ SalesGrossBs: 150, SalesGrossUsd: 15 })]);
+    const r = find(await (await get('section=catalogo&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(r.prevNet).toEqual({ bs: 100, usd: 10 });
+    expect(r.trendPct).toBeCloseTo(0.5, 8);
+  });
+  test('item absent in prior period: prevNet and trendPct null', async () => {
+    respond = t => (isRet(t) ? [] : isPrev(t) ? [] : SALES);
+    const r = find(await (await get('section=catalogo&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(r.prevNet).toBeNull();
+    expect(r.trendPct).toBeNull();
+  });
+  test('no comparable period: prior queries are not run, both null', async () => {
+    respond = respondBoth;
+    const body = await (await get('section=catalogo&dateRange=ytd:2020')).json();
+    expect(queries).toHaveLength(2);
+    expect(body.rows[0].prevNet).toBeNull();
+    expect(body.rows[0].trendPct).toBeNull();
+  });
+  test('prev net <= 0 gives null trendPct', async () => {
+    respond = t => (isRet(t) ? [] : isPrev(t) ? [row({ SalesGrossBs: 0, SalesGrossUsd: 0 })] : SALES);
+    const r = find(await (await get('section=catalogo&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(r.prevNet).toEqual({ bs: 0, usd: 0 });
+    expect(r.trendPct).toBeNull();
+  });
+  test('usd mode: null USD on either side gives null trendPct, bs still computes', async () => {
+    respond = t => (isRet(t) ? [] : isPrev(t)
+      ? [row({ SalesGrossBs: 100, SalesGrossUsd: null })]
+      : [row({ SalesGrossBs: 150, SalesGrossUsd: 15 })]);
+    const usd = find(await (await get('section=catalogo&currency=usd&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(usd.trendPct).toBeNull();
+    const bs = find(await (await get('section=catalogo&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(bs.trendPct).toBeCloseTo(0.5, 8);
+    respond = t => (isRet(t) ? [] : isPrev(t)
+      ? [row({ SalesGrossBs: 100, SalesGrossUsd: 10 })]
+      : [row({ SalesGrossBs: 150, SalesGrossUsd: null })]);
+    const cur = find(await (await get('section=catalogo&currency=usd&dateRange=month:2026-10')).json(), 'Panaderia');
+    expect(cur.trendPct).toBeNull();
   });
 });
 
