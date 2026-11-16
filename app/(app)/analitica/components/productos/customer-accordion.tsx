@@ -6,7 +6,9 @@ import { pct, signedPct } from '../../lib/productos-format';
 import type { ClientesBreakdownState } from '../../lib/use-clientes-breakdown';
 import type { ClienteRow, Currency, DualAmount } from '../../types';
 import { RETURN_RATE_WARN } from '@/lib/productos/thresholds';
-import { RETURN_WARN_MULTIPLE } from '@/lib/productos/customer-breakdown';
+import { OVERDUE_FACTOR, OVERDUE_LOOKBACK_MONTHS, OVERDUE_MIN_ORDERS, RETURN_WARN_MULTIPLE } from '@/lib/productos/customer-breakdown';
+
+const OVERDUE_LEGEND = `Vencido = más de ${OVERDUE_FACTOR} veces el intervalo promedio entre pedidos del cliente para este ítem (últimos ${OVERDUE_LOOKBACK_MONTHS} meses, mínimo ${OVERDUE_MIN_ORDERS} pedidos). Sin historial = menos de ${OVERDUE_MIN_ORDERS} pedidos.`;
 
 type Pill = 'todos' | 'alta' | 'vencido';
 
@@ -78,6 +80,7 @@ export default function CustomerAccordion({ state, currency }: { state: Clientes
           </button>
         ))}
       </div>
+      <p data-testid="overdue-legend" className="mb-3 text-xs text-gray-600">{OVERDUE_LEGEND}</p>
       {rows.length === 0 ? (
         <p className="py-4 text-center text-sm text-gray-500">Ningún cliente coincide con este filtro.</p>
       ) : (
@@ -92,7 +95,7 @@ export default function CustomerAccordion({ state, currency }: { state: Clientes
                 <th className="px-2 py-1.5 text-right">Precio prom.</th>
                 <th className="px-2 py-1.5 text-right">Devolución</th>
                 <th className="px-2 py-1.5 text-right">Pedidos</th>
-                <th className="px-2 py-1.5">Última compra</th>
+                <th className="px-2 py-1.5" title={OVERDUE_LEGEND}>Última compra</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

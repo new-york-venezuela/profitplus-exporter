@@ -2,7 +2,7 @@ import '../../../../../test/dom-setup';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
 
-const { useClientesBreakdown, clearClientesBreakdownCache } = await import('../../lib/use-clientes-breakdown');
+const { useClientesBreakdown, clearClientesBreakdownCache, setClientesBreakdownClock, CLIENTES_CACHE_TTL_MS } = await import('../../lib/use-clientes-breakdown');
 
 const payload = { nivel: 'sku', key: 'X', itemNet: { bs: 1, usd: 1 }, itemReturnRate: null, top3SharePct: null, rows: [] };
 let calls: { url: string; signal: AbortSignal }[] = [];
@@ -16,7 +16,7 @@ beforeEach(() => {
     return new Response(JSON.stringify(payload), { status: 200 });
   }) as unknown as typeof fetch;
 });
-afterEach(() => { cleanup(); globalThis.fetch = realFetch; });
+afterEach(() => { setClientesBreakdownClock(); cleanup(); globalThis.fetch = realFetch; });
 
 describe('useClientesBreakdown', () => {
   test('null url is idle and does not fetch', () => {
@@ -51,5 +51,23 @@ describe('useClientesBreakdown', () => {
     const { result } = renderHook(() => useClientesBreakdown('/e'));
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current).toEqual({ status: 'error', error: 'Nope' });
+  });
+
+  test('fresh entry is reused, entry older than the TTL is refetched', async () => {
+    let t = 1_000;
+    setClientesBreakdownClock(() => t);
+    const first = renderHook(() => useClientesBreakdown('/ttl'));
+    await waitFor(() => expect(first.result.current.status).toBe('ready'));
+    first.unmount();
+    t += CLIENTES_CACHE_TTL_MS - 1;
+    const fresh = renderHook(() => useClientesBreakdown('/ttl'));
+    expect(fresh.result.current.status).toBe('ready');
+    expect(calls).toHaveLength(1);
+    fresh.unmount();
+    t += 2;
+    const stale = renderHook(() => useClientesBreakdown('/ttl'));
+    expect(stale.result.current.status).toBe('loading');
+    await waitFor(() => expect(stale.result.current.status).toBe('ready'));
+    expect(calls).toHaveLength(2);
   });
 });

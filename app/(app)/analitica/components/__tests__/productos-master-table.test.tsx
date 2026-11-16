@@ -248,6 +248,18 @@ describe('ParetoBadge', () => {
       expect(screen.getByRole('button', { name: /Expandir clientes de Panaderia/ }).getAttribute('aria-expanded')).toBe('false');
     });
 
+    test('aria-controls is whitespace-free for keys with spaces and |, only set while expanded', () => {
+      const key = 'Pan dulce|Sub línea 1';
+      const rows = [row({ key, label: 'Pan dulce' })];
+      const props = { rows, currency: 'bs' as const, metric: 'ventas' as const, nivel: 'linea' as const, loading: false, error: null, onToggleRow: () => {}, renderExpanded: () => <p>Detalle</p> };
+      const { rerender } = render(<MasterTable {...props} expandedKeys={new Set<string>()} />);
+      expect(screen.getByRole('button', { name: /Expandir clientes de Pan dulce/ }).hasAttribute('aria-controls')).toBe(false);
+      rerender(<MasterTable {...props} expandedKeys={new Set([key])} />);
+      const id = screen.getByRole('button', { name: /Contraer clientes de Pan dulce/ }).getAttribute('aria-controls')!;
+      expect(id).not.toMatch(/\s/);
+      expect(document.getElementById(id)).not.toBeNull();
+    });
+
     test('clicking the row toggles; header clicks do not', async () => {
       const calls: string[] = [];
       renderTable({ expandedKeys: new Set<string>(), onToggleRow: k => calls.push(k), renderExpanded: () => null });

@@ -6,6 +6,8 @@ import type { ClienteRow, ProductoClientesResponse } from '../../types';
 
 const { default: CustomerAccordion } = await import('../productos/customer-accordion');
 
+import { OVERDUE_FACTOR, OVERDUE_LOOKBACK_MONTHS, OVERDUE_MIN_ORDERS } from '@/lib/productos/customer-breakdown';
+
 afterEach(cleanup);
 
 function cli(over: Partial<ClienteRow>): ClienteRow {
@@ -50,6 +52,14 @@ describe('CustomerAccordion', () => {
     unmount();
     show(ROWS, { top3SharePct: null });
     expect(screen.queryByText(/principales clientes concentran/)).toBeNull();
+  });
+
+  test('legend defines Vencido from the exported constants', () => {
+    show();
+    const legend = screen.getByTestId('overdue-legend').textContent!;
+    expect(legend).toContain(`más de ${OVERDUE_FACTOR} veces el intervalo promedio`);
+    expect(legend).toContain(`últimos ${OVERDUE_LOOKBACK_MONTHS} meses, mínimo ${OVERDUE_MIN_ORDERS} pedidos`);
+    expect(legend).toContain(`Sin historial = menos de ${OVERDUE_MIN_ORDERS} pedidos`);
   });
 
   test('pills carry counts and filter rows', async () => {

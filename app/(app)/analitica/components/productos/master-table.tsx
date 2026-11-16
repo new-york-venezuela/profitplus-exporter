@@ -191,9 +191,10 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {sorted.map(row => {
+          {sorted.map((row, index) => {
             const expanded = expandedKeys.has(row.key);
-            const panelId = `prod-detail-${row.key}`;
+            // Row keys contain spaces and '|', invalid in an id used by aria-controls; the render index is whitespace-free.
+            const panelId = `prod-detail-${index}`;
             return (
             <Fragment key={row.key}>
             <tr
@@ -207,7 +208,7 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
                   <button
                     type="button"
                     aria-expanded={expanded}
-                    aria-controls={panelId}
+                    aria-controls={expanded && renderExpanded ? panelId : undefined}
                     aria-label={`${expanded ? 'Contraer' : 'Expandir'} clientes de ${row.label}`}
                     className="mr-2 inline-block w-4 text-gray-500 hover:text-gray-900"
                   >
