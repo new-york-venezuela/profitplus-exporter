@@ -127,3 +127,22 @@
 - [ ] **Step 2: Run** `bun run test:components` — FAIL. **Step 3: Implement** the table and integrate the tab; delete dead code per the list. **Step 4: Run** `bunx tsc --noEmit -p .`, `bun run test:components`, `bun test --isolate --env-file=.env.local app/api/dwh lib/productos` — all PASS.
 - [ ] **Step 5: Commit** `feat(productos): unified master table with pareto`. Then update `AGENTS.md` (Directory Map: `lib/productos/{pareto,item-filter}.ts`, `components/productos/{control-bar,master-table}`; Productos bullet: nivel/metric/filters, catalogo endpoint, Pareto definition, removed Profundidad/drill table) in a second commit `docs: productos master table`.
 - [ ] **Step 6: Manual check (controller, not implementer):** open `/analitica?tab=productos`, switch nivel, apply each filter, confirm table totals equal the previous tab's Línea totals for the same range, Pareto A items cover ~80% of net.
+
+### Task 6: Trend chart follows `nivel` and the bar's filters (added 2026-11-16 at user request)
+
+User ask: "the product bar chart should also change as I change from línea to SKU". My calls (user may correct): series = the item at the active `nivel`; top 10 series by units over the range, rest grouped as "Otras" (was top 7 líneas); the bar's filters (lineas, sublineas, grupo, q) apply in addition to tienda/categoría; chart stays in units (the metric toggle drives the table only); Kg still out of scope. No new endpoint: extend `section=porLineaMes`.
+
+**Files:**
+- Modify: `app/api/dwh/productos/route.ts` (`topLineasQuery`/`unitsByLineaMonthQuery`/`handlePorLineaMes`: accept `nivel` + item-filter params; series key expression per nivel: linea = ISNULL(LineName,'Sin línea'); sublinea = `LineName + ' › ' + SubLineName` (with the 'Sin línea'/'Sin sublínea' fallbacks), sku = RTRIM(ProductCode) grouped, displayed label = MAX(ProductName) fallback ProductCode; `TOP 10`; apply `itemFilterSql`/`bindItemFilter`)
+- Modify: `app/(app)/analitica/types.ts` (`UnitsByLineaResponse` gains `nivel` and optional `seriesMeta?: Record<string, { linea?: string; sublinea?: string; code?: string }>` keyed by series label; keep existing fields so nothing else breaks)
+- Modify: `app/(app)/analitica/tabs/tab-productos.tsx` (trend request sends `nivel` + the same filter params the catalogo/grupos requests use; title `Unidades vendidas por <bucket>, por línea|sublínea|SKU`; subtitle matches; segment click per nivel: línea -> `{ lineas: [linea], sublineas: [], nivel: 'sublinea' }`; sublínea -> `{ lineas: [linea], sublineas: [sublinea], nivel: 'sku' }`; sku -> `{ q: code }`; "Otras" never clickable; scroll to the table as today; series colours stay stable across renders via the existing colour helper)
+- Test: `app/api/dwh/productos/__tests__/route.filters.test.ts` (or a new `route.trend.test.ts`) and a tab/helper-level test if a pure click-mapping helper is extracted (preferred: extract `trendClickPatch(nivel, seriesMeta, label): Partial<ProductosParams> | null` into `app/(app)/analitica/lib/productos-params.ts` or a sibling and unit-test it)
+
+**Interfaces:**
+- Consumes: `parseItemFilter`/`itemFilterSql`/`bindItemFilter`, `ProductosParams`.
+- Produces: `trendClickPatch(nivel: Nivel, meta: SeriesMeta | undefined, label: string): Partial<ProductosParams> | null` (null for "Otras" or unknown).
+
+- [ ] **Step 1: Failing tests:** route — `section=porLineaMes&nivel=sku` groups by product code, SQL has `TOP 10`, filters (`lineas`, `q`, `grupo`) bound on both the top-series query and the bucket query, default (no `nivel`) behaves as today for línea (keep existing tests green, adapt only the TOP 7 -> 10 expectation); `nivel=sublinea` labels are `Línea › Sublínea` and `seriesMeta` carries both parts; `trendClickPatch` per nivel including "Otras" -> null.
+- [ ] **Step 2: Run** `bun test --isolate --env-file=.env.local app/api/dwh lib/productos app/(app)/analitica/lib` — new tests FAIL.
+- [ ] **Step 3: Implement** the above.
+- [ ] **Step 4: Run** `bunx tsc --noEmit -p .`, the same bun test command, `bun run test:components` — PASS. Update the AGENTS.md Productos bullet (trend chart follows nivel, top 10 + Otras) in a second commit.
