@@ -18,7 +18,7 @@ export interface GroupShareQueryOptions {
   level: ProductosLevel;
   linea: string | null;
   sublinea: string | null;
-  tiendaKey: number | null;
+  tiendaCode: string | null;
   categoria: string | null;
 }
 
@@ -36,13 +36,13 @@ export async function fetchGroupShare(pool: sql.ConnectionPool, o: GroupShareQue
   const scope = [
     o.level !== 'linea' ? `AND ISNULL(p.LineName, '${NO_LINEA}') = @linea` : '',
     o.level === 'sku' ? `AND ISNULL(p.SubLineName, '${NO_SUBLINEA}') = @sublinea` : '',
-    o.tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '',
+    o.tiendaCode !== null ? 'AND fs.CustomerKey IN (SELECT tk.CustomerKey FROM dim.Dim_Customer tk WHERE tk.CustomerCode = @tiendaCode)' : '',
     o.categoria !== null ? 'AND p.CategoryName = @categoria' : '',
   ].join(' ');
   const req = pool.request();
   if (o.level !== 'linea') req.input('linea', o.linea);
   if (o.level === 'sku') req.input('sublinea', o.sublinea);
-  if (o.tiendaKey !== null) req.input('tiendaKey', o.tiendaKey);
+  if (o.tiendaCode !== null) req.input('tiendaCode', o.tiendaCode);
   if (o.categoria !== null) req.input('categoria', o.categoria);
   const label = labelExpr(o.level);
   const result = await req.query(`

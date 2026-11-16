@@ -117,13 +117,21 @@ function skuQuery(dateWhere: string, tiendaWhere: string, returnsDateWhere: stri
   `;
 }
 
+// A tienda is a customer (CustomerCode), not a Dim_Customer row: the dimension is SCD2, so one
+// customer can own several CustomerKeys (one per tracked change). The picker lists each code once
+// (named by its CURRENT row) and the filter matches every version of that code.
+const TIENDA_KEYS = 'SELECT tk.CustomerKey FROM dim.Dim_Customer tk WHERE tk.CustomerCode = @tiendaCode';
+
 function tiendasQuery(): string {
   return `
-    SELECT c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode) AS CustomerName
-    FROM dim.Dim_Customer c
-    JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
-    WHERE fs.IsVoided = 0
-    GROUP BY c.CustomerKey, ISNULL(c.CustomerName, c.CustomerCode)
+    SELECT cur.CustomerCode, ISNULL(cur.CustomerName, cur.CustomerCode) AS CustomerName
+    FROM dim.Dim_Customer cur
+    WHERE cur.IsCurrent = 1
+      AND EXISTS (
+        SELECT 1 FROM dim.Dim_Customer c
+        JOIN fact.Fact_Sales fs ON fs.CustomerKey = c.CustomerKey
+        WHERE c.CustomerCode = cur.CustomerCode AND fs.IsVoided = 0
+      )
     ORDER BY CustomerName
   `;
 }
@@ -202,25 +210,25 @@ function unitsByLineaMonthQuery(dateWhere: string, tiendaWhere: string, bucket: 
   `;
 }
 
-function bindFilters(req: { input(name: string, value: unknown): unknown }, tiendaKey: number | null, categoria: string | null): void {
-  if (tiendaKey !== null) req.input('tiendaKey', tiendaKey);
+function bindFilters(req: { input(name: string, value: unknown): unknown }, tiendaCode: string | null, categoria: string | null): void {
+  if (tiendaCode !== null) req.input('tiendaCode', tiendaCode);
   if (categoria !== null) req.input('categoria', categoria);
 }
 
 async function handleProfundidad(
   dateWhere: string, returnsDateWhere: string, salesFilterWhere: string, tiendaOnlyWhere: string,
-  tiendaKey: number | null, categoria: string | null,
+  tiendaCode: string | null, categoria: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
-  const returnsTiendaWhere = tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : '';
+  const returnsTiendaWhere = tiendaCode !== null ? `AND fr.CustomerKey IN (${TIENDA_KEYS})` : '';
 
   const rowsReq = pool.request();
-  bindFilters(rowsReq, tiendaKey, categoria);
+  bindFilters(rowsReq, tiendaCode, categoria);
   const rowsResult = await rowsReq.query(profundidadLineaQuery(dateWhere, returnsDateWhere, salesFilterWhere, returnsTiendaWhere));
 
   // Denominator: all clients/stores active in range (category NOT applied).
   const totalsReq = pool.request();
-  bindFilters(totalsReq, tiendaKey, null);
+  bindFilters(totalsReq, tiendaCode, null);
   const totalsResult = await totalsReq.query(activeTotalsQuery(dateWhere, tiendaOnlyWhere));
   const totalClients = Number(totalsResult.recordset[0]?.TotalClients ?? 0);
   const totalStores = Number(totalsResult.recordset[0]?.TotalStores ?? 0);
@@ -255,17 +263,17 @@ async function handleProfundidad(
 }
 
 async function handlePorLineaMes(
-  dateWhere: string, salesFilterWhere: string, tiendaKey: number | null, categoria: string | null, trend: TrendBucket,
+  dateWhere: string, salesFilterWhere: string, tiendaCode: string | null, categoria: string | null, trend: TrendBucket,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
 
   const topReq = pool.request();
-  bindFilters(topReq, tiendaKey, categoria);
+  bindFilters(topReq, tiendaCode, categoria);
   const topResult = await topReq.query(topLineasQuery(dateWhere, salesFilterWhere));
   const topLineas = new Set(topResult.recordset.map(r => String(r.LineName)));
 
   const monthReq = pool.request();
-  bindFilters(monthReq, tiendaKey, categoria);
+  bindFilters(monthReq, tiendaCode, categoria);
   const monthResult = await monthReq.query(unitsByLineaMonthQuery(dateWhere, salesFilterWhere, trend));
 
   const byMonth = new Map<string, UnitsByLineaMonthRow>();
@@ -337,11 +345,11 @@ async function handlePorLineaMes(
 
 async function handleGrupos(
   dateRange: string, level: 'linea' | 'sublinea' | 'sku', linea: string | null, sublinea: string | null,
-  tiendaKey: number | null, categoria: string | null,
+  tiendaCode: string | null, categoria: string | null,
 ): Promise<NextResponse> {
   const pool = await getDwhPool();
   const raw = await fetchGroupShare(pool, {
-    dateWhere: buildDateWhereClause(dateRange, 'fs'), level, linea, sublinea, tiendaKey, categoria,
+    dateWhere: buildDateWhereClause(dateRange, 'fs'), level, linea, sublinea, tiendaCode, categoria,
   });
   const response: ProductosGroupShareResponse = { ...buildGroupShareMatrix(raw), level };
   return jsonWithCache(response);
@@ -357,7 +365,7 @@ export async function GET(request: NextRequest) {
   const lineaParam = searchParams.get('linea');
   const sublineaParam = searchParams.get('sublinea');
   const tiendaParam = searchParams.get('tienda');
-  const tiendaKey = tiendaParam && /^\d+$/.test(tiendaParam) ? Number(tiendaParam) : null;
+  const tiendaCode = tiendaParam && tiendaParam.trim() !== '' ? tiendaParam.trim() : null;
   const categoria = parseCategoria(searchParams.get('categoria'));
 
   if (searchParams.get('tiendas') === '1') {
@@ -365,7 +373,7 @@ export async function GET(request: NextRequest) {
       const pool = await getDwhPool();
       const result = await pool.request().query(tiendasQuery());
       return jsonWithCache({
-        tiendas: result.recordset.map(r => ({ value: String(r.CustomerKey), label: r.CustomerName })),
+        tiendas: result.recordset.map(r => ({ value: String(r.CustomerCode).trim(), label: r.CustomerName })),
       });
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
@@ -388,7 +396,7 @@ export async function GET(request: NextRequest) {
   if (groupBy === 'sublinea' && !lineaParam) groupBy = 'linea';
   if (groupBy === 'sku' && (!lineaParam || !sublineaParam)) groupBy = 'linea';
 
-  const tiendaOnlyWhere = tiendaKey !== null ? 'AND fs.CustomerKey = @tiendaKey' : '';
+  const tiendaOnlyWhere = tiendaCode !== null ? `AND fs.CustomerKey IN (${TIENDA_KEYS})` : '';
   const salesFilterWhere = `${tiendaOnlyWhere} ${categoria !== null ? 'AND p.CategoryName = @categoria' : ''}`;
 
   const section = searchParams.get('section');
@@ -399,8 +407,8 @@ export async function GET(request: NextRequest) {
       // (labelled in the UI); the drill-down table uses the same devolución-date basis.
       const returnsDateWhere = buildDateWhereClause(dateRange, 'fr');
       return section === 'profundidad'
-        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaKey, categoria)
-        : await handlePorLineaMes(dateWhere, salesFilterWhere, tiendaKey, categoria, parseTrendBucket(searchParams, dateRange));
+        ? await handleProfundidad(dateWhere, returnsDateWhere, salesFilterWhere, tiendaOnlyWhere, tiendaCode, categoria)
+        : await handlePorLineaMes(dateWhere, salesFilterWhere, tiendaCode, categoria, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -408,7 +416,7 @@ export async function GET(request: NextRequest) {
 
   if (section === 'grupos') {
     try {
-      return await handleGrupos(dateRange, groupBy, lineaParam, sublineaParam, tiendaKey, categoria);
+      return await handleGrupos(dateRange, groupBy, lineaParam, sublineaParam, tiendaCode, categoria);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -419,27 +427,27 @@ export async function GET(request: NextRequest) {
 
     const dateWhere = buildDateWhereClause(dateRange, 'fs');
     const drillReturnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr');
-    const returnsTiendaWhere = `${tiendaKey !== null ? 'AND fr.CustomerKey = @tiendaKey' : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
+    const returnsTiendaWhere = `${tiendaCode !== null ? `AND fr.CustomerKey IN (${TIENDA_KEYS})` : ''} ${categoria !== null ? 'AND pr.CategoryName = @categoria' : ''}`;
 
     let recordset: Record<string, unknown>[];
     const breadcrumb: ProductosResponse['breadcrumb'] = [{ label: 'Líneas', groupBy: 'linea' }];
 
     if (groupBy === 'sku') {
       const req = pool.request().input('linea', lineaParam).input('sublinea', sublineaParam);
-      bindFilters(req, tiendaKey, categoria);
+      bindFilters(req, tiendaCode, categoria);
       const result = await req.query(skuQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
       breadcrumb.push({ label: sublineaParam as string, groupBy: 'sku' });
     } else if (groupBy === 'sublinea') {
       const req = pool.request().input('linea', lineaParam);
-      bindFilters(req, tiendaKey, categoria);
+      bindFilters(req, tiendaCode, categoria);
       const result = await req.query(sublineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
       breadcrumb.push({ label: lineaParam as string, groupBy: 'sublinea' });
     } else {
       const req = pool.request();
-      bindFilters(req, tiendaKey, categoria);
+      bindFilters(req, tiendaCode, categoria);
       const result = await req.query(lineaQuery(dateWhere, salesFilterWhere, drillReturnsDateWhere, returnsTiendaWhere));
       recordset = result.recordset;
     }

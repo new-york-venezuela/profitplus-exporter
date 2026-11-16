@@ -81,14 +81,14 @@ describe('GET /api/dwh/productos section=grupos', () => {
       { Label: 'Panaderia', GroupCode: 'S1', GroupName: 'Abasto', SalesBs: 3500, SalesUsd: 70 },
       { Label: 'Panaderia', GroupCode: null, GroupName: null, SalesBs: 300, SalesUsd: null },
     ];
-    const res = await get('section=grupos&groupBy=linea&dateRange=month:2026-10&categoria=Congelado&tienda=7');
+    const res = await get('section=grupos&groupBy=linea&dateRange=month:2026-10&categoria=Congelado&tienda=J123');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.level).toBe('linea');
     expect(body.columns.map((c: { name: string }) => c.name)).toEqual(['Abasto', 'Sin grupo']);
     expect(body.rows[0].cells.S1.share).toBeCloseTo(3500 / 3800, 8);
     expect(queries[0].sql).toContain('cur.IsCurrent = 1');
-    expect(queries[0].inputs).toMatchObject({ categoria: 'Congelado', tiendaKey: 7 });
+    expect(queries[0].inputs).toMatchObject({ categoria: 'Congelado', tiendaCode: 'J123' });
   });
   test('sublinea without linea falls back to the linea level (no @linea in the SQL)', async () => {
     const body = await (await get('section=grupos&groupBy=sublinea&dateRange=month:2026-10')).json();
@@ -116,5 +116,20 @@ describe('GET /api/dwh/productos?categorias=1', () => {
     const res = await get('categorias=1');
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Error al consultar el Data Warehouse' });
+  });
+});
+
+describe('GET /api/dwh/productos?tiendas=1', () => {
+  test('lists each customer once by CustomerCode, named by its current row', async () => {
+    respond = () => [{ CustomerCode: 'J123  ', CustomerName: 'Tienda Uno' }];
+    const body = await (await get('tiendas=1')).json();
+    expect(body.tiendas).toEqual([{ value: 'J123', label: 'Tienda Uno' }]);
+    expect(queries[0].sql).toContain('IsCurrent = 1');
+    expect(queries[0].sql).not.toMatch(/GROUP BY c\.CustomerKey/);
+  });
+  test('the tienda filter matches every SCD version of the customer code', async () => {
+    await get('section=porLineaMes&tienda=J123&dateRange=month:2026-10');
+    expect(queries[0].sql).toContain('tk.CustomerCode = @tiendaCode');
+    expect(queries[0].inputs).toMatchObject({ tiendaCode: 'J123' });
   });
 });
