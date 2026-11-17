@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     groupSpec(groupBy, bucket, basis),
     histSalesWhere(range, 'fsl'),
     histReturnsWhere(range, basis, 'frl'),
-    groupBy === 'mes' ? null : TOP_ROWS,
+    { top: groupBy === 'mes' ? null : TOP_ROWS },
   );
 
   try {

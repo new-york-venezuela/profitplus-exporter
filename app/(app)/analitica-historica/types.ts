@@ -38,7 +38,7 @@ export interface HistResumenResponse {
 }
 
 // ── Ventas / grouped drilldowns ────────────────────────────────────────────
-export type HistGroupBy = 'mes' | 'cliente' | 'linea' | 'vendedor' | 'producto';
+export type HistGroupBy = 'mes' | 'cliente' | 'linea' | 'vendedor' | 'producto' | 'sku';
 
 export interface HistGroupRow {
   label: string;
@@ -53,4 +53,21 @@ export interface HistGroupRow {
 export interface HistGroupResponse {
   groupBy: HistGroupBy;
   rows: HistGroupRow[];
+}
+
+// ── Devoluciones ───────────────────────────────────────────────────────────
+export interface HistDevolucionRow {
+  label: string;
+  value: string;
+  returns: DualAmount;
+  salesGross: DualAmount; // sales of the same group in the same range (the rate's denominator)
+  returnRate: number | null;
+  unitsReturned: number;
+}
+
+export interface HistDevolucionesResponse {
+  empty: boolean;
+  groupBy: 'mes' | 'cliente' | 'sku';
+  kpis: HistKpis | null;
+  rows: HistDevolucionRow[];
 }
