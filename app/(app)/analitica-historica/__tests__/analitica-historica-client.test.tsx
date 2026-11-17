@@ -15,7 +15,12 @@ const { histPresetRange, HIST_START_KEY, keyToIso } = await import('@/lib/analit
 
 const lastUrl = () => decodeURIComponent(pushed[pushed.length - 1] ?? '');
 
-beforeEach(() => { pushed.length = 0; search = ''; });
+beforeEach(() => {
+  pushed.length = 0;
+  search = '';
+  // The mounted tab fetches on render; keep it pending so no real request is made.
+  globalThis.fetch = mock(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+});
 afterEach(cleanup);
 
 describe('AnaliticaHistoricaClient', () => {

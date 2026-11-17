@@ -71,3 +71,28 @@ export interface HistDevolucionesResponse {
   kpis: HistKpis | null;
   rows: HistDevolucionRow[];
 }
+
+// ── Clientes ───────────────────────────────────────────────────────────────
+import type { ParetoClass } from '@/lib/productos/pareto';
+
+export interface HistClienteRow {
+  customerKey: number;
+  code: string;
+  name: string;
+  firstInvoiceKey: number | null; // first / last non-voided invoice over the WHOLE legacy window
+  lastInvoiceKey: number | null;
+  invoices: number; // distinct invoices in the selected range
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount; // negative when the customer only returned in the range
+  returnRate: number | null;
+  units: number;
+  sharePct: number | null; // net Bs ÷ total net Bs of the listed customers; negative allowed, null when the total is not positive
+  pareto: ParetoClass | null;
+  status: 'activo' | 'sin_compras'; // sin_compras = no sale in the selected range
+}
+
+export interface HistClientesResponse {
+  empty: boolean;
+  rows: HistClienteRow[];
+}

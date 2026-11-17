@@ -42,3 +42,9 @@ export function histDualSum(factAlias: string, column: string, bsAlias: string, 
   return `ISNULL(SUM(${col}), 0) AS ${bsAlias},
       CASE WHEN COUNT(${col}) = 0 THEN 0 ELSE SUM(${col} / NULLIF(${joinAlias}.RateSell, 0)) END AS ${usdAlias}`;
 }
+
+// Escapes LIKE wildcards so a user's search text matches literally. Use with
+// `LIKE @q ESCAPE '\'` and bind `%${escapeLike(text)}%` through .input().
+export function escapeLike(text: string): string {
+  return text.replace(/[\\%_[]/g, ch => `\\${ch}`);
+}
