@@ -17,7 +17,10 @@ import { getDwhPool } from '@/lib/db/dwh-mssql';
 // runs successfully — LEGACY_DB_* env vars are read ONLY here, never by
 // the running app.
 
-export const IMPORT_START_DATE = '2025-01-01';
+// 2020-01-01: the Analítica histórica section covers 2020 onwards (originally
+// 2025-01-01). Re-running requires emptying the _Legacy tables first
+// (migrations/dwh/0042_truncate_legacy_tables.sql).
+export const IMPORT_START_DATE = '2020-01-01';
 // 2026 is not a leap year (not divisible by 4) — the actual end boundary
 // is Feb 28, not Feb 29. Do not "fix" this to 02-29 without re-checking
 // the year.
@@ -49,6 +52,89 @@ export async function getLegacyPool(): Promise<sql.ConnectionPool> {
   return new sql.ConnectionPool(buildLegacyConfig()).connect();
 }
 
+const BULK_BATCH_SIZE = 5000;
+
+type BulkColumn = { name: string; type: sql.ISqlTypeFactoryWithNoParams | sql.ISqlType; nullable: boolean };
+
+// Batched bulk insert (one round trip per BULK_BATCH_SIZE rows instead of one
+// per row): six years of facts is far too many rows for row-by-row INSERTs.
+async function bulkInsert(
+  dwhPool: sql.ConnectionPool, tableName: string, columns: BulkColumn[], rows: unknown[][],
+): Promise<void> {
+  for (let i = 0; i < rows.length; i += BULK_BATCH_SIZE) {
+    const table = new sql.Table(tableName);
+    table.create = false;
+    for (const c of columns) table.columns.add(c.name, c.type, { nullable: c.nullable });
+    for (const row of rows.slice(i, i + BULK_BATCH_SIZE)) table.rows.add(...(row as (string | number | boolean | null)[]));
+    await dwhPool.request().bulk(table);
+  }
+}
+
+export interface RateRow { dateKey: number; rateBuy: number | null; rateSell: number }
+export interface FilledRateRow extends RateRow { isCarriedForward: boolean }
+
+function nextDateKey(key: number): number {
+  const d = new Date(Date.UTC(Math.floor(key / 10000), Math.floor((key % 10000) / 100) - 1, key % 100 + 1));
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+}
+
+// One entry per calendar day from startKey to endKey. A day with no real rate
+// repeats the last real one (isCarriedForward = true) -- same rule as
+// dwh.Load_Fact_ExchangeRate (migrations/dwh/0036). Real rows before startKey
+// seed the carry but are not emitted; days before the first real rate are
+// omitted entirely (no rate -> USD stays NULL downstream, never 0).
+export function fillRatesCarryForward(rows: RateRow[], startKey: number, endKey: number): FilledRateRow[] {
+  const byKey = new Map(rows.map(r => [r.dateKey, r]));
+  let last: RateRow | null = null;
+  for (const r of [...rows].sort((a, b) => a.dateKey - b.dateKey)) {
+    if (r.dateKey < startKey) last = r;
+  }
+  const out: FilledRateRow[] = [];
+  for (let key = startKey; key <= endKey; key = nextDateKey(key)) {
+    const real = byKey.get(key);
+    if (real) {
+      last = real;
+      out.push({ ...real, isCarriedForward: false });
+    } else if (last) {
+      out.push({ dateKey: key, rateBuy: last.rateBuy, rateSell: last.rateSell, isCarriedForward: true });
+    }
+  }
+  return out;
+}
+
+// USD rates from the OLD ERP's own saTasa (not the current ERP's), so legacy
+// USD figures use the rates that were actually in force then.
+export async function loadFactExchangeRateLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request().query(`
+    SELECT CONVERT(int, CONVERT(char(8), fecha, 112)) AS DateKey, RTRIM(co_mone) AS Currency,
+           tasa_c AS RateBuy, tasa_v AS RateSell, fecha
+    FROM dbo.saTasa
+    WHERE RTRIM(co_mone) IN ('USD', 'US$') AND tasa_v IS NOT NULL AND tasa_v > 0
+    ORDER BY fecha
+  `);
+  // One real rate per day: prefer 'USD' over 'US$', then the latest timestamp.
+  const byDay = new Map<number, { rate: RateRow; isUsd: boolean }>();
+  for (const r of result.recordset as { DateKey: number; Currency: string; RateBuy: number | null; RateSell: number }[]) {
+    const isUsd = r.Currency === 'USD';
+    const prev = byDay.get(r.DateKey);
+    if (prev && prev.isUsd && !isUsd) continue;
+    byDay.set(r.DateKey, { rate: { dateKey: r.DateKey, rateBuy: r.RateBuy, rateSell: Number(r.RateSell) }, isUsd });
+  }
+  // Idempotent after a partly failed earlier run: assertNotAlreadyImported only
+  // guards the sales table, and this table is keyed by DateKey.
+  await dwhPool.request().query('DELETE FROM fact.Fact_ExchangeRate_Legacy');
+  const startKey = parseInt(IMPORT_START_DATE.replace(/-/g, ''));
+  const endKey = parseInt(IMPORT_END_DATE.replace(/-/g, ''));
+  const filled = fillRatesCarryForward([...byDay.values()].map(v => v.rate), startKey, endKey);
+  await bulkInsert(dwhPool, 'fact.Fact_ExchangeRate_Legacy', [
+    { name: 'DateKey', type: sql.Int, nullable: false },
+    { name: 'RateBuy', type: sql.Decimal(21, 8), nullable: true },
+    { name: 'RateSell', type: sql.Decimal(21, 8), nullable: false },
+    { name: 'IsCarriedForward', type: sql.Bit, nullable: false },
+  ], filled.map(r => [r.dateKey, r.rateBuy, r.rateSell, r.isCarriedForward]));
+  return filled.length;
+}
+
 export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Promise<void> {
   const result = await dwhPool.request().query(`SELECT COUNT(*) AS TotalRows FROM fact.Fact_Sales_Legacy`);
   const rowCount = Number(result.recordset[0].TotalRows);
@@ -56,7 +142,8 @@ export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Pro
     throw new Error(
       `fact.Fact_Sales_Legacy already has ${rowCount} row(s) — refusing to run the Histórico 2025 import again. ` +
       `This is a one-time load; if you need to re-import, truncate fact.Fact_Sales_Legacy, fact.Fact_Returns_Legacy, ` +
-      `dim.Dim_Customer_Legacy, dim.Dim_Product_Legacy, and dim.Dim_SalesRep_Legacy manually first.`
+      `dim.Dim_Customer_Legacy, dim.Dim_Product_Legacy, dim.Dim_SalesRep_Legacy and fact.Fact_ExchangeRate_Legacy first ` +
+      `(migrations/dwh/0042_truncate_legacy_tables.sql empties the five facts/dims; also empty Fact_ExchangeRate_Legacy).`
     );
   }
 }
@@ -183,7 +270,7 @@ export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPoo
   const productKeyByCode = new Map(productKeys.recordset.map((r: { ProductLegacyKey: number; ProductCode: string }) => [r.ProductCode, r.ProductLegacyKey]));
   const salesRepKeyByCode = new Map(salesRepKeys.recordset.map((r: { SalesRepLegacyKey: number; SalesRepCode: string }) => [r.SalesRepCode, r.SalesRepLegacyKey]));
 
-  let count = 0;
+  const rows: unknown[][] = [];
   for (const row of result.recordset as {
     LineNumber: number; InvoiceNumber: string; ProductCode: string; QuantitySold: number;
     DiscountAmount: number; NetAmount: number; CustomerCode: string; SalesRepCode: string | null;
@@ -193,31 +280,24 @@ export async function loadFactSalesLegacy(legacyPool: sql.ConnectionPool, dwhPoo
     const productLegacyKey = productKeyByCode.get(row.ProductCode.trim());
     if (customerLegacyKey === undefined || productLegacyKey === undefined) continue; // no matching dimension row — skip, matching Load_Fact_Sales's own WHERE cust/prod IS NOT NULL behavior
     const salesRepLegacyKey = row.SalesRepCode ? salesRepKeyByCode.get(row.SalesRepCode.trim()) ?? null : null;
-
-    await dwhPool.request()
-      .input('dateKey', sql.Int, row.DateKey)
-      .input('customerLegacyKey', sql.Int, customerLegacyKey)
-      .input('productLegacyKey', sql.Int, productLegacyKey)
-      .input('salesRepLegacyKey', sql.Int, salesRepLegacyKey)
-      .input('invoiceNumber', sql.Char(20), row.InvoiceNumber)
-      .input('lineNumber', sql.Int, row.LineNumber)
-      .input('quantitySold', sql.Decimal(18, 5), row.QuantitySold)
-      .input('netAmount', sql.Decimal(18, 2), row.NetAmount)
-      .input('documentExchangeRate', sql.Decimal(21, 8), row.DocumentExchangeRate)
-      .input('isVoided', sql.Bit, row.IsVoided)
-      .query(`
-        INSERT INTO fact.Fact_Sales_Legacy (
-          DateKey, CustomerLegacyKey, ProductLegacyKey, SalesRepLegacyKey,
-          InvoiceNumber, LineNumber, QuantitySold, NetAmount, DocumentExchangeRate, IsVoided
-        )
-        VALUES (
-          @dateKey, @customerLegacyKey, @productLegacyKey, @salesRepLegacyKey,
-          @invoiceNumber, @lineNumber, @quantitySold, @netAmount, @documentExchangeRate, @isVoided
-        )
-      `);
-    count++;
+    rows.push([
+      row.DateKey, customerLegacyKey, productLegacyKey, salesRepLegacyKey,
+      row.InvoiceNumber, row.LineNumber, row.QuantitySold, row.NetAmount, row.DocumentExchangeRate, row.IsVoided,
+    ]);
   }
-  return count;
+  await bulkInsert(dwhPool, 'fact.Fact_Sales_Legacy', [
+    { name: 'DateKey', type: sql.Int, nullable: false },
+    { name: 'CustomerLegacyKey', type: sql.Int, nullable: false },
+    { name: 'ProductLegacyKey', type: sql.Int, nullable: false },
+    { name: 'SalesRepLegacyKey', type: sql.Int, nullable: true },
+    { name: 'InvoiceNumber', type: sql.Char(20), nullable: false },
+    { name: 'LineNumber', type: sql.Int, nullable: false },
+    { name: 'QuantitySold', type: sql.Decimal(18, 5), nullable: false },
+    { name: 'NetAmount', type: sql.Decimal(18, 2), nullable: false },
+    { name: 'DocumentExchangeRate', type: sql.Decimal(21, 8), nullable: true },
+    { name: 'IsVoided', type: sql.Bit, nullable: false },
+  ], rows);
+  return rows.length;
 }
 
 // Mirrors dwh.Load_Fact_Returns (migrations/dwh/0036: global-discount-netted
@@ -278,7 +358,7 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
   const productKeyByCode = new Map(productKeys.recordset.map((r: { ProductLegacyKey: number; ProductCode: string }) => [r.ProductCode, r.ProductLegacyKey]));
   const salesRepKeyByCode = new Map(salesRepKeys.recordset.map((r: { SalesRepLegacyKey: number; SalesRepCode: string }) => [r.SalesRepCode, r.SalesRepLegacyKey]));
 
-  let count = 0;
+  const rows: unknown[][] = [];
   for (const row of result.recordset as {
     LineNumber: number; CreditNoteNumber: string; ProductCode: string; QuantityReturned: number;
     NetAmount: number; CustomerCode: string; SalesRepCode: string | null;
@@ -293,37 +373,29 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
     const hasInvoiceLink = row.OriginalInvoiceDateKey !== null;
     const originalInvoiceDateKey = row.OriginalInvoiceDateKey ?? row.DateKey;
     const salesRepLegacyKey = row.SalesRepCode ? salesRepKeyByCode.get(row.SalesRepCode.trim()) ?? null : null;
-
-    await dwhPool.request()
-      .input('dateKey', sql.Int, row.DateKey)
-      .input('customerLegacyKey', sql.Int, customerLegacyKey)
-      .input('productLegacyKey', sql.Int, productLegacyKey)
-      .input('salesRepLegacyKey', sql.Int, salesRepLegacyKey)
-      .input('creditNoteNumber', sql.Char(20), row.CreditNoteNumber)
-      .input('lineNumber', sql.Int, row.LineNumber)
-      .input('quantityReturned', sql.Decimal(18, 5), row.QuantityReturned)
-      .input('netAmount', sql.Decimal(18, 2), row.NetAmount)
-      .input('documentExchangeRate', sql.Decimal(21, 8), row.DocumentExchangeRate)
-      .input('isVoided', sql.Bit, row.IsVoided)
-      .input('originalInvoiceNumber', sql.Char(20), row.OriginalInvoiceNumber)
-      .input('originalInvoiceLineNumber', sql.Int, row.OriginalInvoiceLineNumber)
-      .input('originalInvoiceDateKey', sql.Int, originalInvoiceDateKey)
-      .input('hasInvoiceLink', sql.Bit, hasInvoiceLink)
-      .query(`
-        INSERT INTO fact.Fact_Returns_Legacy (
-          DateKey, CustomerLegacyKey, ProductLegacyKey, SalesRepLegacyKey,
-          CreditNoteNumber, LineNumber, QuantityReturned, NetAmount, DocumentExchangeRate, IsVoided,
-          OriginalInvoiceNumber, OriginalInvoiceLineNumber, OriginalInvoiceDateKey, HasInvoiceLink
-        )
-        VALUES (
-          @dateKey, @customerLegacyKey, @productLegacyKey, @salesRepLegacyKey,
-          @creditNoteNumber, @lineNumber, @quantityReturned, @netAmount, @documentExchangeRate, @isVoided,
-          @originalInvoiceNumber, @originalInvoiceLineNumber, @originalInvoiceDateKey, @hasInvoiceLink
-        )
-      `);
-    count++;
+    rows.push([
+      row.DateKey, customerLegacyKey, productLegacyKey, salesRepLegacyKey,
+      row.CreditNoteNumber, row.LineNumber, row.QuantityReturned, row.NetAmount, row.DocumentExchangeRate, row.IsVoided,
+      row.OriginalInvoiceNumber, row.OriginalInvoiceLineNumber, originalInvoiceDateKey, hasInvoiceLink,
+    ]);
   }
-  return count;
+  await bulkInsert(dwhPool, 'fact.Fact_Returns_Legacy', [
+    { name: 'DateKey', type: sql.Int, nullable: false },
+    { name: 'CustomerLegacyKey', type: sql.Int, nullable: false },
+    { name: 'ProductLegacyKey', type: sql.Int, nullable: false },
+    { name: 'SalesRepLegacyKey', type: sql.Int, nullable: true },
+    { name: 'CreditNoteNumber', type: sql.Char(20), nullable: false },
+    { name: 'LineNumber', type: sql.Int, nullable: false },
+    { name: 'QuantityReturned', type: sql.Decimal(18, 5), nullable: false },
+    { name: 'NetAmount', type: sql.Decimal(18, 2), nullable: false },
+    { name: 'DocumentExchangeRate', type: sql.Decimal(21, 8), nullable: true },
+    { name: 'IsVoided', type: sql.Bit, nullable: false },
+    { name: 'OriginalInvoiceNumber', type: sql.Char(20), nullable: true },
+    { name: 'OriginalInvoiceLineNumber', type: sql.Int, nullable: true },
+    { name: 'OriginalInvoiceDateKey', type: sql.Int, nullable: true },
+    { name: 'HasInvoiceLink', type: sql.Bit, nullable: false },
+  ], rows);
+  return rows.length;
 }
 
 async function main(): Promise<void> {
@@ -332,18 +404,8 @@ async function main(): Promise<void> {
 
   const legacyPool = await getLegacyPool();
   try {
-    // Pre-flight check (manual review, not an automated assertion — see
-    // docs/superpowers/specs/2026-09-23-legacy-2025-import-design.md's
-    // "Currency conversion" section): confirm the DWH's own
-    // fact.Fact_ExchangeRate actually has rows for this date window
-    // before relying on it for USD figures in the Histórico tab. A
-    // missing rate degrades gracefully (produces NULL/no USD for that
-    // row) rather than erroring, but is worth knowing about up front.
-    const rateCheck = await dwhPool.request().query(`
-      SELECT COUNT(*) AS TotalRows FROM fact.Fact_ExchangeRate
-      WHERE DateKey BETWEEN 20250101 AND 20260228
-    `);
-    console.log(`Fact_ExchangeRate rows for the import window: ${rateCheck.recordset[0].TotalRows} (0 means USD figures in the Histórico tab will show as unavailable for this whole period)`);
+    const ratesCount = await loadFactExchangeRateLegacy(legacyPool, dwhPool);
+    console.log(`✓ Fact_ExchangeRate_Legacy: ${ratesCount} rows loaded (0 means USD figures will show as unavailable for the whole period)`);
 
     const customerCount = await loadDimCustomerLegacy(legacyPool, dwhPool);
     console.log(`✓ Dim_Customer_Legacy: ${customerCount} rows loaded`);
@@ -367,11 +429,11 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main()
     .then(() => {
-      console.log('✓ Histórico 2025 import completed');
+      console.log('✓ legacy import completed');
       process.exit(0);
     })
     .catch(error => {
-      console.error('✗ Error running the Histórico 2025 import:', error);
+      console.error('✗ Error running the legacy import:', error);
       process.exit(1);
     });
 }
