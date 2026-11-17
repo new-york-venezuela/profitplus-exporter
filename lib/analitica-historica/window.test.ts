@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   HIST_START_KEY, HIST_END_KEY, keyToIso, isoToKey,
   resolveHistRange, histRangeWhere, previousRange, histPresetRange,
-  histYears, histYearRange, histLastCompleteYear, histYearOfRange, histMonthsOfYear,
+  histYears, histYearRange, histLastCompleteYear, histYearOfRange, histMonthsOfYear, histStepYear,
 } from './window';
 
 describe('key helpers', () => {
@@ -154,5 +154,38 @@ describe('year helpers', () => {
 
   test('a year outside the window has no enabled month', () => {
     expect(histMonthsOfYear(2019).some(m => m.enabled)).toBe(false);
+  });
+});
+
+describe('histStepYear', () => {
+  const newest = histYears()[0];
+  const oldest = histYears()[histYears().length - 1];
+
+  test('a whole year steps to the adjacent whole year', () => {
+    expect(histStepYear(histYearRange(2024), -1)).toBe(histYearRange(2023));
+    expect(histStepYear(histYearRange(2024), 1)).toBe(histYearRange(2025));
+  });
+
+  test('a month keeps its month in the adjacent year', () => {
+    expect(histStepYear('month:2024-05', -1)).toBe('month:2023-05');
+    expect(histStepYear('month:2023-05', 1)).toBe('month:2024-05');
+  });
+
+  test('a month with no data in the target year falls back to that whole year', () => {
+    const endMonth = Math.floor((HIST_END_KEY % 10000) / 100);
+    if (endMonth < 12) {
+      expect(histStepYear(`month:${newest - 1}-12`, 1)).toBe(histYearRange(newest));
+    }
+  });
+
+  test('a range spanning years steps from the newest year; a range inside a year steps to the adjacent year', () => {
+    expect(histStepYear(histPresetRange('12m'), -1)).toBe(histYearRange(newest - 1));
+    expect(histStepYear('custom:2023-03-10:2023-04-02', 1)).toBe(histYearRange(2024));
+  });
+
+  test('stepping past either end of the data is null', () => {
+    expect(histStepYear(histYearRange(oldest), -1)).toBeNull();
+    expect(histStepYear(histYearRange(newest), 1)).toBeNull();
+    expect(histStepYear(histPresetRange('12m'), 1)).toBeNull();
   });
 });

@@ -159,6 +159,22 @@ export function histYearOfRange(dateRange: string): number | null {
   return YEAR_OF(r.startKey) === YEAR_OF(r.endKey) ? YEAR_OF(r.startKey) : null;
 }
 
+// Where the year arrows go from `dateRange`: a month keeps its month in the adjacent year
+// (the whole year when that month has no data there), anything else moves to the adjacent
+// whole year; a range spanning years steps from the newest year. Null past either end.
+export function histStepYear(dateRange: string, delta: 1 | -1): string | null {
+  const years = histYears();
+  const from = histYearOfRange(dateRange) ?? years[0];
+  const to = from + delta;
+  if (to < years[years.length - 1] || to > years[0]) return null;
+  const month = MONTH_RE.exec(dateRange);
+  if (month) {
+    const key = `${to}-${month[2]}`;
+    if (!resolveHistRange(`month:${key}`).empty) return `month:${key}`;
+  }
+  return histYearRange(to);
+}
+
 export interface HistMonthChip { key: string; month: number; enabled: boolean }
 
 // The 12 months of a year; the ones with no data in the window are disabled.

@@ -11,7 +11,7 @@ mock.module('next/navigation', () => ({
 mock.module('posthog-js', () => ({ default: { capture: () => {} } }));
 
 const { AnaliticaHistoricaClient } = await import('../analitica-historica-client');
-const { histPresetRange, HIST_START_KEY, keyToIso, histYears, histYearRange, histLastCompleteYear, histMonthsOfYear } = await import('@/lib/analitica-historica/window');
+const { histPresetRange, HIST_START_KEY, keyToIso, histYears, histYearRange, histLastCompleteYear, histMonthsOfYear, histStepYear } = await import('@/lib/analitica-historica/window');
 
 const lastUrl = () => decodeURIComponent(pushed[pushed.length - 1] ?? '');
 
@@ -139,5 +139,32 @@ describe('AnaliticaHistoricaClient', () => {
     render(<AnaliticaHistoricaClient />);
     const months = screen.getByRole('group', { name: 'Meses de 2023' });
     expect(months.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(0);
+  });
+
+  test('arrows step the selected year back and forward', () => {
+    search = `dateRange=${histYearRange(2024)}`;
+    render(<AnaliticaHistoricaClient />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al año anterior' }));
+    expect(lastUrl()).toContain(`dateRange=${histStepYear(histYearRange(2024), -1)}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al año siguiente' }));
+    expect(lastUrl()).toContain(`dateRange=${histStepYear(histYearRange(2024), 1)}`);
+  });
+
+  test('with a month selected the year arrows keep the month', () => {
+    search = 'dateRange=month:2024-05';
+    render(<AnaliticaHistoricaClient />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al año anterior' }));
+    expect(lastUrl()).toContain('dateRange=month:2023-05');
+  });
+
+  test('the year arrows are disabled at the ends of the data', () => {
+    const years = histYears();
+    search = `dateRange=${histYearRange(years[0])}`;
+    const first = render(<AnaliticaHistoricaClient />);
+    expect((screen.getByRole('button', { name: 'Ir al año siguiente' }) as HTMLButtonElement).disabled).toBe(true);
+    first.unmount();
+    search = `dateRange=${histYearRange(years[years.length - 1])}`;
+    render(<AnaliticaHistoricaClient />);
+    expect((screen.getByRole('button', { name: 'Ir al año anterior' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

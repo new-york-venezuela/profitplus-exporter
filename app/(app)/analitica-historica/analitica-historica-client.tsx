@@ -9,7 +9,7 @@ import { allowedGranularities, resolveGranularity, type Granularity } from '../a
 import { resolveReturnsBasis } from '../analitica/lib/returns-basis';
 import ReturnsBasisSelector from '../analitica/components/returns-basis-selector';
 import {
-  HIST_END_KEY, HIST_START_KEY, histLastCompleteYear, histMonthsOfYear, histPresetRange, histYearOfRange, histYearRange, histYears,
+  HIST_END_KEY, HIST_START_KEY, histLastCompleteYear, histMonthsOfYear, histPresetRange, histStepYear, histYearOfRange, histYearRange, histYears,
   isoToKey, keyToIso, resolveHistRange, type HistPreset,
 } from '@/lib/analitica-historica/window';
 import {
@@ -149,6 +149,8 @@ function AnaliticaHistoricaClientInner() {
   // The months row lists the year of the current range (a month, a year, any range inside one
   // year); a range that spans years (12 meses, Todo) shows the newest year.
   const shownYear = histYearOfRange(dateRange) ?? YEARS[0];
+  const prevYearRange = histStepYear(dateRange, -1);
+  const nextYearRange = histStepYear(dateRange, 1);
   const handleMonthPage = (delta: number) => {
     if (monthKey) updateParams({ dateRange: `month:${shiftMonthKey(monthKey, delta)}` });
   };
@@ -272,6 +274,12 @@ function AnaliticaHistoricaClientInner() {
         <div className="mt-3 flex items-center gap-x-4 gap-y-2 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Año</span>
+            <button
+              onClick={() => { if (prevYearRange) updateParams({ dateRange: prevYearRange }); }}
+              disabled={prevYearRange === null}
+              className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30"
+              aria-label="Ir al año anterior"
+            >◀</button>
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Año">
               {YEARS.map(y => (
                 <button
@@ -287,6 +295,12 @@ function AnaliticaHistoricaClientInner() {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => { if (nextYearRange) updateParams({ dateRange: nextYearRange }); }}
+              disabled={nextYearRange === null}
+              className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30"
+              aria-label="Ir al año siguiente"
+            >▶</button>
           </div>
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-500 mr-1">Mes</span>
