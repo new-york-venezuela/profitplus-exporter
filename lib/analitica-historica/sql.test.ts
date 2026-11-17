@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { histUsdJoin, histReturnsUsdJoin, histSalesWhere, histReturnsWhere } from './sql';
+import { histUsdJoin, histReturnsUsdJoin, histSalesWhere, histReturnsWhere, histDualSum } from './sql';
 
 const range = { startKey: 20250101, endKey: 20250131 };
 
@@ -43,5 +43,20 @@ describe('histSalesWhere / histReturnsWhere', () => {
   test('custom aliases are used', () => {
     expect(histSalesWhere(range, 's')).toContain('s.IsVoided = 0');
     expect(histReturnsWhere(range, 'devolucion', 'r')).toContain('r.DateKey');
+  });
+});
+
+describe('histDualSum', () => {
+  test('an empty set gives 0 / 0, rows with no rate at all give NULL USD', () => {
+    const sql = histDualSum('fsl', 'NetAmount', 'GrossBs', 'GrossUsd');
+    expect(sql).toContain('AS GrossBs');
+    expect(sql).toContain('AS GrossUsd');
+    expect(sql).toContain('ISNULL(SUM(fsl.NetAmount), 0)');
+    expect(sql).toContain('WHEN COUNT(fsl.NetAmount) = 0 THEN 0');
+    expect(sql).toContain('NULLIF(fx.RateSell, 0)');
+  });
+
+  test('honours a custom join alias', () => {
+    expect(histDualSum('frl', 'NetAmount', 'B', 'U', 'rfx')).toContain('NULLIF(rfx.RateSell, 0)');
   });
 });

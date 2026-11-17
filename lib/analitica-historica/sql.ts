@@ -31,3 +31,14 @@ export function histSalesWhere(range: HistRange, alias: string = 'fsl'): string 
 export function histReturnsWhere(range: HistRange, basis: ReturnsBasis, alias: string = 'frl'): string {
   return `AND ${alias}.IsVoided = 0 ${histRangeWhere(range, alias, returnsDateColumn(basis))}`;
 }
+
+// Paired Bs / USD sum of a money column, for use with histUsdJoin /
+// histReturnsUsdJoin (same joinAlias). Unlike dualAmountExpr, an EMPTY set gives
+// 0 / 0 (a period with no returns is zero, not "Sin datos"); rows that all lack
+// a rate give a NULL USD sum ("Sin datos", never 0); a partial set sums the
+// rows that have a rate, as the main analytics does.
+export function histDualSum(factAlias: string, column: string, bsAlias: string, usdAlias: string, joinAlias: string = 'fx'): string {
+  const col = `${factAlias}.${column}`;
+  return `ISNULL(SUM(${col}), 0) AS ${bsAlias},
+      CASE WHEN COUNT(${col}) = 0 THEN 0 ELSE SUM(${col} / NULLIF(${joinAlias}.RateSell, 0)) END AS ${usdAlias}`;
+}
