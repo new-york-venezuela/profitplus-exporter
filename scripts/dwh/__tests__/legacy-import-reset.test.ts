@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { assertNotAlreadyImported, parseImportArgs, resetLegacyTables } from '../../dwh-legacy-2025-import';
+import { assertNotAlreadyImported, loadLegacyMatriz, parseImportArgs, resetLegacyTables } from '../../dwh-legacy-2025-import';
 import type sql from 'mssql';
 
 function fakePool(counts: Record<string, number>) {
@@ -18,13 +18,16 @@ function fakePool(counts: Record<string, number>) {
 
 describe('parseImportArgs', () => {
   test('no flags', () => {
-    expect(parseImportArgs([])).toEqual({ reset: false, confirmDb: null });
+    expect(parseImportArgs([])).toEqual({ reset: false, confirmDb: null, matrizOnly: false });
   });
   test('--reset with --confirm-db', () => {
-    expect(parseImportArgs(['--reset', '--confirm-db', 'DWH_X'])).toEqual({ reset: true, confirmDb: 'DWH_X' });
+    expect(parseImportArgs(['--reset', '--confirm-db', 'DWH_X'])).toEqual({ reset: true, confirmDb: 'DWH_X', matrizOnly: false });
   });
   test('--reset alone has no confirmation', () => {
-    expect(parseImportArgs(['--reset'])).toEqual({ reset: true, confirmDb: null });
+    expect(parseImportArgs(['--reset'])).toEqual({ reset: true, confirmDb: null, matrizOnly: false });
+  });
+  test('--matriz-only', () => {
+    expect(parseImportArgs(['--matriz-only']).matrizOnly).toBe(true);
   });
 });
 
@@ -38,6 +41,11 @@ describe('assertNotAlreadyImported', () => {
     await expect(assertNotAlreadyImported(pool)).rejects.toThrow(/--reset --confirm-db/);
   });
 
+  test('refuses when only the legal entities are loaded', async () => {
+    const { pool } = fakePool({ 'dim.Dim_LegalEntity_Legacy': 3 });
+    await expect(assertNotAlreadyImported(pool)).rejects.toThrow(/Dim_LegalEntity_Legacy/);
+  });
+
   test('refuses when sales are loaded', async () => {
     await expect(assertNotAlreadyImported(fakePool({ 'fact.Fact_Sales_Legacy': 5 }).pool)).rejects.toThrow(/Fact_Sales_Legacy/);
   });
@@ -48,7 +56,7 @@ describe('resetLegacyTables', () => {
     const { pool, issued } = fakePool({});
     await resetLegacyTables(pool);
     const joined = issued.join('\n');
-    const order = ['Fact_Returns_Legacy', 'Fact_Sales_Legacy', 'Fact_ExchangeRate_Legacy', 'Dim_Customer_Legacy', 'Dim_Product_Legacy', 'Dim_SalesRep_Legacy']
+    const order = ['Fact_Returns_Legacy', 'Fact_Sales_Legacy', 'Fact_ExchangeRate_Legacy', 'Dim_Customer_Legacy', 'Dim_LegalEntity_Legacy', 'Dim_Product_Legacy', 'Dim_SalesRep_Legacy']
       .map(t => joined.indexOf(t));
     expect(order.every(i => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -56,5 +64,35 @@ describe('resetLegacyTables', () => {
     expect(joined).toContain("DBCC CHECKIDENT ('dim.Dim_Customer_Legacy', RESEED, 0)");
     expect(joined).not.toMatch(/TRUNCATE TABLE dim\./);
     expect(joined).not.toMatch(/Fact_Sales\b(?!_Legacy)/);
+  });
+});
+
+describe('loadLegacyMatriz', () => {
+  test('copies each legacy customer\'s matriz into the DWH and rebuilds the legal entities', async () => {
+    const legacy = {
+      request: () => ({
+        async query() {
+          return { recordset: [{ Code: 'A', Matriz: null }, { Code: 'B', Matriz: 'A' }] };
+        },
+      }),
+    } as unknown as sql.ConnectionPool;
+    const issued: { text: string; inputs: Record<string, unknown> }[] = [];
+    const dwh = {
+      request: () => {
+        const inputs: Record<string, unknown> = {};
+        const req = {
+          input(name: string, a: unknown, b?: unknown) { inputs[name] = b === undefined ? a : b; return req; },
+          async query(text: string) { issued.push({ text, inputs: { ...inputs } }); return { recordset: [], rowsAffected: [1] }; },
+        };
+        return req;
+      },
+    } as unknown as sql.ConnectionPool;
+
+    const updated = await loadLegacyMatriz(legacy, dwh);
+    expect(updated).toBe(2);
+    const updates = issued.filter(q => q.text.includes('UPDATE dim.Dim_Customer_Legacy'));
+    expect(updates).toHaveLength(2);
+    expect(updates[1].inputs).toMatchObject({ code: 'B', matriz: 'A' });
+    expect(issued[issued.length - 1].text).toContain('EXEC dwh.Load_Dim_LegalEntity_Legacy');
   });
 });

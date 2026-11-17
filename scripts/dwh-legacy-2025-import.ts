@@ -135,16 +135,35 @@ export async function loadFactExchangeRateLegacy(legacyPool: sql.ConnectionPool,
   return filled.length;
 }
 
-export interface ImportArgs { reset: boolean; confirmDb: string | null }
+// Copies saCliente.matriz of the legacy server into the already-loaded
+// dim.Dim_Customer_Legacy rows and rebuilds the casa matriz roll-up, without reloading
+// any fact (`--matriz-only`, for a legacy load made before migration 0044).
+export async function loadLegacyMatriz(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
+  const result = await legacyPool.request().query(`
+    SELECT RTRIM(co_cli) AS Code, NULLIF(RTRIM(matriz), '') AS Matriz FROM dbo.saCliente
+  `);
+  let count = 0;
+  for (const row of result.recordset as { Code: string; Matriz: string | null }[]) {
+    await dwhPool.request()
+      .input('code', sql.Char(16), row.Code)
+      .input('matriz', sql.Char(16), row.Matriz)
+      .query('UPDATE dim.Dim_Customer_Legacy SET MatrizCode = @matriz WHERE RTRIM(CustomerCode) = RTRIM(@code)');
+    count++;
+  }
+  await dwhPool.request().query('EXEC dwh.Load_Dim_LegalEntity_Legacy');
+  return count;
+}
+
+export interface ImportArgs { reset: boolean; confirmDb: string | null; matrizOnly: boolean }
 
 export function parseImportArgs(argv: string[]): ImportArgs {
   const i = argv.indexOf('--confirm-db');
-  return { reset: argv.includes('--reset'), confirmDb: i >= 0 && argv[i + 1] ? argv[i + 1] : null };
+  return { reset: argv.includes('--reset'), confirmDb: i >= 0 && argv[i + 1] ? argv[i + 1] : null, matrizOnly: argv.includes('--matriz-only') };
 }
 
 const LEGACY_TABLES = [
   'fact.Fact_Sales_Legacy', 'fact.Fact_Returns_Legacy', 'fact.Fact_ExchangeRate_Legacy',
-  'dim.Dim_Customer_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy',
+  'dim.Dim_Customer_Legacy', 'dim.Dim_LegalEntity_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy',
 ] as const;
 
 // Empties the six legacy tables (same effect as migration 0042, plus the rates table) so
@@ -154,7 +173,7 @@ export async function resetLegacyTables(dwhPool: sql.ConnectionPool): Promise<vo
   for (const t of ['fact.Fact_Returns_Legacy', 'fact.Fact_Sales_Legacy', 'fact.Fact_ExchangeRate_Legacy']) {
     await dwhPool.request().query(`TRUNCATE TABLE ${t}`);
   }
-  for (const t of ['dim.Dim_Customer_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy']) {
+  for (const t of ['dim.Dim_Customer_Legacy', 'dim.Dim_LegalEntity_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy']) {
     await dwhPool.request().query(`DELETE FROM ${t}`);
     await dwhPool.request().query(`DBCC CHECKIDENT ('${t}', RESEED, 0) WITH NO_INFOMSGS`);
   }
@@ -168,7 +187,7 @@ export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Pro
       throw new Error(
         `${table} already has ${rowCount} row(s) — refusing to import over existing legacy data. ` +
         `To start over (e.g. after a failed run), re-run with: --reset --confirm-db <DW_NAME>, ` +
-        `which empties the six legacy tables (the same effect as migrations/dwh/0042_truncate_legacy_tables.sql, plus fact.Fact_ExchangeRate_Legacy).`
+        `which empties the seven legacy tables (the same effect as migrations/dwh/0042_truncate_legacy_tables.sql, plus fact.Fact_ExchangeRate_Legacy and dim.Dim_LegalEntity_Legacy).`
       );
     }
   }
@@ -184,23 +203,27 @@ export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Pro
 
 export async function loadDimCustomerLegacy(legacyPool: sql.ConnectionPool, dwhPool: sql.ConnectionPool): Promise<number> {
   const result = await legacyPool.request().query(`
-    SELECT RTRIM(co_cli) AS CustomerCode, cli_des AS CustomerName, co_zon AS ZoneCode, co_seg AS SegmentCode
+    SELECT RTRIM(co_cli) AS CustomerCode, cli_des AS CustomerName, co_zon AS ZoneCode, co_seg AS SegmentCode,
+           NULLIF(RTRIM(matriz), '') AS MatrizCode
     FROM dbo.saCliente
   `);
 
   let count = 0;
-  for (const row of result.recordset as { CustomerCode: string; CustomerName: string | null; ZoneCode: string | null; SegmentCode: string | null }[]) {
+  for (const row of result.recordset as { CustomerCode: string; CustomerName: string | null; ZoneCode: string | null; SegmentCode: string | null; MatrizCode: string | null }[]) {
     await dwhPool.request()
       .input('code', sql.Char(16), row.CustomerCode)
       .input('name', sql.VarChar(120), row.CustomerName)
       .input('zone', sql.Char(6), row.ZoneCode)
       .input('segment', sql.Char(6), row.SegmentCode)
+      .input('matriz', sql.Char(16), row.MatrizCode)
       .query(`
-        INSERT INTO dim.Dim_Customer_Legacy (CustomerCode, CustomerName, ZoneCode, SegmentCode)
-        VALUES (@code, @name, @zone, @segment)
+        INSERT INTO dim.Dim_Customer_Legacy (CustomerCode, CustomerName, ZoneCode, SegmentCode, MatrizCode)
+        VALUES (@code, @name, @zone, @segment, @matriz)
       `);
     count++;
   }
+  // Roll the stores up to their casa matriz (migrations/dwh/0044).
+  await dwhPool.request().query('EXEC dwh.Load_Dim_LegalEntity_Legacy');
   return count;
 }
 
@@ -427,6 +450,16 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
 async function main(): Promise<void> {
   const dwhPool = await getDwhPool();
   const args = parseImportArgs(process.argv.slice(2));
+  if (args.matrizOnly) {
+    const legacyOnly = await getLegacyPool();
+    try {
+      const n = await loadLegacyMatriz(legacyOnly, dwhPool);
+      console.log(`✓ casa matriz: ${n} legacy customers read, legal entities rebuilt`);
+    } finally {
+      await legacyOnly.close();
+    }
+    return;
+  }
   if (args.reset) {
     const dbName = process.env.DW_NAME ?? 'DWH_AlimentosNY';
     if (args.confirmDb !== dbName) {

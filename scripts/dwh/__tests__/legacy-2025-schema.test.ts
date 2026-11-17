@@ -142,6 +142,54 @@ describe('0034_legacy_2025_schema migration', () => {
     expect(pk.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME)).toEqual(['DateKey']);
   });
 
+  test('0044 adds the casa matriz roll-up to the legacy customers', async () => {
+    const cols = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dim' AND TABLE_NAME = 'Dim_Customer_Legacy'
+    `);
+    expect(cols.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME)).toEqual(
+      expect.arrayContaining(['MatrizCode', 'LegalEntityLegacyKey']),
+    );
+    const ent = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dim' AND TABLE_NAME = 'Dim_LegalEntity_Legacy'
+    `);
+    expect(ent.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME).sort()).toEqual(
+      ['LegalEntityLegacyKey', 'LegalEntityName', 'LoadedAtUtc', 'RootCustomerCode', 'StoreCount'].sort(),
+    );
+  });
+
+  test('Load_Dim_LegalEntity_Legacy rolls stores up to their casa matriz, with a self-root for orphans and chains', async () => {
+    await pool.request().query(`
+      DELETE FROM dim.Dim_Customer_Legacy; DELETE FROM dim.Dim_LegalEntity_Legacy;
+      INSERT INTO dim.Dim_Customer_Legacy (CustomerCode, CustomerName, MatrizCode) VALUES
+        ('A', 'Casa A', NULL), ('B', 'Tienda B', 'A'), ('C', 'Tienda C', 'A'),
+        ('D', 'Huérfano', 'ZZZ'), ('E', 'Cadena', 'B'), ('F', 'Propia', 'F');
+      EXEC dwh.Load_Dim_LegalEntity_Legacy;
+    `);
+    const rows = await pool.request().query(`
+      SELECT RTRIM(c.CustomerCode) AS Code, RTRIM(le.RootCustomerCode) AS Root, le.StoreCount, le.LegalEntityName
+      FROM dim.Dim_Customer_Legacy c
+      LEFT JOIN dim.Dim_LegalEntity_Legacy le ON le.LegalEntityLegacyKey = c.LegalEntityLegacyKey
+      ORDER BY c.CustomerCode
+    `);
+    const byCode = Object.fromEntries(rows.recordset.map((r: { Code: string; Root: string | null; StoreCount: number | null; LegalEntityName: string | null }) => [r.Code, r]));
+    expect(byCode.A.Root).toBe('A');
+    expect(byCode.B.Root).toBe('A');
+    expect(byCode.C.Root).toBe('A');
+    expect(byCode.A.StoreCount).toBe(3);
+    expect(byCode.A.LegalEntityName.trim()).toBe('Casa A');
+    expect(byCode.D.Root).toBe('D');
+    expect(byCode.E.Root).toBe('E'); // parent B is itself a child: E stays its own root, never NULL
+    expect(byCode.F.Root).toBe('F'); // self-referencing matriz
+    for (const r of rows.recordset) expect(r.Root).not.toBeNull();
+    // idempotent
+    await pool.request().query('EXEC dwh.Load_Dim_LegalEntity_Legacy');
+    const again = await pool.request().query('SELECT COUNT(*) AS n FROM dim.Dim_LegalEntity_Legacy');
+    expect(again.recordset[0].n).toBe(4);
+    await pool.request().query('DELETE FROM dim.Dim_Customer_Legacy; DELETE FROM dim.Dim_LegalEntity_Legacy;');
+  });
+
   test('migration is re-runnable without error', async () => {
     await expect(runDwhMigrations()).resolves.toBeDefined();
   });
