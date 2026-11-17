@@ -178,7 +178,7 @@ describe('0034_legacy_2025_schema migration', () => {
     expect(byCode.B.Root).toBe('A');
     expect(byCode.C.Root).toBe('A');
     expect(byCode.A.StoreCount).toBe(3);
-    expect(byCode.A.LegalEntityName.trim()).toBe('Casa A');
+    expect(byCode.A.LegalEntityName!.trim()).toBe('Casa A');
     expect(byCode.D.Root).toBe('D');
     expect(byCode.E.Root).toBe('E'); // parent B is itself a child: E stays its own root, never NULL
     expect(byCode.F.Root).toBe('F'); // self-referencing matriz
