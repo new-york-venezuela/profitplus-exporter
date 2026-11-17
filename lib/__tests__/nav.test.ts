@@ -28,6 +28,8 @@ describe('visibleNavSections', () => {
 
   test('each module grant adds only its own section', () => {
     expect(hrefs({ ...none, dwh: true })).toContain('/analitica');
+    expect(hrefs({ ...none, dwh: true })).toContain('/analitica-historica');
+    expect(hrefs(none)).not.toContain('/analitica-historica');
     expect(hrefs({ ...none, dwh: true })).not.toContain('/mapa');
     expect(hrefs({ ...none, geo: true })).toContain('/mapa');
     expect(hrefs({ ...none, statements: true })).toContain('/estados-de-cuenta');

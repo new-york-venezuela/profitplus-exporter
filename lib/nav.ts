@@ -52,6 +52,7 @@ const NAV_SECTIONS: NavSectionDef[] = [
     visible: a => a.dwh,
     links: [
       { href: '/analitica', label: 'Panel Analítico', description: 'Ventas, devoluciones y cobranza.' },
+      { href: '/analitica-historica', label: 'Analítica histórica', description: 'Ventas y devoluciones del sistema anterior (2020 – feb 2026).' },
     ],
   },
   {
