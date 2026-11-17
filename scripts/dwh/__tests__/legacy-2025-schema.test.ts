@@ -124,6 +124,24 @@ describe('0034_legacy_2025_schema migration', () => {
     expect(hasLink.IS_NULLABLE).toBe('NO');
   });
 
+  test('0043 creates Fact_ExchangeRate_Legacy keyed by DateKey', async () => {
+    const result = await pool.request().query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'fact' AND TABLE_NAME = 'Fact_ExchangeRate_Legacy'
+    `);
+    const columns = result.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME);
+    expect(columns.sort()).toEqual(
+      ['DateKey', 'IsCarriedForward', 'LoadedAtUtc', 'RateBuy', 'RateSell'].sort(),
+    );
+    const pk = await pool.request().query(`
+      SELECT kcu.COLUMN_NAME
+      FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+      JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+      WHERE tc.TABLE_SCHEMA = 'fact' AND tc.TABLE_NAME = 'Fact_ExchangeRate_Legacy' AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+    `);
+    expect(pk.recordset.map((r: { COLUMN_NAME: string }) => r.COLUMN_NAME)).toEqual(['DateKey']);
+  });
+
   test('migration is re-runnable without error', async () => {
     await expect(runDwhMigrations()).resolves.toBeDefined();
   });
