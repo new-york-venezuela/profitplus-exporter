@@ -36,3 +36,21 @@ export interface HistResumenResponse {
   trend: MonthlyTrendRow[];
   trendMode: BucketMode;
 }
+
+// ── Ventas / grouped drilldowns ────────────────────────────────────────────
+export type HistGroupBy = 'mes' | 'cliente' | 'linea' | 'vendedor' | 'producto';
+
+export interface HistGroupRow {
+  label: string;
+  value: string;
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
+  returnRate: number | null;
+  units: number;
+}
+
+export interface HistGroupResponse {
+  groupBy: HistGroupBy;
+  rows: HistGroupRow[];
+}
