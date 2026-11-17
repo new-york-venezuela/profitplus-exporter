@@ -17,6 +17,7 @@ const HELP_PAGES = [
   'pricing-promociones',
   'pricing-vencimientos',
   'analitica-definiciones',
+  'analitica-historica',
 ] as const;
 
 export async function GET(

@@ -60,13 +60,13 @@ describe('retired tab: cadencia, and the final tab list', () => {
   });
   test('the consolidated tab list, in order', () => {
     expect([...TAB_KEYS]).toEqual([
-      'resumen', 'seguimiento', 'ventas', 'devoluciones', 'cxc', 'clientes', 'productos', 'historico', 'finanzas', 'multimoneda', 'compras', 'prospecto',
+      'resumen', 'seguimiento', 'ventas', 'devoluciones', 'cxc', 'clientes', 'productos', 'finanzas', 'multimoneda', 'compras', 'prospecto',
     ]);
     expect(TAB_KEYS.map(k => TAB_LABELS[k])).toEqual([
-      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras', 'Perfil de prospecto',
+      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Finanzas', 'Multimoneda', 'Compras', 'Perfil de prospecto',
     ]);
   });
   test('every retired key falls back', () => {
-    for (const k of ['vendedores', 'profundidad', 'matriz-vendedor', 'cadencia']) expect(resolveActiveTab(k)).toBe('resumen');
+    for (const k of ['vendedores', 'profundidad', 'matriz-vendedor', 'cadencia', 'historico']) expect(resolveActiveTab(k)).toBe('resumen');
   });
 });

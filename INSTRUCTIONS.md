@@ -572,6 +572,15 @@ PDFs are written to `<folder>` (created if missing) as `<co_cli>-<name>.pdf`; th
 code is 1 if any customer failed. **Logo (optional):** put a PNG at `public/statement-logo.png` (copy it to the server too; no rebuild
 needed). Without it the header shows the company name only.
 
+## Legacy data for Analítica histórica (2020 – feb 2026)
+
+`/analitica-historica` reads the old (pre-March-2026) Profit Plus data that was copied into the DWH's `*_Legacy` tables. To (re)load it, with the legacy server reachable and `LEGACY_DB_*` set in `.env.local`:
+
+1. Probe the legacy server first (read-only): `bun --env-file=.env.local scripts/dwh-legacy-probe.ts`.
+2. Apply the DWH migrations (`bun run migrate:dwh`). **`0042_truncate_legacy_tables.sql` empties the legacy tables**, so run it right before step 3; until the import finishes, Analítica histórica shows no data.
+3. Run the import: `bun --env-file=.env.local scripts/dwh-legacy-2025-import.ts` (it refuses to run if `Fact_Sales_Legacy` already has rows).
+4. Check `SELECT MIN(DateKey), MAX(DateKey), COUNT(*)` on `fact.Fact_Sales_Legacy`, `fact.Fact_Returns_Legacy` and `fact.Fact_ExchangeRate_Legacy`; the last date must match `HIST_END_KEY` in `lib/analitica-historica/window.ts` (and `IMPORT_END_DATE` in the import script).
+
 ## Redeploy Procedure
 
 ```powershell

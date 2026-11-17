@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth/get-session';
 import { getDb } from '@/lib/db/sqlite';
 import { hasDwhAccess } from '@/lib/dwh/access';
+import { HelpPanel } from '@/components/help-panel';
 import { AnaliticaHistoricaClient } from './analitica-historica-client';
 
 export default async function AnaliticaHistoricaPage() {
@@ -12,5 +13,10 @@ export default async function AnaliticaHistoricaPage() {
   const allowed = await hasDwhAccess(db, session.sub, session.role);
   if (!allowed) redirect('/inicio');
 
-  return <AnaliticaHistoricaClient />;
+  return (
+    <>
+      <AnaliticaHistoricaClient />
+      <HelpPanel page="analitica-historica" />
+    </>
+  );
 }

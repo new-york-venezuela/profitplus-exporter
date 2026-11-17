@@ -21,7 +21,6 @@ import TabProductos from './tabs/tab-productos';
 import TabFinanzas from './tabs/tab-finanzas';
 import TabMultimoneda from './tabs/tab-multimoneda';
 import TabCompras from './tabs/tab-compras';
-import TabHistorico from './tabs/tab-historico';
 import TabProspecto from './tabs/tab-prospecto';
 
 export interface TabComponentProps {
@@ -46,7 +45,6 @@ const TAB_COMPONENTS: Record<TabKey, ComponentType<TabComponentProps>> = {
   clientes: TabClientes,
   prospecto: TabProspecto,
   productos: TabProductos,
-  historico: TabHistorico,
   finanzas: TabFinanzas,
   multimoneda: TabMultimoneda,
   compras: TabCompras,
@@ -57,9 +55,7 @@ const DEFAULT_DATE_RANGE: DateRange = '30d';
 const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
 
-// Tabs whose trend charts honor the granularity selector. Histórico is
-// excluded on purpose: it reads a fixed calendar-2025 window and ignores
-// dateRange, so the range-based granularity rules do not apply to it.
+// Tabs whose trend charts honor the granularity selector.
 const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras', 'cxc']);
 
 const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
@@ -129,6 +125,11 @@ function AnaliticaClientInner() {
 
   const tabParam = searchParams.get('tab');
   const activeTab: string = resolveActiveTab(tabParam);
+
+  // The "Histórico 2025" tab became its own section (Analítica histórica); keep old links working.
+  useEffect(() => {
+    if (tabParam === 'historico') router.replace('/analitica-historica');
+  }, [tabParam, router]);
 
   const dateRangeParam = searchParams.get('dateRange');
   const dateRange: DateRange = isValidDateRange(dateRangeParam) ? dateRangeParam : DEFAULT_DATE_RANGE;

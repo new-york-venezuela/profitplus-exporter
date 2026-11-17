@@ -206,49 +206,6 @@ export interface VentasComparisonResponse {
   trendMode: BucketMode;
 }
 
-// Histórico 2025 tab — a fixed 2025 window of the imported legacy snapshot
-// from the pre-March-2026-cutover Profit Plus server. No dateRange param
-// (the window never changes), no prev-period comparison (no meaningful
-// "before" this dataset), no entidad/tienda toggle (legacy customers have
-// no Dim_LegalEntity rollup) — see docs/superpowers/specs/
-// 2026-09-23-legacy-2025-import-design.md.
-// Fact_Returns_Legacy carries the original-factura link (0037), so
-// Histórico's devoluciones are attributed by the factura's date, like the
-// rest of Analítica.
-export interface HistoricoRow {
-  label: string;
-  value: string | number;
-  salesGross: DualAmount;
-  returns: DualAmount;
-  salesNet: DualAmount;
-  returnRate: number | null;
-}
-
-export interface HistoricoBreadcrumbEntry {
-  label: string;
-  groupBy: GroupBy;
-}
-
-export interface HistoricoResponse {
-  rows: HistoricoRow[];
-  groupBy: GroupBy;
-  breadcrumb: HistoricoBreadcrumbEntry[];
-}
-
-export interface HistoricoKpis {
-  salesGross: DualAmount;
-  returns: DualAmount;
-  salesNet: DualAmount;
-  returnRate: number | null;
-  activeClients: number;
-  avgTicket: DualAmount | null;
-  unitsSold: number;
-}
-
-export interface HistoricoKpisResponse {
-  kpis: HistoricoKpis;
-}
-
 // Compras tab
 export interface ComprasRow {
   label: string; // formatted trend bucket (groupBy=mes) or supplier/line name

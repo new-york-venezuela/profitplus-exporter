@@ -165,12 +165,12 @@ test.describe('analitica consolidation (mocked API)', () => {
     }
   });
 
-  test('Histórico states the 2025 window', async ({ adminPage }) => {
+  test('the old Histórico 2025 link opens Analítica histórica', async ({ adminPage }) => {
     await failAllDwh(adminPage);
     await adminPage.goto('/analitica?tab=historico');
-    await expect(adminPage.getByText('Datos del sistema anterior (enero – diciembre 2025)')).toBeVisible({ timeout: 15_000 });
-    await expect(adminPage.getByText(/enero 2025 – febrero 2026/)).toHaveCount(0);
-    await expect(adminPage.getByRole('navigation', { name: 'Tabs' }).getByRole('button', { name: 'Histórico 2025' })).toBeVisible();
+    await expect(adminPage).toHaveURL(/\/analitica-historica/, { timeout: 15_000 });
+    await expect(adminPage.getByText('Datos del sistema anterior (enero 2020 – febrero 2026)')).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByRole('navigation', { name: 'Tabs' }).getByRole('button', { name: 'Vendedores' })).toBeVisible();
   });
 });
 
@@ -256,9 +256,8 @@ test.describe('analitica consolidation @mssql', () => {
     await expect(adminPage.getByRole('table', { name: 'Participación por grupo de cliente' })).toBeVisible({ timeout: 30_000 });
   });
 
-  test('Histórico loads and only shows months of 2025', async ({ adminPage }) => {
-    await adminPage.goto('/analitica?tab=historico');
-    await expect(adminPage.getByText('Datos del sistema anterior (enero – diciembre 2025)')).toBeVisible({ timeout: 30_000 });
-    await expect(adminPage.getByText(/Ene 26|Feb 26/)).toHaveCount(0);
+  test('Analítica histórica loads with the legacy-data banner', async ({ adminPage }) => {
+    await adminPage.goto('/analitica-historica');
+    await expect(adminPage.getByText('Datos del sistema anterior (enero 2020 – febrero 2026)')).toBeVisible({ timeout: 30_000 });
   });
 });
