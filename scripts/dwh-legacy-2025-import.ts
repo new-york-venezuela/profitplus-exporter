@@ -135,16 +135,42 @@ export async function loadFactExchangeRateLegacy(legacyPool: sql.ConnectionPool,
   return filled.length;
 }
 
+export interface ImportArgs { reset: boolean; confirmDb: string | null }
+
+export function parseImportArgs(argv: string[]): ImportArgs {
+  const i = argv.indexOf('--confirm-db');
+  return { reset: argv.includes('--reset'), confirmDb: i >= 0 && argv[i + 1] ? argv[i + 1] : null };
+}
+
+const LEGACY_TABLES = [
+  'fact.Fact_Sales_Legacy', 'fact.Fact_Returns_Legacy', 'fact.Fact_ExchangeRate_Legacy',
+  'dim.Dim_Customer_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy',
+] as const;
+
+// Empties the six legacy tables (same effect as migration 0042, plus the rates table) so
+// an import that failed half way can be re-run: facts and rates first, then the dims
+// (referenced by FKs, so DELETE + reseed instead of TRUNCATE). Only *_Legacy tables.
+export async function resetLegacyTables(dwhPool: sql.ConnectionPool): Promise<void> {
+  for (const t of ['fact.Fact_Returns_Legacy', 'fact.Fact_Sales_Legacy', 'fact.Fact_ExchangeRate_Legacy']) {
+    await dwhPool.request().query(`TRUNCATE TABLE ${t}`);
+  }
+  for (const t of ['dim.Dim_Customer_Legacy', 'dim.Dim_Product_Legacy', 'dim.Dim_SalesRep_Legacy']) {
+    await dwhPool.request().query(`DELETE FROM ${t}`);
+    await dwhPool.request().query(`DBCC CHECKIDENT ('${t}', RESEED, 0) WITH NO_INFOMSGS`);
+  }
+}
+
 export async function assertNotAlreadyImported(dwhPool: sql.ConnectionPool): Promise<void> {
-  const result = await dwhPool.request().query(`SELECT COUNT(*) AS TotalRows FROM fact.Fact_Sales_Legacy`);
-  const rowCount = Number(result.recordset[0].TotalRows);
-  if (rowCount > 0) {
-    throw new Error(
-      `fact.Fact_Sales_Legacy already has ${rowCount} row(s) — refusing to run the Histórico 2025 import again. ` +
-      `This is a one-time load; if you need to re-import, truncate fact.Fact_Sales_Legacy, fact.Fact_Returns_Legacy, ` +
-      `dim.Dim_Customer_Legacy, dim.Dim_Product_Legacy, dim.Dim_SalesRep_Legacy and fact.Fact_ExchangeRate_Legacy first ` +
-      `(migrations/dwh/0042_truncate_legacy_tables.sql empties the five facts/dims; also empty Fact_ExchangeRate_Legacy).`
-    );
+  for (const table of LEGACY_TABLES) {
+    const result = await dwhPool.request().query(`SELECT COUNT(*) AS TotalRows FROM ${table}`);
+    const rowCount = Number(result.recordset[0].TotalRows);
+    if (rowCount > 0) {
+      throw new Error(
+        `${table} already has ${rowCount} row(s) — refusing to import over existing legacy data. ` +
+        `To start over (e.g. after a failed run), re-run with: --reset --confirm-db <DW_NAME>, ` +
+        `which empties the six legacy tables (the same effect as migrations/dwh/0042_truncate_legacy_tables.sql, plus fact.Fact_ExchangeRate_Legacy).`
+      );
+    }
   }
 }
 
@@ -400,6 +426,15 @@ export async function loadFactReturnsLegacy(legacyPool: sql.ConnectionPool, dwhP
 
 async function main(): Promise<void> {
   const dwhPool = await getDwhPool();
+  const args = parseImportArgs(process.argv.slice(2));
+  if (args.reset) {
+    const dbName = process.env.DW_NAME ?? 'DWH_AlimentosNY';
+    if (args.confirmDb !== dbName) {
+      throw new Error(`--reset needs --confirm-db ${dbName} (the target database name) — refusing to empty the legacy tables`);
+    }
+    await resetLegacyTables(dwhPool);
+    console.log('✓ legacy tables emptied (--reset)');
+  }
   await assertNotAlreadyImported(dwhPool);
 
   const legacyPool = await getLegacyPool();

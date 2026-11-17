@@ -59,6 +59,8 @@ export function groupSpec(groupBy: HistGroupBy, bucket: TrendBucket, basis: Retu
   }
 }
 
+// USD: a side with NO row for the group is 0 (nothing sold / returned), but a side
+// that has rows and no exchange rate keeps its NULL USD ("Sin datos"), never 0.
 // One row per group: Bs/USD sales, Bs/USD returns and units sold. `salesWhere` /
 // `returnsWhere` come from histSalesWhere / histReturnsWhere (they already carry
 // the voided filter and the date window). `top` caps the row count (null = all).
@@ -99,8 +101,10 @@ export function buildGroupedQuery(spec: GroupSpec, salesWhere: string, returnsWh
     SELECT ${topClause}
            COALESCE(s.GroupKey, r.GroupKey) AS GroupValue,
            COALESCE(s.GroupLabel, r.GroupLabel) AS GroupLabel,
-           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs, s.SalesGrossUsd AS SalesGrossUsd,
-           ISNULL(r.ReturnsBs, 0) AS ReturnsBs, ISNULL(r.ReturnsUsd, 0) AS ReturnsUsd,
+           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs,
+           CASE WHEN s.GroupKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd,
+           ISNULL(r.ReturnsBs, 0) AS ReturnsBs,
+           CASE WHEN r.GroupKey IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd,
            ISNULL(s.Units, 0) AS Units, ISNULL(r.ReturnsUnits, 0) AS ReturnsUnits
     FROM s FULL OUTER JOIN r ON r.GroupKey = s.GroupKey
     ${opts.returnsOnly ? 'WHERE r.GroupKey IS NOT NULL' : ''}

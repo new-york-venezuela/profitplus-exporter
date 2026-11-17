@@ -51,8 +51,10 @@ export async function GET(request: NextRequest) {
     SELECT TOP ${MAX_ROWS}
            c.CustomerLegacyKey, c.CustomerCode, c.CustomerName,
            a.FirstKey, a.LastKey, ISNULL(s.Invoices, 0) AS Invoices,
-           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs, s.SalesGrossUsd AS SalesGrossUsd,
-           ISNULL(r.ReturnsBs, 0) AS ReturnsBs, ISNULL(r.ReturnsUsd, 0) AS ReturnsUsd,
+           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs,
+           CASE WHEN s.CustomerLegacyKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd,
+           ISNULL(r.ReturnsBs, 0) AS ReturnsBs,
+           CASE WHEN r.CustomerLegacyKey IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd,
            ISNULL(s.Units, 0) AS Units,
            CASE WHEN s.CustomerLegacyKey IS NULL THEN 0 ELSE 1 END AS InRange
     FROM dim.Dim_Customer_Legacy c

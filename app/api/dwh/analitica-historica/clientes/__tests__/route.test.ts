@@ -103,6 +103,14 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
     expect(sql).not.toContain('GETDATE');
   });
 
+  test('USD of returns without a rate stays NULL and a returns-only customer has 0 gross USD', async () => {
+    await get('dateRange=month:2025-03');
+    const sql = queries[0].sql;
+    expect(sql).toContain('CASE WHEN r.CustomerLegacyKey IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd');
+    expect(sql).toContain('CASE WHEN s.CustomerLegacyKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd');
+    expect(sql).not.toContain('ISNULL(r.ReturnsUsd');
+  });
+
   test('an empty range returns no rows and issues no query', async () => {
     const body = await (await get('dateRange=month:2019-01')).json();
     expect(body).toEqual({ empty: true, rows: [] });

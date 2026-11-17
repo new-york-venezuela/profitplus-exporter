@@ -32,8 +32,10 @@ export function histTrendQuery(bucket: TrendBucket, range: HistRange, basis: Ret
       GROUP BY ${bucket.keyExpr('dr')}
     )
     SELECT COALESCE(s.Bucket, r.Bucket) AS Bucket,
-           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs, s.SalesGrossUsd AS SalesGrossUsd,
-           ISNULL(r.ReturnsBs, 0) AS ReturnsBs, ISNULL(r.ReturnsUsd, 0) AS ReturnsUsd
+           ISNULL(s.SalesGrossBs, 0) AS SalesGrossBs,
+           CASE WHEN s.Bucket IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd,
+           ISNULL(r.ReturnsBs, 0) AS ReturnsBs,
+           CASE WHEN r.Bucket IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd
     FROM sales s FULL OUTER JOIN rets r ON r.Bucket = s.Bucket
     ORDER BY COALESCE(s.Bucket, r.Bucket)`;
 }

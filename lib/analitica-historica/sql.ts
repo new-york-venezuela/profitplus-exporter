@@ -1,5 +1,5 @@
 import { returnsDateColumn, type ReturnsBasis } from '@/app/api/dwh/lib/query-builder';
-import { histRangeWhere, type HistRange } from './window';
+import { HIST_START_KEY, histRangeWhere, type HistRange } from './window';
 
 // USD rate join for a legacy fact alias. Same shape as legacyUsdConversionJoin
 // in app/api/dwh/lib/query-builder.ts, but reads fact.Fact_ExchangeRate_Legacy
@@ -15,10 +15,16 @@ export function histUsdJoin(factAlias: string, dateColumn: string = 'DateKey', j
     ) ${joinAlias}`;
 }
 
-// A return line's NetAmount is Bs at the ORIGINAL factura's price, so USD
-// converts at that factura's date whatever basis the row was windowed by.
+// A return line's NetAmount is Bs at the ORIGINAL factura's price, so USD converts at
+// that factura's date whatever basis the row was windowed by. A factura older than
+// the rates table (before HIST_START_KEY) has no rate row, so such a return converts
+// at its own devolución date instead of silently losing its USD.
 export function histReturnsUsdJoin(factAlias: string = 'frl', joinAlias: string = 'fx'): string {
-  return histUsdJoin(factAlias, 'OriginalInvoiceDateKey', joinAlias);
+  return `OUTER APPLY (
+      SELECT TOP 1 ${joinAlias}r.RateSell
+      FROM fact.Fact_ExchangeRate_Legacy ${joinAlias}r
+      WHERE ${joinAlias}r.DateKey = CASE WHEN ${factAlias}.OriginalInvoiceDateKey < ${HIST_START_KEY} THEN ${factAlias}.DateKey ELSE ${factAlias}.OriginalInvoiceDateKey END
+    ) ${joinAlias}`;
 }
 
 // Non-voided sales in the range. Append to a WHERE (it starts with AND).

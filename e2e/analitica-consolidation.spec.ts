@@ -232,7 +232,7 @@ test.describe('retired tabs (mocked API)', () => {
     await expect(nav.getByRole('button', { name: 'Resumen' })).toBeVisible({ timeout: 15_000 });
     const labels = (await nav.getByRole('button').allTextContents()).map(t => t.trim());
     expect(labels).toEqual([
-      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Histórico 2025', 'Finanzas', 'Multimoneda', 'Compras',
+      'Resumen', 'Seguimiento', 'Ventas', 'Devoluciones', 'CXC y Cobranzas', 'Clientes', 'Productos', 'Finanzas', 'Multimoneda', 'Compras',
     ]);
   });
 });

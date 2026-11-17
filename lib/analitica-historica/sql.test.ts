@@ -60,3 +60,10 @@ describe('histDualSum', () => {
     expect(histDualSum('frl', 'NetAmount', 'B', 'U', 'rfx')).toContain('NULLIF(rfx.RateSell, 0)');
   });
 });
+
+describe('histReturnsUsdJoin for invoices older than the rates', () => {
+  test('a return whose original factura predates the window converts at its own date', () => {
+    const sql = histReturnsUsdJoin('frl');
+    expect(sql).toContain('CASE WHEN frl.OriginalInvoiceDateKey < 20200101 THEN frl.DateKey ELSE frl.OriginalInvoiceDateKey END');
+  });
+});
