@@ -11,7 +11,7 @@ mock.module('next/navigation', () => ({
 mock.module('posthog-js', () => ({ default: { capture: () => {} } }));
 
 const { AnaliticaHistoricaClient } = await import('../analitica-historica-client');
-const { histPresetRange, HIST_START_KEY, keyToIso, histYears, histYearRange, histLastCompleteYear, histMonthsOfYear, histStepYear } = await import('@/lib/analitica-historica/window');
+const { histPresetRange, HIST_START_KEY, keyToIso, histYears, histYearRange, histLastCompleteYear, histMonthsOfYear, histStepYear, histQuarterRange, histQuartersOfYear, histLastCompleteQuarter } = await import('@/lib/analitica-historica/window');
 
 const lastUrl = () => decodeURIComponent(pushed[pushed.length - 1] ?? '');
 
@@ -34,7 +34,7 @@ describe('AnaliticaHistoricaClient', () => {
 
   test('a preset writes the concrete range anchored to the legacy window end', () => {
     render(<AnaliticaHistoricaClient />);
-    fireEvent.click(screen.getByText('Último mes'));
+    fireEvent.click(screen.getByRole('button', { name: /^Último mes \(/ }));
     expect(lastUrl()).toContain(`dateRange=${histPresetRange('month')}`);
   });
 
@@ -166,5 +166,52 @@ describe('AnaliticaHistoricaClient', () => {
     search = `dateRange=${histYearRange(years[years.length - 1])}`;
     render(<AnaliticaHistoricaClient />);
     expect((screen.getByRole('button', { name: 'Ir al año anterior' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test('there is no "30 días" shortcut', () => {
+    render(<AnaliticaHistoricaClient />);
+    expect(screen.queryByText('30 días')).toBeNull();
+  });
+
+  test('the shortcuts name the period they select', () => {
+    render(<AnaliticaHistoricaClient />);
+    const last = histLastCompleteYear();
+    const { year, quarter } = histLastCompleteQuarter();
+    for (const name of ['Todo', '12 meses', `Último año (${last})`, `Año anterior (${last - 1})`, `Último trimestre (T${quarter} ${year})`]) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+    expect(screen.getByRole('button', { name: /^Último mes \([a-z]{3} \d{4}\)$/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: `Último trimestre (T${quarter} ${year})` }));
+    expect(lastUrl()).toContain(`dateRange=${histQuarterRange(year, quarter)}`);
+  });
+
+  test('the quarters of the selected year are chips and a chip selects that quarter', () => {
+    search = 'dateRange=month:2024-05';
+    render(<AnaliticaHistoricaClient />);
+    const group = screen.getByRole('group', { name: 'Trimestres de 2024' });
+    expect(group.querySelectorAll('button')).toHaveLength(4);
+    fireEvent.click(group.querySelector('button[data-quarter="2024-Q2"]')!);
+    expect(lastUrl()).toContain('dateRange=custom:2024-04-01:2024-06-30');
+  });
+
+  test('the selected quarter is highlighted and quarters without data are disabled', () => {
+    search = `dateRange=${histQuarterRange(2024, 3)}`;
+    const { unmount } = render(<AnaliticaHistoricaClient />);
+    expect(screen.getByRole('group', { name: 'Trimestres de 2024' }).querySelector('button[data-quarter="2024-Q3"]')!.getAttribute('aria-pressed')).toBe('true');
+    unmount();
+    const newest = histYears()[0];
+    search = `dateRange=${histYearRange(newest)}`;
+    render(<AnaliticaHistoricaClient />);
+    const group = screen.getByRole('group', { name: `Trimestres de ${newest}` });
+    for (const q of histQuartersOfYear(newest)) {
+      expect((group.querySelector(`button[data-quarter="${q.key}"]`) as HTMLButtonElement).disabled).toBe(!q.enabled);
+    }
+  });
+
+  test('with a quarter selected the year arrows keep the quarter', () => {
+    search = `dateRange=${histQuarterRange(2024, 2)}`;
+    render(<AnaliticaHistoricaClient />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al año anterior' }));
+    expect(lastUrl()).toContain(`dateRange=${histQuarterRange(2023, 2)}`);
   });
 });

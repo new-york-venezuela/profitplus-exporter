@@ -9,7 +9,7 @@ import { allowedGranularities, resolveGranularity, type Granularity } from '../a
 import { resolveReturnsBasis } from '../analitica/lib/returns-basis';
 import ReturnsBasisSelector from '../analitica/components/returns-basis-selector';
 import {
-  HIST_END_KEY, HIST_START_KEY, histLastCompleteYear, histMonthsOfYear, histPresetRange, histStepYear, histYearOfRange, histYearRange, histYears,
+  HIST_END_KEY, HIST_START_KEY, histLastCompleteQuarter, histLastCompleteYear, histMonthsOfYear, histPresetRange, histQuarterRange, histQuartersOfYear, histStepYear, histYearOfRange, histYearRange, histYears,
   isoToKey, keyToIso, resolveHistRange, type HistPreset,
 } from '@/lib/analitica-historica/window';
 import {
@@ -37,20 +37,23 @@ const CURRENCY_STORAGE_KEY = 'analytics-currency';
 const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
 const DEFAULT_DATE_RANGE = histPresetRange('12m');
 
-// Quick presets, all anchored to the END OF THE LEGACY DATA (not today) and resolving to a
-// concrete custom:/month: value. There is no year-to-date: "Último año" / "Año anterior" are
-// whole calendar years, and the year and month chips below pick any other period.
+const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+// Shortcuts anchored to the END OF THE LEGACY DATA (not today); each names the period it selects
+// and resolves to a concrete custom:/month: value. There is no year-to-date: "Último año" and
+// "Año anterior" are whole calendar years. Any other period: the year, trimestre and month chips.
 const LAST_YEAR = histLastCompleteYear();
+const LAST_QUARTER = histLastCompleteQuarter();
+const [LAST_MONTH_YEAR, LAST_MONTH_NUMBER] = histPresetRange('month').slice('month:'.length).split('-').map(Number);
 const PRESETS: { value: HistPreset; label: string }[] = [
-  { value: '30d', label: '30 días' },
-  { value: 'month', label: 'Último mes' },
+  { value: 'month', label: `Último mes (${MONTH_SHORT[LAST_MONTH_NUMBER - 1].toLowerCase()} ${LAST_MONTH_YEAR})` },
+  { value: 'last-quarter', label: `Último trimestre (T${LAST_QUARTER.quarter} ${LAST_QUARTER.year})` },
   { value: '12m', label: '12 meses' },
   { value: 'last-year', label: `Último año (${LAST_YEAR})` },
   { value: 'prev-year', label: `Año anterior (${LAST_YEAR - 1})` },
   { value: 'all', label: 'Todo' },
 ];
 const YEARS = histYears();
-const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
 const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
@@ -279,6 +282,7 @@ function AnaliticaHistoricaClientInner() {
               disabled={prevYearRange === null}
               className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30"
               aria-label="Ir al año anterior"
+              title="Mismo período del año anterior"
             >◀</button>
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Año">
               {YEARS.map(y => (
@@ -300,7 +304,27 @@ function AnaliticaHistoricaClientInner() {
               disabled={nextYearRange === null}
               className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30"
               aria-label="Ir al año siguiente"
+              title="Mismo período del año siguiente"
             >▶</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Trimestre</span>
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label={`Trimestres de ${shownYear}`}>
+              {histQuartersOfYear(shownYear).map(q => (
+                <button
+                  key={q.key}
+                  data-quarter={q.key}
+                  disabled={!q.enabled}
+                  onClick={() => updateParams({ dateRange: histQuarterRange(shownYear, q.quarter) })}
+                  aria-pressed={dateRange === histQuarterRange(shownYear, q.quarter)}
+                  className={`px-3 py-1 text-sm font-medium rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                    dateRange === histQuarterRange(shownYear, q.quarter) ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  T{q.quarter}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-500 mr-1">Mes</span>

@@ -60,7 +60,7 @@ function trailing(days: number): ResolvedHistRange {
 }
 
 // Resolves any dateRange URL value to a concrete, window-clamped key range.
-// '30d' / '12m' (365 days) end at HIST_END_KEY; unknown or impossible values
+// '30d' (kept only so an old link still works) / '12m' (365 days) end at HIST_END_KEY; unknown or impossible values
 // fall back to '12m' so a stale link degrades instead of erroring.
 export function resolveHistRange(dateRange: string): ResolvedHistRange {
   const custom = CUSTOM_RE.exec(dateRange);
@@ -117,7 +117,7 @@ export function previousRange(dateRange: string): HistRange | null {
   return prev.startKey < HIST_START_KEY ? null : prev;
 }
 
-export type HistPreset = '30d' | 'month' | '12m' | 'last-year' | 'prev-year' | 'all';
+export type HistPreset = 'month' | 'last-quarter' | '12m' | 'last-year' | 'prev-year' | 'all';
 
 function custom(startKey: number, endKey: number): string {
   return `custom:${keyToIso(startKey)}:${keyToIso(endKey)}`;
@@ -159,20 +159,70 @@ export function histYearOfRange(dateRange: string): number | null {
   return YEAR_OF(r.startKey) === YEAR_OF(r.endKey) ? YEAR_OF(r.startKey) : null;
 }
 
-// Where the year arrows go from `dateRange`: a month keeps its month in the adjacent year
-// (the whole year when that month has no data there), anything else moves to the adjacent
-// whole year; a range spanning years steps from the newest year. Null past either end.
+function shiftKeyYears(key: number, years: number): number {
+  const y = YEAR_OF(key) + years;
+  const m = Math.floor((key % 10000) / 100);
+  let d = key % 100;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  if (m === 2 && d === 29 && !leap) d = 28;
+  return y * 10000 + m * 100 + d;
+}
+
+// Where the year arrows go: the SAME PERIOD in the adjacent year, so periods compare like
+// with like. A whole year -> the adjacent whole year; a month -> the same month (the whole
+// year when that month has no data there); anything else (a quarter, custom dates, a rolling
+// 12 months) -> the same dates one year earlier / later (a leap day lands on Feb 28). Null
+// when the target falls outside the data.
 export function histStepYear(dateRange: string, delta: 1 | -1): string | null {
   const years = histYears();
-  const from = histYearOfRange(dateRange) ?? years[0];
-  const to = from + delta;
-  if (to < years[years.length - 1] || to > years[0]) return null;
-  const month = MONTH_RE.exec(dateRange);
-  if (month) {
-    const key = `${to}-${month[2]}`;
-    if (!resolveHistRange(`month:${key}`).empty) return `month:${key}`;
+  const inData = (y: number) => y >= years[years.length - 1] && y <= years[0];
+  const year = histYearOfRange(dateRange);
+  if (year !== null && dateRange === histYearRange(year)) {
+    return inData(year + delta) ? histYearRange(year + delta) : null;
   }
-  return histYearRange(to);
+  const month = MONTH_RE.exec(dateRange);
+  if (month && year !== null) {
+    if (!inData(year + delta)) return null;
+    const key = `${year + delta}-${month[2]}`;
+    return resolveHistRange(`month:${key}`).empty ? histYearRange(year + delta) : `month:${key}`;
+  }
+  const r = resolveHistRange(dateRange);
+  if (r.empty) return null;
+  const startKey = shiftKeyYears(r.startKey, delta);
+  const endKey = shiftKeyYears(r.endKey, delta);
+  if (startKey < HIST_START_KEY || endKey > HIST_END_KEY) return null;
+  return custom(startKey, endKey);
+}
+
+export interface HistQuarterChip { key: string; quarter: number; enabled: boolean }
+
+// A calendar quarter as a concrete URL value, clamped to the window.
+export function histQuarterRange(year: number, quarter: number): string {
+  const startMonth = (quarter - 1) * 3 + 1;
+  const startKey = year * 10000 + startMonth * 100 + 1;
+  const endKey = monthEndKey(year, startMonth + 2);
+  const r = clamp(startKey, endKey);
+  // A quarter entirely outside the window stays unclamped so it still resolves to an empty range.
+  return r.empty ? custom(startKey, endKey) : custom(r.startKey, r.endKey);
+}
+
+// T1..T4 of a year; the quarters with no data in the window are disabled.
+export function histQuartersOfYear(year: number): HistQuarterChip[] {
+  return [1, 2, 3, 4].map(quarter => ({
+    key: `${year}-Q${quarter}`,
+    quarter,
+    enabled: !resolveHistRange(histQuarterRange(year, quarter)).empty,
+  }));
+}
+
+// The latest quarter the data covers completely (the quarter holding the window end only when
+// the data runs to that quarter's last day).
+export function histLastCompleteQuarter(): { year: number; quarter: number } {
+  const year = YEAR_OF(HIST_END_KEY);
+  const month = Math.floor((HIST_END_KEY % 10000) / 100);
+  const quarter = Math.ceil(month / 3);
+  if (HIST_END_KEY === monthEndKey(year, quarter * 3)) return { year, quarter };
+  return quarter === 1 ? { year: year - 1, quarter: 4 } : { year, quarter: quarter - 1 };
 }
 
 export interface HistMonthChip { key: string; month: number; enabled: boolean }
@@ -192,8 +242,8 @@ export function histMonthsOfYear(year: number): HistMonthChip[] {
 export function histPresetRange(preset: HistPreset): string {
   const end = HIST_END_KEY;
   switch (preset) {
-    case '30d': return custom(addDays(end, -29), end);
     case 'month': return monthValue(end);
+    case 'last-quarter': { const q = histLastCompleteQuarter(); return histQuarterRange(q.year, q.quarter); }
     case '12m': return custom(addDays(end, -364), end);
     case 'last-year': return histYearRange(histLastCompleteYear());
     case 'prev-year': return histYearRange(histLastCompleteYear() - 1);

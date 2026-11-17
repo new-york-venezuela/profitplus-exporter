@@ -3,6 +3,7 @@ import {
   HIST_START_KEY, HIST_END_KEY, keyToIso, isoToKey,
   resolveHistRange, histRangeWhere, previousRange, histPresetRange,
   histYears, histYearRange, histLastCompleteYear, histYearOfRange, histMonthsOfYear, histStepYear,
+  histQuarterRange, histQuartersOfYear, histLastCompleteQuarter,
 } from './window';
 
 describe('key helpers', () => {
@@ -104,7 +105,7 @@ describe('histPresetRange', () => {
   });
 
   test('every preset is a concrete custom: or month: value', () => {
-    for (const p of ['30d', 'month', 'last-year', 'prev-year', '12m', 'all'] as const) {
+    for (const p of ['month', 'last-quarter', 'last-year', 'prev-year', '12m', 'all'] as const) {
       expect(histPresetRange(p)).toMatch(/^(custom:\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2}|month:\d{4}-\d{2})$/);
     }
   });
@@ -157,7 +158,43 @@ describe('year helpers', () => {
   });
 });
 
-describe('histStepYear', () => {
+describe('quarters', () => {
+  test('histQuarterRange is three calendar months, clamped to the window', () => {
+    expect(histQuarterRange(2025, 2)).toBe('custom:2025-04-01:2025-06-30');
+    expect(histQuarterRange(2024, 1)).toBe('custom:2024-01-01:2024-03-31');
+    expect(histQuarterRange(2024, 4)).toBe('custom:2024-10-01:2024-12-31');
+  });
+
+  test('histQuartersOfYear lists T1..T4 and disables the ones with no data', () => {
+    const q = histQuartersOfYear(2024);
+    expect(q.map(x => x.key)).toEqual(['2024-Q1', '2024-Q2', '2024-Q3', '2024-Q4']);
+    expect(q.every(x => x.enabled)).toBe(true);
+    const endYear = Math.floor(HIST_END_KEY / 10000);
+    const endQuarter = Math.ceil(Math.floor((HIST_END_KEY % 10000) / 100) / 3);
+    const last = histQuartersOfYear(endYear);
+    expect(last.filter(x => x.enabled).length).toBe(endQuarter);
+    expect(histQuartersOfYear(2019).some(x => x.enabled)).toBe(false);
+  });
+
+  test('histLastCompleteQuarter is the latest quarter fully covered by the data', () => {
+    const { year, quarter } = histLastCompleteQuarter();
+    const r = resolveHistRange(histQuarterRange(year, quarter));
+    const qEnd = year * 10000 + quarter * 300 + (quarter === 1 || quarter === 4 ? 31 : 30);
+    expect(r.endKey).toBe(qEnd);
+    expect(r.endKey).toBeLessThanOrEqual(HIST_END_KEY);
+    // the next quarter is not complete
+    const next = quarter === 4 ? { y: year + 1, q: 1 } : { y: year, q: quarter + 1 };
+    const nr = resolveHistRange(histQuarterRange(next.y, next.q));
+    expect(nr.empty || nr.endKey < next.y * 10000 + next.q * 300).toBe(true);
+  });
+
+  test('the last-quarter preset is that quarter', () => {
+    const { year, quarter } = histLastCompleteQuarter();
+    expect(histPresetRange('last-quarter')).toBe(histQuarterRange(year, quarter));
+  });
+});
+
+describe('histStepYear (same period, adjacent year)', () => {
   const newest = histYears()[0];
   const oldest = histYears()[histYears().length - 1];
 
@@ -173,19 +210,32 @@ describe('histStepYear', () => {
 
   test('a month with no data in the target year falls back to that whole year', () => {
     const endMonth = Math.floor((HIST_END_KEY % 10000) / 100);
-    if (endMonth < 12) {
-      expect(histStepYear(`month:${newest - 1}-12`, 1)).toBe(histYearRange(newest));
-    }
+    if (endMonth < 12) expect(histStepYear(`month:${newest - 1}-12`, 1)).toBe(histYearRange(newest));
   });
 
-  test('a range spanning years steps from the newest year; a range inside a year steps to the adjacent year', () => {
-    expect(histStepYear(histPresetRange('12m'), -1)).toBe(histYearRange(newest - 1));
-    expect(histStepYear('custom:2023-03-10:2023-04-02', 1)).toBe(histYearRange(2024));
+  test('a quarter or any range inside a year keeps its dates in the adjacent year', () => {
+    expect(histStepYear(histQuarterRange(2024, 2), -1)).toBe(histQuarterRange(2023, 2));
+    expect(histStepYear('custom:2023-03-10:2023-04-02', 1)).toBe('custom:2024-03-10:2024-04-02');
   });
 
-  test('stepping past either end of the data is null', () => {
+  test('a leap day lands on the last day of February of a non-leap year', () => {
+    expect(histStepYear('custom:2024-02-20:2024-02-29', 1)).toBe('custom:2025-02-20:2025-02-28');
+  });
+
+  test('a range spanning years shifts by exactly one year (rolling 12 months compare with the previous 12)', () => {
+    const r12 = resolveHistRange(histPresetRange('12m'));
+    const back = histStepYear(histPresetRange('12m'), -1)!;
+    const rb = resolveHistRange(back);
+    expect(rb.startKey).toBe(r12.startKey - 10000);
+    expect(rb.endKey).toBe(r12.endKey - 10000);
+  });
+
+  test('stepping outside the data is null', () => {
     expect(histStepYear(histYearRange(oldest), -1)).toBeNull();
     expect(histStepYear(histYearRange(newest), 1)).toBeNull();
     expect(histStepYear(histPresetRange('12m'), 1)).toBeNull();
+    expect(histStepYear(histPresetRange('all'), -1)).toBeNull();
+    expect(histStepYear(histPresetRange('all'), 1)).toBeNull();
+    expect(histStepYear(histQuarterRange(oldest, 1), -1)).toBeNull();
   });
 });

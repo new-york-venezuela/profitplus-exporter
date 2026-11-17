@@ -16,9 +16,10 @@ Como en la Analítica actual, un **cliente** es una **casa matriz** (la entidad 
 
 ## Fechas
 
-- **Atajos**: "30 días", "Último mes", "12 meses" y "Todo" cuentan hacia atrás desde el **final de los datos históricos** (febrero 2026), no desde hoy. **"Último año"** y **"Año anterior"** son años calendario completos (por ejemplo, 2025 y 2024); no hay "año a la fecha".
-- **Año**: una fila con todos los años de los datos (2020 a 2026). Al pulsar uno se ve el año completo; el último año solo llega hasta donde hay datos. Las flechas ◀ ▶ junto a los años pasan al año anterior o siguiente (con un mes seleccionado, conservan el mismo mes).
-- **Mes**: debajo, los 12 meses del año seleccionado (los meses sin datos aparecen deshabilitados). Pulse un mes para verlo y use ◀ ▶ para recorrer los meses seguidos, incluso al cambiar de año.
+- **Atajos** (cada botón dice qué período elige, contado desde el **final de los datos históricos**, febrero 2026, no desde hoy): "Último mes", "Último trimestre", "12 meses", "Último año", "Año anterior" y "Todo". El último año y el año anterior son años calendario completos; no hay "año a la fecha".
+- **Año**: todos los años de los datos (2020 a 2026); el último solo llega hasta donde hay datos.
+- **Trimestre** (T1 a T4) y **Mes**: los del año seleccionado; los que no tienen datos aparecen deshabilitados. ◀ ▶ junto a los meses recorren mes a mes, incluso al cambiar de año.
+- **Flechas ◀ ▶ junto a los años**: pasan al **mismo período** del año anterior o siguiente, para comparar igual contra igual: un mes sigue siendo ese mes, un trimestre ese trimestre, y un rango personalizado o los últimos 12 meses se desplazan exactamente un año.
 - **Personalizado**: cualquier rango entre enero 2020 y febrero 2026.
 
 ## Pestañas
