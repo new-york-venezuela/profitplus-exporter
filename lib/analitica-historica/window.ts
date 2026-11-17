@@ -117,7 +117,7 @@ export function previousRange(dateRange: string): HistRange | null {
   return prev.startKey < HIST_START_KEY ? null : prev;
 }
 
-export type HistPreset = '30d' | 'month' | 'month-prev' | 'year' | '12m' | 'all';
+export type HistPreset = '30d' | 'month' | '12m' | 'last-year' | 'prev-year' | 'all';
 
 function custom(startKey: number, endKey: number): string {
   return `custom:${keyToIso(startKey)}:${keyToIso(endKey)}`;
@@ -125,6 +125,49 @@ function custom(startKey: number, endKey: number): string {
 
 function monthValue(key: number): string {
   return `month:${keyToIso(key).slice(0, 7)}`;
+}
+
+const YEAR_OF = (key: number) => Math.floor(key / 10000);
+
+// Calendar years that have data, newest first.
+export function histYears(): number[] {
+  const out: number[] = [];
+  for (let y = YEAR_OF(HIST_END_KEY); y >= YEAR_OF(HIST_START_KEY); y--) out.push(y);
+  return out;
+}
+
+// The last calendar year the data covers completely (the window end's year only when
+// the data runs to Dec 31). A year-to-date range is never a useful default for closed
+// legacy years, so "último año" means this full year.
+export function histLastCompleteYear(): number {
+  return HIST_END_KEY % 10000 === 1231 ? YEAR_OF(HIST_END_KEY) : YEAR_OF(HIST_END_KEY) - 1;
+}
+
+// A whole calendar year as a concrete URL value, clamped to the window (the last, partial
+// year ends where the data ends).
+export function histYearRange(year: number): string {
+  const r = clamp(year * 10000 + 101, year * 10000 + 1231);
+  return custom(r.startKey, r.endKey);
+}
+
+// The calendar year a range belongs to (a month, or any range inside a single year), null
+// for ranges that span years or cannot be read; drives which year's months are listed.
+export function histYearOfRange(dateRange: string): number | null {
+  if (!CUSTOM_RE.test(dateRange) && !MONTH_RE.test(dateRange)) return null;
+  const r = resolveHistRange(dateRange);
+  if (r.empty) return null;
+  return YEAR_OF(r.startKey) === YEAR_OF(r.endKey) ? YEAR_OF(r.startKey) : null;
+}
+
+export interface HistMonthChip { key: string; month: number; enabled: boolean }
+
+// The 12 months of a year; the ones with no data in the window are disabled.
+export function histMonthsOfYear(year: number): HistMonthChip[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const month = i + 1;
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    return { key, month, enabled: !resolveHistRange(`month:${key}`).empty };
+  });
 }
 
 // The Analítica presets, anchored to the end of the legacy data instead of
@@ -135,9 +178,9 @@ export function histPresetRange(preset: HistPreset): string {
   switch (preset) {
     case '30d': return custom(addDays(end, -29), end);
     case 'month': return monthValue(end);
-    case 'month-prev': return monthValue(addDays(Math.floor(end / 100) * 100 + 1, -1));
-    case 'year': return custom(Math.floor(end / 10000) * 10000 + 101, end);
     case '12m': return custom(addDays(end, -364), end);
+    case 'last-year': return histYearRange(histLastCompleteYear());
+    case 'prev-year': return histYearRange(histLastCompleteYear() - 1);
     case 'all': return custom(HIST_START_KEY, end);
   }
 }

@@ -9,7 +9,8 @@ import { allowedGranularities, resolveGranularity, type Granularity } from '../a
 import { resolveReturnsBasis } from '../analitica/lib/returns-basis';
 import ReturnsBasisSelector from '../analitica/components/returns-basis-selector';
 import {
-  HIST_END_KEY, HIST_START_KEY, histPresetRange, isoToKey, keyToIso, resolveHistRange, type HistPreset,
+  HIST_END_KEY, HIST_START_KEY, histLastCompleteYear, histMonthsOfYear, histPresetRange, histYearOfRange, histYearRange, histYears,
+  isoToKey, keyToIso, resolveHistRange, type HistPreset,
 } from '@/lib/analitica-historica/window';
 import {
   HIST_DIMENSION_TABS, HIST_GRANULARITY_TABS, HIST_RETURNS_BASIS_TABS, HIST_TAB_KEYS, HIST_TAB_LABELS, resolveHistTab, type HistTabKey,
@@ -36,16 +37,20 @@ const CURRENCY_STORAGE_KEY = 'analytics-currency';
 const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
 const DEFAULT_DATE_RANGE = histPresetRange('12m');
 
-// Same buttons as the main Analítica, but every preset is anchored to the END OF
-// THE LEGACY DATA (not today) and resolves to a concrete custom:/month: value.
+// Quick presets, all anchored to the END OF THE LEGACY DATA (not today) and resolving to a
+// concrete custom:/month: value. There is no year-to-date: "Último año" / "Año anterior" are
+// whole calendar years, and the year and month chips below pick any other period.
+const LAST_YEAR = histLastCompleteYear();
 const PRESETS: { value: HistPreset; label: string }[] = [
   { value: '30d', label: '30 días' },
   { value: 'month', label: 'Último mes' },
-  { value: 'month-prev', label: 'Mes anterior' },
-  { value: 'year', label: 'Último año' },
   { value: '12m', label: '12 meses' },
+  { value: 'last-year', label: `Último año (${LAST_YEAR})` },
+  { value: 'prev-year', label: `Año anterior (${LAST_YEAR - 1})` },
   { value: 'all', label: 'Todo' },
 ];
+const YEARS = histYears();
+const MONTH_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
 const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
@@ -64,13 +69,6 @@ function shiftMonthKey(monthKey: string, delta: number): string {
   const [yearStr, monthStr] = monthKey.split('-');
   const d = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1 + delta, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function formatMonthLabel(monthKey: string): string {
-  const [yearStr, monthStr] = monthKey.split('-');
-  const d = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, 1));
-  const formatted = new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d);
-  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
 function isValidCurrency(value: string | null): value is Currency {
@@ -148,6 +146,9 @@ function AnaliticaHistoricaClientInner() {
   };
 
   const monthKey = monthMatch ? `${monthMatch[1]}-${monthMatch[2]}` : null;
+  // The months row lists the year of the current range (a month, a year, any range inside one
+  // year); a range that spans years (12 meses, Todo) shows the newest year.
+  const shownYear = histYearOfRange(dateRange) ?? YEARS[0];
   const handleMonthPage = (delta: number) => {
     if (monthKey) updateParams({ dateRange: `month:${shiftMonthKey(monthKey, delta)}` });
   };
@@ -196,13 +197,6 @@ function AnaliticaHistoricaClientInner() {
                   Personalizado
                 </button>
               </div>
-              {monthKey && (
-                <div className="flex items-center gap-1 text-sm text-gray-600">
-                  <button onClick={() => handleMonthPage(-1)} disabled={!canPageBack} className="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30" aria-label="Mes anterior">◀</button>
-                  <span className="min-w-[10rem] text-center">{formatMonthLabel(monthKey)}</span>
-                  <button onClick={() => handleMonthPage(1)} disabled={!canPageForward} className="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30" aria-label="Mes siguiente">▶</button>
-                </div>
-              )}
               {isCustomRange && (
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <input
@@ -272,6 +266,48 @@ function AnaliticaHistoricaClientInner() {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+        {/* Year chips and the months of the selected year */}
+        <div className="mt-3 flex items-center gap-x-4 gap-y-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Año</span>
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Año">
+              {YEARS.map(y => (
+                <button
+                  key={y}
+                  data-year={y}
+                  onClick={() => updateParams({ dateRange: histYearRange(y) })}
+                  aria-pressed={dateRange === histYearRange(y)}
+                  className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                    dateRange === histYearRange(y) ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 mr-1">Mes</span>
+            <button onClick={() => handleMonthPage(-1)} disabled={!canPageBack} className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30" aria-label="Mes anterior">◀</button>
+            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label={`Meses de ${shownYear}`}>
+              {histMonthsOfYear(shownYear).map(m => (
+                <button
+                  key={m.key}
+                  data-month={m.key}
+                  disabled={!m.enabled}
+                  onClick={() => updateParams({ dateRange: `month:${m.key}` })}
+                  aria-pressed={dateRange === `month:${m.key}`}
+                  className={`px-2.5 py-1 text-sm font-medium rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                    dateRange === `month:${m.key}` ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {MONTH_SHORT[m.month - 1]}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => handleMonthPage(1)} disabled={!canPageForward} className="px-2 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30" aria-label="Mes siguiente">▶</button>
           </div>
         </div>
       </div>

@@ -11,7 +11,7 @@ mock.module('next/navigation', () => ({
 mock.module('posthog-js', () => ({ default: { capture: () => {} } }));
 
 const { AnaliticaHistoricaClient } = await import('../analitica-historica-client');
-const { histPresetRange, HIST_START_KEY, keyToIso } = await import('@/lib/analitica-historica/window');
+const { histPresetRange, HIST_START_KEY, keyToIso, histYears, histYearRange, histLastCompleteYear, histMonthsOfYear } = await import('@/lib/analitica-historica/window');
 
 const lastUrl = () => decodeURIComponent(pushed[pushed.length - 1] ?? '');
 
@@ -73,5 +73,71 @@ describe('AnaliticaHistoricaClient', () => {
     search = 'tab=productos';
     render(<AnaliticaHistoricaClient />);
     expect(screen.queryByText('Devoluciones', { selector: 'span' })).toBeNull();
+  });
+
+  test('there is no year-to-date preset: "último año" and "año anterior" are whole calendar years', () => {
+    render(<AnaliticaHistoricaClient />);
+    expect(screen.queryByText(/Año Actual/i)).toBeNull();
+    const last = histLastCompleteYear();
+    fireEvent.click(screen.getByRole('button', { name: `Último año (${last})` }));
+    expect(lastUrl()).toContain(`dateRange=${histPresetRange('last-year')}`);
+    expect(lastUrl()).toContain(`dateRange=custom:${last}-01-01:${last}-12-31`);
+    fireEvent.click(screen.getByRole('button', { name: `Año anterior (${last - 1})` }));
+    expect(lastUrl()).toContain(`dateRange=custom:${last - 1}-01-01:${last - 1}-12-31`);
+  });
+
+  test('every year of the data is a chip; a chip selects that whole year', () => {
+    render(<AnaliticaHistoricaClient />);
+    const group = screen.getByRole('group', { name: 'Año' });
+    for (const y of histYears()) expect(group.querySelector(`button[data-year="${y}"]`)).not.toBeNull();
+    fireEvent.click(group.querySelector('button[data-year="2024"]')!);
+    expect(lastUrl()).toContain('dateRange=custom:2024-01-01:2024-12-31');
+  });
+
+  test('the newest year is clamped to where the data ends', () => {
+    render(<AnaliticaHistoricaClient />);
+    const newest = histYears()[0];
+    fireEvent.click(screen.getByRole('group', { name: 'Año' }).querySelector(`button[data-year="${newest}"]`)!);
+    expect(lastUrl()).toContain(`dateRange=${histYearRange(newest)}`);
+  });
+
+  test('the selected year highlights its chip', () => {
+    search = `dateRange=${histYearRange(2024)}`;
+    render(<AnaliticaHistoricaClient />);
+    const group = screen.getByRole('group', { name: 'Año' });
+    expect(group.querySelector('button[data-year="2024"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(group.querySelector('button[data-year="2023"]')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('the months of the selected year are chips and a month chip selects that month', () => {
+    search = 'dateRange=month:2024-05';
+    render(<AnaliticaHistoricaClient />);
+    const months = screen.getByRole('group', { name: 'Meses de 2024' });
+    expect(months.querySelectorAll('button')).toHaveLength(12);
+    expect(months.querySelector('button[data-month="2024-05"]')!.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(months.querySelector('button[data-month="2024-03"]')!);
+    expect(lastUrl()).toContain('dateRange=month:2024-03');
+  });
+
+  test('months with no data are disabled (the last, partial year)', () => {
+    const newest = histYears()[0];
+    search = `dateRange=${histYearRange(newest)}`;
+    render(<AnaliticaHistoricaClient />);
+    const months = screen.getByRole('group', { name: `Meses de ${newest}` });
+    for (const m of histMonthsOfYear(newest)) {
+      expect((months.querySelector(`button[data-month="${m.key}"]`) as HTMLButtonElement).disabled).toBe(!m.enabled);
+    }
+  });
+
+  test('a range spanning years (the default 12 months) lists the months of the newest year', () => {
+    render(<AnaliticaHistoricaClient />);
+    expect(screen.getByRole('group', { name: `Meses de ${histYears()[0]}` })).toBeTruthy();
+  });
+
+  test('a custom range inside one year lists that year\'s months, none highlighted', () => {
+    search = 'dateRange=custom:2023-03-10:2023-04-02';
+    render(<AnaliticaHistoricaClient />);
+    const months = screen.getByRole('group', { name: 'Meses de 2023' });
+    expect(months.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(0);
   });
 });

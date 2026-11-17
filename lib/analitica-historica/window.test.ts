@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   HIST_START_KEY, HIST_END_KEY, keyToIso, isoToKey,
   resolveHistRange, histRangeWhere, previousRange, histPresetRange,
+  histYears, histYearRange, histLastCompleteYear, histYearOfRange, histMonthsOfYear,
 } from './window';
 
 describe('key helpers', () => {
@@ -90,10 +91,12 @@ describe('histPresetRange', () => {
     expect(resolveHistRange(value).endKey).toBe(HIST_END_KEY);
   });
 
-  test('month-prev is the month before it', () => {
-    const last = resolveHistRange(histPresetRange('month'));
-    const prev = resolveHistRange(histPresetRange('month-prev'));
-    expect(prev.endKey).toBeLessThan(last.startKey);
+  test('last-year is the last COMPLETE calendar year, prev-year the one before it', () => {
+    const last = resolveHistRange(histPresetRange('last-year'));
+    const prev = resolveHistRange(histPresetRange('prev-year'));
+    const y = histLastCompleteYear();
+    expect(last).toEqual({ startKey: y * 10000 + 101, endKey: y * 10000 + 1231, empty: false });
+    expect(prev).toEqual({ startKey: (y - 1) * 10000 + 101, endKey: (y - 1) * 10000 + 1231, empty: false });
   });
 
   test('all spans the whole window', () => {
@@ -101,8 +104,55 @@ describe('histPresetRange', () => {
   });
 
   test('every preset is a concrete custom: or month: value', () => {
-    for (const p of ['30d', 'month', 'month-prev', 'year', '12m', 'all'] as const) {
+    for (const p of ['30d', 'month', 'last-year', 'prev-year', '12m', 'all'] as const) {
       expect(histPresetRange(p)).toMatch(/^(custom:\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2}|month:\d{4}-\d{2})$/);
     }
+  });
+});
+
+describe('year helpers', () => {
+  test('histYears lists every calendar year of the window, newest first', () => {
+    const years = histYears();
+    expect(years[0]).toBe(Math.floor(HIST_END_KEY / 10000));
+    expect(years[years.length - 1]).toBe(Math.floor(HIST_START_KEY / 10000));
+    expect([...years].sort((a, b) => b - a)).toEqual(years);
+    expect(new Set(years).size).toBe(years.length);
+  });
+
+  test('histLastCompleteYear is the year before the window end unless the data ends on Dec 31', () => {
+    const endYear = Math.floor(HIST_END_KEY / 10000);
+    expect(histLastCompleteYear()).toBe(HIST_END_KEY % 10000 === 1231 ? endYear : endYear - 1);
+  });
+
+  test('histYearRange is the whole calendar year, clamped to the window', () => {
+    expect(histYearRange(2024)).toBe('custom:2024-01-01:2024-12-31');
+    expect(histYearRange(Math.floor(HIST_END_KEY / 10000))).toBe(`custom:${Math.floor(HIST_END_KEY / 10000)}-01-01:${HIST_END_KEY % 10000 === 1231 ? `${Math.floor(HIST_END_KEY / 10000)}-12-31` : `${String(HIST_END_KEY).slice(0, 4)}-${String(HIST_END_KEY).slice(4, 6)}-${String(HIST_END_KEY).slice(6, 8)}`}`);
+    expect(histYearRange(2020)).toBe('custom:2020-01-01:2020-12-31');
+  });
+
+  test('histYearOfRange: the year a month or a single-year range belongs to, null across years', () => {
+    expect(histYearOfRange('month:2024-05')).toBe(2024);
+    expect(histYearOfRange('custom:2025-01-01:2025-12-31')).toBe(2025);
+    expect(histYearOfRange('custom:2025-03-10:2025-04-02')).toBe(2025);
+    expect(histYearOfRange(histPresetRange('12m'))).toBeNull(); // Mar 2025 - Feb 2026 spans two years
+    expect(histYearOfRange(histPresetRange('all'))).toBeNull();
+    expect(histYearOfRange('garbage')).toBeNull();
+  });
+
+  test('histMonthsOfYear lists 12 months and disables the ones outside the window', () => {
+    const months = histMonthsOfYear(2024);
+    expect(months).toHaveLength(12);
+    expect(months[0]).toEqual({ key: '2024-01', month: 1, enabled: true });
+    expect(months.every(m => m.enabled)).toBe(true);
+    const endYear = Math.floor(HIST_END_KEY / 10000);
+    const endMonth = Math.floor((HIST_END_KEY % 10000) / 100);
+    const last = histMonthsOfYear(endYear);
+    expect(last.filter(m => m.enabled).length).toBe(endMonth);
+    expect(last[endMonth - 1].enabled).toBe(true);
+    if (endMonth < 12) expect(last[endMonth].enabled).toBe(false);
+  });
+
+  test('a year outside the window has no enabled month', () => {
+    expect(histMonthsOfYear(2019).some(m => m.enabled)).toBe(false);
   });
 });
