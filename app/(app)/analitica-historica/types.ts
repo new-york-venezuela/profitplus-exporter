@@ -113,3 +113,26 @@ export interface HistProductosFiltrosResponse {
   sublineas: { linea: string; sublinea: string }[];
   categorias: string[];
 }
+
+// ── Vendedores ─────────────────────────────────────────────────────────────
+export interface HistVendedorStats {
+  salesGross: DualAmount;
+  returns: DualAmount;
+  salesNet: DualAmount;
+  returnRate: number | null;
+  units: number;
+  customersServed: number;
+}
+
+export interface HistVendedorRow extends HistVendedorStats {
+  salesRepKey: number | null; // null = documents with no seller ("Sin vendedor")
+  label: string;
+}
+
+export interface HistVendedoresResponse {
+  empty: boolean;
+  rows: HistVendedorRow[];
+  total: HistVendedorStats | null; // same figures as the Resumen kpis for the same params
+  trend: MonthlyTrendRow[]; // everyone, or one seller when salesRepKey is given
+  trendMode: BucketMode;
+}
