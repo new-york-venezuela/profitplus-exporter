@@ -96,3 +96,20 @@ export interface HistClientesResponse {
   empty: boolean;
   rows: HistClienteRow[];
 }
+
+// ── Productos ──────────────────────────────────────────────────────────────
+// The catalogo rows reuse the main Productos CatalogoRow shape so the master
+// table component is shared; `clientCount` and `posCount` both carry the number
+// of distinct legacy customers (legacy customers have no legal-entity roll-up).
+import type { CatalogoRow } from '../analitica/types';
+
+export interface HistCatalogoResponse {
+  rows: CatalogoRow[];
+  nivel: 'linea' | 'sublinea' | 'sku';
+}
+
+export interface HistProductosFiltrosResponse {
+  lineas: string[];
+  sublineas: { linea: string; sublinea: string }[];
+  categorias: string[];
+}
