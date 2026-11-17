@@ -12,7 +12,8 @@ function price(amount: DualAmount, units: number, currency: Currency): string {
 }
 
 // Brutas / Devoluciones / Neto cards, same layout as the main Resumen's VentasStrip
-// minus the consignment note (legacy data has no consignment flag).
+// minus the consignment note (legacy data has no consignment flag). Clientes = casa matriz,
+// Tiendas = customer codes under them.
 export function HistVentasStrip({ kpis, currency }: { kpis: HistKpis; currency: Currency }) {
   const netUnits = kpis.unitsSold - kpis.unitsReturned;
   const rate = kpis.returnRate === null ? '—' : `${(kpis.returnRate * 100).toFixed(1)}%`;
@@ -20,7 +21,8 @@ export function HistVentasStrip({ kpis, currency }: { kpis: HistKpis; currency: 
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
       <StatCard label="Ventas brutas" value={histMoney(kpis.salesGross, currency)}>
         <Row label="Unidades" value={nf(kpis.unitsSold)} />
-        <Row label="Clientes / tiendas" value={nf(kpis.customersWithSales)} />
+        <Row label="Clientes (casa matriz)" value={nf(kpis.entitiesWithSales)} />
+        <Row label="Tiendas" value={nf(kpis.customersWithSales)} />
         <Row label="Precio promedio" value={price(kpis.salesGross, kpis.unitsSold, currency)} />
       </StatCard>
       <StatCard
@@ -30,12 +32,14 @@ export function HistVentasStrip({ kpis, currency }: { kpis: HistKpis; currency: 
       >
         <Row label="Tasa de devolución" value={rate} />
         <Row label="Unidades" value={nf(kpis.unitsReturned)} />
-        <Row label="Clientes / tiendas" value={nf(kpis.customersWithReturns)} />
+        <Row label="Clientes (casa matriz)" value={nf(kpis.entitiesWithReturns)} />
+        <Row label="Tiendas" value={nf(kpis.customersWithReturns)} />
         <Row label="Precio promedio" value={price(kpis.returns, kpis.unitsReturned, currency)} />
       </StatCard>
       <StatCard label="Neto" value={histMoney(kpis.salesNet, currency)}>
         <Row label="Unidades" value={nf(netUnits)} />
-        <Row label="Clientes / tiendas" value={nf(kpis.customersNet)} />
+        <Row label="Clientes (casa matriz)" value={nf(kpis.entitiesNet)} />
+        <Row label="Tiendas" value={nf(kpis.customersNet)} />
         <Row label="Precio promedio" value={price(kpis.salesNet, netUnits, currency)} />
       </StatCard>
     </div>

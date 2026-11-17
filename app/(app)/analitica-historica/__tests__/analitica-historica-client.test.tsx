@@ -52,6 +52,19 @@ describe('AnaliticaHistoricaClient', () => {
     expect(start.min).toBe(keyToIso(HIST_START_KEY));
   });
 
+  test('the casa matriz / tienda switch shows on Clientes and writes clienteDimension', () => {
+    search = 'tab=clientes';
+    render(<AnaliticaHistoricaClient />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tienda' }));
+    expect(lastUrl()).toContain('clienteDimension=tienda');
+  });
+
+  test('the casa matriz / tienda switch is hidden where clients are not listed', () => {
+    search = 'tab=resumen';
+    render(<AnaliticaHistoricaClient />);
+    expect(screen.queryByRole('button', { name: 'Tienda' })).toBeNull();
+  });
+
   test('the returns-basis selector shows on Ventas but not on Productos', () => {
     search = 'tab=ventas';
     const { unmount } = render(<AnaliticaHistoricaClient />);

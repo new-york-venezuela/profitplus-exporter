@@ -43,6 +43,15 @@ describe('GET /api/dwh/analitica-historica/ventas', () => {
     expect(queries).toHaveLength(0);
   });
 
+  test('cliente rolls stores up to their casa matriz by default, per store with clienteDimension=tienda', async () => {
+    await get('dateRange=month:2025-03&groupBy=cliente');
+    expect(queries[0].sql).toContain('fact.Fact_Sales_Legacy');
+    expect(queries[0].sql).toContain('Dim_LegalEntity_Legacy');
+    queries.length = 0;
+    await get('dateRange=month:2025-03&groupBy=cliente&clienteDimension=tienda');
+    expect(queries[0].sql).not.toContain('Dim_LegalEntity_Legacy');
+  });
+
   test('cliente rows carry gross, returns, net, rate and units', async () => {
     const body = await (await get('dateRange=month:2025-03&groupBy=cliente')).json();
     expect(body.groupBy).toBe('cliente');

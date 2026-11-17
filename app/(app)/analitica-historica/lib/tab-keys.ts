@@ -24,3 +24,6 @@ export const HIST_RETURNS_BASIS_TABS: ReadonlySet<HistTabKey> = new Set<HistTabK
 
 /** Tabs with a trend chart that honours the granularity selector. */
 export const HIST_GRANULARITY_TABS: ReadonlySet<HistTabKey> = new Set<HistTabKey>(['resumen', 'ventas', 'vendedores']);
+
+/** Tabs that list clients, so they get the casa matriz / tienda switch. */
+export const HIST_DIMENSION_TABS: ReadonlySet<HistTabKey> = new Set<HistTabKey>(['ventas', 'devoluciones', 'clientes']);

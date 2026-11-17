@@ -1,4 +1,4 @@
-import { histDualSum, histReturnsUsdJoin, histUsdJoin } from './sql';
+import { histDualSum, histEntityId, histReturnsUsdJoin, histUsdJoin } from './sql';
 import type { HistNivel } from './productos-filter';
 
 const NO_LINEA = 'Sin línea';
@@ -24,11 +24,12 @@ export function histCatalogoSalesQuery(nivel: HistNivel, where: string): string 
            ISNULL(SUM(fsl.QuantitySold), 0) AS Units,
            ${histDualSum('fsl', 'NetAmount', 'SalesGrossBs', 'SalesGrossUsd')},
            COUNT(DISTINCT d.YearMonth) AS MonthCount,
-           COUNT(DISTINCT fsl.CustomerLegacyKey) AS ClientCount,
+           COUNT(DISTINCT ${histEntityId('c')}) AS ClientCount,
            COUNT(DISTINCT fsl.CustomerLegacyKey) AS PosCount
     FROM fact.Fact_Sales_Legacy fsl
     ${histUsdJoin('fsl')}
     JOIN dim.Dim_Product_Legacy p ON p.ProductLegacyKey = fsl.ProductLegacyKey
+    JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey
     JOIN dim.Dim_Date d ON d.DateKey = fsl.DateKey
     WHERE 1 = 1 ${where}
     GROUP BY ${k.group}`;

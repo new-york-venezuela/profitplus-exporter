@@ -21,8 +21,8 @@ const { GET } = await import('../route');
 
 const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/analitica-historica/clientes?${qs}`));
 const rec = (over: Record<string, unknown> = {}) => ({
-  CustomerLegacyKey: 1, CustomerCode: 'C001  ', CustomerName: 'Cliente A',
-  FirstKey: 20200315, LastKey: 20250310, Invoices: 4,
+  EKey: 'e1', Code: 'C001  ', Name: 'Cliente A',
+  FirstKey: 20200315, LastKey: 20250310, Invoices: 4, Stores: 2,
   SalesGrossBs: 1000, SalesGrossUsd: 100, ReturnsBs: 100, ReturnsUsd: 10, Units: 40, InRange: 1,
   ...over,
 });
@@ -41,8 +41,8 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
     const body = await (await get('dateRange=month:2025-03')).json();
     expect(body.rows).toHaveLength(1);
     expect(body.rows[0]).toMatchObject({
-      customerKey: 1, code: 'C001', name: 'Cliente A', firstInvoiceKey: 20200315, lastInvoiceKey: 20250310,
-      invoices: 4, salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 },
+      key: 'e1', code: 'C001', name: 'Cliente A', firstInvoiceKey: 20200315, lastInvoiceKey: 20250310,
+      invoices: 4, stores: 2, salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 },
       units: 40, status: 'activo', pareto: 'A',
     });
     expect(body.rows[0].returnRate).toBeCloseTo(0.1);
@@ -52,10 +52,10 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
   test('a customer with only returns in range is listed with a negative net, negative share and class C', async () => {
     respond = () => [
       rec(),
-      rec({ CustomerLegacyKey: 2, CustomerCode: 'C002', CustomerName: 'Solo dev', Invoices: 0, SalesGrossBs: 0, SalesGrossUsd: 0, ReturnsBs: 50, ReturnsUsd: 5, Units: 0, InRange: 0 }),
+      rec({ EKey: 'e2', Code: 'C002', Name: 'Solo dev', Invoices: 0, Stores: 0, SalesGrossBs: 0, SalesGrossUsd: 0, ReturnsBs: 50, ReturnsUsd: 5, Units: 0, InRange: 0 }),
     ];
     const body = await (await get('dateRange=month:2025-03')).json();
-    const only = body.rows.find((r: { customerKey: number }) => r.customerKey === 2);
+    const only = body.rows.find((r: { key: string }) => r.key === 'e2');
     expect(only.salesNet).toEqual({ bs: -50, usd: -5 });
     expect(only.sharePct).toBeLessThan(0);
     expect(only.pareto).toBe('C');
@@ -71,6 +71,21 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
     expect(body.rows[0].sharePct).toBeNull();
   });
 
+  test('every store is rolled up to its casa matriz by default', async () => {
+    await get('dateRange=month:2025-03');
+    const sql = queries[0].sql;
+    expect(sql).toContain('JOIN dim.Dim_LegalEntity_Legacy le');
+    expect(sql).toContain('le.LegalEntityName');
+    expect(sql).not.toContain('GROUP BY fsl.CustomerLegacyKey');
+  });
+
+  test('clienteDimension=tienda lists each customer on its own', async () => {
+    await get('dateRange=month:2025-03&clienteDimension=tienda');
+    const sql = queries[0].sql;
+    expect(sql).not.toContain('Dim_LegalEntity_Legacy');
+    expect(sql).toContain('CAST(c.CustomerLegacyKey AS varchar(20))');
+  });
+
   test('missing exchange rates keep USD null', async () => {
     respond = () => [rec({ SalesGrossUsd: null, ReturnsUsd: null })];
     const body = await (await get('dateRange=month:2020-01')).json();
@@ -82,6 +97,7 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
     await get("dateRange=month:2025-03&q=50%25_off'; DROP TABLE x;--");
     const q = queries[0];
     expect(q.sql).toContain('LIKE @q');
+    expect(q.sql).toMatch(/k\.Code LIKE @q ESCAPE/);
     expect(q.sql).toContain("ESCAPE '\\'");
     expect(q.sql).not.toContain('DROP TABLE');
     expect(q.inputs.q).toBe("%50\\%\\_off'; DROP TABLE x;--%");
@@ -106,8 +122,8 @@ describe('GET /api/dwh/analitica-historica/clientes', () => {
   test('USD of returns without a rate stays NULL and a returns-only customer has 0 gross USD', async () => {
     await get('dateRange=month:2025-03');
     const sql = queries[0].sql;
-    expect(sql).toContain('CASE WHEN r.CustomerLegacyKey IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd');
-    expect(sql).toContain('CASE WHEN s.CustomerLegacyKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd');
+    expect(sql).toContain('CASE WHEN r.EKey IS NULL THEN 0 ELSE r.ReturnsUsd END AS ReturnsUsd');
+    expect(sql).toContain('CASE WHEN s.EKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd');
     expect(sql).not.toContain('ISNULL(r.ReturnsUsd');
   });
 

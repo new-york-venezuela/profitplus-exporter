@@ -17,18 +17,18 @@ const GROUPS: { value: Exclude<HistGroupBy, 'producto'>; label: string }[] = [
   { value: 'mes', label: 'Período' },
 ];
 
-export default function TabVentas({ dateRange, currency, granularity, returnsBasis }: HistTabProps) {
+export default function TabVentas({ dateRange, currency, granularity, returnsBasis, clienteDimension }: HistTabProps) {
   const [groupBy, setGroupBy] = useState<Exclude<HistGroupBy, 'producto'>>('cliente');
   const [linea, setLinea] = useState<{ value: string; label: string } | null>(null);
 
-  const query = `dateRange=${dateRange}&granularity=${granularity}&returnsBasis=${returnsBasis}`;
+  const query = `dateRange=${dateRange}&granularity=${granularity}&returnsBasis=${returnsBasis}&clienteDimension=${clienteDimension}`;
   const strip = useHistFetch<HistResumenResponse>(`/api/dwh/analitica-historica/resumen?${query}`);
   const drilled = groupBy === 'linea' && linea !== null;
   const table = useHistFetch<HistGroupResponse>(
     `/api/dwh/analitica-historica/ventas?${query}&groupBy=${drilled ? 'producto' : groupBy}${drilled ? `&parentValue=${encodeURIComponent(linea.value)}` : ''}`,
   );
 
-  const firstColumn = drilled ? 'Producto' : GROUPS.find(g => g.value === groupBy)!.label;
+  const firstColumn = drilled ? 'Producto' : groupBy === 'cliente' && clienteDimension === 'entidad' ? 'Cliente (casa matriz)' : GROUPS.find(g => g.value === groupBy)!.label;
 
   return (
     <div className="p-4 w-full space-y-3">

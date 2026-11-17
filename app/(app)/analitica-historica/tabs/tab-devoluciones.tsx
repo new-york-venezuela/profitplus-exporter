@@ -18,10 +18,10 @@ const GROUPS = [
 const nf = (n: number) => n.toLocaleString('es-VE');
 const pct = (n: number | null) => (n === null ? '—' : `${(n * 100).toFixed(1)}%`);
 
-export default function TabDevoluciones({ dateRange, currency, granularity, returnsBasis }: HistTabProps) {
+export default function TabDevoluciones({ dateRange, currency, granularity, returnsBasis, clienteDimension }: HistTabProps) {
   const [groupBy, setGroupBy] = useState<(typeof GROUPS)[number]['value']>('cliente');
   const { data, loading, error } = useHistFetch<HistDevolucionesResponse>(
-    `/api/dwh/analitica-historica/devoluciones?dateRange=${dateRange}&granularity=${granularity}&returnsBasis=${returnsBasis}&groupBy=${groupBy}`,
+    `/api/dwh/analitica-historica/devoluciones?dateRange=${dateRange}&granularity=${granularity}&returnsBasis=${returnsBasis}&clienteDimension=${clienteDimension}&groupBy=${groupBy}`,
   );
 
   if (loading && !data) return <HistLoading />;
@@ -29,7 +29,7 @@ export default function TabDevoluciones({ dateRange, currency, granularity, retu
   if (!data || data.empty || !data.kpis) return <div className="p-6"><HistEmpty /></div>;
 
   const k = data.kpis;
-  const firstColumn = GROUPS.find(g => g.value === groupBy)!.label;
+  const firstColumn = groupBy === 'cliente' && clienteDimension === 'entidad' ? 'Cliente (casa matriz)' : GROUPS.find(g => g.value === groupBy)!.label;
 
   return (
     <div className="p-4 w-full space-y-3">
@@ -47,8 +47,9 @@ export default function TabDevoluciones({ dateRange, currency, granularity, retu
           <StatCard label="Ventas brutas del período" value={histMoney(k.salesGross, currency)}>
             <Row label="Unidades" value={nf(k.unitsSold)} />
           </StatCard>
-          <StatCard label="Clientes con devoluciones" value={nf(k.customersWithReturns)}>
-            <Row label="Clientes con ventas" value={nf(k.customersWithSales)} />
+          <StatCard label="Clientes con devoluciones" value={nf(k.entitiesWithReturns)}>
+            <Row label="Tiendas con devoluciones" value={nf(k.customersWithReturns)} />
+            <Row label="Clientes con ventas" value={nf(k.entitiesWithSales)} />
           </StatCard>
         </div>
       </section>

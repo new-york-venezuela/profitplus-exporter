@@ -579,6 +579,7 @@ needed). Without it the header shows the company name only.
 1. Probe the legacy server first (read-only): `bun --env-file=.env.local scripts/dwh-legacy-probe.ts`.
 2. Apply the DWH migrations (`bun run migrate:dwh`). **`0042_truncate_legacy_tables.sql` empties the legacy tables**, so run it right before step 3; until the import finishes, Analítica histórica shows no data.
 3. Run the import: `bun --env-file=.env.local scripts/dwh-legacy-2025-import.ts` (it refuses to run if any legacy table already has rows). If a run fails half way, re-run with `--reset --confirm-db <DW_NAME>`, which empties the six legacy tables first.
+3b. If the legacy data was loaded before migration `0044` (no casa matriz), run `bun --env-file=.env.local scripts/dwh-legacy-2025-import.ts --matriz-only` instead of re-importing: it copies `saCliente.matriz` into the loaded customers and rebuilds the legal entities.
 4. Check `SELECT MIN(DateKey), MAX(DateKey), COUNT(*)` on `fact.Fact_Sales_Legacy`, `fact.Fact_Returns_Legacy` and `fact.Fact_ExchangeRate_Legacy`; the last date must match `HIST_END_KEY` in `lib/analitica-historica/window.ts` (and `IMPORT_END_DATE` in the import script).
 
 ## Redeploy Procedure

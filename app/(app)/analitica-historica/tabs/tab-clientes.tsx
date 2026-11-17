@@ -26,13 +26,13 @@ function dateKey(key: number | null): string {
   return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
-export default function TabClientes({ dateRange, currency, returnsBasis }: HistTabProps) {
+export default function TabClientes({ dateRange, currency, returnsBasis, clienteDimension }: HistTabProps) {
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<StatusFilter>('todos');
 
   const { data, loading, error } = useHistFetch<HistClientesResponse>(
-    `/api/dwh/analitica-historica/clientes?dateRange=${dateRange}&returnsBasis=${returnsBasis}${q ? `&q=${encodeURIComponent(q)}` : ''}`,
+    `/api/dwh/analitica-historica/clientes?dateRange=${dateRange}&returnsBasis=${returnsBasis}&clienteDimension=${clienteDimension}${q ? `&q=${encodeURIComponent(q)}` : ''}`,
   );
 
   const rows = useMemo(
@@ -51,7 +51,7 @@ export default function TabClientes({ dateRange, currency, returnsBasis }: HistT
       </p>
       <section>
         <div className="flex items-center gap-3 mb-2 flex-wrap">
-          <SectionTitle>Clientes</SectionTitle>
+          <SectionTitle>{clienteDimension === 'entidad' ? 'Clientes (casa matriz)' : 'Clientes (por tienda)'}</SectionTitle>
           <div className="flex items-center gap-1">
             <input
               type="text"
@@ -99,9 +99,12 @@ export default function TabClientes({ dateRange, currency, returnsBasis }: HistT
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r, i) => (
-                  <tr key={r.customerKey} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
+                  <tr key={r.key} className={i % 2 === 1 ? 'bg-gray-50' : ''}>
                     <td className="px-3 py-2 text-gray-800">
                       {r.name} <span className="text-xs text-gray-400">{r.code}</span>
+                      {clienteDimension === 'entidad' && r.stores > 0 && (
+                        <span className="ml-2 text-xs text-gray-500">{r.stores} {r.stores === 1 ? 'tienda' : 'tiendas'}</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{dateKey(r.firstInvoiceKey)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{dateKey(r.lastInvoiceKey)}</td>

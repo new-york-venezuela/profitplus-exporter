@@ -11,7 +11,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   key: 'Panadería', label: 'Panadería', code: null, linea: 'Panadería', sublinea: '',
   salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 },
   units: 100, monthCount: 2, avgUnitsPerMonth: 50, avgPrice: { bs: 10, usd: 1 }, returnRate: 0.1,
-  clientCount: 5, posCount: 5, sharePct: 1, pareto: 'A', prevNet: null, trendPct: null, ...over,
+  clientCount: 3, posCount: 5, sharePct: 1, pareto: 'A', prevNet: null, trendPct: null, ...over,
 });
 
 let calls: string[] = [];
@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion' } as const;
+const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion', clienteDimension: 'entidad' } as const;
 const catalogoCalls = () => calls.filter(u => u.includes('section=catalogo'));
 
 describe('Historica TabProductos', () => {
@@ -39,11 +39,10 @@ describe('Historica TabProductos', () => {
     expect(catalogoCalls()[0]).toBe('/api/dwh/analitica-historica/productos?section=catalogo&dateRange=month:2025-03&returnsBasis=devolucion&nivel=linea&currency=bs');
   });
 
-  test('shows reach as distinct customers, not "tiendas"', async () => {
+  test('shows reach as casa matriz clients and stores', async () => {
     render(<TabProductos {...props} currency="bs" />);
     await screen.findByText('Panadería');
-    expect(screen.getByText('5 clientes')).toBeTruthy();
-    expect(screen.queryByText(/tiendas/)).toBeNull();
+    expect(screen.getByText('3 clientes · 5 tiendas')).toBeTruthy();
   });
 
   test('switching the level refetches with the new nivel', async () => {

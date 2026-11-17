@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
 
-  const { dateRange, range, basis, searchParams } = parseHistParams(request);
+  const { dateRange, range, basis, dimension, searchParams } = parseHistParams(request);
   const groupBy = searchParams.get('groupBy') ?? 'mes';
   if (!isHistGroupBy(groupBy)) return NextResponse.json({ error: 'Parámetro groupBy inválido' }, { status: 400 });
   const parentValue = searchParams.get('parentValue');
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const bucket = parseTrendBucket(searchParams, dateRange);
   const sql = buildGroupedQuery(
-    groupSpec(groupBy, bucket, basis),
+    groupSpec(groupBy, bucket, basis, dimension),
     histSalesWhere(range, 'fsl'),
     histReturnsWhere(range, basis, 'frl'),
     { top: groupBy === 'mes' ? null : TOP_ROWS },

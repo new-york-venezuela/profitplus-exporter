@@ -1,5 +1,6 @@
 import type { Currency, ReturnsBasis } from '../analitica/types';
 import type { Granularity } from '../analitica/lib/granularity';
+import type { HistClienteDimension } from '@/lib/analitica-historica/dimension';
 
 export type { Currency, ReturnsBasis, DualAmount } from '../analitica/types';
 
@@ -11,6 +12,8 @@ export interface HistTabProps {
   currency: Currency;
   granularity: Granularity;
   returnsBasis: ReturnsBasis;
+  /** How clients are listed on Ventas / Devoluciones / Clientes: `entidad` = casa matriz roll-up (default), `tienda` = per store. */
+  clienteDimension: HistClienteDimension;
 }
 
 import type { DualAmount } from '../analitica/types';
@@ -27,7 +30,11 @@ export interface HistKpis {
   unitsReturned: number;
   customersWithSales: number;
   customersWithReturns: number;
-  customersNet: number; // customers whose net (gross − returns) in range is > 0
+  customersNet: number; // stores whose net (gross − returns) in range is > 0
+  // The same three counts at the casa matriz level ("clientes"); the fields above count stores.
+  entitiesWithSales: number;
+  entitiesWithReturns: number;
+  entitiesNet: number;
 }
 
 export interface HistResumenResponse {
@@ -76,12 +83,13 @@ export interface HistDevolucionesResponse {
 import type { ParetoClass } from '@/lib/productos/pareto';
 
 export interface HistClienteRow {
-  customerKey: number;
-  code: string;
+  key: string; // 'e<entity>' (casa matriz), 'c<customer>' or the customer key (tienda)
+  code: string; // casa matriz's code (entidad) or the customer's
   name: string;
   firstInvoiceKey: number | null; // first / last non-voided invoice over the WHOLE legacy window
   lastInvoiceKey: number | null;
   invoices: number; // distinct invoices in the selected range
+  stores: number; // stores of the client that bought in the selected range
   salesGross: DualAmount;
   returns: DualAmount;
   salesNet: DualAmount; // negative when the customer only returned in the range
@@ -121,7 +129,8 @@ export interface HistVendedorStats {
   salesNet: DualAmount;
   returnRate: number | null;
   units: number;
-  customersServed: number;
+  customersServed: number; // clients (casa matriz) with a sale in the range
+  storesServed: number; // customer codes with a sale in the range
 }
 
 export interface HistVendedorRow extends HistVendedorStats {

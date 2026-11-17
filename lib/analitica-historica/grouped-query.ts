@@ -1,7 +1,7 @@
 import type { ReturnsBasis } from '@/app/api/dwh/lib/query-builder';
 import { returnsDateColumn } from '@/app/api/dwh/lib/query-builder';
 import type { TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
-import { histDualSum, histReturnsUsdJoin, histUsdJoin } from './sql';
+import { histClienteKeySql, histDualSum, histReturnsUsdJoin, histUsdJoin, type HistClienteDimension } from './sql';
 
 export const HIST_GROUP_BYS = ['mes', 'cliente', 'linea', 'vendedor', 'producto', 'sku'] as const;
 export type HistGroupBy = (typeof HIST_GROUP_BYS)[number];
@@ -18,7 +18,9 @@ export interface GroupSpec { sales: Side; returns: Side; orderByKey: boolean }
 // frl). Both sides use the same key so a group that only has returns still shows
 // up (negative net). `producto` needs the `@parentValue` input (a LineCode, or
 // 'SIN_LINEA') bound by the caller.
-export function groupSpec(groupBy: HistGroupBy, bucket: TrendBucket, basis: ReturnsBasis): GroupSpec {
+export function groupSpec(
+  groupBy: HistGroupBy, bucket: TrendBucket, basis: ReturnsBasis, dimension: HistClienteDimension = 'entidad',
+): GroupSpec {
   switch (groupBy) {
     case 'mes':
       return {
@@ -26,12 +28,15 @@ export function groupSpec(groupBy: HistGroupBy, bucket: TrendBucket, basis: Retu
         sales: { key: bucket.keyExpr('d'), label: bucket.keyExpr('d'), joins: 'JOIN dim.Dim_Date d ON d.DateKey = fsl.DateKey', extraWhere: '' },
         returns: { key: bucket.keyExpr('dr'), label: bucket.keyExpr('dr'), joins: `JOIN dim.Dim_Date dr ON dr.DateKey = frl.${returnsDateColumn(basis)}`, extraWhere: '' },
       };
-    case 'cliente':
+    case 'cliente': {
+      // casa matriz roll-up by default (`entidad`), one row per customer for `tienda`.
+      const k = histClienteKeySql(dimension);
       return {
         orderByKey: false,
-        sales: { key: 'CAST(c.CustomerLegacyKey AS varchar(20))', label: 'ISNULL(c.CustomerName, c.CustomerCode)', joins: 'JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey', extraWhere: '' },
-        returns: { key: 'CAST(c.CustomerLegacyKey AS varchar(20))', label: 'ISNULL(c.CustomerName, c.CustomerCode)', joins: 'JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = frl.CustomerLegacyKey', extraWhere: '' },
+        sales: { key: k.key, label: k.name, joins: k.joins('fsl'), extraWhere: '' },
+        returns: { key: k.key, label: k.name, joins: k.joins('frl'), extraWhere: '' },
       };
+    }
     case 'linea':
       return {
         orderByKey: false,

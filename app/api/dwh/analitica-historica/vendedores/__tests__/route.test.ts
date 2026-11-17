@@ -28,7 +28,7 @@ const grp = (over: Record<string, unknown> = {}) => ({
 let groups: Record<string, unknown>[] = [];
 let sellerCustomers: Record<string, unknown>[] = [];
 function standard(text: string): unknown[] {
-  if (text.includes('CustomersWithSales')) return [{ CustomersWithSales: 9, CustomersWithReturns: 2, CustomersNet: 8 }];
+  if (text.includes('CustomersWithSales')) return [{ CustomersWithSales: 9, CustomersWithReturns: 2, CustomersNet: 8, EntitiesWithSales: 5, EntitiesWithReturns: 1, EntitiesNet: 4 }];
   if (text.includes('UnitsReturned')) return [{ ReturnsBs: 100, ReturnsUsd: 10, UnitsReturned: 5 }];
   if (text.includes('FULL OUTER JOIN') && text.includes('GroupKey')) return groups;
   if (text.includes('AS Customers')) return sellerCustomers;
@@ -39,7 +39,7 @@ function standard(text: string): unknown[] {
 beforeEach(() => {
   queries.length = 0;
   groups = [grp(), grp({ GroupValue: '0', GroupLabel: 'Sin vendedor', SalesGrossBs: 400, SalesGrossUsd: 40, ReturnsBs: 40, ReturnsUsd: 4, Units: 20, ReturnsUnits: 2 })];
-  sellerCustomers = [{ GroupKey: '3', Customers: 6 }, { GroupKey: '0', Customers: 4 }];
+  sellerCustomers = [{ GroupKey: '3', Customers: 2, Stores: 6 }, { GroupKey: '0', Customers: 1, Stores: 4 }];
   respond = standard;
   denial = null;
 });
@@ -56,7 +56,7 @@ describe('GET /api/dwh/analitica-historica/vendedores', () => {
     expect(body.empty).toBe(false);
     expect(body.rows[0]).toMatchObject({
       salesRepKey: 3, label: 'Ana', salesGross: { bs: 600, usd: 60 }, returns: { bs: 60, usd: 6 },
-      salesNet: { bs: 540, usd: 54 }, units: 30, customersServed: 6,
+      salesNet: { bs: 540, usd: 54 }, units: 30, customersServed: 2, storesServed: 6,
     });
     expect(body.rows[0].returnRate).toBeCloseTo(0.1);
   });
@@ -65,7 +65,8 @@ describe('GET /api/dwh/analitica-historica/vendedores', () => {
     const body = await (await get('dateRange=month:2025-03')).json();
     const none = body.rows.find((r: { label: string }) => r.label === 'Sin vendedor');
     expect(none.salesRepKey).toBeNull();
-    expect(none.customersServed).toBe(4);
+    expect(none.customersServed).toBe(1);
+    expect(none.storesServed).toBe(4);
     const sum = body.rows.reduce((s: number, r: { salesGross: { bs: number } }) => s + r.salesGross.bs, 0);
     expect(sum).toBe(body.total.salesGross.bs);
   });
@@ -79,9 +80,16 @@ describe('GET /api/dwh/analitica-historica/vendedores', () => {
     expect(issued).toContain(expected.customersSql);
   });
 
+  test('clients served are counted by casa matriz and stores by customer code', async () => {
+    await get('dateRange=month:2025-03');
+    const sql = queries.find(q => q.sql.includes('AS Stores'))!.sql;
+    expect(sql).toContain('COUNT(DISTINCT ISNULL(c.LegalEntityLegacyKey, -c.CustomerLegacyKey)) AS Customers');
+    expect(sql).toContain('COUNT(DISTINCT fsl.CustomerLegacyKey) AS Stores');
+  });
+
   test('the total carries customers served, units and rate', async () => {
     const body = await (await get('dateRange=month:2025-03')).json();
-    expect(body.total).toMatchObject({ salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 }, units: 50, customersServed: 9 });
+    expect(body.total).toMatchObject({ salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 }, units: 50, customersServed: 5, storesServed: 9 });
     expect(body.total.returnRate).toBeCloseTo(0.1);
   });
 

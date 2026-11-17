@@ -1,4 +1,5 @@
 import { returnsDateColumn, type ReturnsBasis } from '@/app/api/dwh/lib/query-builder';
+import { type HistClienteDimension } from './dimension';
 import { HIST_START_KEY, histRangeWhere, type HistRange } from './window';
 
 // USD rate join for a legacy fact alias. Same shape as legacyUsdConversionJoin
@@ -53,4 +54,45 @@ export function histDualSum(factAlias: string, column: string, bsAlias: string, 
 // `LIKE @q ESCAPE '\'` and bind `%${escapeLike(text)}%` through .input().
 export function escapeLike(text: string): string {
   return text.replace(/[\\%_[]/g, ch => `\\${ch}`);
+}
+
+export { parseClienteDimension, type HistClienteDimension } from './dimension';
+
+// Numeric id of the casa matriz of the legacy customer `c`: its legal entity, or, for a
+// customer without an entity row (data loaded before migration 0044), minus its own key
+// so it still counts as one client of its own and never merges with another.
+export function histEntityId(c: string = 'c'): string {
+  return `ISNULL(${c}.LegalEntityLegacyKey, -${c}.CustomerLegacyKey)`;
+}
+
+export interface ClienteKeySql {
+  /** SQL expression of the group key (a string). */
+  key: string;
+  /** Display name; use inside MAX() when grouping by `key`. */
+  name: string;
+  /** Code shown next to the name: the casa matriz's code, or the customer's. */
+  code: string;
+  /** JOINs that make `c` (and `le`) available, from the fact alias. */
+  joins: (factAlias: string) => string;
+}
+
+// What a "client" is when listing by customer: with `entidad` every store rolls up to its
+// casa matriz (the same rule as the main analytics' cliente_entidad); `tienda` keeps one
+// row per customer code.
+export function histClienteKeySql(dimension: HistClienteDimension): ClienteKeySql {
+  if (dimension === 'tienda') {
+    return {
+      key: 'CAST(c.CustomerLegacyKey AS varchar(20))',
+      name: 'ISNULL(c.CustomerName, c.CustomerCode)',
+      code: 'RTRIM(c.CustomerCode)',
+      joins: f => `JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = ${f}.CustomerLegacyKey`,
+    };
+  }
+  return {
+    key: "CASE WHEN c.LegalEntityLegacyKey IS NULL THEN 'c' + CAST(c.CustomerLegacyKey AS varchar(20)) ELSE 'e' + CAST(c.LegalEntityLegacyKey AS varchar(20)) END",
+    name: 'ISNULL(le.LegalEntityName, ISNULL(c.CustomerName, c.CustomerCode))',
+    code: 'RTRIM(ISNULL(le.RootCustomerCode, c.CustomerCode))',
+    joins: f => `JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = ${f}.CustomerLegacyKey
+      LEFT JOIN dim.Dim_LegalEntity_Legacy le ON le.LegalEntityLegacyKey = c.LegalEntityLegacyKey`,
+  };
 }

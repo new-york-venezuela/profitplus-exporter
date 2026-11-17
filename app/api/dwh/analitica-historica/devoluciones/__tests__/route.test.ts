@@ -23,7 +23,7 @@ const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/analit
 
 const GROUP = { GroupValue: '7', GroupLabel: 'Cliente A', SalesGrossBs: 1000, SalesGrossUsd: 100, ReturnsBs: 100, ReturnsUsd: 10, Units: 40, ReturnsUnits: 5 };
 function standard(text: string): unknown[] {
-  if (text.includes('CustomersWithSales')) return [{ CustomersWithSales: 8, CustomersWithReturns: 2, CustomersNet: 7 }];
+  if (text.includes('CustomersWithSales')) return [{ CustomersWithSales: 8, CustomersWithReturns: 2, CustomersNet: 7, EntitiesWithSales: 4, EntitiesWithReturns: 1, EntitiesNet: 3 }];
   if (text.includes('UnitsReturned')) return [{ ReturnsBs: 100, ReturnsUsd: 10, UnitsReturned: 5 }];
   if (text.includes('UnitsSold')) return [{ SalesGrossBs: 1000, SalesGrossUsd: 100, UnitsSold: 50 }];
   return [GROUP];
@@ -51,6 +51,7 @@ describe('GET /api/dwh/analitica-historica/devoluciones', () => {
     expect(body.kpis.returns).toEqual({ bs: 100, usd: 10 });
     expect(body.kpis.unitsReturned).toBe(5);
     expect(body.kpis.customersWithReturns).toBe(2);
+    expect(body.kpis.entitiesWithReturns).toBe(1);
     expect(body.kpis.returnRate).toBeCloseTo(0.1);
     expect(body.rows[0]).toMatchObject({
       label: 'Cliente A', value: '7', returns: { bs: 100, usd: 10 }, salesGross: { bs: 1000, usd: 100 }, unitsReturned: 5,
@@ -87,6 +88,14 @@ describe('GET /api/dwh/analitica-historica/devoluciones', () => {
   test('default basis windows returns by the devolución date', async () => {
     await get('dateRange=month:2025-03&groupBy=cliente');
     expect(queries.map(q => q.sql).join('\n')).toContain('frl.DateKey >= 20250301');
+  });
+
+  test('cliente rolls stores up to their casa matriz by default, per store with clienteDimension=tienda', async () => {
+    await get('dateRange=month:2025-03&groupBy=cliente');
+    expect(queries.find(q => q.sql.includes('GroupKey'))!.sql).toContain('Dim_LegalEntity_Legacy');
+    queries.length = 0;
+    await get('dateRange=month:2025-03&groupBy=cliente&clienteDimension=tienda');
+    expect(queries.find(q => q.sql.includes('GroupKey'))!.sql).not.toContain('Dim_LegalEntity_Legacy');
   });
 
   test('sku groups every product (no línea filter)', async () => {

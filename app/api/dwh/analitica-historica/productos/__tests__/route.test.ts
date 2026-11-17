@@ -22,7 +22,7 @@ const { GET } = await import('../route');
 const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/analitica-historica/productos?${qs}`));
 const sale = (over: Record<string, unknown> = {}) => ({
   Key: 'PAN', Label: 'Panadería', Code: null, Linea: 'Panadería', Sublinea: '',
-  Units: 100, SalesGrossBs: 1000, SalesGrossUsd: 100, MonthCount: 2, ClientCount: 5, PosCount: 5, ...over,
+  Units: 100, SalesGrossBs: 1000, SalesGrossUsd: 100, MonthCount: 2, ClientCount: 3, PosCount: 5, ...over,
 });
 const ret = (over: Record<string, unknown> = {}) => ({
   Key: 'PAN', Label: 'Panadería', Code: null, Linea: 'Panadería', Sublinea: '', ReturnsBs: 100, ReturnsUsd: 10, ...over,
@@ -59,10 +59,18 @@ describe('GET /api/dwh/analitica-historica/productos', () => {
     expect(body.rows[0]).toMatchObject({
       key: 'PAN', label: 'Panadería', linea: 'Panadería', units: 100,
       salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 },
-      monthCount: 2, avgUnitsPerMonth: 50, avgPrice: { bs: 10, usd: 1 }, clientCount: 5, posCount: 5, pareto: 'A',
+      monthCount: 2, avgUnitsPerMonth: 50, avgPrice: { bs: 10, usd: 1 }, clientCount: 3, posCount: 5, pareto: 'A',
     });
     expect(body.rows[0].returnRate).toBeCloseTo(0.1);
     expect(body.rows[0].sharePct).toBeCloseTo(1);
+  });
+
+  test('reach counts clients by casa matriz and stores by customer code', async () => {
+    await get('section=catalogo&dateRange=custom:2020-01-01:2020-03-31');
+    const sql = queries.find(q => q.sql.includes('Fact_Sales_Legacy'))!.sql;
+    expect(sql).toContain('COUNT(DISTINCT ISNULL(c.LegalEntityLegacyKey, -c.CustomerLegacyKey)) AS ClientCount');
+    expect(sql).toContain('COUNT(DISTINCT fsl.CustomerLegacyKey) AS PosCount');
+    expect(sql).toContain('JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey');
   });
 
   test('a product with only returns in range is listed with a negative net and class C', async () => {

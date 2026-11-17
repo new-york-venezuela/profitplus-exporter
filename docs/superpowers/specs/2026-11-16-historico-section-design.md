@@ -61,7 +61,7 @@ tables. So:
 What legacy facts hold: date, customer, product, seller, quantity, net amount
 (sin IVA), document rate, voided flag; returns also carry
 `OriginalInvoiceDateKey`. They do NOT hold cost, collections/AR, purchases,
-routes, visit frequency, registration date, legal-entity rollup, ERP segment
+routes, visit frequency, registration date, ERP segment
 names, or consignment flags.
 
 ## Goals
@@ -94,7 +94,7 @@ names, or consignment flags.
 
 - Silent zeros: a missing USD rate is `null` -> "Sin datos", never `$0`
   (same invariant as recipes/statements).
-- Fake columns: no tab shows route, frequency, patrimonio/nuevo, tienda/entity
+- Fake columns: no tab shows route, frequency, patrimonio/nuevo
   or cost for legacy rows, not even empty-looking ones.
 - Regressing live tabs by touching shared query code in a way that changes
   their output.
@@ -259,3 +259,18 @@ a production check the owner may need to run or approve):
 
 - Exact route/section split, query text, component decomposition and chart
   choices; help-page copy.
+
+## Addendum 2026-11-16: casa matriz (legal entity) roll-up
+
+The owner asked that clients obey the casa matriz rule of the main analytics. The legacy `saCliente.matriz`
+(parent customer code) is now loaded into `dim.Dim_Customer_Legacy.MatrizCode` and rolled up by
+`dwh.Load_Dim_LegalEntity_Legacy` into `dim.Dim_LegalEntity_Legacy` / `Dim_Customer_Legacy.LegalEntityLegacyKey`
+(migration 0044). Rule: a store belongs to its matriz when that matriz is a root (no matriz, a self-reference or a
+matriz that is not a legacy customer); anything else is its own root, so no customer is left without an entity.
+
+- Ventas (por cliente), Devoluciones (por cliente) and Clientes list **casa matriz** by default, with a global
+  `Casa matriz | Tienda` switch (`clienteDimension=entidad|tienda`, default `entidad`) like the main analytics.
+- "Clientes" counts (Resumen / Ventas / Devoluciones strips, Vendedores "Clientes atendidos") are legal entities;
+  "Tiendas" are customer codes. Productos reach = `X clientes · Y tiendas` as in the main Productos table.
+- Legacy loaded before 0044 has no matriz: `bun --env-file=.env.local scripts/dwh-legacy-2025-import.ts --matriz-only`
+  copies it and rebuilds the entities without reloading any fact. Until then every customer is its own client.

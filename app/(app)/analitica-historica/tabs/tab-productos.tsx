@@ -43,7 +43,7 @@ function Pills<T extends string>({ items, value, onChange, label }: {
 
 // Productos master table over the legacy data: the current Productos table component with
 // the legacy catalogo. No tienda filter, customer-group matrix or customer accordion (legacy
-// customers have no entity roll-up or current group); "Alcance" is distinct customers.
+// customers have no current group); "Alcance" = casa matriz clients and stores.
 export default function TabProductos({ dateRange, currency, returnsBasis }: HistTabProps) {
   const [nivel, setNivel] = useState<Nivel>('linea');
   const [metric, setMetric] = useState<Metric>('ventas');
@@ -75,7 +75,7 @@ export default function TabProductos({ dateRange, currency, returnsBasis }: Hist
   return (
     <div className="p-4 w-full space-y-3">
       <p className="text-xs text-gray-500">
-        Período: {periodLabel(dateRange)}. Devoluciones {RETURNS_BASIS_LABEL[returnsBasis]}, sin IVA. Alcance = clientes distintos.
+        Período: {periodLabel(dateRange)}. Devoluciones {RETURNS_BASIS_LABEL[returnsBasis]}, sin IVA. Alcance = clientes (casa matriz) y tiendas.
       </p>
       <div className="flex items-center gap-3 flex-wrap">
         <SectionTitle>Productos</SectionTitle>
@@ -120,7 +120,6 @@ export default function TabProductos({ dateRange, currency, returnsBasis }: Hist
         nivel={nivel}
         loading={loading && !data}
         error={error}
-        reachText={row => `${row.clientCount.toLocaleString('es-VE')} ${row.clientCount === 1 ? 'cliente' : 'clientes'}`}
       />
     </div>
   );

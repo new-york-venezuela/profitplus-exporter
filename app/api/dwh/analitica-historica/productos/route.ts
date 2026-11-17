@@ -108,7 +108,6 @@ export async function GET(request: NextRequest) {
       const ret = returnsByKey.get(key) ?? { ...ZERO };
       const units = Number(s?.Units ?? 0);
       const monthCount = Number(s?.MonthCount ?? 0);
-      const customers = Number(s?.ClientCount ?? 0);
       return {
         key,
         label: String(meta.Label ?? key).trim(),
@@ -125,8 +124,8 @@ export async function GET(request: NextRequest) {
           ? { bs: gross.bs / units, usd: gross.usd === null ? null : gross.usd / units }
           : { bs: 0, usd: gross.usd === null ? null : 0 },
         returnRate: gross.bs > 0 ? ret.bs / gross.bs : null,
-        clientCount: customers,
-        posCount: customers,
+        clientCount: Number(s?.ClientCount ?? 0),
+        posCount: Number(s?.PosCount ?? 0),
       };
     });
 

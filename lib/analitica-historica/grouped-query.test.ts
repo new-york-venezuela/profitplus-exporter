@@ -15,3 +15,25 @@ describe('buildGroupedQuery USD columns', () => {
     expect(sql).toContain('CASE WHEN s.GroupKey IS NULL THEN 0 ELSE s.SalesGrossUsd END AS SalesGrossUsd');
   });
 });
+
+describe('cliente grouping follows the casa matriz rule', () => {
+  const entidad = buildGroupedQuery(groupSpec('cliente', bucket, 'devolucion', 'entidad'), 'AND 1=1', 'AND 1=1', { top: null });
+  const tienda = buildGroupedQuery(groupSpec('cliente', bucket, 'devolucion', 'tienda'), 'AND 1=1', 'AND 1=1', { top: null });
+
+  test('entidad (default) groups every store under its legal entity on both sides', () => {
+    expect(groupSpec('cliente', bucket, 'devolucion').sales.key).toBe(groupSpec('cliente', bucket, 'devolucion', 'entidad').sales.key);
+    expect(entidad).toContain('c.LegalEntityLegacyKey');
+    expect(entidad).toContain('JOIN dim.Dim_LegalEntity_Legacy le');
+    expect(entidad.match(/Dim_LegalEntity_Legacy le/g)).toHaveLength(2);
+    expect(entidad).toContain('le.LegalEntityName');
+  });
+
+  test('a customer with no entity row stays its own group (never dropped)', () => {
+    expect(entidad).toContain("'c' + CAST(c.CustomerLegacyKey AS varchar(20))");
+  });
+
+  test('tienda groups by the individual customer', () => {
+    expect(tienda).not.toContain('Dim_LegalEntity_Legacy');
+    expect(tienda).toContain('CAST(c.CustomerLegacyKey AS varchar(20))');
+  });
+});

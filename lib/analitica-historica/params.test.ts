@@ -23,6 +23,12 @@ describe('parseHistParams', () => {
     expect(parseHistParams(req('returnsBasis=nope')).basis).toBe('devolucion');
   });
 
+  test('clienteDimension defaults to the casa matriz roll-up and accepts tienda', () => {
+    expect(parseHistParams(req('')).dimension).toBe('entidad');
+    expect(parseHistParams(req('clienteDimension=tienda')).dimension).toBe('tienda');
+    expect(parseHistParams(req('clienteDimension=nope')).dimension).toBe('entidad');
+  });
+
   test('exposes the raw search params', () => {
     expect(parseHistParams(req('groupBy=cliente')).searchParams.get('groupBy')).toBe('cliente');
   });

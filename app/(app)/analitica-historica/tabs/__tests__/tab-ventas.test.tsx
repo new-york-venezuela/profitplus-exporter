@@ -8,7 +8,7 @@ const json = (body: unknown, ok = true, status = 200) => ({ ok, status, json: as
 
 const kpis = {
   salesGross: { bs: 1000, usd: 100 }, returns: { bs: 100, usd: 10 }, salesNet: { bs: 900, usd: 90 }, returnRate: 0.1,
-  unitsSold: 50, unitsReturned: 5, customersWithSales: 8, customersWithReturns: 2, customersNet: 7,
+  unitsSold: 50, unitsReturned: 5, customersWithSales: 8, customersWithReturns: 2, customersNet: 7, entitiesWithSales: 4, entitiesWithReturns: 1, entitiesNet: 3,
 };
 const row = (over: Record<string, unknown> = {}) => ({
   label: 'Cliente A', value: '7',
@@ -30,14 +30,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion' } as const;
+const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion', clienteDimension: 'entidad' } as const;
 
 describe('Historica TabVentas', () => {
   test('loads the strip and the cliente table for the range', async () => {
     render(<TabVentas {...props} currency="bs" />);
     expect(await screen.findByText('Cliente A')).toBeTruthy();
     expect(calls.some(u => u.startsWith('/api/dwh/analitica-historica/resumen?dateRange=month:2025-03'))).toBe(true);
-    expect(calls.some(u => u.includes('/ventas?') && u.includes('groupBy=cliente') && u.includes('returnsBasis=devolucion'))).toBe(true);
+    expect(calls.some(u => u.includes('/ventas?') && u.includes('groupBy=cliente') && u.includes('returnsBasis=devolucion') && u.includes('clienteDimension=entidad'))).toBe(true);
   });
 
   test('switching the grouping refetches with the new groupBy', async () => {

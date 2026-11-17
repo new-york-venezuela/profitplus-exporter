@@ -16,6 +16,9 @@ const kpis = (usd: number | null) => ({
   customersWithSales: 8,
   customersWithReturns: 2,
   customersNet: 7,
+  entitiesWithSales: 4,
+  entitiesWithReturns: 1,
+  entitiesNet: 3,
 });
 
 const body = (usd: number | null) => ({
@@ -30,7 +33,7 @@ const body = (usd: number | null) => ({
   trendMode: 'month',
 });
 
-const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion' } as const;
+const props = { dateRange: 'month:2025-03', granularity: 'month', returnsBasis: 'devolucion', clienteDimension: 'entidad' } as const;
 
 beforeEach(() => { globalThis.fetch = mock(async () => json(body(100))) as unknown as typeof fetch; });
 afterEach(cleanup);
@@ -46,6 +49,15 @@ describe('Historica TabResumen', () => {
   test('shows the Ventas strip with Bs amounts', async () => {
     render(<TabResumen {...props} currency="bs" />);
     expect(await screen.findByText('Bs. 1.000')).toBeTruthy();
+  });
+
+  test('clients are counted by casa matriz and stores separately', async () => {
+    render(<TabResumen {...props} currency="bs" />);
+    await screen.findByText('Ventas brutas');
+    expect(screen.getAllByText('Clientes (casa matriz)').length).toBe(3);
+    expect(screen.getAllByText('Tiendas').length).toBe(3);
+    expect(screen.getByText('4')).toBeTruthy(); // entitiesWithSales
+    expect(screen.getByText('8')).toBeTruthy(); // customersWithSales (stores)
   });
 
   test('USD with no exchange rate renders "Sin datos", never $0', async () => {

@@ -5,7 +5,7 @@ import { jsonWithCache } from '@/app/api/dwh/lib/query-builder';
 import { parseTrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import { dualFromRow, returnRate, subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { parseHistParams } from '@/lib/analitica-historica/params';
-import { histReturnsWhere, histSalesWhere } from '@/lib/analitica-historica/sql';
+import { histEntityId, histReturnsWhere, histSalesWhere } from '@/lib/analitica-historica/sql';
 import { histKpiQueries, mapHistKpis } from '@/lib/analitica-historica/kpis';
 import { buildGroupedQuery, groupSpec } from '@/lib/analitica-historica/grouped-query';
 import { histTrendQuery, mapHistTrend } from '@/lib/analitica-historica/trend';
@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 // Sellers are attributed by the document's OWN seller (legacy has no "current
 // customer seller"); documents with no seller group as "Sin vendedor" (key 0 in SQL,
-// null in the response) so the rows always add up to the total.
+// null in the response) so the rows always add up to the total. "Clientes" are casa matriz
+// (legal entities), "tiendas" the customer codes under them.
 export async function GET(request: NextRequest) {
   const auth = await requireDwhAccess(request);
   if (!auth.ok) return auth.response;
@@ -35,8 +36,11 @@ export async function GET(request: NextRequest) {
   const { salesTotalsSql, returnsTotalsSql, customersSql } = histKpiQueries(range, basis);
   const groupedSql = buildGroupedQuery(groupSpec('vendedor', bucket, basis), salesWhere, histReturnsWhere(range, basis, 'frl'), { top: null });
   const sellerCustomersSql = `
-    SELECT CAST(ISNULL(fsl.SalesRepLegacyKey, 0) AS varchar(20)) AS GroupKey, COUNT(DISTINCT fsl.CustomerLegacyKey) AS Customers
+    SELECT CAST(ISNULL(fsl.SalesRepLegacyKey, 0) AS varchar(20)) AS GroupKey,
+           COUNT(DISTINCT ${histEntityId('c')}) AS Customers,
+           COUNT(DISTINCT fsl.CustomerLegacyKey) AS Stores
     FROM fact.Fact_Sales_Legacy fsl
+    JOIN dim.Dim_Customer_Legacy c ON c.CustomerLegacyKey = fsl.CustomerLegacyKey
     WHERE 1 = 1 ${salesWhere}
     GROUP BY ISNULL(fsl.SalesRepLegacyKey, 0)`;
 
@@ -53,8 +57,10 @@ export async function GET(request: NextRequest) {
       trendReq.query(histTrendQuery(bucket, range, basis, salesRepKey !== null)),
     ]);
 
-    const customersBySeller = new Map<string, number>();
-    for (const r of perSeller.recordset as Record<string, unknown>[]) customersBySeller.set(String(r.GroupKey), Number(r.Customers ?? 0));
+    const servedBySeller = new Map<string, { clients: number; stores: number }>();
+    for (const r of perSeller.recordset as Record<string, unknown>[]) {
+      servedBySeller.set(String(r.GroupKey), { clients: Number(r.Customers ?? 0), stores: Number(r.Stores ?? 0) });
+    }
 
     const rows: HistVendedorRow[] = (grouped.recordset as Record<string, unknown>[]).map(r => {
       const salesGross = dualFromRow(r.SalesGrossBs, r.SalesGrossUsd);
@@ -68,7 +74,8 @@ export async function GET(request: NextRequest) {
         salesNet: subtractDual(salesGross, returns),
         returnRate: returnRate(returns, salesGross),
         units: Number(r.Units ?? 0),
-        customersServed: customersBySeller.get(key) ?? 0,
+        customersServed: servedBySeller.get(key)?.clients ?? 0,
+        storesServed: servedBySeller.get(key)?.stores ?? 0,
       };
     });
 
@@ -78,7 +85,7 @@ export async function GET(request: NextRequest) {
       rows,
       total: {
         salesGross: k.salesGross, returns: k.returns, salesNet: k.salesNet, returnRate: k.returnRate,
-        units: k.unitsSold, customersServed: k.customersWithSales,
+        units: k.unitsSold, customersServed: k.entitiesWithSales, storesServed: k.customersWithSales,
       },
       trend: mapHistTrend(trend.recordset),
       trendMode: bucket.mode,

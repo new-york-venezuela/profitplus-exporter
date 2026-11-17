@@ -12,8 +12,9 @@ import {
   HIST_END_KEY, HIST_START_KEY, histPresetRange, isoToKey, keyToIso, resolveHistRange, type HistPreset,
 } from '@/lib/analitica-historica/window';
 import {
-  HIST_GRANULARITY_TABS, HIST_RETURNS_BASIS_TABS, HIST_TAB_KEYS, HIST_TAB_LABELS, resolveHistTab, type HistTabKey,
+  HIST_DIMENSION_TABS, HIST_GRANULARITY_TABS, HIST_RETURNS_BASIS_TABS, HIST_TAB_KEYS, HIST_TAB_LABELS, resolveHistTab, type HistTabKey,
 } from './lib/tab-keys';
+import { parseClienteDimension, type HistClienteDimension } from '@/lib/analitica-historica/dimension';
 import { HistBanner } from './components/hist-banner';
 import TabResumen from './tabs/tab-resumen';
 import TabVentas from './tabs/tab-ventas';
@@ -102,6 +103,7 @@ function AnaliticaHistoricaClientInner() {
   const granularity: Granularity = resolveGranularity(dateRange, searchParams.get('granularity'));
   const allowedGranularity = allowedGranularities(dateRange);
   const returnsBasis: ReturnsBasis = resolveReturnsBasis(searchParams.get('returnsBasis'));
+  const clienteDimension: HistClienteDimension = parseClienteDimension(searchParams.get('clienteDimension'));
 
   const currencyParam = searchParams.get('currency');
   const [storedCurrency, setStoredCurrency] = useState<Currency>(() => {
@@ -238,6 +240,25 @@ function AnaliticaHistoricaClientInner() {
             {HIST_RETURNS_BASIS_TABS.has(activeTab) && (
               <ReturnsBasisSelector value={returnsBasis} onChange={b => updateParams({ returnsBasis: b })} />
             )}
+            {HIST_DIMENSION_TABS.has(activeTab) && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Clientes</span>
+                <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1" role="group" aria-label="Agrupar clientes">
+                  {([['entidad', 'Casa matriz'], ['tienda', 'Tienda']] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => updateParams({ clienteDimension: value })}
+                      aria-pressed={clienteDimension === value}
+                      className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                        clienteDimension === value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
               {(['bs', 'usd'] as const).map(c => (
                 <button
@@ -279,7 +300,7 @@ function AnaliticaHistoricaClientInner() {
           const TabComponent = tab.component;
           return (
             <div key={tab.key} className={tab.key === activeTab ? 'h-full print:h-auto' : 'hidden'}>
-              <TabComponent dateRange={dateRange} currency={currency} granularity={granularity} returnsBasis={returnsBasis} />
+              <TabComponent dateRange={dateRange} currency={currency} granularity={granularity} returnsBasis={returnsBasis} clienteDimension={clienteDimension} />
             </div>
           );
         })}

@@ -23,8 +23,6 @@ export interface MasterTableProps {
   expandedKeys?: ReadonlySet<string>;
   onToggleRow?: (key: string) => void;
   renderExpanded?: (row: CatalogoRow) => React.ReactNode;
-  /** Overrides the "X clientes · Y tiendas" reach text (Analítica histórica has no legal-entity roll-up). */
-  reachText?: (row: CatalogoRow) => string;
 }
 
 const NO_EXPANDED: ReadonlySet<string> = new Set();
@@ -132,7 +130,7 @@ function ReturnRateBadge({ rate }: { rate: number | null }) {
   );
 }
 
-export default function MasterTable({ rows, currency, metric, nivel, loading, error, highlightKey = null, expandedKeys = NO_EXPANDED, onToggleRow, renderExpanded, reachText }: MasterTableProps) {
+export default function MasterTable({ rows, currency, metric, nivel, loading, error, highlightKey = null, expandedKeys = NO_EXPANDED, onToggleRow, renderExpanded }: MasterTableProps) {
   const [sort, setSort] = useState<{ metric: Metric; key: SortKey; dir: SortDir } | null>(null);
   // A metric switch resets to that metric's default sort.
   const active = sort !== null && sort.metric === metric ? sort : { metric, ...defaultSort(metric) };
@@ -251,7 +249,7 @@ export default function MasterTable({ rows, currency, metric, nivel, loading, er
               <td className="px-3 py-2 text-right tabular-nums text-gray-700">{qty(row.avgUnitsPerMonth)}</td>
               <td className="px-3 py-2 text-right tabular-nums text-gray-700">{row.units === 0 ? 'Sin datos' : amountText(row.avgPrice, currency, priceLabel)}</td>
               <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
-                {reachText ? reachText(row) : `${plural(row.clientCount, 'cliente', 'clientes')} · ${plural(row.posCount, 'tienda', 'tiendas')}`}
+                {plural(row.clientCount, 'cliente', 'clientes')} · {plural(row.posCount, 'tienda', 'tiendas')}
               </td>
             </tr>
             {expanded && renderExpanded && (

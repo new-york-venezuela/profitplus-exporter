@@ -22,7 +22,7 @@ const get = (qs: string) => GET(new NextRequest(`http://localhost/api/dwh/analit
 
 const SALES = { SalesGrossBs: 1000, SalesGrossUsd: 100, UnitsSold: 50 };
 const RETURNS = { ReturnsBs: 100, ReturnsUsd: 10, UnitsReturned: 5 };
-const CUSTOMERS = { CustomersWithSales: 8, CustomersWithReturns: 2, CustomersNet: 7 };
+const CUSTOMERS = { CustomersWithSales: 8, CustomersWithReturns: 2, CustomersNet: 7, EntitiesWithSales: 4, EntitiesWithReturns: 1, EntitiesNet: 3 };
 
 function standard(text: string): unknown[] {
   if (text.includes('CustomersWithSales')) return [CUSTOMERS];
@@ -47,6 +47,7 @@ describe('GET /api/dwh/analitica-historica/resumen', () => {
     expect(body.kpis.unitsReturned).toBe(5);
     expect(body.kpis.customersWithSales).toBe(8);
     expect(body.kpis.customersNet).toBe(7);
+    expect(body.kpis).toMatchObject({ entitiesWithSales: 4, entitiesWithReturns: 1, entitiesNet: 3 });
     expect(body.trend).toHaveLength(1);
     expect(body.trend[0].bucket).toBe('2025-03');
     expect(body.trend[0].salesNet).toEqual({ bs: 900, usd: 90 });

@@ -13,7 +13,7 @@ import { useHistFetch } from '../lib/use-hist-fetch';
 const nf = (n: number) => n.toLocaleString('es-VE');
 const pct = (n: number | null) => (n === null ? '—' : `${(n * 100).toFixed(1)}%`);
 
-const HEADERS = ['Vendedor', 'Ventas brutas', 'Devoluciones', 'Ventas netas', 'Tasa dev.', 'Unidades', 'Clientes atendidos'];
+const HEADERS = ['Vendedor', 'Ventas brutas', 'Devoluciones', 'Ventas netas', 'Tasa dev.', 'Unidades', 'Clientes atendidos', 'Tiendas atendidas'];
 
 function Cells({ s, currency, bold }: { s: HistVendedorStats; currency: HistTabProps['currency']; bold?: boolean }) {
   return (
@@ -24,6 +24,7 @@ function Cells({ s, currency, bold }: { s: HistVendedorStats; currency: HistTabP
       <td className="px-3 py-2 text-right text-gray-600">{pct(s.returnRate)}</td>
       <td className="px-3 py-2 text-right text-gray-600">{nf(s.units)}</td>
       <td className="px-3 py-2 text-right text-gray-600">{nf(s.customersServed)}</td>
+      <td className="px-3 py-2 text-right text-gray-600">{nf(s.storesServed)}</td>
     </>
   );
 }
