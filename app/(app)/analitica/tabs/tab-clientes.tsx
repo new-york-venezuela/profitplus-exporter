@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
+import { FallingSkus } from '../components/clientes/falling-skus';
 import { GroupTable } from '../components/clientes/group-table';
 import { GroupTrendChart } from '../components/clientes/group-trend-chart';
 import { KpiStrip } from '../components/clientes/kpi-strip';
@@ -229,6 +230,11 @@ export default function TabClientes({
             <RetentionSection data={estados} currency={currency} origen={params.origen} onOrigen={origen => setParams({ origen })} />
           </div>
         )}
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+          <h3 className="text-sm font-bold text-gray-900">SKUs en caída</h3>
+          <p className="text-xs text-gray-600 mb-3">Los SKUs que más caen frente al período anterior en el alcance seleccionado; cada uno abre Productos.</p>
+          <FallingSkus params={params} dateRange={dateRange} currency={currency} />
+        </div>
       </QuestionSection>
 
       <details

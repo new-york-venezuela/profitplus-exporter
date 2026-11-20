@@ -224,7 +224,7 @@ describe('TabClientes', () => {
   test('Ver por Producto loads the product breakdown with the Clientes scope', async () => {
     search = 'detalle=1&ver=producto&grupo=S1&tienda=e%3A12';
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="month" />);
-    await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('section=catalogo') && u.includes('grupo=S1') && u.includes('tienda=e%3A12'))).toHaveLength(1));
+    await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('section=catalogo') && u.includes('nivel=linea') && u.includes('grupo=S1') && u.includes('tienda=e%3A12'))).toHaveLength(1));
     expect(screen.getByRole('button', { name: 'Producto' }).getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -257,5 +257,13 @@ describe('TabClientes', () => {
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="week" />);
     await waitFor(() => expect(calls(u => u.includes('section=trendGrupo') && u.includes('granularity=week') && u.includes('ruta=3'))).toHaveLength(1));
     expect(calls(u => u.includes('section=trendGrupo') && u.includes('grupo='))).toHaveLength(0);
+  });
+
+  test('Q4 lists SKUs en caída from the Productos route at SKU level with the scope', async () => {
+    search = 'detalle=1&grupo=S1';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('heading', { name: 'SKUs en caída' })).toBeTruthy();
+    await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('nivel=sku') && u.includes('section=catalogo') && u.includes('grupo=S1'))).toHaveLength(1));
+    expect(await screen.findByText('Sin datos de productos para este alcance.')).toBeTruthy();
   });
 });
