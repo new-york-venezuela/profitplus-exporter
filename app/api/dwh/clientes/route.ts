@@ -5,6 +5,9 @@ import {
   buildDateWhereClause, buildPrevThirtyDayWhereClause, buildReturnsDateWhereClause, getDimensionSpec, isClienteDimension,
   jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
+import { buildPrevPeriodDateWhereClause as sharedPrevPeriodWhere, rangeEndDateKey, rangeStartDateKey } from '@/app/api/dwh/lib/query-builder';
+import { rollUpTrayectoria, type ClientesTrayectoriaResponse, type StoreAggregate } from '@/lib/clientes/trayectoria';
+import { trayectoriaQuery } from '@/lib/clientes/trayectoria-sql';
 import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { bucketLabels, bucketSpan } from '@/app/(app)/analitica/lib/granularity';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
@@ -289,6 +292,36 @@ async function handleTrend(dimension: Dimension, dateRange: string, scope: Carte
   return jsonWithCache(response);
 }
 
+// Chain -> store trajectory: per-store sales, units and orders for the period and the previous equal period,
+// rolled up under the casa matriz in TypeScript (lib/clientes/trayectoria.ts).
+async function handleTrayectoria(dateRange: string, scope: CarteraScope) {
+  const pool = await getDwhPool();
+  const sc = customerScope(scope, 'c');
+  const prevWhere = sharedPrevPeriodWhere(dateRange, 'fs');
+  const req = pool.request();
+  sc.bind(req);
+  const result = await req.query(trayectoriaQuery(sc.where, buildDateWhereClause(dateRange, 'fs'), prevWhere));
+
+  const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+  const dual = (bs: unknown, usd: unknown) => ({ bs: Number(bs ?? 0), usd: bs === null || bs === undefined ? 0 : num(usd) });
+  const stores: StoreAggregate[] = result.recordset.map(r => ({
+    code: String(r.Code).trim(),
+    name: String(r.Name ?? r.Code).trim(),
+    entityKey: num(r.LegalEntityKey),
+    entityName: r.LegalEntityName ? String(r.LegalEntityName).trim() : null,
+    sales: dual(r.SalesBs, r.SalesUsd),
+    salesPrev: prevWhere === null ? null : dual(r.PrevBs, r.PrevUsd),
+    units: Number(r.Units ?? 0),
+    unitsPrev: prevWhere === null ? null : Number(r.PrevUnits ?? 0),
+    orders: Number(r.Orders ?? 0),
+    lastOrderKey: num(r.LastDateKey),
+    firstInvoiceKey: num(r.FirstDateKey),
+  }));
+  const rows = rollUpTrayectoria(stores, { periodStartKey: rangeStartDateKey(dateRange), periodEndKey: rangeEndDateKey(dateRange) });
+  const response: ClientesTrayectoriaResponse = { available: prevWhere !== null, rows };
+  return jsonWithCache(response);
+}
+
 // A NULL/blank SegmentName or ZoneName must not render as the text "null": fall back to the code.
 function optionLabel(name: unknown, code: string): string {
   const label = name === null || name === undefined ? '' : String(name).trim();
@@ -335,6 +368,14 @@ export async function GET(request: NextRequest) {
   if (searchParams.get('section') === 'trend') {
     try {
       return await handleTrend(clienteDimension, dateRange, scope, parseTrendBucket(searchParams, dateRange));
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
+  if (searchParams.get('section') === 'trayectoria') {
+    try {
+      return await handleTrayectoria(dateRange, scope);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
