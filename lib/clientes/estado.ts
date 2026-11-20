@@ -3,6 +3,15 @@
 // YYYYMMDD integers like Dim_Date.DateKey.
 export type Estado = 'nuevo_periodo' | 'retenido' | 'recuperado' | 'enfriado' | 'perdido' | 'sin_ventas';
 
+export const ESTADO_LABEL: Record<Estado, string> = {
+  nuevo_periodo: 'Nuevo en el período',
+  retenido: 'Retenido',
+  recuperado: 'Recuperado',
+  enfriado: 'Enfriado',
+  perdido: 'Perdido',
+  sin_ventas: 'Sin ventas aún',
+};
+
 export interface EstadoInput {
   firstInvoiceKey: number | null;   // first invoice ever (null = never invoiced)
   lastInvoiceKey: number | null;    // last invoice on or before the period end

@@ -215,4 +215,11 @@ describe('TabClientes', () => {
     }
     expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
   });
+
+  test('Q2 trajectory section loads the trayectoria data with the scope', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('heading', { name: '¿Cómo evolucionan clientes y tiendas?' })).toBeTruthy();
+    await waitFor(() => expect(calls(u => u.includes('section=trayectoria') && u.includes('dateRange=month%3A2026-10'))).toHaveLength(1));
+    expect(await screen.findByText('Sin ventas en el período para este alcance.')).toBeTruthy();
+  });
 });

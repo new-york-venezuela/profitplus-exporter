@@ -5,6 +5,7 @@ import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
 import { KpiStrip } from '../components/clientes/kpi-strip';
+import { TrajectoryTable } from '../components/clientes/trajectory-table';
 import { QuestionSection } from '../components/clientes/question-section';
 import { SegmentedControl } from '../components/clientes/segmented-control';
 import { ScopeBar } from '../components/clientes/scope-bar';
@@ -132,6 +133,7 @@ export default function TabClientes({
     return { ...cobertura.data, rows: filterCobertura(cobertura.data.rows, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta) }) };
   }, [cobertura.data, params.grupo, params.ruta]);
   const estados = useMemo(() => (scopedCobertura ? buildEstados(scopedCobertura) : null), [scopedCobertura]);
+  const estadoByCode = useMemo(() => new Map((estados?.rows ?? []).map(r => [r.customerCode, r.estado] as const)), [estados]);
   const kpis = useMemo(
     () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.data?.rows ?? null, currency }),
     [scopedCobertura, estados, trayectoria.data, currency],
@@ -170,6 +172,25 @@ export default function TabClientes({
             onRetry={trend.retry}
           />
         </ChartCard>
+      </QuestionSection>
+
+      <QuestionSection question="¿Cómo evolucionan clientes y tiendas?">
+        {trayectoria.error ? (
+          <ErrorBox message={trayectoria.error} onRetry={trayectoria.retry} />
+        ) : !trayectoria.data ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+        ) : (
+          <div className={`bg-white border border-gray-300 rounded-lg shadow-sm p-4 ${trayectoria.loading ? 'opacity-60' : ''}`}>
+            <TrajectoryTable
+              rows={trayectoria.data.rows}
+              currency={currency}
+              dim={params.dim}
+              selectedKey={params.tienda}
+              onSelect={tienda => setParams({ tienda })}
+              estadoByCode={estadoByCode}
+            />
+          </div>
+        )}
       </QuestionSection>
 
       <details
