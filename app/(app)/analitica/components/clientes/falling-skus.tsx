@@ -14,9 +14,7 @@ const amountOf = (a: { bs: number; usd: number | null } | null, currency: Curren
 // Clientes scope (selected chain or store, grupo, ruta). A SKU with no prior base (null prevNet / trendPct, or a
 // zero previous amount) is never listed as a drop. Each row opens Productos on that SKU with the same scope.
 export function FallingSkus({ params, dateRange, currency }: { params: ClientesParams; dateRange: DateRange; currency: Currency }) {
-  // The product drill (lineas, sublineas, q, nivel) does not apply: this list is always SKU level for the whole scope.
-  const scope: ClientesParams = { ...params, nivel: 'sku', lineas: [], sublineas: [], q: '' };
-  const url = `/api/dwh/productos?${productosScopeQuery(scope, dateRange, { section: 'catalogo', currency }).toString()}`;
+  const url = `/api/dwh/productos?${productosScopeQuery(params, dateRange, { section: 'catalogo', nivel: 'sku', currency }).toString()}`;
   const { data, loading, error, retry } = useDwhSection<CatalogoResponse>(url);
 
   if (error) {

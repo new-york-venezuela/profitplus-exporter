@@ -221,18 +221,42 @@ describe('TabClientes', () => {
     expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
   });
 
-  test('Ver por Producto loads the product breakdown with the Clientes scope', async () => {
-    search = 'detalle=1&ver=producto&grupo=S1&tienda=e%3A12';
-    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="month" />);
-    await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('section=catalogo') && u.includes('nivel=linea') && u.includes('grupo=S1') && u.includes('tienda=e%3A12'))).toHaveLength(1));
-    expect(screen.getByRole('button', { name: 'Producto' }).getAttribute('aria-pressed')).toBe('true');
+  test('there is no separate product view: Ver por offers Total and Grupo only', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const verPor = within(screen.getByRole('group', { name: 'Ver por' }));
+    expect(verPor.getAllByRole('button').map(b => b.textContent)).toEqual(['Total', 'Grupo']);
+    expect(screen.queryByRole('button', { name: 'Producto' })).toBeNull();
+    expect(screen.queryByText('Productos del alcance seleccionado')).toBeNull();
+  });
+
+  test('an old ver=producto URL falls back to Total', async () => {
+    search = 'detalle=1&ver=producto';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('button', { name: 'Total' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => expect(calls(u => u.includes('section=catalogo') && u.includes('nivel=linea'))).toHaveLength(0));
+  });
+
+  test('opening a customer row shows its product evolution, scoped to that customer', async () => {
+    const chain = { key: 'e:1', filterKey: 'e:1', parentKey: null, kind: 'entidad', name: 'Gama', code: null, storeCount: 1, sales: { bs: 100, usd: 10 }, salesPrev: { bs: 80, usd: 8 }, units: 1, unitsPrev: 1, orders: 1, lastOrderKey: 20261001, newStoresCount: 0 };
+    fetchMock.mockImplementation(async url => {
+      if (url.includes('section=trayectoria')) return { ok: true, json: async () => ({ available: true, rows: [chain] }) } as unknown as Response;
+      if (url.includes('section=porLineaMes')) return { ok: true, json: async () => ({ nivel: 'linea', trendMode: 'day', lineas: [], rows: [], seriesMeta: {} }) } as unknown as Response;
+      return { ok: true, json: async () => bodyFor(url) } as unknown as Response;
+    });
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="week" />);
+    const q2 = await screen.findByRole('region', { name: '¿Cómo evolucionan clientes y tiendas?' });
+    expect(calls(u => u.includes('section=porLineaMes') && u.includes('tienda=e%3A1'))).toHaveLength(0);   // closed rows do not fetch
+    await userEvent.setup().click(await within(q2).findByRole('button', { name: /Expandir/ }));
+    await waitFor(() => expect(calls(u => u.includes('section=porLineaMes') && u.includes('tienda=e%3A1') && u.includes('granularity=week'))).toHaveLength(1));
+    expect(await within(q2).findByText('Sin ventas de productos en el período.')).toBeTruthy();
   });
 
   test('Ver por defaults to Total (the activity trend) and switching writes ver to the URL', async () => {
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
-    expect(screen.getByRole('button', { name: 'Total' }).getAttribute('aria-pressed')).toBe('true');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Producto' }));
-    expect(search).toContain('ver=producto');
+    const verPor = within(screen.getByRole('group', { name: 'Ver por' }));
+    expect(verPor.getByRole('button', { name: 'Total' }).getAttribute('aria-pressed')).toBe('true');
+    await userEvent.setup().click(verPor.getByRole('button', { name: 'Grupo' }));
+    expect(search).toContain('ver=grupo');
   });
 
   test('Q3 ranks the grupos from the shared cobertura rows and selecting one writes it to the URL', async () => {

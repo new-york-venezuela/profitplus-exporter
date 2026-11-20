@@ -160,3 +160,8 @@ Replaces today's overlapping "nuevo / se enfriaron / perdidos / perdido (constan
 - Whether the shared product trend hook lives in `lib/productos/` or `app/(app)/analitica/lib/`.
 - Test plan per phase (component tests per `test/dom-setup`, route tests for new sections).
 - Docs to update after each phase: `AGENTS.md` (Clientes section, directory map) and `content/help/` if a Clientes help page exists.
+
+## Addendum (2026-11-20): product view replaced by per-customer evolution
+
+The "Ver por: Producto" breakdown (product trend + ranked master table + customer accordion) duplicated Productos and split the product view away from the customer table. It is removed. Instead every row of the Q2 trajectory table (casa matriz, one-store chain, store) opens an **Evolución** panel: that customer's product evolution, toggling Línea | SKU, Líneas | Barras and Ventas | Unidades, with a table alternative. It reuses `/api/dwh/productos?section=porLineaMes` scoped with `tienda=<filterKey>`, so no backend change. The product-drill URL keys (`nivel`, `lineas`, `sublineas`, `q`) are no longer managed by the Clientes tab. "SKUs en caída" stays in Q4.
+

@@ -71,4 +71,33 @@ describe('TrajectoryTable', () => {
     expect(within(table).queryByText('Unica')).toBeNull();
     expect(within(table).getByText('Enfriado')).toBeTruthy();
   });
+
+  describe('with renderEvolution', () => {
+    const renderEvolution = (r: TrayectoriaRow) => <span>evolución de {r.name}</span>;
+
+    test('every row can be opened, including a one-store chain', () => {
+      render(<TrajectoryTable {...base} rows={ROWS} dim="entidad" renderEvolution={renderEvolution} />);
+      expect(screen.getAllByRole('button', { name: /Expandir/ })).toHaveLength(2);   // Gama and Unica
+    });
+
+    test('opening a chain shows its evolution and then its stores', async () => {
+      render(<TrajectoryTable {...base} rows={ROWS} dim="entidad" renderEvolution={renderEvolution} />);
+      await userEvent.setup().click(screen.getAllByRole('button', { name: /Expandir/ })[0]);
+      expect(screen.getByText('evolución de Gama')).toBeTruthy();
+      expect(screen.getByText('Gama Centro')).toBeTruthy();
+    });
+
+    test('opening a one-store chain shows only its evolution', async () => {
+      render(<TrajectoryTable {...base} rows={ROWS} dim="entidad" renderEvolution={renderEvolution} />);
+      await userEvent.setup().click(screen.getAllByRole('button', { name: /Expandir/ })[1]);
+      expect(screen.getByText('evolución de Unica')).toBeTruthy();
+      expect(screen.queryByText('Unica Tienda')).toBeNull();
+    });
+
+    test('in the tienda view each store opens its own evolution', async () => {
+      render(<TrajectoryTable {...base} rows={ROWS} dim="tienda" renderEvolution={renderEvolution} />);
+      await userEvent.setup().click(screen.getAllByRole('button', { name: /Expandir/ })[0]);
+      expect(screen.getByText(/evolución de (Gama Centro|Gama Este|Unica Tienda)/)).toBeTruthy();
+    });
+  });
 });

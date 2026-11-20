@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { Estado } from '@/lib/clientes/estado';
 import type { TrayectoriaRow } from '@/lib/clientes/trayectoria';
 import type { Dim } from '../../lib/clientes-params';
@@ -20,13 +20,15 @@ function formatDateKey(key: number | null): string {
 
 // Q2: sales trajectory per casa matriz (expandable to its stores) or per store. Selecting a row scopes the tab
 // (and the product view) to that chain or store through its filterKey.
-export function TrajectoryTable({ rows, currency, dim, selectedKey, onSelect, estadoByCode }: {
+export function TrajectoryTable({ rows, currency, dim, selectedKey, onSelect, estadoByCode, renderEvolution }: {
   rows: TrayectoriaRow[];
   currency: Currency;
   dim: Dim;
   selectedKey: string | null;
   onSelect: (filterKey: string | null) => void;
   estadoByCode: ReadonlyMap<string, Estado>;
+  // When given, every row opens an evolution panel (rendered first); a chain with several stores then also lists them.
+  renderEvolution?: (row: TrayectoriaRow) => ReactNode;
 }) {
   const children = useMemo(() => {
     const map = new Map<string, TrayectoriaRow[]>();
@@ -34,6 +36,9 @@ export function TrajectoryTable({ rows, currency, dim, selectedKey, onSelect, es
     return map;
   }, [rows]);
   const top = useMemo(() => rows.filter(r => (dim === 'entidad' ? r.kind === 'entidad' : r.kind === 'tienda')), [rows, dim]);
+
+  // A chain with several stores lists them under its row (only in the casa matriz view).
+  const hasStores = (r: TrayectoriaRow) => dim === 'entidad' && r.kind === 'entidad' && r.storeCount > 1;
 
   const delta = (r: TrayectoriaRow): number | null => {
     const cur = amount(r.sales, currency);
@@ -100,8 +105,11 @@ export function TrajectoryTable({ rows, currency, dim, selectedKey, onSelect, es
         }),
       }}
       emptyMessage="Sin ventas en el período para este alcance."
-      isExpandable={r => dim === 'entidad' && r.kind === 'entidad' && r.storeCount > 1}
+      isExpandable={r => renderEvolution !== undefined || hasStores(r)}
       renderExpanded={r => (
+        <div className="space-y-3">
+          {renderEvolution?.(r)}
+          {hasStores(r) && (
         <ul className="text-sm divide-y divide-gray-200">
           {(children.get(r.key) ?? []).map(s => (
             <li key={s.key} className="py-1.5 flex items-center justify-between gap-4">
@@ -114,6 +122,8 @@ export function TrajectoryTable({ rows, currency, dim, selectedKey, onSelect, es
             </li>
           ))}
         </ul>
+          )}
+        </div>
       )}
     />
   );

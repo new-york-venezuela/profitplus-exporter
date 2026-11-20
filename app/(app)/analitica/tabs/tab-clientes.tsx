@@ -8,7 +8,7 @@ import { FallingSkus } from '../components/clientes/falling-skus';
 import { GroupTable } from '../components/clientes/group-table';
 import { GroupTrendChart } from '../components/clientes/group-trend-chart';
 import { KpiStrip } from '../components/clientes/kpi-strip';
-import { ProductBreakdown } from '../components/clientes/product-breakdown';
+import { EvolutionPanel } from '../components/clientes/evolution-panel';
 import { RetentionSection } from '../components/clientes/retention-section';
 import { TrajectoryTable } from '../components/clientes/trajectory-table';
 import { QuestionSection } from '../components/clientes/question-section';
@@ -158,13 +158,11 @@ export default function TabClientes({
         <SegmentedControl
           ariaLabel="Ver por"
           value={params.ver}
-          options={[{ value: 'total', label: 'Total' }, { value: 'producto', label: 'Producto' }, { value: 'grupo', label: 'Grupo' }]}
+          options={[{ value: 'total', label: 'Total' }, { value: 'grupo', label: 'Grupo' }]}
           onChange={ver => setParams({ ver })}
         />
         {params.ver === 'grupo' ? (
           <GrupoTrendPanel url={grupoTrendUrl} currency={currency} />
-        ) : params.ver === 'producto' ? (
-          <ProductBreakdown params={params} dateRange={dateRange} granularity={granularity} currency={currency} onParams={setParams} />
         ) : (
           <ChartCard
             title="Clientes activos y tasa de abandono"
@@ -195,6 +193,7 @@ export default function TabClientes({
               selectedKey={params.tienda}
               onSelect={tienda => setParams({ tienda })}
               estadoByCode={estadoByCode}
+              renderEvolution={r => <EvolutionPanel filterKey={r.filterKey} dateRange={dateRange} granularity={granularity} currency={currency} />}
             />
           </div>
         )}
