@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { bindItemFilter, itemFilterSql, parseItemFilter, returnsItemFilterSql, type ItemFilter } from '../item-filter';
 
-const empty: ItemFilter = { lineas: [], sublineas: [], grupo: null, q: null };
+const empty: ItemFilter = { lineas: [], sublineas: [], grupo: null, ruta: null, q: null };
 const rec = () => {
   const calls: [string, unknown][] = [];
   return { calls, input: (n: string, v: unknown) => { calls.push([n, v]); } };
@@ -22,6 +22,13 @@ describe('parseItemFilter', () => {
     expect(p('grupo= 07 ').grupo).toBe('07');
     expect(p('grupo=%20').grupo).toBeNull();
   });
+  test('ruta parses 1-3 digits; malformed or blank -> null', () => {
+    expect(p('ruta=%203%20').ruta).toBe(3);
+    expect(p('ruta=abc').ruta).toBeNull();
+    expect(p("ruta=3'%20OR%20'1'='1").ruta).toBeNull();
+    expect(p('ruta=1234').ruta).toBeNull();
+    expect(p('').ruta).toBeNull();
+  });
   test('q trimmed, capped at 80, blank -> null', () => {
     expect(p('q=%20abc%20').q).toBe('abc');
     expect(p('q=' + 'x'.repeat(200)).q).toHaveLength(80);
@@ -41,11 +48,14 @@ describe('itemFilterSql', () => {
     expect(s).toContain("ISNULL(p.SubLineName, 'Sin sublínea') IN (@sublinea0)");
     const g = itemFilterSql({ ...empty, grupo: '07' });
     expect(g).toContain('fs.CustomerKey IN (SELECT tk.CustomerKey FROM dim.Dim_Customer tk JOIN dim.Dim_Customer cur ON cur.CustomerCode = tk.CustomerCode AND cur.IsCurrent = 1 WHERE RTRIM(cur.ErpSegmentCode) = @grupo)');
+    const r = itemFilterSql({ ...empty, ruta: 3 });
+    expect(r).toContain('fs.CustomerKey IN (SELECT tk.CustomerKey FROM dim.Dim_Customer tk JOIN dim.Dim_Customer cur ON cur.CustomerCode = tk.CustomerCode AND cur.IsCurrent = 1 JOIN dim.Dim_Zone z ON z.ZoneCode = cur.ZoneCode WHERE z.RouteNumber = @ruta)');
+    expect(r).not.toContain('@grupo');
     const q = itemFilterSql({ ...empty, q: 'x' });
     expect(q).toContain("(p.ProductCode LIKE @q ESCAPE '\\' OR p.ProductName LIKE @q ESCAPE '\\')");
   });
   test('AND-prefixed, never raw values', () => {
-    const sql = itemFilterSql({ lineas: ['Pan'], sublineas: ['Dulce'], grupo: 'GRP9', q: "'; DROP TABLE x;--" });
+    const sql = itemFilterSql({ lineas: ['Pan'], sublineas: ['Dulce'], grupo: 'GRP9', ruta: 7, q: "'; DROP TABLE x;--" });
     expect(sql.trimStart().startsWith('AND ')).toBe(true);
     for (const raw of ['Pan', 'Dulce', 'GRP9', 'DROP']) expect(sql).not.toContain(raw);
   });
@@ -74,7 +84,7 @@ describe('bindItemFilter', () => {
   });
   test('names and values', () => {
     const r = rec();
-    bindItemFilter(r, { lineas: ['A', 'B'], sublineas: ['S'], grupo: '07', q: 'pan' });
+    bindItemFilter(r, { lineas: ['A', 'B'], sublineas: ['S'], grupo: '07', ruta: null, q: 'pan' });
     expect(r.calls).toEqual([
       ['linea0', 'A'], ['linea1', 'B'], ['sublinea0', 'S'], ['grupo', '07'], ['q', '%pan%'],
     ]);
@@ -91,4 +101,16 @@ describe('bindItemFilter', () => {
     expect(r.calls).toEqual([['q', "%'; DROP TABLE x;--%"]]);
     expect(itemFilterSql(f)).not.toContain('DROP');
   });
+
+describe('bindItemFilter ruta', () => {
+  test('binds @ruta only when set, as a number', () => {
+    const a = rec();
+    bindItemFilter(a, { ...empty, ruta: 3 });
+    expect(a.calls).toEqual([['ruta', 3]]);
+    const b = rec();
+    bindItemFilter(b, empty);
+    expect(b.calls).toEqual([]);
+  });
 });
+});
+

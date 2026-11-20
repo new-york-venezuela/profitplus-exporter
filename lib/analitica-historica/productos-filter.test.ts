@@ -7,7 +7,7 @@ describe('parseHistProductosFilters', () => {
   test('defaults: línea level, ventas metric, no filters', () => {
     expect(p('')).toEqual({
       nivel: 'linea', metric: 'ventas', categoria: null, currency: 'bs',
-      filter: { lineas: [], sublineas: [], grupo: null, q: null },
+      filter: { lineas: [], sublineas: [], grupo: null, ruta: null, q: null },
     });
   });
 
@@ -17,7 +17,7 @@ describe('parseHistProductosFilters', () => {
     expect(f.metric).toBe('unidades');
     expect(f.currency).toBe('usd');
     expect(f.categoria).toBe('Fresco');
-    expect(f.filter).toEqual({ lineas: ['A', 'B'], sublineas: ['X'], grupo: null, q: 'pan' });
+    expect(f.filter).toEqual({ lineas: ['A', 'B'], sublineas: ['X'], grupo: null, ruta: null, q: 'pan' });
   });
 
   test('an unknown nivel or metric falls back to the defaults', () => {

@@ -9,7 +9,7 @@ import { fetchCategorias, fetchGroupShare } from '../../../lib/productos/queries
 import type { ItemFilter } from '../../../lib/productos/item-filter';
 import { buildGroupShareMatrix } from '../../../lib/productos/group-share';
 
-const NO_FILTER: ItemFilter = { lineas: [], sublineas: [], grupo: null, q: null };
+const NO_FILTER: ItemFilter = { lineas: [], sublineas: [], grupo: null, ruta: null, q: null };
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_consolidation_${Date.now()}`;
 
