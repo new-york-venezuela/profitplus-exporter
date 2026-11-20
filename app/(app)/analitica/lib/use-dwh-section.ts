@@ -3,20 +3,18 @@
 import { useEffect, useState } from 'react';
 
 // Fetches one DWH section. Previous data stays in `data` while a new URL loads (stale-while-loading), the
-// in-flight request is aborted when the URL changes or the component unmounts, and `retry()` refetches. A null
-// url means "do not fetch".
-export function useDwhSection<T>(url: string | null): { data: T | null; loading: boolean; error: string | null; retry: () => void } {
+// in-flight request is aborted when the URL changes or the component unmounts, and `retry()` refetches.
+export function useDwhSection<T>(url: string): { data: T | null; loading: boolean; error: string | null; retry: () => void } {
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState<boolean>(url !== null);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (url === null) { setLoading(false); return; }
     const controller = new AbortController();
-    setError(null);
-    setLoading(true);
-    (async () => {
+    async function load() {
+      setError(null);
+      setLoading(true);
       try {
         const res = await fetch(url, { signal: controller.signal });
         if (controller.signal.aborted) return;
@@ -32,7 +30,8 @@ export function useDwhSection<T>(url: string | null): { data: T | null; loading:
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    })();
+    }
+    load();
     return () => controller.abort();
   }, [url, attempt]);
 

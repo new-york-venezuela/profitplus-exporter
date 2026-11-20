@@ -18,6 +18,8 @@ mock.module('posthog-js', () => ({ default: { capture: () => {} } }));
 mock.module('../../components/seguimiento/visuals', () => ({
   VisitBadge: ({ visit }: { visit: { status: string } }) => <span>{visit.status}</span>,
 }));
+const downloadCsv = mock<(name: string, records: unknown[]) => void>(() => {});
+mock.module('../../lib/clientes-export', () => ({ downloadCsv }));
 const { default: TabClientes } = await import('../tab-clientes');
 
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
@@ -41,17 +43,27 @@ const filters: ClientesFiltersResponse = {
   routes: [{ value: '3', label: 'Ruta 3' }],
 };
 
+const money = (bs: number) => ({ bs, usd: bs / 10 });
+const pareto = (name: string, gross: number, segment: 'A' | 'B' | 'C') => ({
+  name, salesGross: money(gross), returnsNet: money(0), salesNet: money(gross), returnRate: null, pareto: segment,
+});
+let paretoRows: ReturnType<typeof pareto>[] = [];
+let churnedRows: { name: string; lastPurchaseDateKey: number; lostRevenue: { bs: number; usd: number } }[] = [];
+
 function bodyFor(url: string): unknown {
   if (url.includes('/cobertura')) return cobertura;
   if (url.includes('section=filters')) return filters;
   if (url.includes('section=trend')) return { rows: [] };
-  if (url.includes('section=churned')) return { rows: [], available: true };
-  return { rows: [], paretoThresholds: { a: 0.2, b: 0.5 } };
+  if (url.includes('section=churned')) return { rows: churnedRows, available: true };
+  return { rows: paretoRows, paretoThresholds: { a: 0.2, b: 0.5 } };
 }
 const fetchMock = mock<(url: string) => Promise<Response>>(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
 
 beforeEach(() => {
   search = 'detalle=1';
+  paretoRows = [];
+  churnedRows = [];
+  downloadCsv.mockClear();
   fetchMock.mockClear();
   fetchMock.mockImplementation(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
   globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -145,5 +157,52 @@ describe('TabClientes', () => {
     const before = calls(u => u.includes('section=trend')).length;
     await userEvent.setup().click(retry);
     await waitFor(() => expect(calls(u => u.includes('section=trend')).length).toBe(before + 1));
+  });
+
+  test('Pareto headers are buttons that expose aria-sort', async () => {
+    paretoRows = [pareto('Alfa', 100, 'A'), pareto('Beta', 300, 'B')];
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const region = await screen.findByRole('region', { name: 'Pareto de clientes' });
+    const header = await within(region).findByRole('columnheader', { name: /Ventas netas/ });
+    expect(header.getAttribute('aria-sort')).toBe('none');
+    await userEvent.setup().click(within(header).getByRole('button'));
+    expect(header.getAttribute('aria-sort')).toBe('ascending');
+  });
+
+  test('Pareto search filters rows', async () => {
+    paretoRows = [pareto('Alfa', 100, 'A'), pareto('Beta', 300, 'B')];
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const region = await screen.findByRole('region', { name: 'Pareto de clientes' });
+    await within(region).findByText('Beta');
+    await userEvent.setup().type(within(region).getByRole('searchbox'), 'alf');
+    expect(within(region).queryByText('Beta')).toBeNull();
+    expect(within(region).getByText('Alfa')).toBeTruthy();
+  });
+
+  test('duplicate customer names render two rows', async () => {
+    paretoRows = [pareto('Mismo', 100, 'A'), pareto('Mismo', 90, 'B')];
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const region = await screen.findByRole('region', { name: 'Pareto de clientes' });
+    await waitFor(() => expect(within(region).getAllByText('Mismo')).toHaveLength(2));
+  });
+
+  test('the segment filter is aria-pressed and narrows the rows', async () => {
+    paretoRows = [pareto('Alfa', 100, 'A'), pareto('Beta', 300, 'B')];
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const region = await screen.findByRole('region', { name: 'Pareto de clientes' });
+    await within(region).findByText('Beta');
+    await userEvent.setup().click(within(region).getByRole('button', { name: /^A/ }));
+    expect(within(region).queryByText('Beta')).toBeNull();
+    expect(within(region).getByRole('button', { name: /^A/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('Perdidos can be exported (downloadCsv called with the rows)', async () => {
+    churnedRows = [{ name: 'Gama Centro', lastPurchaseDateKey: 20260915, lostRevenue: { bs: 500, usd: 50 } }];
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const region = await screen.findByRole('region', { name: 'Clientes perdidos' });
+    await within(region).findByText('Gama Centro');
+    await userEvent.setup().click(within(region).getByRole('button', { name: /Exportar CSV/ }));
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    expect((downloadCsv.mock.calls[0][1] as { Cliente: string }[])[0].Cliente).toBe('Gama Centro');
   });
 });

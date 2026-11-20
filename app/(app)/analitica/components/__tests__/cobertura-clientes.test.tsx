@@ -285,4 +285,10 @@ describe('CoberturaClientes: nuevos vs patrimonio', () => {
     expect(assign.mock.calls[0][0]).toContain('kind=nuevo');
     expect(assign.mock.calls[0][0]).toContain('stickiness=perdido');
   });
+
+  test('the USD/mes header states the fixed currency', async () => {
+    await loaded();
+    expect(screen.getByRole('columnheader', { name: /USD\/mes \(siempre USD\)/ })).toBeTruthy();
+  });
+
 });

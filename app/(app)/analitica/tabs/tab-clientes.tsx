@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
+import { DataTable, type Column } from '../components/clientes/data-table';
 import { QuestionSection } from '../components/clientes/question-section';
+import { SegmentedControl } from '../components/clientes/segmented-control';
 import { ScopeBar } from '../components/clientes/scope-bar';
 import { dimToApi, referenceYearOf, useClientesParams } from '../lib/clientes-params';
 import { useDwhSection } from '../lib/use-dwh-section';
@@ -62,40 +64,8 @@ function SegmentBadge({ segment }: { segment: Segment }) {
   );
 }
 
-type SortKey = 'name' | 'salesGross' | 'returnsNet' | 'salesNet' | 'returnRate' | 'pareto';
-type SortDir = 'asc' | 'desc';
-
-interface ColumnDef {
-  key: SortKey;
-  label: string;
-  align: 'left' | 'right';
-}
-
-const COLUMNS: ColumnDef[] = [
-  { key: 'name', label: 'Cliente', align: 'left' },
-  { key: 'salesGross', label: 'Ventas brutas', align: 'right' },
-  { key: 'returnsNet', label: 'Devoluciones', align: 'right' },
-  { key: 'salesNet', label: 'Ventas netas', align: 'right' },
-  { key: 'returnRate', label: 'Tasa dev.', align: 'right' },
-  { key: 'pareto', label: 'Segmento', align: 'right' },
-];
-
-function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string | number {
-  switch (key) {
-    case 'name':
-      return row.name ?? '';
-    case 'salesGross':
-      return (currency === 'usd' ? row.salesGross.usd : row.salesGross.bs) ?? -Infinity;
-    case 'returnsNet':
-      return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
-    case 'salesNet':
-      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
-    case 'returnRate':
-      return row.returnRate ?? -Infinity;
-    case 'pareto':
-      return row.pareto;
-  }
-}
+type ParetoRow = ClientesRow & { id: string };
+type ChurnedRow = ClientesChurnedResponse['rows'][number] & { id: string };
 
 const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -103,6 +73,29 @@ const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
   { value: 'B', label: 'B' },
   { value: 'C', label: 'C' },
 ];
+
+function amountOf(a: { bs: number; usd: number | null }, currency: Currency): number | null {
+  return currency === 'usd' ? a.usd : a.bs;
+}
+
+function paretoColumns(currency: Currency): Column<ParetoRow>[] {
+  return [
+    { key: 'name', label: 'Cliente', sortValue: r => r.name, render: r => r.name },
+    { key: 'salesGross', label: 'Ventas brutas', align: 'right', sortValue: r => amountOf(r.salesGross, currency), render: r => <span className="font-medium text-gray-900">{moneyLabel(r.salesGross, currency)}</span> },
+    { key: 'returnsNet', label: 'Devoluciones', align: 'right', sortValue: r => amountOf(r.returnsNet, currency), render: r => moneyLabel(r.returnsNet, currency) },
+    { key: 'salesNet', label: 'Ventas netas', align: 'right', sortValue: r => amountOf(r.salesNet, currency), render: r => moneyLabel(r.salesNet, currency) },
+    { key: 'returnRate', label: 'Tasa dev.', align: 'right', sortValue: r => r.returnRate, render: r => pct(r.returnRate) },
+    { key: 'pareto', label: 'Segmento', align: 'right', sortValue: r => r.pareto, render: r => <SegmentBadge segment={r.pareto} /> },
+  ];
+}
+
+function churnedColumns(currency: Currency, firstLabel: string): Column<ChurnedRow>[] {
+  return [
+    { key: 'name', label: firstLabel, sortValue: r => r.name, render: r => r.name },
+    { key: 'last', label: 'Última compra', align: 'right', sortValue: r => r.lastPurchaseDateKey, render: r => formatDateKey(r.lastPurchaseDateKey) },
+    { key: 'lost', label: 'Ingreso perdido', align: 'right', sortValue: r => amountOf(r.lostRevenue, currency), render: r => <span className="font-medium text-gray-900">{moneyLabel(r.lostRevenue, currency)}</span> },
+  ];
+}
 
 export default function TabClientes({
   dateRange,
@@ -114,8 +107,6 @@ export default function TabClientes({
   granularity: Granularity;
 }) {
   const [params, setParams] = useClientesParams();
-  const [sortKey, setSortKey] = useState<SortKey>('salesGross');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
 
   const dimApi = dimToApi(params.dim);
@@ -130,36 +121,9 @@ export default function TabClientes({
   const churned = useDwhSection<ClientesChurnedResponse>(sectionUrl({ section: 'churned' }));
   const data = main.data;
 
-  const filteredRows = useMemo(() => {
-    if (!data) return [];
-    if (segmentFilter === 'all') return data.rows;
-    return data.rows.filter(r => r.pareto === segmentFilter);
-  }, [data, segmentFilter]);
-
-  const sortedRows = useMemo(() => {
-    const rows = [...filteredRows];
-    rows.sort((a, b) => {
-      const av = sortValue(a, sortKey, currency);
-      const bv = sortValue(b, sortKey, currency);
-      let cmp: number;
-      if (typeof av === 'string' || typeof bv === 'string') {
-        cmp = String(av).localeCompare(String(bv));
-      } else {
-        cmp = av - bv;
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return rows;
-  }, [filteredRows, sortKey, sortDir, currency]);
-
-  function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(key === 'name' || key === 'pareto' ? 'asc' : 'desc');
-    }
-  }
+  const paretoRows: ParetoRow[] = (data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
+  const visibleParetoRows = segmentFilter === 'all' ? paretoRows : paretoRows.filter(r => r.pareto === segmentFilter);
+  const churnedRows: ChurnedRow[] = (churned.data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
 
   const segmentCounts = (data?.rows ?? []).reduce<Record<Segment, number>>(
     (acc, r) => {
@@ -210,7 +174,7 @@ export default function TabClientes({
           />
 
           <div className={`space-y-6 print:hidden ${main.loading || churned.loading ? 'opacity-60' : ''}`}>
-            <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+            <section aria-label="Clientes perdidos" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
               <h2 className="text-sm font-bold text-gray-900">{noun} perdidos</h2>
               <p className="text-xs text-gray-600 mb-3">
                 {noun} con compras en el período anterior que no compraron en el período actual — ordenados por ingreso perdido.
@@ -219,35 +183,22 @@ export default function TabClientes({
                 <ErrorBox message={churned.error} onRetry={churned.retry} />
               ) : churned.data && !churned.data.available ? (
                 <EmptyState message="No disponible para este rango de fechas." />
-              ) : churned.data && churned.data.rows.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">{params.dim === 'entidad' ? 'Cliente' : 'Tienda'}</th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Última compra</th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ingreso perdido</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {churned.data.rows.map((r, i) => (
-                        <tr key={`${r.name}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                          <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                          <td className="px-3 py-2 text-right text-gray-600">{formatDateKey(r.lastPurchaseDateKey)}</td>
-                          <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(r.lostRevenue, currency)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : churned.loading && !churned.data ? (
+              ) : !churned.data && churned.loading ? (
                 <div className="h-40 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
               ) : (
-                <EmptyState message="Sin clientes perdidos en este período." />
+                <DataTable<ChurnedRow>
+                  columns={churnedColumns(currency, params.dim === 'entidad' ? 'Cliente' : 'Tienda')}
+                  rows={churnedRows}
+                  rowKey={r => r.id}
+                  defaultSort={{ key: 'lost', dir: 'desc' }}
+                  searchText={r => r.name}
+                  exportFile={{ name: 'clientes-perdidos.csv', toRecord: r => ({ Cliente: r.name, 'Última compra': formatDateKey(r.lastPurchaseDateKey), 'Ingreso perdido': amountOf(r.lostRevenue, currency) }) }}
+                  emptyMessage="Sin clientes perdidos en este período."
+                />
               )}
-            </div>
+            </section>
 
-            <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+            <section aria-label="Pareto de clientes" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
               <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                 <div>
                   <h2 className="text-sm font-bold text-gray-900">Segmentación de clientes (Pareto)</h2>
@@ -257,64 +208,30 @@ export default function TabClientes({
                     {data ? <> — A: top {(data.paretoThresholds.a * 100).toFixed(0)}%, B: hasta {(data.paretoThresholds.b * 100).toFixed(0)}%, C: resto</> : null}
                   </p>
                 </div>
-                <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-                  {SEGMENT_FILTER_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      aria-pressed={segmentFilter === opt.value}
-                      onClick={() => setSegmentFilter(opt.value)}
-                      className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                        segmentFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      {opt.label}
-                      {opt.value !== 'all' && <span className="ml-1 text-xs opacity-75">({segmentCounts[opt.value]})</span>}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  ariaLabel="Segmento Pareto"
+                  value={segmentFilter}
+                  options={SEGMENT_FILTER_OPTIONS.map(o => ({ ...o, count: o.value === 'all' ? undefined : segmentCounts[o.value] }))}
+                  onChange={setSegmentFilter}
+                />
               </div>
               {main.error ? (
                 <ErrorBox message={main.error} onRetry={main.retry} />
               ) : !data && main.loading ? (
                 <div className="h-40 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
-              ) : sortedRows.length === 0 ? (
-                <EmptyState />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        {COLUMNS.map(col => (
-                          <th
-                            key={col.key}
-                            onClick={() => handleSort(col.key)}
-                            className={`px-3 py-2 text-xs font-semibold text-gray-600 uppercase cursor-pointer select-none hover:text-gray-900 ${
-                              col.align === 'right' ? 'text-right' : 'text-left'
-                            }`}
-                          >
-                            {col.label}
-                            {sortKey === col.key && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {sortedRows.map((r, i) => (
-                        <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                          <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                          <td className="px-3 py-2 text-right font-medium text-gray-900">{moneyLabel(r.salesGross, currency)}</td>
-                          <td className="px-3 py-2 text-right text-gray-600">{moneyLabel(r.returnsNet, currency)}</td>
-                          <td className="px-3 py-2 text-right text-gray-900">{moneyLabel(r.salesNet, currency)}</td>
-                          <td className="px-3 py-2 text-right text-gray-600">{pct(r.returnRate)}</td>
-                          <td className="px-3 py-2 text-right"><SegmentBadge segment={r.pareto} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<ParetoRow>
+                  columns={paretoColumns(currency)}
+                  rows={visibleParetoRows}
+                  rowKey={r => r.id}
+                  defaultSort={{ key: 'salesGross', dir: 'desc' }}
+                  searchText={r => r.name}
+                  exportFile={{ name: 'pareto-clientes.csv', toRecord: r => ({ Cliente: r.name, 'Ventas brutas': amountOf(r.salesGross, currency), Devoluciones: amountOf(r.returnsNet, currency), 'Ventas netas': amountOf(r.salesNet, currency), 'Tasa dev.': r.returnRate, Segmento: r.pareto }) }}
+                  emptyMessage="Sin datos disponibles todavía."
+                  pageSize={100}
+                />
               )}
-            </div>
+            </section>
           </div>
         </div>
       </details>

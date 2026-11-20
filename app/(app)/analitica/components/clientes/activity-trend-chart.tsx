@@ -13,6 +13,16 @@ function pct(rate: number | null): string {
   return rate === null ? '—' : `${(rate * 100).toFixed(1)}%`;
 }
 
+interface EndLabelProps { x?: number | string; y?: number | string; value?: number | string | null; index?: number }
+
+// Direct label on the last point of a series (series are told apart by text, not hue alone).
+function makeEndLabel(color: string, fmt: (v: number) => string, last: number) {
+  return function EndLabel({ x, y, value, index }: EndLabelProps) {
+    if (index !== last || value === null || value === undefined) return null;
+    return <text x={Number(x) + 6} y={Number(y)} fill={color} fontSize={12} dominantBaseline="middle">{fmt(Number(value))}</text>;
+  };
+}
+
 // Clientes activos (solid, left axis) and tasa de abandono (dashed, right axis) per bucket. Series differ by
 // line style and direct end labels, not hue alone; "Ver tabla" shows the same values as a table.
 export function ActivityTrendChart({ rows, granularity, loading, error, onRetry }: {
@@ -51,10 +61,7 @@ export function ActivityTrendChart({ rows, granularity, loading, error, onRetry 
     'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
   }));
   const last = data.length - 1;
-  const endLabel = (color: string, fmt: (v: number) => string) => ({ x, y, value, index }: { x?: number | string; y?: number | string; value?: number | string | null; index?: number }) =>
-    index === last && value !== null && value !== undefined
-      ? <text x={Number(x) + 6} y={Number(y)} fill={color} fontSize={12} dominantBaseline="middle">{fmt(Number(value))}</text>
-      : null;
+  const endLabel = (color: string, fmt: (v: number) => string) => makeEndLabel(color, fmt, last);
 
   return (
     <div>

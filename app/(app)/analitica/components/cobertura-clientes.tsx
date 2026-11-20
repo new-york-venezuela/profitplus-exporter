@@ -375,7 +375,7 @@ export default function CoberturaClientes({
                   {sortHeader('registered', 'Registro')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Última venta</th>
                   {sortHeader('days', 'Días sin vender', 'right')}
-                  {sortHeader('usd', 'USD/mes', 'right')}
+                  {sortHeader('usd', 'USD/mes (siempre USD)', 'right')}
                   {sortHeader('units', 'Unidades/mes', 'right')}
                   {sortHeader('sales', 'Ventas del período', 'right')}
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Estado</th>
@@ -388,7 +388,7 @@ export default function CoberturaClientes({
                   <tr key={r.customerCode}>
                     <td className="px-3 py-2 text-gray-900">
                       {r.customerName}
-                      <span className="block text-xs text-gray-400">{r.customerCode}</span>
+                      <span className="block text-xs text-gray-600">{r.customerCode}</span>
                     </td>
                     <td className="px-3 py-2 text-gray-600">{r.entityName ?? NO_DATA}</td>
                     <td className="px-3 py-2 text-gray-600">{r.sellerName ?? 'Sin vendedor'}</td>
