@@ -82,4 +82,18 @@ describe('GET /api/dwh/clientes scope', () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Error al consultar el Data Warehouse' });
   });
+
+  test('origen reaches the main list, the trend and the churned list as bound parameters', async () => {
+    for (const extra of ['', '&section=trend', '&section=churned']) {
+      queries.length = 0;
+      await get(`dateRange=month:2026-10&origen=nuevo${extra}`);
+      expect(queries[0].sql).toContain('cur_s.IsMigrationBatch = 0');
+      expect(queries[0].inputs).toMatchObject({ scopeOrigenFrom: '2026-01-01', scopeOrigenTo: '2027-01-01' });
+    }
+  });
+  test('without origen (or origen=todos) the SQL has no origen predicate', async () => {
+    await get('dateRange=month:2026-10&origen=todos');
+    expect(queries[0].sql).not.toContain('IsMigrationBatch');
+    expect(queries[0].inputs).toEqual({});
+  });
 });

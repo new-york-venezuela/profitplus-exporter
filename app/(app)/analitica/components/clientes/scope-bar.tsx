@@ -63,7 +63,7 @@ export function ScopeBar({ params, onChange, referenceYear }: {
           />
         </div>
       </Scope>
-      <Scope label="Origen" note={`Año de referencia: ${referenceYear}`}>
+      <Scope label="Origen" note={`Año de referencia: ${referenceYear} · afecta: todo salvo SKUs en caída`}>
         <SegmentedControl ariaLabel="Origen del cliente" value={params.origen} options={ORIGEN_OPTIONS} onChange={origen => onChange({ origen })} />
       </Scope>
       {active > 0 && (

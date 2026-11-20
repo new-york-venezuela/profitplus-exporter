@@ -102,6 +102,7 @@ export default function TabClientes({
     const q = new URLSearchParams({ dateRange, clienteDimension: dimApi, ...extra });
     if (params.grupo) q.set('grupo', params.grupo);
     if (params.ruta) q.set('ruta', params.ruta);
+    if (params.origen !== 'todos') q.set('origen', params.origen);
     return `/api/dwh/clientes?${q.toString()}`;
   };
   const main = useDwhSection<ClientesResponse>(sectionUrl());
@@ -109,6 +110,7 @@ export default function TabClientes({
   const grupoTrendUrl = (() => {
     const q = new URLSearchParams({ dateRange, granularity, section: 'trendGrupo' });
     if (params.ruta) q.set('ruta', params.ruta);
+    if (params.origen !== 'todos') q.set('origen', params.origen);
     return `/api/dwh/clientes?${q.toString()}`;
   })();
   const [grupoBy, setGrupoBy] = useState<GrupoBy>('grupo');
@@ -129,8 +131,8 @@ export default function TabClientes({
     [cobertura.data, grupoBy, params.grupo, params.ruta, params.origen, currency],
   );
   const kpis = useMemo(
-    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.error ? null : (trayectoria.data?.rows ?? null), currency }),
-    [scopedCobertura, estados, trayectoria.data, trayectoria.error, currency],
+    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.error ? null : (trayectoria.data?.rows ?? null), currency, origen: params.origen }),
+    [scopedCobertura, estados, trayectoria.data, trayectoria.error, currency, params.origen],
   );
   const data = main.data;
 

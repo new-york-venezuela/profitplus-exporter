@@ -27,6 +27,7 @@ describe('ScopeBar', () => {
   test('shows the reference year next to Origen', () => {
     render(<ScopeBar params={params()} onChange={noop} referenceYear={2026} />);
     expect(screen.getByText(/Año de referencia: 2026/)).toBeTruthy();
+    expect(screen.getByText(/afecta: todo salvo SKUs en caída/)).toBeTruthy();
   });
 
   test('loads options once and reports the chosen grupo', async () => {

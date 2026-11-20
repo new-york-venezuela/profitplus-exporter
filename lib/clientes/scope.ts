@@ -1,6 +1,8 @@
 // Group / route scope for the Clientes tab. Membership is decided by the CURRENT Dim_Customer row (by
 // CustomerCode), so invoices issued under an older SCD2 version follow the customer. Values reach SQL only
 // through .input(); the alias is the single interpolated token and is validated.
+import { rangeEndDateKey } from '@/app/api/dwh/lib/query-builder';
+
 export interface CarteraScope { grupo: string | null; ruta: number | null }
 
 const GRUPO_RE = /^[A-Za-z0-9_-]{1,6}$/;
@@ -25,22 +27,42 @@ export function parseCarteraScope(sp: URLSearchParams): CarteraScope {
   return { grupo: parseGrupo(sp.get('grupo')), ruta: parseRuta(sp.get('ruta')) };
 }
 
+// Origen (axis 1 of the customer taxonomy) as a SQL scope: the year Y is the year the range ends in, exactly like
+// customerKindInYear (lib/dwh/cutover.ts): patrimonio = migration batch or registered before Jan 1 of Y; nuevo =
+// registered during Y outside the batch. A customer with no registration date is in neither.
+export interface OrigenScope { origen: 'patrimonio' | 'nuevo'; year: number }
+
+export function parseOrigenScope(sp: URLSearchParams, today: Date = new Date()): OrigenScope | null {
+  const raw = (sp.get('origen') ?? '').trim();
+  if (raw !== 'patrimonio' && raw !== 'nuevo') return null;
+  return { origen: raw, year: Math.floor(rangeEndDateKey(sp.get('dateRange') ?? '12m', today) / 10000) };
+}
+
 export interface CustomerScopeSql {
   where: string;
   bind(req: { input(name: string, value: unknown): unknown }): void;
 }
 
-export function customerScope(scope: CarteraScope, customerAlias: string = 'c'): CustomerScopeSql {
+export function customerScope(scope: CarteraScope, customerAlias: string = 'c', origen: OrigenScope | null = null): CustomerScopeSql {
   if (!ALIAS_RE.test(customerAlias)) throw new Error(`Alias inválido '${customerAlias}'`);
-  if (scope.grupo === null && scope.ruta === null) return { where: '', bind: () => {} };
+  if (scope.grupo === null && scope.ruta === null && origen === null) return { where: '', bind: () => {} };
   const conds = ['cur_s.IsCurrent = 1'];
   if (scope.grupo !== null) conds.push('RTRIM(cur_s.ErpSegmentCode) = @scopeGrupo');
   if (scope.ruta !== null) conds.push('z_s.RouteNumber = @scopeRuta');
+  if (origen !== null) {
+    conds.push(origen.origen === 'patrimonio'
+      ? '(cur_s.IsMigrationBatch = 1 OR cur_s.RegisteredDate < @scopeOrigenFrom)'
+      : 'cur_s.IsMigrationBatch = 0 AND cur_s.RegisteredDate >= @scopeOrigenFrom AND cur_s.RegisteredDate < @scopeOrigenTo');
+  }
   return {
     where: `AND ${customerAlias}.CustomerCode IN (SELECT cur_s.CustomerCode FROM dim.Dim_Customer cur_s LEFT JOIN dim.Dim_Zone z_s ON z_s.ZoneCode = cur_s.ZoneCode WHERE ${conds.join(' AND ')})`,
     bind: req => {
       if (scope.grupo !== null) req.input('scopeGrupo', scope.grupo);
       if (scope.ruta !== null) req.input('scopeRuta', scope.ruta);
+      if (origen !== null) {
+        req.input('scopeOrigenFrom', `${origen.year}-01-01`);
+        if (origen.origen === 'nuevo') req.input('scopeOrigenTo', `${origen.year + 1}-01-01`);
+      }
     },
   };
 }
