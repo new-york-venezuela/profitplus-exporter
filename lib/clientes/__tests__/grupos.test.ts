@@ -5,7 +5,7 @@ import type { CoberturaRowView } from '@/app/(app)/analitica/types';
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: 1, groupCode: 'S1', groupName: 'Abasto', kind: 'patrimonio', visit: noVisit, activeInPeriod: false,
   registeredDate: '2026-01-10', firstSaleDateKey: 20260110, daysToFirstSale: 0, salesPeriod: { bs: 0, usd: 0 },

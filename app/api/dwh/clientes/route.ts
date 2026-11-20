@@ -330,7 +330,7 @@ async function handleTrendGrupo(dateRange: string, scope: CarteraScope, trend: T
   const sc = customerScope({ grupo: null, ruta: scope.ruta }, 'cur');
   const req = pool.request();
   sc.bind(req);
-  const dateWhere = trend.mode === 'range' ? buildDateWhereClause(dateRange, 'fs') : widenedDateWhereClause(dateRange);
+  const dateWhere = buildDateWhereClause(dateRange, 'fs');
   const result = await req.query(`
     SELECT ${trend.keyExpr('d')} AS BucketKey, RTRIM(cur.ErpSegmentCode) AS GroupCode, MAX(sg.SegmentName) AS GroupName,
            SUM(fs.NetAmount) AS SalesBs, SUM(fs.NetAmount / NULLIF(fx.RateSell, 0)) AS SalesUsd
@@ -344,13 +344,7 @@ async function handleTrendGrupo(dateRange: string, scope: CarteraScope, trend: T
     GROUP BY ${trend.keyExpr('d')}, RTRIM(cur.ErpSegmentCode)
   `);
 
-  const startIso = rangeStart(dateRange).toISOString().slice(0, 10);
   const records: GrupoTrendRecord[] = result.recordset
-    .filter(r => {
-      if (trend.mode === 'range') return true;
-      const span = bucketSpan(trend.mode, String(r.BucketKey));
-      return span === null || span.end >= startIso;
-    })
     .map(r => ({
       bucketKey: String(r.BucketKey),
       groupCode: r.GroupCode === null || r.GroupCode === undefined ? null : String(r.GroupCode).trim(),

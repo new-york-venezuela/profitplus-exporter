@@ -14,7 +14,7 @@ export const ESTADO_LABEL: Record<Estado, string> = {
 
 export interface EstadoInput {
   firstInvoiceKey: number | null;   // first invoice ever (null = never invoiced)
-  lastInvoiceKey: number | null;    // last invoice on or before the period end
+  lastInvoiceKey: number | null;    // last invoice on or before the period end (never a later one)
   boughtInPeriod: boolean;
   boughtInPrev: boolean;
   visitIntervalDays: number | null; // 7 / 15 / 30; null = no visit frequency

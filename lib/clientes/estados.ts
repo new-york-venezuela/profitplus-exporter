@@ -32,7 +32,7 @@ export function buildEstados(resp: CoberturaResponse): EstadosResult {
     const boughtInPeriod = r.activeInPeriod === true;
     const estado = classifyEstado({
       firstInvoiceKey: r.firstSaleDateKey,
-      lastInvoiceKey: r.lastSaleDateKey,
+      lastInvoiceKey: r.lastSaleAtPeriodEndKey,
       boughtInPeriod,
       boughtInPrev: r.boughtPrev === true,
       visitIntervalDays: r.visit.intervalDays,
@@ -54,7 +54,7 @@ export function buildEstados(resp: CoberturaResponse): EstadosResult {
       origen: r.kind,
       estado,
       lastSaleDateKey: r.lastSaleDateKey,
-      reasonDateKey: estado === 'nuevo_periodo' ? r.firstSaleDateKey : estado === 'enfriado' || estado === 'perdido' ? r.lastSaleDateKey : null,
+      reasonDateKey: estado === 'nuevo_periodo' ? r.firstSaleDateKey : estado === 'enfriado' || estado === 'perdido' ? r.lastSaleAtPeriodEndKey : null,
       salesPeriod: r.salesPeriod,
       salesPrev: r.salesPrev,
     });

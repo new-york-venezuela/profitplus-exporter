@@ -25,7 +25,7 @@ const { default: TabClientes } = await import('../tab-clientes');
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: null, visit: noVisit, activeInPeriod: true,
   registeredDate: null, firstSaleDateKey: null, daysToFirstSale: null, salesPeriod: { bs: 0, usd: 0 }, salesPrev: null, boughtPrev: null, stickiness: 'sin_frecuencia',
@@ -265,5 +265,40 @@ describe('TabClientes', () => {
     expect(screen.getByRole('heading', { name: 'SKUs en caída' })).toBeTruthy();
     await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('nivel=sku') && u.includes('section=catalogo') && u.includes('grupo=S1'))).toHaveLength(1));
     expect(await screen.findByText('Sin datos de productos para este alcance.')).toBeTruthy();
+  });
+
+  test('the KPI strip drops the old Ventas figure when the next trayectoria fetch fails', async () => {
+    const chain = { key: 'e:1', filterKey: 'e:1', parentKey: null, kind: 'entidad', name: 'Gama', code: null, storeCount: 1, sales: { bs: 100, usd: 10 }, salesPrev: { bs: 80, usd: 8 }, units: 1, unitsPrev: 1, orders: 1, lastOrderKey: 20261001, newStoresCount: 0 };
+    fetchMock.mockImplementation(async url => {
+      if (url.includes('section=trayectoria')) {
+        if (url.includes('grupo=S1')) return { ok: false, json: async () => ({ error: 'Falló' }) } as unknown as Response;
+        return { ok: true, json: async () => ({ available: true, rows: [chain] }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => bodyFor(url) } as unknown as Response;
+    });
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const ventas = () => within(screen.getByTestId('kpi-body')).getByText('Ventas').closest('div')!.parentElement!;
+    await waitFor(() => expect(ventas().textContent).toContain('$10'));
+    await userEvent.setup().click(screen.getByRole('textbox', { name: 'Filtrar por grupo' }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Abasto' }));
+    await waitFor(() => expect(ventas().textContent).not.toContain('$10'));
+    expect(ventas().textContent).toContain('—');
+  });
+
+  test('the KPI strip is dimmed while its data reloads', async () => {
+    fetchMock.mockImplementation(async url => {
+      if (url.includes('section=trayectoria') && url.includes('grupo=S1')) return new Promise<Response>(() => {});
+      return { ok: true, json: async () => bodyFor(url) } as unknown as Response;
+    });
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    await waitFor(() => expect(screen.getByTestId('kpi-body').className).not.toContain('opacity-60'));
+    await userEvent.setup().click(screen.getByRole('textbox', { name: 'Filtrar por grupo' }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Abasto' }));
+    await waitFor(() => expect(screen.getByTestId('kpi-body').className).toContain('opacity-60'));
+  });
+
+  test('Q3 states that it covers the vigentes customers only', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(await screen.findByText(/solo clientes vigentes/)).toBeTruthy();
   });
 });

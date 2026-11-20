@@ -62,7 +62,7 @@ export function buildKpis(input: {
   return [
     {
       id: 'ventas', label: 'Ventas', value: money(salesNow), current: salesNow, previous: salesPrev, windowTag: 'período',
-      basis: 'Ventas brutas sin IVA · incluye consignación',
+      basis: 'Ventas brutas sin IVA · incluye consignación y clientes inactivos',
     },
     {
       id: 'activos', label: 'Clientes activos', value: activos === null ? NO_VALUE : String(activos), current: activos, previous: activosPrev,

@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     const recentStartKey = dateKeyOf(new Date(now.getTime() - 90 * 86_400_000));
 
     const [customers, monthly, recent] = await Promise.all([
-      pool.request().query(coberturaCustomersQuery(includeInactive, periodWhere, prevWhere)),
+      pool.request().query(coberturaCustomersQuery(includeInactive, periodWhere, prevWhere, periodEndKey)),
       pool.request().input('windowStartKey', windowStartKey).query(COBERTURA_MONTHLY_QUERY),
       pool.request().input('recentStartKey', recentStartKey).query(COBERTURA_RECENT_DAYS_QUERY),
     ]);
@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
         sellerCode: r.SellerCode ? String(r.SellerCode) : null,
         sellerName: r.SellerName ? String(r.SellerName).trim() : null,
         lastSaleDateKey,
+        lastSaleAtPeriodEndKey: r.LastAtEndKey === null || r.LastAtEndKey === undefined ? null : Number(r.LastAtEndKey),
         entityLastSaleDateKey,
         daysSinceLastSale,
         avgMonthlyUsd: avg?.avgUsd ?? null,

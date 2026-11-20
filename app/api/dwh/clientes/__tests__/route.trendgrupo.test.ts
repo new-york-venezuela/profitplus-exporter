@@ -35,8 +35,16 @@ describe('GET /api/dwh/clientes section=trendGrupo', () => {
     expect(queries[0].inputs).not.toHaveProperty('scopeGrupo');
   });
 
-  test('returns series ordered by sales, labelled buckets, and drops the widened lead-in bucket', async () => {
-    respond = () => [r('2026-W40', 'S1', 5, 1), r('2026-W41', 'S1', 100, 10, 'Abasto'), r('2026-W41', 'S2', 300, 30, 'Restaurante')];
+  test('only sums sales inside the range (a straddling first bucket is not inflated by days before the start)', async () => {
+    await get('dateRange=custom:2026-10-05:2026-10-25&granularity=week');
+    expect(queries[0].sql).toContain('fs.DateKey >= 20261005');
+    expect(queries[0].sql).not.toContain('fs.DateKey >= 20260901');
+    await get('dateRange=custom:2026-03-15:2026-10-25&granularity=month');
+    expect(queries[1].sql).toContain('fs.DateKey >= 20260315');
+  });
+
+  test('returns series ordered by sales and labelled buckets', async () => {
+    respond = () => [r('2026-W41', 'S1', 100, 10, 'Abasto'), r('2026-W41', 'S2', 300, 30, 'Restaurante')];
     const body = await (await get('dateRange=custom:2026-10-05:2026-10-25&granularity=week')).json();
     expect(body.granularity).toBe('week');
     expect(body.series.map((s: { code: string }) => s.code)).toEqual(['S2', 'S1']);

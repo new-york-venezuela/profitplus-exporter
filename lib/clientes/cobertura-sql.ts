@@ -4,8 +4,10 @@ import { usdConversionJoin } from '@/app/api/dwh/lib/query-builder';
 // version of the same code, so every sales aggregate groups by RTRIM(CustomerCode) across all versions.
 // Route / group / frequency / registration come from the current row (Dim_Zone, Dim_Segment joined on it).
 // periodDateWhere (alias `fs`) comes from buildDateWhereClause(range, 'fs').
+// periodEndKey (YYYYMMDD integer): the range end, for LastAtEndKey = own last invoice on or before it.
 // prevDateWhere: the same-length window before the range (null = none, e.g. a closed past YTD year -> PrevSales is empty).
-export function coberturaCustomersQuery(includeInactive: boolean, periodDateWhere: string, prevDateWhere: string | null = null): string {
+export function coberturaCustomersQuery(includeInactive: boolean, periodDateWhere: string, prevDateWhere: string | null = null, periodEndKey: number): string {
+  if (!Number.isInteger(periodEndKey)) throw new Error(`periodEndKey inválido '${periodEndKey}'`);
   return `
     WITH Cur AS (
       SELECT RTRIM(c.CustomerCode) AS Code, c.CustomerName, RTRIM(c.DefaultSalesRepCode) AS SellerCode, c.LegalEntityKey,
@@ -17,7 +19,8 @@ export function coberturaCustomersQuery(includeInactive: boolean, periodDateWher
       WHERE c.IsCurrent = 1 ${includeInactive ? '' : 'AND c.IsInactive = 0'}
     ),
     OwnSales AS (
-      SELECT RTRIM(c.CustomerCode) AS Code, MAX(fs.DateKey) AS LastDateKey, MIN(fs.DateKey) AS FirstDateKey
+      SELECT RTRIM(c.CustomerCode) AS Code, MAX(fs.DateKey) AS LastDateKey, MIN(fs.DateKey) AS FirstDateKey,
+             MAX(CASE WHEN fs.DateKey <= ${periodEndKey} THEN fs.DateKey END) AS LastAtEndKey
       FROM fact.Fact_Sales fs
       JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
       WHERE fs.IsVoided = 0
@@ -47,7 +50,7 @@ export function coberturaCustomersQuery(includeInactive: boolean, periodDateWher
       GROUP BY RTRIM(c.CustomerCode)
     )
     SELECT cur.Code AS CustomerCode, cur.CustomerName, le.LegalEntityName, cur.SellerCode,
-           r.SalesRepName AS SellerName, o.LastDateKey, e.LastDateKey AS EntityLastDateKey,
+           r.SalesRepName AS SellerName, o.LastDateKey, o.LastAtEndKey, e.LastDateKey AS EntityLastDateKey,
            cur.GroupCode, cur.GroupName, cur.RouteNumber, cur.RegisteredDate, cur.VisitIntervalDays,
            CASE WHEN ps.Code IS NULL THEN 0 ELSE 1 END AS InPeriod, o.FirstDateKey,
            ps.SalesBs AS PeriodBs, ps.SalesUsd AS PeriodUsd, pv.SalesBs AS PrevBs, pv.SalesUsd AS PrevUsd,

@@ -5,7 +5,7 @@ import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: 'patrimonio', visit: noVisit, activeInPeriod: false,
   registeredDate: '2026-01-10', firstSaleDateKey: 20260110, daysToFirstSale: 0, salesPeriod: { bs: 0, usd: 0 },
@@ -22,8 +22,8 @@ const FIXTURE = [
   row({ customerCode: 'NEW', activeInPeriod: true, firstSaleDateKey: 20261005, kind: 'nuevo', salesPeriod: { bs: 100, usd: 10 } }),
   row({ customerCode: 'KEEP', activeInPeriod: true, boughtPrev: true, salesPeriod: { bs: 200, usd: 20 }, salesPrev: { bs: 180, usd: 18 } }),
   row({ customerCode: 'BACK', activeInPeriod: true, boughtPrev: false }),
-  row({ customerCode: 'COOL', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, visit: { ...noVisit, intervalDays: 30 }, salesPrev: { bs: 50, usd: 5 } }),
-  row({ customerCode: 'LOST', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, visit: { ...noVisit, intervalDays: 7 } }),
+  row({ customerCode: 'COOL', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, visit: { ...noVisit, intervalDays: 30 }, salesPrev: { bs: 50, usd: 5 } }),
+  row({ customerCode: 'LOST', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, visit: { ...noVisit, intervalDays: 7 } }),
   row({ customerCode: 'NEVER', firstSaleDateKey: null, lastSaleDateKey: null, activeInPeriod: false }),
   row({ customerCode: 'GONE', activeInPeriod: false, boughtPrev: false, lastSaleDateKey: 20260301 }),
   row({ customerCode: 'LATE', activeInPeriod: null, kind: 'posterior', firstSaleDateKey: null, registeredDate: '2027-01-02' }),
@@ -53,6 +53,15 @@ describe('buildEstados', () => {
     expect(by('NEW').reasonDateKey).toBe(20261005);
     expect(by('COOL').reasonDateKey).toBe(20260920);
     expect(by('KEEP').reasonDateKey).toBeNull();
+  });
+  test('judges perdido by the last invoice on or before the period end, not by a later purchase', () => {
+    const back = row({
+      customerCode: 'BACK2', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20261110, lastSaleAtPeriodEndKey: 20260920,
+      visit: { ...noVisit, intervalDays: 7 },
+    });
+    const out = buildEstados(response([back]));
+    expect(out.rows[0].estado).toBe('perdido');
+    expect(out.rows[0].reasonDateKey).toBe(20260920);   // never a date after the period
   });
   test('keeps origen and the sales figures untouched (null USD stays null)', () => {
     const out = buildEstados(response([row({ customerCode: 'Z', activeInPeriod: true, boughtPrev: true, kind: 'nuevo', salesPeriod: { bs: 5, usd: null } })]));

@@ -115,10 +115,11 @@ export default function TabClientes({
   const trayectoria = useDwhSection<ClientesTrayectoriaResponse>(sectionUrl({ section: 'trayectoria' }));
   const cobertura = useDwhSection<CoberturaResponse>(`/api/dwh/clientes/cobertura?includeInactive=0&dateRange=${encodeURIComponent(dateRange)}`);
   const scopedCobertura = useMemo<CoberturaResponse | null>(() => {
-    if (!cobertura.data) return null;
+    // A failed refetch must not keep showing the previous range's customers.
+    if (!cobertura.data || cobertura.error) return null;
     // Origen is not applied here: the Patrimonio and Nuevos cards need both origins; Origen scopes Cobertura and Q4.
     return { ...cobertura.data, rows: filterCobertura(cobertura.data.rows, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta) }) };
-  }, [cobertura.data, params.grupo, params.ruta]);
+  }, [cobertura.data, cobertura.error, params.grupo, params.ruta]);
   const estados = useMemo(() => (scopedCobertura ? buildEstados(scopedCobertura) : null), [scopedCobertura]);
   const estadoByCode = useMemo(() => new Map((estados?.rows ?? []).map(r => [r.customerCode, r.estado] as const)), [estados]);
   const grupoRows = useMemo(
@@ -128,8 +129,8 @@ export default function TabClientes({
     [cobertura.data, grupoBy, params.grupo, params.ruta, params.origen, currency],
   );
   const kpis = useMemo(
-    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.data?.rows ?? null, currency }),
-    [scopedCobertura, estados, trayectoria.data, currency],
+    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.error ? null : (trayectoria.data?.rows ?? null), currency }),
+    [scopedCobertura, estados, trayectoria.data, trayectoria.error, currency],
   );
   const data = main.data;
 
@@ -150,7 +151,10 @@ export default function TabClientes({
       <ScopeBar params={params} onChange={setParams} referenceYear={referenceYearOf(dateRange)} />
 
       <QuestionSection question="¿Cómo evolucionan las ventas?">
-        <KpiStrip cards={kpis} onFilter={setParams} />
+        {/* Both sources keep their previous data while reloading, so the cards are dimmed until both settle. */}
+        <div data-testid="kpi-body" className={cobertura.loading || trayectoria.loading ? 'opacity-60' : ''}>
+          <KpiStrip cards={kpis} onFilter={setParams} />
+        </div>
         <SegmentedControl
           ariaLabel="Ver por"
           value={params.ver}
@@ -203,6 +207,9 @@ export default function TabClientes({
           options={[{ value: 'grupo', label: 'Grupo' }, { value: 'ruta', label: 'Ruta' }]}
           onChange={setGrupoBy}
         />
+        <p className="text-xs text-gray-600">
+          Cifras de la cobertura de clientes: solo clientes vigentes (sin inactivos), por lo que las ventas pueden ser menores que las de la tarjeta Ventas.
+        </p>
         {cobertura.error ? (
           <ErrorBox message={cobertura.error} onRetry={cobertura.retry} />
         ) : !grupoRows ? (

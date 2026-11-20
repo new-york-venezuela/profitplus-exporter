@@ -600,6 +600,7 @@ export interface CoberturaRowView {
   sellerCode: string | null;
   sellerName: string | null;
   lastSaleDateKey: number | null; // own invoices, all history; null = no invoice found
+  lastSaleAtPeriodEndKey: number | null; // own last invoice on or before the selected range's end (Estado perdido / reason date)
   entityLastSaleDateKey: number | null; // any store of the same legal entity
   daysSinceLastSale: number | null;
   avgMonthlyUsd: number | null; // trailing 12 months, over invoiced months only

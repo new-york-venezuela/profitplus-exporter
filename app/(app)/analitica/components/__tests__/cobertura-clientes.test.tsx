@@ -14,7 +14,7 @@ const { default: CoberturaClientes } = await import('../cobertura-clientes');
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: null, visit: noVisit, activeInPeriod: true,
   registeredDate: null, firstSaleDateKey: null, daysToFirstSale: null, salesPeriod: { bs: 0, usd: 0 }, salesPrev: null, boughtPrev: null, stickiness: 'sin_frecuencia',

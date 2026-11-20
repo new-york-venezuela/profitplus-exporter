@@ -7,7 +7,7 @@ import type { CoberturaResponse, CoberturaRowView } from '@/app/(app)/analitica/
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: 'patrimonio', visit: noVisit, activeInPeriod: false,
   registeredDate: '2026-01-10', firstSaleDateKey: 20260110, daysToFirstSale: 0, salesPeriod: { bs: 0, usd: 0 },
@@ -25,8 +25,8 @@ const trow = (key: string, sales: { bs: number; usd: number | null }, salesPrev:
 
 const ROWS = [
   row({ customerCode: 'KEEP', activeInPeriod: true, boughtPrev: true, kind: 'patrimonio', stickiness: 'constante' }),
-  row({ customerCode: 'COOL', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, kind: 'patrimonio', visit: { ...noVisit, intervalDays: 30 } }),
-  row({ customerCode: 'LOST', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, kind: 'patrimonio', visit: { ...noVisit, intervalDays: 7 } }),
+  row({ customerCode: 'COOL', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, kind: 'patrimonio', visit: { ...noVisit, intervalDays: 30 } }),
+  row({ customerCode: 'LOST', activeInPeriod: false, boughtPrev: true, lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, kind: 'patrimonio', visit: { ...noVisit, intervalDays: 7 } }),
   row({ customerCode: 'NEW', activeInPeriod: true, kind: 'nuevo', firstSaleDateKey: 20261005, lastSaleDateKey: 20261005, stickiness: 'constante' }),
 ];
 const kpi = (cards: ReturnType<typeof buildKpis>, id: string) => cards.find(c => c.id === id)!;
@@ -82,5 +82,6 @@ describe('buildKpis', () => {
       expect(c.basis.length).toBeGreaterThan(0);
     }
     expect(kpi(cards, 'ventas').basis).toContain('consignación');
+    expect(kpi(cards, 'ventas').basis).toContain('clientes inactivos');   // the trajectory sums every customer with sales; the other cards only the vigentes
   });
 });

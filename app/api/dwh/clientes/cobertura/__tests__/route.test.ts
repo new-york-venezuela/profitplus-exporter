@@ -165,4 +165,12 @@ describe('GET /api/dwh/clientes/cobertura: nuevos vs patrimonio fields', () => {
     expect(body.periodStartDateKey).toBe(20261001);
     expect(body.periodEndDateKey).toBe(20261031);
   });
+
+  test('the last invoice on or before the period end is queried and mapped', async () => {
+    respond = text => (text.includes('PeriodSales') ? [customerRow({ CustomerCode: 'C9', LastDateKey: 20261110, LastAtEndKey: 20260920 })] : []);
+    const res = await get('includeInactive=0&dateRange=month:2026-10');
+    expect(queries.find(q => q.sql.includes('PeriodSales'))!.sql).toContain('fs.DateKey <= 20261031');
+    const body = await res.json();
+    expect(body.rows[0]).toMatchObject({ lastSaleDateKey: 20261110, lastSaleAtPeriodEndKey: 20260920 });
+  });
 });
