@@ -83,16 +83,23 @@ const STATUS_FILTER_OPTIONS: { value: '' | CoberturaStatus; label: string }[] = 
 const isoToDisplay = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : NO_DATA);
 
 export default function CoberturaClientes({
-  dateRange = '12m', grupo = null, ruta = null, currency = 'usd', kind, onKindChange,
+  dateRange = '12m', grupo = null, ruta = null, currency = 'usd', kind, onKindChange, shared,
 }: {
   dateRange?: DateRange; grupo?: string | null; ruta?: number | null; currency?: Currency;
   // Optional controlled Origen (the Clientes scope bar drives it); standalone use keeps local state.
   kind?: KindFilter; onKindChange?: (k: KindFilter) => void;
+  // Optional already-fetched response for includeInactive=0 (the tab shares it with the Estado sections so the
+  // page makes one heavy request); "Incluir inactivos" falls back to this component's own fetch.
+  shared?: { data: CoberturaResponse | null; loading: boolean; error: string | null };
 } = {}) {
-  const [data, setData] = useState<CoberturaResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [ownData, setData] = useState<CoberturaResponse | null>(null);
+  const [ownLoading, setLoading] = useState<boolean>(true);
+  const [ownError, setError] = useState<string | null>(null);
   const [includeInactive, setIncludeInactive] = useState<boolean>(false);
+  const useShared = shared !== undefined && !includeInactive;
+  const data = useShared ? shared.data : ownData;
+  const loading = useShared ? shared.loading : ownLoading;
+  const error = useShared ? shared.error : ownError;
   const [sellerFilter, setSellerFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<CoberturaStatus | null>(null);
   const [visitFilter, setVisitFilter] = useState<'overdue' | 'no_interval' | null>(null);
@@ -106,6 +113,7 @@ export default function CoberturaClientes({
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   useEffect(() => {
+    if (useShared) return;
     let cancelled = false;
     async function load() {
       setError(null);
@@ -131,7 +139,7 @@ export default function CoberturaClientes({
     return () => {
       cancelled = true;
     };
-  }, [includeInactive, dateRange]);
+  }, [includeInactive, dateRange, useShared]);
 
   const allRows = useMemo(() => data?.rows ?? [], [data]);
   const rows = useMemo(() => filterCobertura(allRows, { grupo, ruta }), [allRows, grupo, ruta]);

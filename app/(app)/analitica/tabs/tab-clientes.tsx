@@ -1,17 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
+import { KpiStrip } from '../components/clientes/kpi-strip';
 import { QuestionSection } from '../components/clientes/question-section';
 import { SegmentedControl } from '../components/clientes/segmented-control';
 import { ScopeBar } from '../components/clientes/scope-bar';
 import { dimToApi, referenceYearOf, useClientesParams } from '../lib/clientes-params';
+import { filterCobertura } from '../lib/cobertura';
 import { useDwhSection } from '../lib/use-dwh-section';
 import type { Granularity } from '../lib/granularity';
 import { moneyLabel } from '../lib/format';
-import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
+import { buildEstados } from '@/lib/clientes/estados';
+import { buildKpis } from '@/lib/clientes/kpis';
+import type { ClientesTrayectoriaResponse } from '@/lib/clientes/trayectoria';
+import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, CoberturaResponse, Currency, DateRange } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
@@ -119,6 +124,18 @@ export default function TabClientes({
   const main = useDwhSection<ClientesResponse>(sectionUrl());
   const trend = useDwhSection<ClientesTrendResponse>(sectionUrl({ section: 'trend', granularity }));
   const churned = useDwhSection<ClientesChurnedResponse>(sectionUrl({ section: 'churned' }));
+  const trayectoria = useDwhSection<ClientesTrayectoriaResponse>(sectionUrl({ section: 'trayectoria' }));
+  const cobertura = useDwhSection<CoberturaResponse>(`/api/dwh/clientes/cobertura?includeInactive=0&dateRange=${encodeURIComponent(dateRange)}`);
+  const scopedCobertura = useMemo<CoberturaResponse | null>(() => {
+    if (!cobertura.data) return null;
+    // Origen is not applied here: the Patrimonio and Nuevos cards need both origins; Origen scopes Cobertura and Q4.
+    return { ...cobertura.data, rows: filterCobertura(cobertura.data.rows, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta) }) };
+  }, [cobertura.data, params.grupo, params.ruta]);
+  const estados = useMemo(() => (scopedCobertura ? buildEstados(scopedCobertura) : null), [scopedCobertura]);
+  const kpis = useMemo(
+    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.data?.rows ?? null, currency }),
+    [scopedCobertura, estados, trayectoria.data, currency],
+  );
   const data = main.data;
 
   const paretoRows: ParetoRow[] = (data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
@@ -140,6 +157,7 @@ export default function TabClientes({
       <ScopeBar params={params} onChange={setParams} referenceYear={referenceYearOf(dateRange)} />
 
       <QuestionSection question="¿Cómo evolucionan las ventas?">
+        <KpiStrip cards={kpis} onFilter={setParams} />
         <ChartCard
           title="Clientes activos y tasa de abandono"
           subtitle={`Por ${bucketNoun} — grano: ${params.dim === 'entidad' ? 'Casa matriz' : 'Tienda'}`}
@@ -171,6 +189,7 @@ export default function TabClientes({
             currency={currency}
             kind={params.origen}
             onKindChange={origen => setParams({ origen })}
+            shared={cobertura}
           />
 
           <div className={`space-y-6 print:hidden ${main.loading || churned.loading ? 'opacity-60' : ''}`}>

@@ -54,6 +54,7 @@ function bodyFor(url: string): unknown {
   if (url.includes('/cobertura')) return cobertura;
   if (url.includes('section=filters')) return filters;
   if (url.includes('section=trend')) return { rows: [] };
+  if (url.includes('section=trayectoria')) return { available: true, rows: [] };
   if (url.includes('section=churned')) return { rows: churnedRows, available: true };
   return { rows: paretoRows, paretoThresholds: { a: 0.2, b: 0.5 } };
 }
@@ -204,5 +205,14 @@ describe('TabClientes', () => {
     await userEvent.setup().click(within(region).getByRole('button', { name: /Exportar CSV/ }));
     expect(downloadCsv).toHaveBeenCalledTimes(1);
     expect((downloadCsv.mock.calls[0][1] as { Cliente: string }[])[0].Cliente).toBe('Gama Centro');
+  });
+
+  test('the KPI strip renders the five cards from the shared data', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    await waitFor(() => expect(screen.getByText('Clientes activos')).toBeTruthy());
+    for (const label of ['Ventas', 'Clientes activos', 'Patrimonio retenido', 'Nuevos que se quedan', 'Perdidos y enfriados']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
   });
 });
