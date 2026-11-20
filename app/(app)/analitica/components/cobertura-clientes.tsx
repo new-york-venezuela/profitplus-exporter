@@ -83,8 +83,12 @@ const STATUS_FILTER_OPTIONS: { value: '' | CoberturaStatus; label: string }[] = 
 const isoToDisplay = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : NO_DATA);
 
 export default function CoberturaClientes({
-  dateRange = '12m', grupo = null, ruta = null, currency = 'usd',
-}: { dateRange?: DateRange; grupo?: string | null; ruta?: number | null; currency?: Currency } = {}) {
+  dateRange = '12m', grupo = null, ruta = null, currency = 'usd', kind, onKindChange,
+}: {
+  dateRange?: DateRange; grupo?: string | null; ruta?: number | null; currency?: Currency;
+  // Optional controlled Origen (the Clientes scope bar drives it); standalone use keeps local state.
+  kind?: KindFilter; onKindChange?: (k: KindFilter) => void;
+} = {}) {
   const [data, setData] = useState<CoberturaResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +97,9 @@ export default function CoberturaClientes({
   const [statusFilter, setStatusFilter] = useState<CoberturaStatus | null>(null);
   const [visitFilter, setVisitFilter] = useState<'overdue' | 'no_interval' | null>(null);
   const [inactiveOnly, setInactiveOnly] = useState<boolean>(false);
-  const [kindFilter, setKindFilter] = useState<KindFilter>('todos');
+  const [localKind, setLocalKind] = useState<KindFilter>('todos');
+  const kindFilter = kind ?? localKind;
+  const setKindFilter = onKindChange ?? setLocalKind;
   const [cooledOnly, setCooledOnly] = useState<boolean>(false);
   const [stickinessFilter, setStickinessFilter] = useState<Stickiness | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('days');

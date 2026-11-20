@@ -70,6 +70,17 @@ export function activeFilterCount(p: ClientesParams): number {
   return [p.grupo, p.ruta, p.tienda].filter(v => v !== null).length + (p.origen !== 'todos' ? 1 : 0);
 }
 
+// Year the selected range ends in: the "year Y" of the Patrimonio / Nuevo rule. Rolling ranges end today.
+export function referenceYearOf(dateRange: string, today: Date = new Date()): number {
+  const custom = /^custom:\d{4}-\d{2}-\d{2}:(\d{4})-\d{2}-\d{2}$/.exec(dateRange);
+  if (custom) return Number(custom[1]);
+  const month = /^month:(\d{4})-\d{2}$/.exec(dateRange);
+  if (month) return Number(month[1]);
+  const ytd = /^ytd:(\d{4})$/.exec(dateRange);
+  if (ytd) return Number(ytd[1]);
+  return today.getUTCFullYear();
+}
+
 export function dimToApi(dim: Dim): 'cliente_entidad' | 'cliente_tienda' {
   return dim === 'tienda' ? 'cliente_tienda' : 'cliente_entidad';
 }

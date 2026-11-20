@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { activeFilterCount, applyClientesParams, dimToApi, parseClientesParams, type ClientesParams } from '../clientes-params';
+import { activeFilterCount, applyClientesParams, dimToApi, parseClientesParams, referenceYearOf, type ClientesParams } from '../clientes-params';
 
 const DEFAULTS: ClientesParams = {
   dim: 'entidad', grupo: null, ruta: null, tienda: null, origen: 'todos', ver: 'total', nivel: 'linea', detalle: false,
@@ -53,5 +53,18 @@ describe('dimToApi', () => {
   test('maps both values', () => {
     expect(dimToApi('entidad')).toBe('cliente_entidad');
     expect(dimToApi('tienda')).toBe('cliente_tienda');
+  });
+});
+
+describe('referenceYearOf', () => {
+  const today = new Date('2026-11-20T12:00:00Z');
+  test('year the range ends in', () => {
+    expect(referenceYearOf('custom:2025-12-01:2026-01-15', today)).toBe(2026);
+    expect(referenceYearOf('month:2025-12', today)).toBe(2025);
+    expect(referenceYearOf('ytd:2024', today)).toBe(2024);
+  });
+  test('rolling ranges end today', () => {
+    expect(referenceYearOf('30d', today)).toBe(2026);
+    expect(referenceYearOf('12m', today)).toBe(2026);
   });
 });

@@ -1,9 +1,19 @@
 import { screen } from '../../../../../test/dom-setup';
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { useSyncExternalStore } from 'react';
 import { cleanup, render, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ClientesFiltersResponse, CoberturaResponse, CoberturaRowView } from '../../types';
 
+// The tab keeps its state in the URL: a tiny stateful router so that replace() re-renders subscribers.
+let search = '';
+const listeners = new Set<() => void>();
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+mock.module('next/navigation', () => ({
+  useRouter: () => ({ replace: (u: string) => { search = u.split('?')[1] ?? ''; listeners.forEach(l => l()); }, push: () => {} }),
+  useSearchParams: () => new URLSearchParams(useSyncExternalStore(subscribe, () => search)),
+  usePathname: () => '/analitica',
+}));
 mock.module('posthog-js', () => ({ default: { capture: () => {} } }));
 mock.module('../../components/seguimiento/visuals', () => ({
   VisitBadge: ({ visit }: { visit: { status: string } }) => <span>{visit.status}</span>,
@@ -41,7 +51,9 @@ function bodyFor(url: string): unknown {
 const fetchMock = mock<(url: string) => Promise<Response>>(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
 
 beforeEach(() => {
+  search = 'detalle=1';
   fetchMock.mockClear();
+  fetchMock.mockImplementation(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
 afterEach(cleanup);
@@ -79,5 +91,59 @@ describe('TabClientes', () => {
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
     await screen.findByRole('region', { name: 'Cobertura de clientes' });
     expect(calls(u => u.includes('/cobertura'))[0]).toContain('dateRange=month%3A2026-10');
+  });
+
+  test('renders the scope bar and the Q1 heading', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('heading', { name: '¿Cómo evolucionan las ventas?' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Filtrar por grupo' })).toBeTruthy();
+    expect(screen.getByText(/Año de referencia: 2026/)).toBeTruthy();
+    await screen.findByRole('region', { name: 'Cobertura de clientes' });
+  });
+
+  test('the granularity reaches the trend request', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="week" />);
+    await waitFor(() => expect(calls(u => u.includes('section=trend') && u.includes('granularity=week'))).toHaveLength(1));
+  });
+
+  test('Detalle operativo is collapsed by default and opens when detalle=1', async () => {
+    search = '';
+    const { container, unmount } = render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect((container.querySelector('details') as HTMLDetailsElement).open).toBe(false);
+    unmount();
+    search = 'detalle=1';
+    const again = render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect((again.container.querySelector('details') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  test('keeps previous data visible while a filter change reloads', async () => {
+    fetchMock.mockImplementation(async url => {
+      if (url.includes('section=trend')) {
+        const body = { rows: [{ bucketKey: '2026-10-01', label: '1 Oct', activeCustomers: 5, churnRate: null }, { bucketKey: '2026-10-02', label: '2 Oct', activeCustomers: 6, churnRate: 0 }], granularity: 'day' };
+        if (url.includes('grupo=S1')) return new Promise<Response>(() => {});
+        return { ok: true, json: async () => body } as unknown as Response;
+      }
+      return { ok: true, json: async () => bodyFor(url) } as unknown as Response;
+    });
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    await screen.findByRole('button', { name: 'Ver tabla' });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('textbox', { name: 'Filtrar por grupo' }));
+    await user.click(await screen.findByRole('button', { name: 'Abasto' }));
+    await waitFor(() => expect(calls(u => u.includes('section=trend') && u.includes('grupo=S1'))).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Ver tabla' })).toBeTruthy();
+    expect(screen.queryByText('Cargando…')).toBeNull();
+  });
+
+  test('a failed trend request shows a retry button that refetches', async () => {
+    fetchMock.mockImplementation(async url => {
+      if (url.includes('section=trend')) return { ok: false, json: async () => ({ error: 'Falló' }) } as unknown as Response;
+      return { ok: true, json: async () => bodyFor(url) } as unknown as Response;
+    });
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const retry = await screen.findByRole('button', { name: 'Reintentar' });
+    const before = calls(u => u.includes('section=trend')).length;
+    await userEvent.setup().click(retry);
+    await waitFor(() => expect(calls(u => u.includes('section=trend')).length).toBe(before + 1));
   });
 });
