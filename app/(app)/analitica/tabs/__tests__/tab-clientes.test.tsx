@@ -220,4 +220,18 @@ describe('TabClientes', () => {
     expect(calls(u => u.includes('section=churned'))).toHaveLength(0);
     expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
   });
+
+  test('Ver por Producto loads the product breakdown with the Clientes scope', async () => {
+    search = 'detalle=1&ver=producto&grupo=S1&tienda=e%3A12';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="month" />);
+    await waitFor(() => expect(calls(u => u.includes('/api/dwh/productos') && u.includes('section=catalogo') && u.includes('grupo=S1') && u.includes('tienda=e%3A12'))).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Producto' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('Ver por defaults to Total (the activity trend) and switching writes ver to the URL', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('button', { name: 'Total' }).getAttribute('aria-pressed')).toBe('true');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Producto' }));
+    expect(search).toContain('ver=producto');
+  });
 });

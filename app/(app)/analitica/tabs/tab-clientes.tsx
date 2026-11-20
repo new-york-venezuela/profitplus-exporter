@@ -5,6 +5,7 @@ import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
 import { KpiStrip } from '../components/clientes/kpi-strip';
+import { ProductBreakdown } from '../components/clientes/product-breakdown';
 import { RetentionSection } from '../components/clientes/retention-section';
 import { TrajectoryTable } from '../components/clientes/trajectory-table';
 import { QuestionSection } from '../components/clientes/question-section';
@@ -133,18 +134,28 @@ export default function TabClientes({
 
       <QuestionSection question="¿Cómo evolucionan las ventas?">
         <KpiStrip cards={kpis} onFilter={setParams} />
-        <ChartCard
-          title="Clientes activos y tasa de abandono"
-          subtitle={`Por ${bucketNoun} — grano: ${params.dim === 'entidad' ? 'Casa matriz' : 'Tienda'}`}
-        >
-          <ActivityTrendChart
-            rows={trend.data?.rows ?? []}
-            granularity={trend.data?.granularity ?? granularity}
-            loading={trend.loading}
-            error={trend.error}
-            onRetry={trend.retry}
-          />
-        </ChartCard>
+        <SegmentedControl
+          ariaLabel="Ver por"
+          value={params.ver === 'producto' ? 'producto' : 'total'}
+          options={[{ value: 'total', label: 'Total' }, { value: 'producto', label: 'Producto' }]}
+          onChange={ver => setParams({ ver })}
+        />
+        {params.ver === 'producto' ? (
+          <ProductBreakdown params={params} dateRange={dateRange} granularity={granularity} currency={currency} onParams={setParams} />
+        ) : (
+          <ChartCard
+            title="Clientes activos y tasa de abandono"
+            subtitle={`Por ${bucketNoun} — grano: ${params.dim === 'entidad' ? 'Casa matriz' : 'Tienda'}`}
+          >
+            <ActivityTrendChart
+              rows={trend.data?.rows ?? []}
+              granularity={trend.data?.granularity ?? granularity}
+              loading={trend.loading}
+              error={trend.error}
+              onRetry={trend.retry}
+            />
+          </ChartCard>
+        )}
       </QuestionSection>
 
       <QuestionSection question="¿Cómo evolucionan clientes y tiendas?">
