@@ -58,4 +58,10 @@ describe('GET /api/dwh/clientes section=trendGrupo', () => {
     const body = await (await get('dateRange=custom:2026-10-05:2026-10-25&granularity=week')).json();
     expect(body.rows[0].sales.S1.usd).toBeNull();
   });
+
+  test('origen scopes the by-grupo trend too', async () => {
+    await get('dateRange=month:2026-10&granularity=day&origen=nuevo');
+    expect(queries[0].sql).toContain('cur_s.IsMigrationBatch = 0');
+    expect(queries[0].inputs).toMatchObject({ scopeOrigenFrom: '2026-01-01', scopeOrigenTo: '2027-01-01' });
+  });
 });

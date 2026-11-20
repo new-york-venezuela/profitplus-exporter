@@ -84,4 +84,34 @@ describe('buildKpis', () => {
     expect(kpi(cards, 'ventas').basis).toContain('consignación');
     expect(kpi(cards, 'ventas').basis).toContain('clientes inactivos');   // the trajectory sums every customer with sales; the other cards only the vigentes
   });
+
+  describe('origen', () => {
+    const mixed = [
+      row({ customerCode: 'PK', activeInPeriod: true, boughtPrev: true, kind: 'patrimonio', stickiness: 'constante' }),
+      row({ customerCode: 'PC', activeInPeriod: false, boughtPrev: true, kind: 'patrimonio', lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, visit: { ...noVisit, intervalDays: 30 } }),
+      row({ customerCode: 'NK', activeInPeriod: true, boughtPrev: true, kind: 'nuevo', firstSaleDateKey: 20260301, stickiness: 'constante' }),
+      row({ customerCode: 'NL', activeInPeriod: false, boughtPrev: true, kind: 'nuevo', lastSaleDateKey: 20260920, lastSaleAtPeriodEndKey: 20260920, visit: { ...noVisit, intervalDays: 7 } }),
+    ];
+    const resp = cobertura(mixed);
+    const build = (origen: 'todos' | 'patrimonio' | 'nuevo') =>
+      buildKpis({ cobertura: resp, estados: buildEstados(resp), trayectoria: null, currency: 'usd', origen });
+
+    test('activos and perdidos count only the selected origen', () => {
+      expect(kpi(build('todos'), 'activos')).toMatchObject({ current: 2, previous: 4 });
+      expect(kpi(build('nuevo'), 'activos')).toMatchObject({ current: 1, previous: 2 });
+      expect(kpi(build('patrimonio'), 'perdidos')).toMatchObject({ current: 1, hint: '1 enfriados · 0 perdidos' });
+      expect(kpi(build('nuevo'), 'perdidos')).toMatchObject({ current: 1, hint: '0 enfriados · 1 perdidos' });
+    });
+
+    test('the Patrimonio and Nuevos cards are about one origen by definition and do not change', () => {
+      expect(kpi(build('nuevo'), 'patrimonio').value).toBe(kpi(build('todos'), 'patrimonio').value);
+      expect(kpi(build('patrimonio'), 'nuevos').value).toBe(kpi(build('todos'), 'nuevos').value);
+      expect(kpi(build('nuevo'), 'patrimonio').basis).toContain('no cambia con Origen');
+    });
+
+    test('omitting origen means all customers', () => {
+      const c = buildKpis({ cobertura: resp, estados: buildEstados(resp), trayectoria: null, currency: 'usd' });
+      expect(kpi(c, 'activos').current).toBe(2);
+    });
+  });
 });

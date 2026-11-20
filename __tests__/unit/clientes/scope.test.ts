@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { customerScope, parseCarteraScope, parseGrupo, parseRuta } from '../../../lib/clientes/scope';
+import { customerScope, parseCarteraScope, parseGrupo, parseOrigenScope, parseRuta } from '../../../lib/clientes/scope';
 
 const sp = (q: string) => new URLSearchParams(q);
 
@@ -62,3 +62,48 @@ describe('customerScope', () => {
     expect(() => customerScope({ grupo: 'S1', ruta: null }, 'c; DROP TABLE x')).toThrow(/Alias/);
   });
 });
+
+describe('parseOrigenScope', () => {
+  const today = new Date('2026-11-20T12:00:00Z');
+  test('patrimonio / nuevo with the year the range ends in', () => {
+    expect(parseOrigenScope(sp('origen=nuevo&dateRange=month:2026-10'), today)).toEqual({ origen: 'nuevo', year: 2026 });
+    expect(parseOrigenScope(sp('origen=patrimonio&dateRange=custom:2025-01-01:2025-06-30'), today)).toEqual({ origen: 'patrimonio', year: 2025 });
+  });
+  test('rolling ranges end today', () => {
+    expect(parseOrigenScope(sp('origen=nuevo&dateRange=12m'), today)).toEqual({ origen: 'nuevo', year: 2026 });
+  });
+  test('todos, missing or malformed origen is no scope (null), never an error or an injection vector', () => {
+    expect(parseOrigenScope(sp('origen=todos'), today)).toBeNull();
+    expect(parseOrigenScope(sp(''), today)).toBeNull();
+    expect(parseOrigenScope(sp("origen=nuevo' OR '1'='1"), today)).toBeNull();
+  });
+});
+
+describe('customerScope origen', () => {
+  const bind = (s: ReturnType<typeof customerScope>) => {
+    const bound: Record<string, unknown> = {};
+    s.bind({ input: (n, v) => { bound[n] = v; } });
+    return bound;
+  };
+  test('patrimonio = migration batch or registered before Jan 1 of the year, on the CURRENT row', () => {
+    const s = customerScope({ grupo: null, ruta: null }, 'c', { origen: 'patrimonio', year: 2026 });
+    expect(s.where).toContain('cur_s.IsCurrent = 1');
+    expect(s.where).toContain('(cur_s.IsMigrationBatch = 1 OR cur_s.RegisteredDate < @scopeOrigenFrom)');
+    expect(bind(s)).toEqual({ scopeOrigenFrom: '2026-01-01' });
+  });
+  test('nuevo = registered during the year, outside the migration batch', () => {
+    const s = customerScope({ grupo: null, ruta: null }, 'c', { origen: 'nuevo', year: 2026 });
+    expect(s.where).toContain('cur_s.IsMigrationBatch = 0 AND cur_s.RegisteredDate >= @scopeOrigenFrom AND cur_s.RegisteredDate < @scopeOrigenTo');
+    expect(bind(s)).toEqual({ scopeOrigenFrom: '2026-01-01', scopeOrigenTo: '2027-01-01' });
+  });
+  test('combines with grupo and ruta in one subquery', () => {
+    const s = customerScope({ grupo: 'S1', ruta: 3 }, 'c', { origen: 'nuevo', year: 2026 });
+    expect(s.where.match(/SELECT cur_s\.CustomerCode/g)).toHaveLength(1);
+    expect(bind(s)).toMatchObject({ scopeGrupo: 'S1', scopeRuta: 3, scopeOrigenFrom: '2026-01-01' });
+  });
+  test('no origen leaves the SQL and binds exactly as before', () => {
+    expect(customerScope({ grupo: null, ruta: null }, 'c', null).where).toBe('');
+    expect(bind(customerScope({ grupo: 'S1', ruta: null }, 'c', null))).toEqual({ scopeGrupo: 'S1' });
+  });
+});
+

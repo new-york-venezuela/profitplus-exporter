@@ -13,7 +13,7 @@ import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
 import { bucketLabels, bucketSpan } from '@/app/(app)/analitica/lib/granularity';
 import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
-  CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope, parseCarteraScope, type CarteraScope,
+  CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope, parseCarteraScope, parseOrigenScope, type CarteraScope, type OrigenScope,
 } from '@/lib/clientes/scope';
 import type {
   ClientesResponse,
@@ -154,7 +154,7 @@ function churnedQuery(dimension: Dimension, prevDateWhere: string, currentDateWh
   `;
 }
 
-async function handleChurned(dimension: Dimension, dateRange: string, scope: CarteraScope): Promise<NextResponse> {
+async function handleChurned(dimension: Dimension, dateRange: string, scope: CarteraScope, origen: OrigenScope | null): Promise<NextResponse> {
   const prevSalesDateWhere = buildPrevPeriodDateWhereClause(dateRange, 'fs');
   if (prevSalesDateWhere === null) {
     const response: ClientesChurnedResponse = { rows: [], available: false };
@@ -168,7 +168,7 @@ async function handleChurned(dimension: Dimension, dateRange: string, scope: Car
   // salesDateWhereFs2 in the main GET handler below.
   const currentSalesDateWhere = buildDateWhereClause(dateRange, 'fs2');
 
-  const sc = customerScope(scope, 'c');
+  const sc = customerScope(scope, 'c', origen);
   const req = pool.request();
   sc.bind(req);
   const churned = await req.query(churnedQuery(dimension, prevSalesDateWhere, currentSalesDateWhere, sc.where));
@@ -261,9 +261,9 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
   `;
 }
 
-async function handleTrend(dimension: Dimension, dateRange: string, scope: CarteraScope, trend: TrendBucket) {
+async function handleTrend(dimension: Dimension, dateRange: string, scope: CarteraScope, origen: OrigenScope | null, trend: TrendBucket) {
   const pool = await getDwhPool();
-  const sc = customerScope(scope, 'c');
+  const sc = customerScope(scope, 'c', origen);
   const req = pool.request();
   sc.bind(req);
   const dateWhere = trend.mode === 'range' ? buildDateWhereClause(dateRange, 'fs') : widenedDateWhereClause(dateRange);
@@ -295,9 +295,9 @@ async function handleTrend(dimension: Dimension, dateRange: string, scope: Carte
 
 // Chain -> store trajectory: per-store sales, units and orders for the period and the previous equal period,
 // rolled up under the casa matriz in TypeScript (lib/clientes/trayectoria.ts).
-async function handleTrayectoria(dateRange: string, scope: CarteraScope) {
+async function handleTrayectoria(dateRange: string, scope: CarteraScope, origen: OrigenScope | null) {
   const pool = await getDwhPool();
-  const sc = customerScope(scope, 'c');
+  const sc = customerScope(scope, 'c', origen);
   const prevWhere = sharedPrevPeriodWhere(dateRange, 'fs');
   const req = pool.request();
   sc.bind(req);
@@ -325,9 +325,9 @@ async function handleTrayectoria(dateRange: string, scope: CarteraScope) {
 
 // Sales per bucket stacked by the customer's CURRENT grupo. The grupo filter is not applied (a breakdown by
 // grupo must show every grupo); ruta is. Same bucket / widened lead-in rules as handleTrend.
-async function handleTrendGrupo(dateRange: string, scope: CarteraScope, trend: TrendBucket) {
+async function handleTrendGrupo(dateRange: string, scope: CarteraScope, origen: OrigenScope | null, trend: TrendBucket) {
   const pool = await getDwhPool();
-  const sc = customerScope({ grupo: null, ruta: scope.ruta }, 'cur');
+  const sc = customerScope({ grupo: null, ruta: scope.ruta }, 'cur', origen);
   const req = pool.request();
   sc.bind(req);
   const dateWhere = buildDateWhereClause(dateRange, 'fs');
@@ -396,6 +396,7 @@ export async function GET(request: NextRequest) {
   const clienteDimensionParam = searchParams.get('clienteDimension');
   const clienteDimension: Dimension = isClienteDimension(clienteDimensionParam) ? clienteDimensionParam : 'cliente_entidad';
   const scope = parseCarteraScope(searchParams);
+  const origen = parseOrigenScope(searchParams);
 
   if (searchParams.get('section') === 'filters') {
     try {
@@ -407,7 +408,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'trend') {
     try {
-      return await handleTrend(clienteDimension, dateRange, scope, parseTrendBucket(searchParams, dateRange));
+      return await handleTrend(clienteDimension, dateRange, scope, origen, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -415,7 +416,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'trayectoria') {
     try {
-      return await handleTrayectoria(dateRange, scope);
+      return await handleTrayectoria(dateRange, scope, origen);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -423,7 +424,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'trendGrupo') {
     try {
-      return await handleTrendGrupo(dateRange, scope, parseTrendBucket(searchParams, dateRange));
+      return await handleTrendGrupo(dateRange, scope, origen, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -431,7 +432,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'churned') {
     try {
-      return await handleChurned(clienteDimension, dateRange, scope);
+      return await handleChurned(clienteDimension, dateRange, scope, origen);
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
@@ -447,7 +448,7 @@ export async function GET(request: NextRequest) {
     // Devoluciones by their own devolución date (this tab ignores returnsBasis).
     const returnsDateWhere = buildReturnsDateWhereClause(dateRange, 'fr2');
 
-    const sc = customerScope(scope, 'c');
+    const sc = customerScope(scope, 'c', origen);
     const req = pool.request();
     sc.bind(req);
     const customers = await req.query(customerQuery(clienteDimension, salesDateWhere, returnsDateWhere, sc.where));

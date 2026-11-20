@@ -55,4 +55,10 @@ describe('GET /api/dwh/clientes section=trayectoria', () => {
     expect(body.available).toBe(false);
     expect(body.rows.find((r: { key: string }) => r.key === 'e:1').salesPrev).toBeNull();
   });
+
+  test('origen scopes the stores', async () => {
+    await get('dateRange=month:2026-10&origen=patrimonio');
+    expect(queries[0].sql).toContain('cur_s.IsMigrationBatch = 1 OR cur_s.RegisteredDate < @scopeOrigenFrom');
+    expect(queries[0].inputs).toMatchObject({ scopeOrigenFrom: '2026-01-01' });
+  });
 });

@@ -325,4 +325,25 @@ describe('TabClientes', () => {
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
     expect(await screen.findByText(/solo clientes vigentes/)).toBeTruthy();
   });
+
+  test('Origen scopes every customer-based request, not only the tables', async () => {
+    search = 'detalle=1&origen=nuevo';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    for (const section of ['trend', 'trayectoria']) {
+      await waitFor(() => expect(calls(u => u.includes(`section=${section}`) && u.includes('origen=nuevo'))).toHaveLength(1));
+    }
+    await waitFor(() => expect(calls(u => u.includes('/api/dwh/clientes?') && !u.includes('section=') && u.includes('origen=nuevo'))).toHaveLength(1));
+  });
+
+  test('Origen also scopes the by-grupo trend; todos sends no origen', async () => {
+    search = 'detalle=1&ver=grupo&origen=patrimonio';
+    const { unmount } = render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    await waitFor(() => expect(calls(u => u.includes('section=trendGrupo') && u.includes('origen=patrimonio'))).toHaveLength(1));
+    unmount();
+    fetchMock.mockClear();
+    search = 'detalle=1';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    await waitFor(() => expect(calls(u => u.includes('section=trayectoria'))).toHaveLength(1));
+    expect(calls(u => u.includes('/api/dwh/clientes?') && u.includes('origen='))).toHaveLength(0);
+  });
 });

@@ -1,7 +1,8 @@
-import type { ClientesParams } from '@/app/(app)/analitica/lib/clientes-params';
+import type { ClientesParams, Origen } from '@/app/(app)/analitica/lib/clientes-params';
 import { moneyLabel } from '@/app/(app)/analitica/lib/format';
 import { newCustomersFunnel, patrimonioHolding } from '@/app/(app)/analitica/lib/kind-kpis';
 import type { CoberturaResponse, Currency, DualAmount } from '@/app/(app)/analitica/types';
+import { buildBridge } from './estado';
 import type { EstadosResult } from './estados';
 import type { TrayectoriaRow } from './trayectoria';
 
@@ -41,8 +42,11 @@ export function buildKpis(input: {
   estados: EstadosResult | null;
   trayectoria: readonly TrayectoriaRow[] | null;
   currency: Currency;
+  // Scopes the cards that count customers (activos, perdidos y enfriados); ventas comes scoped from the API and
+  // the Patrimonio / Nuevos cards are about one origen by definition. Omitted = todos.
+  origen?: Origen;
 }): KpiCardData[] {
-  const { cobertura, estados, trayectoria, currency } = input;
+  const { cobertura, estados, trayectoria, currency, origen = 'todos' } = input;
   const prevAvailable = cobertura?.prevPeriodAvailable === true;
   const rows = cobertura?.rows ?? [];
 
@@ -51,12 +55,15 @@ export function buildKpis(input: {
   const salesPrev = chains && prevAvailable ? total(chains, r => r.salesPrev, currency) : null;
   const money = (n: number | null) => (n === null ? NO_VALUE : moneyLabel(currency === 'usd' ? { bs: 0, usd: n } : { bs: n, usd: 0 }, currency));
 
-  const activos = cobertura ? rows.filter(r => r.activeInPeriod === true).length : null;
-  const activosPrev = cobertura && prevAvailable ? rows.filter(r => r.boughtPrev === true).length : null;
+  const scopedRows = origen === 'todos' ? rows : rows.filter(r => r.kind === origen);
+  const activos = cobertura ? scopedRows.filter(r => r.activeInPeriod === true).length : null;
+  const activosPrev = cobertura && prevAvailable ? scopedRows.filter(r => r.boughtPrev === true).length : null;
 
   const holding = cobertura ? patrimonioHolding(rows, prevAvailable, currency) : null;
   const funnel = cobertura ? newCustomersFunnel(rows) : null;
-  const bridge = estados && estados.available ? estados.bridge : null;
+  const bridge = estados && estados.available
+    ? (origen === 'todos' ? estados.bridge : buildBridge(estados.rows.filter(r => r.origen === origen).map(r => r.estado)))
+    : null;
   const lostNow = bridge ? bridge.enfriados + bridge.perdidos : null;
 
   return [
@@ -72,7 +79,7 @@ export function buildKpis(input: {
       id: 'patrimonio', label: 'Patrimonio retenido',
       value: holding?.retainedPct == null ? NO_VALUE : `${(holding.retainedPct * 100).toFixed(1)}%`,
       current: holding?.retainedPct ?? null, previous: null, windowTag: 'período',
-      basis: 'Patrimonio que compró en el período anterior y sigue comprando',
+      basis: 'Patrimonio que compró en el período anterior y sigue comprando · no cambia con Origen',
       hint: holding?.boughtPrev != null && holding.cooled != null ? `${holding.boughtPrev - holding.cooled} de ${holding.boughtPrev} siguen comprando` : 'Sin período anterior comparable',
       onClickFilter: { origen: 'patrimonio' },
     },
@@ -80,7 +87,7 @@ export function buildKpis(input: {
       id: 'nuevos', label: 'Nuevos que se quedan',
       value: funnel ? `${funnel.constante} de ${funnel.registered}` : NO_VALUE,
       current: funnel && funnel.registered > 0 ? funnel.constante / funnel.registered : null, previous: null, windowTag: 'hoy',
-      basis: 'Nuevos del año con compra en las últimas 3 visitas',
+      basis: 'Nuevos del año con compra en las últimas 3 visitas · no cambia con Origen',
       hint: funnel ? `${funnel.neverBought} nunca compraron` : undefined,
       onClickFilter: { origen: 'nuevo' },
     },
