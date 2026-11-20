@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
+import { GroupTable } from '../components/clientes/group-table';
+import { GroupTrendChart } from '../components/clientes/group-trend-chart';
 import { KpiStrip } from '../components/clientes/kpi-strip';
 import { ProductBreakdown } from '../components/clientes/product-breakdown';
 import { RetentionSection } from '../components/clientes/retention-section';
@@ -17,6 +19,8 @@ import { useDwhSection } from '../lib/use-dwh-section';
 import type { Granularity } from '../lib/granularity';
 import { moneyLabel } from '../lib/format';
 import { buildEstados } from '@/lib/clientes/estados';
+import { buildGrupoRows, type GrupoBy } from '@/lib/clientes/grupos';
+import type { ClientesTrendGrupoResponse } from '@/lib/clientes/grupo-trend';
 import { buildKpis } from '@/lib/clientes/kpis';
 import type { ClientesTrayectoriaResponse } from '@/lib/clientes/trayectoria';
 import type { ClientesResponse, ClientesRow, ClientesTrendResponse, CoberturaResponse, Currency, DateRange } from '../types';
@@ -101,6 +105,12 @@ export default function TabClientes({
   };
   const main = useDwhSection<ClientesResponse>(sectionUrl());
   const trend = useDwhSection<ClientesTrendResponse>(sectionUrl({ section: 'trend', granularity }));
+  const grupoTrendUrl = (() => {
+    const q = new URLSearchParams({ dateRange, granularity, section: 'trendGrupo' });
+    if (params.ruta) q.set('ruta', params.ruta);
+    return `/api/dwh/clientes?${q.toString()}`;
+  })();
+  const [grupoBy, setGrupoBy] = useState<GrupoBy>('grupo');
   const trayectoria = useDwhSection<ClientesTrayectoriaResponse>(sectionUrl({ section: 'trayectoria' }));
   const cobertura = useDwhSection<CoberturaResponse>(`/api/dwh/clientes/cobertura?includeInactive=0&dateRange=${encodeURIComponent(dateRange)}`);
   const scopedCobertura = useMemo<CoberturaResponse | null>(() => {
@@ -110,6 +120,12 @@ export default function TabClientes({
   }, [cobertura.data, params.grupo, params.ruta]);
   const estados = useMemo(() => (scopedCobertura ? buildEstados(scopedCobertura) : null), [scopedCobertura]);
   const estadoByCode = useMemo(() => new Map((estados?.rows ?? []).map(r => [r.customerCode, r.estado] as const)), [estados]);
+  const grupoRows = useMemo(
+    () => (cobertura.data
+      ? buildGrupoRows(cobertura.data.rows, grupoBy, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta), origen: params.origen }, currency, cobertura.data.prevPeriodAvailable)
+      : null),
+    [cobertura.data, grupoBy, params.grupo, params.ruta, params.origen, currency],
+  );
   const kpis = useMemo(
     () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.data?.rows ?? null, currency }),
     [scopedCobertura, estados, trayectoria.data, currency],
@@ -136,11 +152,13 @@ export default function TabClientes({
         <KpiStrip cards={kpis} onFilter={setParams} />
         <SegmentedControl
           ariaLabel="Ver por"
-          value={params.ver === 'producto' ? 'producto' : 'total'}
-          options={[{ value: 'total', label: 'Total' }, { value: 'producto', label: 'Producto' }]}
+          value={params.ver}
+          options={[{ value: 'total', label: 'Total' }, { value: 'producto', label: 'Producto' }, { value: 'grupo', label: 'Grupo' }]}
           onChange={ver => setParams({ ver })}
         />
-        {params.ver === 'producto' ? (
+        {params.ver === 'grupo' ? (
+          <GrupoTrendPanel url={grupoTrendUrl} currency={currency} />
+        ) : params.ver === 'producto' ? (
           <ProductBreakdown params={params} dateRange={dateRange} granularity={granularity} currency={currency} onParams={setParams} />
         ) : (
           <ChartCard
@@ -172,6 +190,30 @@ export default function TabClientes({
               selectedKey={params.tienda}
               onSelect={tienda => setParams({ tienda })}
               estadoByCode={estadoByCode}
+            />
+          </div>
+        )}
+      </QuestionSection>
+
+      <QuestionSection question="¿Qué grupo o ruta mueve las ventas?">
+        <SegmentedControl
+          ariaLabel="Agrupar por"
+          value={grupoBy}
+          options={[{ value: 'grupo', label: 'Grupo' }, { value: 'ruta', label: 'Ruta' }]}
+          onChange={setGrupoBy}
+        />
+        {cobertura.error ? (
+          <ErrorBox message={cobertura.error} onRetry={cobertura.retry} />
+        ) : !grupoRows ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+        ) : (
+          <div className={`bg-white border border-gray-300 rounded-lg shadow-sm p-4 ${cobertura.loading ? 'opacity-60' : ''}`}>
+            <GroupTable
+              rows={grupoRows}
+              by={grupoBy}
+              currency={currency}
+              selectedKey={grupoBy === 'grupo' ? params.grupo : params.ruta}
+              onSelect={key => setParams(grupoBy === 'grupo' ? { grupo: key } : { ruta: key })}
             />
           </div>
         )}
@@ -246,6 +288,16 @@ export default function TabClientes({
           </div>
         </div>
       </details>
+    </div>
+  );
+}
+
+// Mounted only while "Ver por Grupo" is selected, so the by-grupo query runs only when asked for.
+function GrupoTrendPanel({ url, currency }: { url: string; currency: Currency }) {
+  const trend = useDwhSection<ClientesTrendGrupoResponse>(url);
+  return (
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+      <GroupTrendChart data={trend.data} currency={currency} loading={trend.loading} error={trend.error} onRetry={trend.retry} />
     </div>
   );
 }

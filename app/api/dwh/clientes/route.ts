@@ -6,6 +6,7 @@ import {
   jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
 import { buildPrevPeriodDateWhereClause as sharedPrevPeriodWhere, rangeEndDateKey, rangeStartDateKey } from '@/app/api/dwh/lib/query-builder';
+import { buildGrupoTrend, type GrupoTrendRecord } from '@/lib/clientes/grupo-trend';
 import { rollUpTrayectoria, type ClientesTrayectoriaResponse, type StoreAggregate } from '@/lib/clientes/trayectoria';
 import { trayectoriaQuery } from '@/lib/clientes/trayectoria-sql';
 import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
@@ -322,6 +323,51 @@ async function handleTrayectoria(dateRange: string, scope: CarteraScope) {
   return jsonWithCache(response);
 }
 
+// Sales per bucket stacked by the customer's CURRENT grupo. The grupo filter is not applied (a breakdown by
+// grupo must show every grupo); ruta is. Same bucket / widened lead-in rules as handleTrend.
+async function handleTrendGrupo(dateRange: string, scope: CarteraScope, trend: TrendBucket) {
+  const pool = await getDwhPool();
+  const sc = customerScope({ grupo: null, ruta: scope.ruta }, 'cur');
+  const req = pool.request();
+  sc.bind(req);
+  const dateWhere = trend.mode === 'range' ? buildDateWhereClause(dateRange, 'fs') : widenedDateWhereClause(dateRange);
+  const result = await req.query(`
+    SELECT ${trend.keyExpr('d')} AS BucketKey, RTRIM(cur.ErpSegmentCode) AS GroupCode, MAX(sg.SegmentName) AS GroupName,
+           SUM(fs.NetAmount) AS SalesBs, SUM(fs.NetAmount / NULLIF(fx.RateSell, 0)) AS SalesUsd
+    FROM fact.Fact_Sales fs
+    ${usdConversionJoin('fs')}
+    JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
+    JOIN dim.Dim_Customer c ON c.CustomerKey = fs.CustomerKey
+    JOIN dim.Dim_Customer cur ON cur.CustomerCode = c.CustomerCode AND cur.IsCurrent = 1
+    LEFT JOIN dim.Dim_Segment sg ON sg.ErpSegmentCode = cur.ErpSegmentCode
+    WHERE fs.IsVoided = 0 ${dateWhere} ${sc.where}
+    GROUP BY ${trend.keyExpr('d')}, RTRIM(cur.ErpSegmentCode)
+  `);
+
+  const startIso = rangeStart(dateRange).toISOString().slice(0, 10);
+  const records: GrupoTrendRecord[] = result.recordset
+    .filter(r => {
+      if (trend.mode === 'range') return true;
+      const span = bucketSpan(trend.mode, String(r.BucketKey));
+      return span === null || span.end >= startIso;
+    })
+    .map(r => ({
+      bucketKey: String(r.BucketKey),
+      groupCode: r.GroupCode === null || r.GroupCode === undefined ? null : String(r.GroupCode).trim(),
+      groupName: r.GroupName ? String(r.GroupName).trim() : null,
+      bs: Number(r.SalesBs ?? 0),
+      usd: r.SalesUsd === null || r.SalesUsd === undefined ? null : Number(r.SalesUsd),
+    }));
+  const built = buildGrupoTrend(records);
+  const labels = bucketLabels(trend.mode, built.rows.map(r => r.bucketKey));
+  return jsonWithCache({
+    granularity: trend.granularity,
+    trendMode: trend.mode,
+    series: built.series,
+    rows: built.rows.map((r, i) => ({ ...r, label: labels[i] })),
+  });
+}
+
 // A NULL/blank SegmentName or ZoneName must not render as the text "null": fall back to the code.
 function optionLabel(name: unknown, code: string): string {
   const label = name === null || name === undefined ? '' : String(name).trim();
@@ -376,6 +422,14 @@ export async function GET(request: NextRequest) {
   if (searchParams.get('section') === 'trayectoria') {
     try {
       return await handleTrayectoria(dateRange, scope);
+    } catch {
+      return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
+    }
+  }
+
+  if (searchParams.get('section') === 'trendGrupo') {
+    try {
+      return await handleTrendGrupo(dateRange, scope, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }

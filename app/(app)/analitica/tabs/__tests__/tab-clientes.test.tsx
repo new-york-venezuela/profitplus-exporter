@@ -234,4 +234,28 @@ describe('TabClientes', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Producto' }));
     expect(search).toContain('ver=producto');
   });
+
+  test('Q3 ranks the grupos from the shared cobertura rows and selecting one writes it to the URL', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('heading', { name: '¿Qué grupo o ruta mueve las ventas?' })).toBeTruthy();
+    const pick = await screen.findByRole('button', { name: 'Seleccionar Abasto' });
+    expect(screen.getByRole('button', { name: 'Seleccionar Restaurante' })).toBeTruthy();
+    await userEvent.setup().click(pick);
+    expect(search).toContain('grupo=S1');
+  });
+
+  test('Q3 can group by ruta', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    const q3 = await screen.findByRole('region', { name: '¿Qué grupo o ruta mueve las ventas?' });
+    await userEvent.setup().click(within(q3).getByRole('button', { name: 'Ruta' }));
+    expect(within(q3).getByRole('columnheader', { name: /^Ruta/ })).toBeTruthy();
+    expect(within(q3).getByText('Sin ruta')).toBeTruthy();
+  });
+
+  test('Ver por Grupo requests the by-grupo trend with the granularity and without the grupo filter', async () => {
+    search = 'detalle=1&ver=grupo&grupo=S1&ruta=3';
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="week" />);
+    await waitFor(() => expect(calls(u => u.includes('section=trendGrupo') && u.includes('granularity=week') && u.includes('ruta=3'))).toHaveLength(1));
+    expect(calls(u => u.includes('section=trendGrupo') && u.includes('grupo='))).toHaveLength(0);
+  });
 });
