@@ -5,6 +5,7 @@ import CoberturaClientes from '../components/cobertura-clientes';
 import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
 import { DataTable, type Column } from '../components/clientes/data-table';
 import { KpiStrip } from '../components/clientes/kpi-strip';
+import { RetentionSection } from '../components/clientes/retention-section';
 import { TrajectoryTable } from '../components/clientes/trajectory-table';
 import { QuestionSection } from '../components/clientes/question-section';
 import { SegmentedControl } from '../components/clientes/segmented-control';
@@ -17,27 +18,11 @@ import { moneyLabel } from '../lib/format';
 import { buildEstados } from '@/lib/clientes/estados';
 import { buildKpis } from '@/lib/clientes/kpis';
 import type { ClientesTrayectoriaResponse } from '@/lib/clientes/trayectoria';
-import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, CoberturaResponse, Currency, DateRange } from '../types';
+import type { ClientesResponse, ClientesRow, ClientesTrendResponse, CoberturaResponse, Currency, DateRange } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
-}
-
-// DateKey is YYYYMMDD (see dwh-migrations' Dim_Date) — formatted locally
-// here rather than in lib/format.ts since this is the only tab that renders
-// a raw DateKey rather than a pre-aggregated monthly/period figure.
-function formatDateKey(dateKey: number): string {
-  const s = String(dateKey);
-  return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
-}
-
-function EmptyState({ message }: { message?: string }) {
-  return (
-    <div className="h-40 flex items-center justify-center text-sm text-gray-600 text-center px-4">
-      {message ?? 'Sin datos disponibles todavía.'}
-    </div>
-  );
 }
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -71,7 +56,6 @@ function SegmentBadge({ segment }: { segment: Segment }) {
 }
 
 type ParetoRow = ClientesRow & { id: string };
-type ChurnedRow = ClientesChurnedResponse['rows'][number] & { id: string };
 
 const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -92,14 +76,6 @@ function paretoColumns(currency: Currency): Column<ParetoRow>[] {
     { key: 'salesNet', label: 'Ventas netas', align: 'right', sortValue: r => amountOf(r.salesNet, currency), render: r => moneyLabel(r.salesNet, currency) },
     { key: 'returnRate', label: 'Tasa dev.', align: 'right', sortValue: r => r.returnRate, render: r => pct(r.returnRate) },
     { key: 'pareto', label: 'Segmento', align: 'right', sortValue: r => r.pareto, render: r => <SegmentBadge segment={r.pareto} /> },
-  ];
-}
-
-function churnedColumns(currency: Currency, firstLabel: string): Column<ChurnedRow>[] {
-  return [
-    { key: 'name', label: firstLabel, sortValue: r => r.name, render: r => r.name },
-    { key: 'last', label: 'Última compra', align: 'right', sortValue: r => r.lastPurchaseDateKey, render: r => formatDateKey(r.lastPurchaseDateKey) },
-    { key: 'lost', label: 'Ingreso perdido', align: 'right', sortValue: r => amountOf(r.lostRevenue, currency), render: r => <span className="font-medium text-gray-900">{moneyLabel(r.lostRevenue, currency)}</span> },
   ];
 }
 
@@ -124,7 +100,6 @@ export default function TabClientes({
   };
   const main = useDwhSection<ClientesResponse>(sectionUrl());
   const trend = useDwhSection<ClientesTrendResponse>(sectionUrl({ section: 'trend', granularity }));
-  const churned = useDwhSection<ClientesChurnedResponse>(sectionUrl({ section: 'churned' }));
   const trayectoria = useDwhSection<ClientesTrayectoriaResponse>(sectionUrl({ section: 'trayectoria' }));
   const cobertura = useDwhSection<CoberturaResponse>(`/api/dwh/clientes/cobertura?includeInactive=0&dateRange=${encodeURIComponent(dateRange)}`);
   const scopedCobertura = useMemo<CoberturaResponse | null>(() => {
@@ -142,7 +117,6 @@ export default function TabClientes({
 
   const paretoRows: ParetoRow[] = (data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
   const visibleParetoRows = segmentFilter === 'all' ? paretoRows : paretoRows.filter(r => r.pareto === segmentFilter);
-  const churnedRows: ChurnedRow[] = (churned.data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
 
   const segmentCounts = (data?.rows ?? []).reduce<Record<Segment, number>>(
     (acc, r) => {
@@ -151,7 +125,6 @@ export default function TabClientes({
     },
     { A: 0, B: 0, C: 0 }
   );
-  const noun = params.dim === 'entidad' ? 'Clientes' : 'Tiendas';
   const bucketNoun = trend.data?.granularity === 'day' ? 'día' : trend.data?.granularity === 'week' ? 'semana' : 'mes';
 
   return (
@@ -193,6 +166,18 @@ export default function TabClientes({
         )}
       </QuestionSection>
 
+      <QuestionSection question="¿Se mantiene la base de clientes?">
+        {cobertura.error ? (
+          <ErrorBox message={cobertura.error} onRetry={cobertura.retry} />
+        ) : !estados ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+        ) : (
+          <div className={cobertura.loading ? 'opacity-60' : ''}>
+            <RetentionSection data={estados} currency={currency} origen={params.origen} onOrigen={origen => setParams({ origen })} />
+          </div>
+        )}
+      </QuestionSection>
+
       <details
         open={params.detalle}
         onToggle={e => {
@@ -209,35 +194,10 @@ export default function TabClientes({
             ruta={params.ruta === null ? null : Number(params.ruta)}
             currency={currency}
             kind={params.origen}
-            onKindChange={origen => setParams({ origen })}
             shared={cobertura}
           />
 
-          <div className={`space-y-6 print:hidden ${main.loading || churned.loading ? 'opacity-60' : ''}`}>
-            <section aria-label="Clientes perdidos" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-              <h2 className="text-sm font-bold text-gray-900">{noun} perdidos</h2>
-              <p className="text-xs text-gray-600 mb-3">
-                {noun} con compras en el período anterior que no compraron en el período actual — ordenados por ingreso perdido.
-              </p>
-              {churned.error ? (
-                <ErrorBox message={churned.error} onRetry={churned.retry} />
-              ) : churned.data && !churned.data.available ? (
-                <EmptyState message="No disponible para este rango de fechas." />
-              ) : !churned.data && churned.loading ? (
-                <div className="h-40 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
-              ) : (
-                <DataTable<ChurnedRow>
-                  columns={churnedColumns(currency, params.dim === 'entidad' ? 'Cliente' : 'Tienda')}
-                  rows={churnedRows}
-                  rowKey={r => r.id}
-                  defaultSort={{ key: 'lost', dir: 'desc' }}
-                  searchText={r => r.name}
-                  exportFile={{ name: 'clientes-perdidos.csv', toRecord: r => ({ Cliente: r.name, 'Última compra': formatDateKey(r.lastPurchaseDateKey), 'Ingreso perdido': amountOf(r.lostRevenue, currency) }) }}
-                  emptyMessage="Sin clientes perdidos en este período."
-                />
-              )}
-            </section>
-
+          <div className={`space-y-6 print:hidden ${main.loading ? 'opacity-60' : ''}`}>
             <section aria-label="Pareto de clientes" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
               <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                 <div>

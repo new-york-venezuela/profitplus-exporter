@@ -5,7 +5,7 @@ import posthog from 'posthog-js';
 import SearchableSelect from '@/lib/components/searchable-select';
 import { KpiCard } from './kpi-card';
 import { KpiGroup } from './kpi-group';
-import { KindBadge, KindComparisonPanel, KindSwitch, NewFunnelPanel, PatrimonioHoldingPanel, StickinessBadge } from './kind-panels';
+import { KindBadge, StickinessBadge } from './kind-panels';
 import { VisitBadge } from './seguimiento/visuals';
 import type { CoberturaResponse, CoberturaRowView, CoberturaStatus, Currency, DateRange } from '../types';
 import { summarizeCartera } from '../lib/cartera';
@@ -83,11 +83,11 @@ const STATUS_FILTER_OPTIONS: { value: '' | CoberturaStatus; label: string }[] = 
 const isoToDisplay = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : NO_DATA);
 
 export default function CoberturaClientes({
-  dateRange = '12m', grupo = null, ruta = null, currency = 'usd', kind, onKindChange, shared,
+  dateRange = '12m', grupo = null, ruta = null, currency = 'usd', kind, shared,
 }: {
   dateRange?: DateRange; grupo?: string | null; ruta?: number | null; currency?: Currency;
-  // Optional controlled Origen (the Clientes scope bar drives it); standalone use keeps local state.
-  kind?: KindFilter; onKindChange?: (k: KindFilter) => void;
+  // Origen scope (patrimonio | nuevo); the Clientes scope bar owns the control. Omitted = all customers.
+  kind?: KindFilter;
   // Optional already-fetched response for includeInactive=0 (the tab shares it with the Estado sections so the
   // page makes one heavy request); "Incluir inactivos" falls back to this component's own fetch.
   shared?: { data: CoberturaResponse | null; loading: boolean; error: string | null };
@@ -104,10 +104,7 @@ export default function CoberturaClientes({
   const [statusFilter, setStatusFilter] = useState<CoberturaStatus | null>(null);
   const [visitFilter, setVisitFilter] = useState<'overdue' | 'no_interval' | null>(null);
   const [inactiveOnly, setInactiveOnly] = useState<boolean>(false);
-  const [localKind, setLocalKind] = useState<KindFilter>('todos');
-  const kindFilter = kind ?? localKind;
-  const setKindFilter = onKindChange ?? setLocalKind;
-  const [cooledOnly, setCooledOnly] = useState<boolean>(false);
+  const kindFilter: KindFilter = kind ?? 'todos';
   const [stickinessFilter, setStickinessFilter] = useState<Stickiness | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('days');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -164,7 +161,7 @@ export default function CoberturaClientes({
   const cartera = useMemo(() => summarizeCartera(scoped), [scoped]);
 
   const sorted = useMemo(() => {
-    const filtered = filterCobertura(scoped, { sellerCode: sellerFilter, status: statusFilter, visit: visitFilter, inactiveInPeriod: inactiveOnly, cooled: cooledOnly, stickiness: stickinessFilter });
+    const filtered = filterCobertura(scoped, { sellerCode: sellerFilter, status: statusFilter, visit: visitFilter, inactiveInPeriod: inactiveOnly, stickiness: stickinessFilter });
     const out = [...filtered];
     out.sort((a, b) => {
       switch (sortKey) {
@@ -189,7 +186,7 @@ export default function CoberturaClientes({
       }
     });
     return out;
-  }, [scoped, sellerFilter, statusFilter, visitFilter, inactiveOnly, cooledOnly, stickinessFilter, currency, sortKey, sortDir]);
+  }, [scoped, sellerFilter, statusFilter, visitFilter, inactiveOnly, stickinessFilter, currency, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -201,7 +198,7 @@ export default function CoberturaClientes({
 
   function handleExport() {
     posthog.capture('cobertura_export', { seller: sellerFilter, status: statusFilter, rows: sorted.length });
-    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter, dateRange, grupo, ruta, visit: visitFilter, inactiveInPeriod: inactiveOnly, kind: kindFilter === 'todos' ? null : kindFilter, cooled: cooledOnly, stickiness: stickinessFilter })}`;
+    window.location.href = `/api/dwh/clientes/cobertura?${coberturaExportQuery({ includeInactive, sellerCode: sellerFilter, status: statusFilter, dateRange, grupo, ruta, visit: visitFilter, inactiveInPeriod: inactiveOnly, kind: kindFilter === 'todos' ? null : kindFilter, stickiness: stickinessFilter })}`;
   }
 
   function handlePrint() {
@@ -250,26 +247,6 @@ export default function CoberturaClientes({
               Exportar Excel
             </button>
           </div>
-        </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          <KindSwitch value={kindFilter} onChange={k => { setKindFilter(k); setCooledOnly(false); }} rows={rows} />
-          <span className="text-xs text-gray-500">
-            Patrimonio: registrado antes de {data.kindYear} o en el lote migrado. Nuevo: registrado en {data.kindYear}.
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <KindComparisonPanel rows={rows} currency={currency} />
-          {kindFilter !== 'nuevo' && (
-            <PatrimonioHoldingPanel
-              rows={rows}
-              prevPeriodAvailable={data.prevPeriodAvailable}
-              currency={currency}
-              onShowCooled={() => { setKindFilter('patrimonio'); setCooledOnly(true); }}
-            />
-          )}
-          {kindFilter !== 'patrimonio' && <NewFunnelPanel rows={rows} />}
         </div>
 
         <KpiGroup title="Cobertura" tone="customers" columns={4}>
@@ -349,11 +326,6 @@ export default function CoberturaClientes({
             <option value="">Toda constancia</option>
             {STICKINESS_ORDER.map(k => <option key={k} value={k}>{STICKINESS_LABEL[k]}</option>)}
           </select>
-          {cooledOnly && (
-            <button type="button" onClick={() => setCooledOnly(false)} className="px-2 py-1 text-xs rounded bg-red-100 text-red-800">
-              Solo los que se enfriaron ✕
-            </button>
-          )}
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={inactiveOnly} onChange={e => setInactiveOnly(e.target.checked)} />
             Sin compras en el período

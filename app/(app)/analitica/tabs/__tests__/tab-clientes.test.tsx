@@ -48,14 +48,12 @@ const pareto = (name: string, gross: number, segment: 'A' | 'B' | 'C') => ({
   name, salesGross: money(gross), returnsNet: money(0), salesNet: money(gross), returnRate: null, pareto: segment,
 });
 let paretoRows: ReturnType<typeof pareto>[] = [];
-let churnedRows: { name: string; lastPurchaseDateKey: number; lostRevenue: { bs: number; usd: number } }[] = [];
 
 function bodyFor(url: string): unknown {
   if (url.includes('/cobertura')) return cobertura;
   if (url.includes('section=filters')) return filters;
   if (url.includes('section=trend')) return { rows: [] };
   if (url.includes('section=trayectoria')) return { available: true, rows: [] };
-  if (url.includes('section=churned')) return { rows: churnedRows, available: true };
   return { rows: paretoRows, paretoThresholds: { a: 0.2, b: 0.5 } };
 }
 const fetchMock = mock<(url: string) => Promise<Response>>(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
@@ -63,7 +61,6 @@ const fetchMock = mock<(url: string) => Promise<Response>>(async url => ({ ok: t
 beforeEach(() => {
   search = 'detalle=1';
   paretoRows = [];
-  churnedRows = [];
   downloadCsv.mockClear();
   fetchMock.mockClear();
   fetchMock.mockImplementation(async url => ({ ok: true, json: async () => bodyFor(url) }) as unknown as Response);
@@ -91,7 +88,7 @@ describe('TabClientes', () => {
     await waitFor(() => {
       expect(calls(u => !u.includes('/cobertura') && !u.includes('section=') && u.includes('grupo=S1'))).toHaveLength(1);
       expect(calls(u => u.includes('section=trend') && u.includes('grupo=S1'))).toHaveLength(1);
-      expect(calls(u => u.includes('section=churned') && u.includes('grupo=S1'))).toHaveLength(1);
+      expect(calls(u => u.includes('section=trayectoria') && u.includes('grupo=S1'))).toHaveLength(1);
     });
     // ...while Cobertura filters client-side: same fetch, status filter kept, now scoped to S1.
     expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
@@ -197,15 +194,7 @@ describe('TabClientes', () => {
     expect(within(region).getByRole('button', { name: /^A/ }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  test('Perdidos can be exported (downloadCsv called with the rows)', async () => {
-    churnedRows = [{ name: 'Gama Centro', lastPurchaseDateKey: 20260915, lostRevenue: { bs: 500, usd: 50 } }];
-    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
-    const region = await screen.findByRole('region', { name: 'Clientes perdidos' });
-    await within(region).findByText('Gama Centro');
-    await userEvent.setup().click(within(region).getByRole('button', { name: /Exportar CSV/ }));
-    expect(downloadCsv).toHaveBeenCalledTimes(1);
-    expect((downloadCsv.mock.calls[0][1] as { Cliente: string }[])[0].Cliente).toBe('Gama Centro');
-  });
+
 
   test('the KPI strip renders the five cards from the shared data', async () => {
     render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
@@ -221,5 +210,14 @@ describe('TabClientes', () => {
     expect(screen.getByRole('heading', { name: '¿Cómo evolucionan clientes y tiendas?' })).toBeTruthy();
     await waitFor(() => expect(calls(u => u.includes('section=trayectoria') && u.includes('dateRange=month%3A2026-10'))).toHaveLength(1));
     expect(await screen.findByText('Sin ventas en el período para este alcance.')).toBeTruthy();
+  });
+
+  test('Q4 shows the customer bridge built from the shared cobertura data', async () => {
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
+    expect(screen.getByRole('heading', { name: '¿Se mantiene la base de clientes?' })).toBeTruthy();
+    const bridge = await screen.findByRole('list', { name: 'Puente de clientes' });
+    expect(within(bridge).getAllByRole('listitem')).toHaveLength(6);
+    expect(calls(u => u.includes('section=churned'))).toHaveLength(0);
+    expect(calls(u => u.includes('/cobertura'))).toHaveLength(1);
   });
 });
