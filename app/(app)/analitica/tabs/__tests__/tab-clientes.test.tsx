@@ -51,7 +51,7 @@ const coberturaSection = () => screen.getByRole('region', { name: 'Cobertura de 
 
 describe('TabClientes', () => {
   test('changing the group keeps Cobertura mounted: its local filters survive and /cobertura is not refetched', async () => {
-    render(<TabClientes dateRange="month:2026-10" currency="usd" />);
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
     await screen.findByRole('region', { name: 'Cobertura de clientes' });
     const user = userEvent.setup();
 
@@ -76,7 +76,7 @@ describe('TabClientes', () => {
   });
 
   test('the date range reaches the Cobertura request', async () => {
-    render(<TabClientes dateRange="month:2026-10" currency="usd" />);
+    render(<TabClientes dateRange="month:2026-10" currency="usd" granularity="day" />);
     await screen.findByRole('region', { name: 'Cobertura de clientes' });
     expect(calls(u => u.includes('/cobertura'))[0]).toContain('dateRange=month%3A2026-10');
   });

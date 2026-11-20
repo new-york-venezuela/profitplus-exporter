@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
 import CarteraFilterBar from '../components/cartera-filter-bar';
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts';
+import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
+import type { Granularity } from '../lib/granularity';
 import { moneyLabel } from '../lib/format';
 import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
 
@@ -43,6 +42,7 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
 
 function useClientesTrend(
   dateRange: DateRange,
+  granularity: Granularity,
   clienteDimension: 'cliente_entidad' | 'cliente_tienda',
   grupo: string | null,
   ruta: string | null,
@@ -50,6 +50,7 @@ function useClientesTrend(
   const [data, setData] = useState<ClientesTrendResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +58,7 @@ function useClientesTrend(
       setError(null);
       setLoading(true);
       try {
-        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'trend' });
+        const params = new URLSearchParams({ dateRange, granularity, clienteDimension, section: 'trend' });
         if (grupo) params.set('grupo', grupo);
         if (ruta) params.set('ruta', ruta);
         const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
@@ -80,9 +81,9 @@ function useClientesTrend(
     return () => {
       cancelled = true;
     };
-  }, [dateRange, clienteDimension, grupo, ruta]);
+  }, [dateRange, granularity, clienteDimension, grupo, ruta, attempt]);
 
-  return { data, loading, error };
+  return { data, loading, error, retry: () => setAttempt(a => a + 1) };
 }
 
 function useClientesChurned(
@@ -193,9 +194,11 @@ const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
 export default function TabClientes({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
   const [data, setData] = useState<ClientesResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -206,7 +209,7 @@ export default function TabClientes({
   const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
   const [grupo, setGrupo] = useState<string | null>(null);
   const [ruta, setRuta] = useState<string | null>(null);
-  const trend = useClientesTrend(dateRange, clienteDimension, grupo, ruta);
+  const trend = useClientesTrend(dateRange, granularity, clienteDimension, grupo, ruta);
   const churned = useClientesChurned(dateRange, clienteDimension, grupo, ruta);
 
   useEffect(() => {
@@ -302,12 +305,6 @@ export default function TabClientes({
     { A: 0, B: 0, C: 0 }
   );
 
-  const trendData = (trend.data?.rows ?? []).map(r => ({
-    label: r.yearMonth,
-    'Clientes activos': r.activeCustomers,
-    'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
-  }));
-
   return shell(
       <div className="space-y-6 print:hidden">
       <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-300 rounded-lg shadow-sm p-4">
@@ -335,32 +332,15 @@ export default function TabClientes({
 
       <ChartCard
         title="Clientes activos y tasa de abandono"
-        subtitle={`Por mes — grano: ${clienteDimension === 'cliente_entidad' ? 'Entidad (cadena)' : 'Tienda'}`}
+        subtitle={`Por ${trend.data?.granularity === 'day' ? 'día' : trend.data?.granularity === 'week' ? 'semana' : 'mes'} — grano: ${clienteDimension === 'cliente_entidad' ? 'Entidad (cadena)' : 'Tienda'}`}
       >
-        {trend.loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : trend.error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{trend.error}</p>
-        ) : trendData.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={v => `${v}%`} />
-              <Tooltip
-                formatter={(val: unknown, name: unknown) =>
-                  val === null ? '—' : name === 'Tasa de abandono' ? `${Number(val).toFixed(1)}%` : String(val)
-                }
-              />
-              <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="Clientes activos" stroke="#2563eb" strokeWidth={2} dot={false} />
-              <Line yAxisId="right" type="monotone" dataKey="Tasa de abandono" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        <ActivityTrendChart
+          rows={trend.data?.rows ?? []}
+          granularity={trend.data?.granularity ?? granularity}
+          loading={trend.loading}
+          error={trend.error}
+          onRetry={trend.retry}
+        />
       </ChartCard>
 
       <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">

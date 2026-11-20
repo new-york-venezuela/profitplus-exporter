@@ -313,11 +313,12 @@ export interface ClientesResponse {
   paretoThresholds: { a: number; b: number }; // cumulative % for A and B segments
 }
 
-// Clientes tab — monthly trend of active customers and churn rate, one
+// Clientes tab — per-bucket (day/week/month) trend of active customers and churn rate, one
 // point per month that had >=1 sale in dateRange (plus the one month
 // immediately before it, needed to compute the first point's churn).
 export interface ClientesTrendRow {
-  yearMonth: string; // formatted, e.g. "Ene 26"
+  bucketKey: string; // 'YYYY-MM' | 'YYYY-Www' | 'YYYY-MM-DD' | 'range'
+  label: string;     // formatted, e.g. "Oct 26", "S41", "Total del período"
   activeCustomers: number;
   // Share of the PREVIOUS month's active customers absent this month. Null
   // for a month whose preceding month had zero active customers (nothing
@@ -327,6 +328,7 @@ export interface ClientesTrendRow {
 
 export interface ClientesTrendResponse {
   rows: ClientesTrendRow[];
+  granularity: 'day' | 'week' | 'month';
 }
 
 // Clientes tab — row-level detail for customers/stores that were active in

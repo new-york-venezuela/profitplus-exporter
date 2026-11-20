@@ -6,6 +6,8 @@ import {
   jsonWithCache, usdConversionJoin, returnsAmountSubqueries, dualAmountExpr, type Dimension,
 } from '@/app/api/dwh/lib/query-builder';
 import { subtractDual } from '@/app/(app)/analitica/lib/net-sales';
+import { bucketLabels, bucketSpan } from '@/app/(app)/analitica/lib/granularity';
+import { parseTrendBucket, type TrendBucket } from '@/app/api/dwh/lib/trend-bucket';
 import {
   CLIENTES_GROUPS_QUERY, CLIENTES_ROUTES_QUERY, customerScope, parseCarteraScope, type CarteraScope,
 } from '@/lib/clientes/scope';
@@ -30,23 +32,12 @@ export const dynamic = 'force-dynamic';
 // cumulative sales, B = next 30% (up to 50% cumulative), C = the rest.
 const PARETO_THRESHOLDS = { a: 0.2, b: 0.5 };
 
-function formatYearMonth(ym: string): string {
-  const [y, m] = ym.split('-');
-  const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  const idx = parseInt(m, 10) - 1;
-  return names[idx] ? `${names[idx]} ${y.slice(2)}` : ym;
-}
-
 const CUSTOM_RANGE_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
 const MONTH_RANGE_RE = /^month:(\d{4})-(\d{2})$/;
 const YTD_RANGE_RE = /^ytd:(\d{4})$/;
 
 function dateKey(d: Date): number {
   return parseInt(`${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`);
-}
-
-function toYearMonth(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 // Mirrors buildDateWhereClause's own per-kind start-date parsing (see
@@ -188,63 +179,56 @@ async function handleChurned(dimension: Dimension, dateRange: string, scope: Car
   return jsonWithCache(response);
 }
 
-// Monthly active-customers + churn trend. CustomerMonth is the distinct
-// (YearMonth, EntityKey) grain — one row per customer (at whichever grain
-// `dimension` resolves to — legal entity/cadena, or individual tienda) per
-// month they bought anything — built from a widened window (widenedDateWhere)
-// that starts one calendar month before the requested range, purely so the
-// FIRST in-range month has a preceding month to diff against for its churn
-// figure; the final WHERE cm.YearMonth >= @minYearMonth then drops that
-// extra leading month from the emitted rows. Churn for month M = customers
-// present in M-1 but absent in M, as a share of M-1's total — the same
-// "prior active, gone now" definition used by activeCustomersQuery in
-// ../resumen/route.ts, just walked forward month-by-month instead of
-// collapsed to a single before/after pair. EntityKey is whatever
-// spec.valueExpr resolves to (LegalEntityKey for cliente_entidad,
-// CustomerKey for cliente_tienda) — this is what lets a cadena that opens a
-// new tienda (same LegalEntityKey, new CustomerKey) show up as "no churn,
-// same customer" at the Entidad grain but as a new/incremental customer at
-// the Tienda grain, per the actual business distinction being asked for.
-function trendQuery(dimension: Dimension, widenedDateWhere: string, scopeWhere: string): string {
+// Active-customers + churn trend per bucket (day | week | month, from the shared granularity rules; "range" is
+// one aggregate bucket). CustomerBucket is the distinct (BucketKey, EntityKey) grain: one row per customer
+// (at whichever grain `dimension` resolves to: legal entity/cadena, or individual tienda) per bucket they
+// bought anything. Unless the mode is "range", the fact window starts one calendar month before the requested
+// range (widenedDateWhere) so the FIRST in-range bucket has a preceding bucket to diff against; buckets that
+// end before the requested start are dropped in handleTrend. Churn for bucket B = customers present in the
+// previous bucket that have data but are absent in B, as a share of the previous bucket's total (same
+// "prior active, gone now" definition as activeCustomersQuery in ../resumen/route.ts, walked forward bucket
+// by bucket). EntityKey is whatever spec.valueExpr resolves to (LegalEntityKey for cliente_entidad,
+// CustomerKey for cliente_tienda): a cadena that opens a new tienda shows as "no churn, same customer" at the
+// Entidad grain and as a new customer at the Tienda grain.
+function trendQuery(dimension: Dimension, dateWhere: string, scopeWhere: string, bucketKeyExpr: string): string {
   const spec = getDimensionSpec(dimension);
   return `
-    WITH CustomerMonth AS (
-      SELECT DISTINCT d.YearMonth, ${spec.valueExpr} AS EntityKey
+    WITH CustomerBucket AS (
+      SELECT DISTINCT ${bucketKeyExpr} AS BucketKey, ${spec.valueExpr} AS EntityKey
       FROM fact.Fact_Sales fs
       JOIN dim.Dim_Date d ON d.DateKey = fs.DateKey
       ${spec.joinClause.replace(/\bf\b/g, 'fs')}
-      WHERE fs.IsVoided = 0 ${widenedDateWhere} ${scopeWhere}
+      WHERE fs.IsVoided = 0 ${dateWhere} ${scopeWhere}
     ),
-    MonthList AS (
-      SELECT DISTINCT YearMonth FROM CustomerMonth
+    BucketList AS (
+      SELECT DISTINCT BucketKey FROM CustomerBucket
     ),
-    PrevMonth AS (
+    PrevBucket AS (
       SELECT
-        m.YearMonth,
-        (SELECT MAX(m2.YearMonth) FROM MonthList m2 WHERE m2.YearMonth < m.YearMonth) AS PrevYearMonth
-      FROM MonthList m
+        b.BucketKey,
+        (SELECT MAX(b2.BucketKey) FROM BucketList b2 WHERE b2.BucketKey < b.BucketKey) AS PrevBucketKey
+      FROM BucketList b
     )
     SELECT
-      cm.YearMonth,
-      COUNT(DISTINCT cm.EntityKey) AS ActiveCustomers,
-      pm.PrevYearMonth,
+      cb.BucketKey,
+      COUNT(DISTINCT cb.EntityKey) AS ActiveCustomers,
+      pb.PrevBucketKey,
       (SELECT COUNT(DISTINCT prev.EntityKey)
-         FROM CustomerMonth prev
-         WHERE prev.YearMonth = pm.PrevYearMonth
-      ) AS ActiveCustomersPrevMonth,
+         FROM CustomerBucket prev
+         WHERE prev.BucketKey = pb.PrevBucketKey
+      ) AS ActiveCustomersPrevBucket,
       (SELECT COUNT(DISTINCT prev.EntityKey)
-         FROM CustomerMonth prev
-         WHERE prev.YearMonth = pm.PrevYearMonth
+         FROM CustomerBucket prev
+         WHERE prev.BucketKey = pb.PrevBucketKey
            AND NOT EXISTS (
-             SELECT 1 FROM CustomerMonth cur
-             WHERE cur.YearMonth = cm.YearMonth AND cur.EntityKey = prev.EntityKey
+             SELECT 1 FROM CustomerBucket cur
+             WHERE cur.BucketKey = cb.BucketKey AND cur.EntityKey = prev.EntityKey
            )
       ) AS ChurnedCustomers
-    FROM CustomerMonth cm
-    JOIN PrevMonth pm ON pm.YearMonth = cm.YearMonth
-    WHERE cm.YearMonth >= @minYearMonth
-    GROUP BY cm.YearMonth, pm.PrevYearMonth
-    ORDER BY cm.YearMonth
+    FROM CustomerBucket cb
+    JOIN PrevBucket pb ON pb.BucketKey = cb.BucketKey
+    GROUP BY cb.BucketKey, pb.PrevBucketKey
+    ORDER BY cb.BucketKey
   `;
 }
 
@@ -273,28 +257,35 @@ function customerQuery(dimension: Dimension, salesDateWhere: string, returnsDate
   `;
 }
 
-async function handleTrend(dimension: Dimension, dateRange: string, scope: CarteraScope) {
+async function handleTrend(dimension: Dimension, dateRange: string, scope: CarteraScope, trend: TrendBucket) {
   const pool = await getDwhPool();
-  const minYearMonth = toYearMonth(rangeStart(dateRange));
   const sc = customerScope(scope, 'c');
-  const req = pool.request().input('minYearMonth', minYearMonth);
+  const req = pool.request();
   sc.bind(req);
-  const result = await req.query(trendQuery(dimension, widenedDateWhereClause(dateRange), sc.where));
+  const dateWhere = trend.mode === 'range' ? buildDateWhereClause(dateRange, 'fs') : widenedDateWhereClause(dateRange);
+  const result = await req.query(trendQuery(dimension, dateWhere, sc.where, trend.keyExpr('d')));
 
-  const rows: ClientesTrendRow[] = result.recordset.map(r => {
-    const activeCustomersPrevMonth = r.ActiveCustomersPrevMonth === null ? null : Number(r.ActiveCustomersPrevMonth);
-    const churnedCustomers = r.ChurnedCustomers === null ? null : Number(r.ChurnedCustomers);
+  const startIso = rangeStart(dateRange).toISOString().slice(0, 10);
+  const kept = result.recordset.filter(r => {
+    if (trend.mode === 'range') return true;
+    const span = bucketSpan(trend.mode, String(r.BucketKey));
+    return span === null || span.end >= startIso;
+  });
+  const keys = kept.map(r => String(r.BucketKey));
+  const labels = bucketLabels(trend.mode, keys);
+
+  const rows: ClientesTrendRow[] = kept.map((r, i) => {
+    const prev = r.ActiveCustomersPrevBucket === null || r.ActiveCustomersPrevBucket === undefined ? null : Number(r.ActiveCustomersPrevBucket);
+    const churned = r.ChurnedCustomers === null || r.ChurnedCustomers === undefined ? null : Number(r.ChurnedCustomers);
     return {
-      yearMonth: formatYearMonth(String(r.YearMonth)),
+      bucketKey: keys[i],
+      label: labels[i],
       activeCustomers: Number(r.ActiveCustomers),
-      churnRate:
-        activeCustomersPrevMonth !== null && activeCustomersPrevMonth > 0 && churnedCustomers !== null
-          ? churnedCustomers / activeCustomersPrevMonth
-          : null,
+      churnRate: prev !== null && prev > 0 && churned !== null ? churned / prev : null,
     };
   });
 
-  const response: ClientesTrendResponse = { rows };
+  const response: ClientesTrendResponse = { rows, granularity: trend.granularity };
   return jsonWithCache(response);
 }
 
@@ -343,7 +334,7 @@ export async function GET(request: NextRequest) {
 
   if (searchParams.get('section') === 'trend') {
     try {
-      return await handleTrend(clienteDimension, dateRange, scope);
+      return await handleTrend(clienteDimension, dateRange, scope, parseTrendBucket(searchParams, dateRange));
     } catch {
       return NextResponse.json({ error: 'Error al consultar el Data Warehouse' }, { status: 500 });
     }
