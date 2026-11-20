@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { activeFilterCount, applyClientesParams, dimToApi, parseClientesParams } from '../clientes-params';
+import { activeFilterCount, applyClientesParams, dimToApi, parseClientesParams, type ClientesParams } from '../clientes-params';
 
-const DEFAULTS = {
+const DEFAULTS: ClientesParams = {
   dim: 'entidad', grupo: null, ruta: null, tienda: null, origen: 'todos', ver: 'total', nivel: 'linea', detalle: false,
 };
 
