@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { activeFilterCount, applyClientesParams, dimToApi, parseClientesParams, referenceYearOf, type ClientesParams } from '../clientes-params';
 
 const DEFAULTS: ClientesParams = {
-  dim: 'entidad', grupo: null, ruta: null, tienda: null, origen: 'todos', ver: 'total', nivel: 'linea', lineas: [], sublineas: [], q: '', detalle: false,
+  dim: 'entidad', grupo: null, ruta: null, tienda: null, origen: 'todos', ver: 'total', detalle: false,
 };
 
 describe('parseClientesParams', () => {
@@ -10,14 +10,22 @@ describe('parseClientesParams', () => {
     expect(parseClientesParams(new URLSearchParams())).toEqual(DEFAULTS);
   });
   test('reads every key', () => {
-    const p = parseClientesParams(new URLSearchParams('dim=tienda&grupo=S1&ruta=3&tienda=e:12&origen=nuevo&ver=producto&nivel=sku&lineas=Pan,Torta&sublineas=Dulce&q=%20harina%20&detalle=1'));
+    const p = parseClientesParams(new URLSearchParams('dim=tienda&grupo=S1&ruta=3&tienda=e:12&origen=nuevo&ver=grupo&detalle=1'));
     expect(p).toEqual({
-      dim: 'tienda', grupo: 'S1', ruta: '3', tienda: 'e:12', origen: 'nuevo', ver: 'producto', nivel: 'sku',
-      lineas: ['Pan', 'Torta'], sublineas: ['Dulce'], q: 'harina', detalle: true,
+      dim: 'tienda', grupo: 'S1', ruta: '3', tienda: 'e:12', origen: 'nuevo', ver: 'grupo', detalle: true,
     });
   });
-  test('ignores malformed values (dim=x, ver=x, nivel=x, origen=x)', () => {
-    expect(parseClientesParams(new URLSearchParams('dim=x&ver=x&nivel=x&origen=x&ruta=abc&grupo=%20'))).toEqual(DEFAULTS);
+  test('ignores malformed and retired values (dim=x, ver=x, ver=producto, origen=x)', () => {
+    expect(parseClientesParams(new URLSearchParams('dim=x&ver=x&origen=x&ruta=abc&grupo=%20'))).toEqual(DEFAULTS);
+  });
+});
+
+describe('retired product-view params', () => {
+  test('ver=producto falls back to total and nivel/lineas/sublineas/q are no longer read or kept', () => {
+    const p = parseClientesParams(new URLSearchParams('ver=producto&nivel=sku&lineas=Pan&q=x'));
+    expect(p).toEqual(DEFAULTS);
+    expect(Object.keys(p)).not.toContain('nivel');
+    expect(applyClientesParams(new URLSearchParams('ver=producto&nivel=sku&lineas=Pan&q=x'), {}).toString()).toBe('nivel=sku&lineas=Pan&q=x');
   });
 });
 
@@ -34,7 +42,7 @@ describe('applyClientesParams', () => {
     expect(out.get('detalle')).toBe('1');
   });
   test('round-trips a full patch', () => {
-    const patch: ClientesParams = { dim: 'tienda', grupo: 'S2', ruta: '7', tienda: 't:ABC', origen: 'patrimonio', ver: 'grupo', nivel: 'sublinea', lineas: ['Pan'], sublineas: ['Dulce'], q: 'x', detalle: true };
+    const patch: ClientesParams = { dim: 'tienda', grupo: 'S2', ruta: '7', tienda: 't:ABC', origen: 'patrimonio', ver: 'grupo', detalle: true };
     expect(parseClientesParams(applyClientesParams(new URLSearchParams(), patch))).toEqual(patch);
   });
 });
@@ -44,8 +52,8 @@ describe('activeFilterCount', () => {
     const p = parseClientesParams(new URLSearchParams('grupo=S1&ruta=3&origen=nuevo&tienda=e:1'));
     expect(activeFilterCount(p)).toBe(4);
   });
-  test('is zero at defaults and ignores dim, ver, nivel, the product drill and detalle', () => {
-    const p = parseClientesParams(new URLSearchParams('dim=tienda&ver=producto&nivel=sku&lineas=Pan&q=x&detalle=1'));
+  test('is zero at defaults and ignores dim, ver and detalle', () => {
+    const p = parseClientesParams(new URLSearchParams('dim=tienda&ver=grupo&detalle=1'));
     expect(activeFilterCount(p)).toBe(0);
   });
 });

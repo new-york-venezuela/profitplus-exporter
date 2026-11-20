@@ -2,14 +2,13 @@
 
 import { useCallback, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { Nivel } from './productos-params';
 
 // URL state of the Clientes tab. Defaults are omitted from the URL and unrelated params (tab, dateRange,
-// granularity, ...) are kept. `tienda`, `grupo` and `nivel` use the same keys and values as Productos, so a
-// drill-through between the tabs carries the scope.
+// granularity, ...) are kept. `tienda` and `grupo` use the same keys and values as Productos, so a drill-through
+// between the tabs carries the scope. (nivel / lineas / sublineas / q belong to Productos and are left alone.)
 export type Dim = 'entidad' | 'tienda';
 export type Origen = 'todos' | 'patrimonio' | 'nuevo';
-export type Ver = 'total' | 'producto' | 'grupo';
+export type Ver = 'total' | 'grupo';
 
 export interface ClientesParams {
   dim: Dim;
@@ -18,27 +17,17 @@ export interface ClientesParams {
   tienda: string | null;
   origen: Origen;
   ver: Ver;
-  nivel: Nivel;
-  // Product drill state (same URL keys and meaning as Productos).
-  lineas: string[];
-  sublineas: string[];
-  q: string;
   detalle: boolean;
 }
 
 const DIMS: Dim[] = ['entidad', 'tienda'];
 const ORIGENES: Origen[] = ['todos', 'patrimonio', 'nuevo'];
-const VERS: Ver[] = ['total', 'producto', 'grupo'];
-const NIVELES: Nivel[] = ['linea', 'sublinea', 'sku'];
-const MANAGED = ['dim', 'grupo', 'ruta', 'tienda', 'origen', 'ver', 'nivel', 'lineas', 'sublineas', 'q', 'detalle'];
+const VERS: Ver[] = ['total', 'grupo'];
+const MANAGED = ['dim', 'grupo', 'ruta', 'tienda', 'origen', 'ver', 'detalle'];
 
 function scalar(v: string | null): string | null {
   const t = (v ?? '').trim();
   return t === '' ? null : t;
-}
-
-function list(v: string | null): string[] {
-  return (v ?? '').split(',').map(x => x.trim()).filter(Boolean);
 }
 
 function pick<T extends string>(v: string | null, allowed: readonly T[], fallback: T): T {
@@ -54,10 +43,6 @@ export function parseClientesParams(sp: URLSearchParams): ClientesParams {
     tienda: scalar(sp.get('tienda')),
     origen: pick(sp.get('origen'), ORIGENES, 'todos'),
     ver: pick(sp.get('ver'), VERS, 'total'),
-    nivel: pick(sp.get('nivel'), NIVELES, 'linea'),
-    lineas: list(sp.get('lineas')),
-    sublineas: list(sp.get('sublineas')),
-    q: (sp.get('q') ?? '').trim(),
     detalle: sp.get('detalle') === '1',
   };
 }
@@ -72,10 +57,6 @@ export function applyClientesParams(sp: URLSearchParams, patch: Partial<Clientes
   if (merged.tienda) out.set('tienda', merged.tienda);
   if (merged.origen !== 'todos') out.set('origen', merged.origen);
   if (merged.ver !== 'total') out.set('ver', merged.ver);
-  if (merged.nivel !== 'linea') out.set('nivel', merged.nivel);
-  if (merged.lineas.length > 0) out.set('lineas', merged.lineas.join(','));
-  if (merged.sublineas.length > 0) out.set('sublineas', merged.sublineas.join(','));
-  if (merged.q.trim()) out.set('q', merged.q.trim());
   if (merged.detalle) out.set('detalle', '1');
   return out;
 }

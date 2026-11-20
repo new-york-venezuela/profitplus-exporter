@@ -26,15 +26,14 @@ const params = (qs = ''): ClientesParams => parseClientesParams(new URLSearchPar
 const base = { dateRange: 'month:2026-10', currency: 'usd' as const };
 
 describe('FallingSkus', () => {
-  test('requests SKUs at the scope (tienda, grupo, ruta) and ignores the product drill', async () => {
-    render(<FallingSkus {...base} params={params('tienda=e:12&grupo=S1&ruta=3&lineas=Pan&nivel=sublinea')} />);
+  test('requests SKUs at the scope (tienda, grupo, ruta)', async () => {
+    render(<FallingSkus {...base} params={params('tienda=e:12&grupo=S1&ruta=3')} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain('section=catalogo');
     expect(url).toContain('nivel=sku');
     expect(url).toContain('tienda=e%3A12');
     expect(url).toContain('ruta=3');
-    expect(url).not.toContain('lineas=');
   });
 
   test('lists the most negative trend first', async () => {
