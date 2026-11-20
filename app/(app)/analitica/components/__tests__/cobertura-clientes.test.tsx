@@ -36,7 +36,7 @@ const rows: CoberturaRowView[] = [
     routeNumber: 4, groupCode: 'S2', groupName: 'Restaurante', kind: 'nuevo',
     visit: { status: 'ok', daysSinceLastInvoice: 3, intervalDays: 7, daysOverdue: 0 } },
 ];
-const payload: CoberturaResponse = { rows, asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026, prevPeriodAvailable: true };
+const payload: CoberturaResponse = { rows, asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026, periodStartDateKey: 20261001, periodEndDateKey: 20261031, prevPeriodAvailable: true };
 
 const fetchMock = mock<(url: string) => Promise<Response>>(async () => ({ ok: true, json: async () => payload }) as unknown as Response);
 

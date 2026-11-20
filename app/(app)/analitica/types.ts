@@ -627,6 +627,8 @@ export interface CoberturaResponse {
   windowStartDateKey: number;
   lapsedAfterDays: number;
   kindYear: number;               // the year patrimonio/nuevo were evaluated for (year of the range end)
+  periodStartDateKey: number;     // first day of the selected range (YYYYMMDD)
+  periodEndDateKey: number;       // last day of the selected range (YYYYMMDD)
   prevPeriodAvailable: boolean;   // false = no previous equal window (e.g. a closed past YTD year): comparisons are hidden
 }
 
