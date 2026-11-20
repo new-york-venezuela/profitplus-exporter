@@ -45,10 +45,10 @@ describe('GET /api/dwh/clientes scope', () => {
     expect(queries[0].sql).not.toContain('cur_s');
     expect(queries[0].inputs).toEqual({});
   });
-  test('trend keeps minYearMonth and adds the scope to the monthly customer set', async () => {
+  test('trend adds the scope to the customer set', async () => {
     await get('dateRange=month:2026-10&section=trend&grupo=S2');
     expect(queries[0].sql).toContain('@scopeGrupo');
-    expect(queries[0].inputs).toMatchObject({ minYearMonth: '2026-10', scopeGrupo: 'S2' });
+    expect(queries[0].inputs).toMatchObject({ scopeGrupo: 'S2' });
   });
   test('churned scopes the prior-period customers', async () => {
     await get('dateRange=month:2026-10&section=churned&ruta=4');

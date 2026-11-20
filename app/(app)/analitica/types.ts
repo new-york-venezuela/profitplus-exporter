@@ -313,11 +313,12 @@ export interface ClientesResponse {
   paretoThresholds: { a: number; b: number }; // cumulative % for A and B segments
 }
 
-// Clientes tab — monthly trend of active customers and churn rate, one
+// Clientes tab — per-bucket (day/week/month) trend of active customers and churn rate, one
 // point per month that had >=1 sale in dateRange (plus the one month
 // immediately before it, needed to compute the first point's churn).
 export interface ClientesTrendRow {
-  yearMonth: string; // formatted, e.g. "Ene 26"
+  bucketKey: string; // 'YYYY-MM' | 'YYYY-Www' | 'YYYY-MM-DD' | 'range'
+  label: string;     // formatted, e.g. "Oct 26", "S41", "Total del período"
   activeCustomers: number;
   // Share of the PREVIOUS month's active customers absent this month. Null
   // for a month whose preceding month had zero active customers (nothing
@@ -327,6 +328,7 @@ export interface ClientesTrendRow {
 
 export interface ClientesTrendResponse {
   rows: ClientesTrendRow[];
+  granularity: 'day' | 'week' | 'month';
 }
 
 // Clientes tab — row-level detail for customers/stores that were active in
@@ -598,6 +600,7 @@ export interface CoberturaRowView {
   sellerCode: string | null;
   sellerName: string | null;
   lastSaleDateKey: number | null; // own invoices, all history; null = no invoice found
+  lastSaleAtPeriodEndKey: number | null; // own last invoice on or before the selected range's end (Estado perdido / reason date)
   entityLastSaleDateKey: number | null; // any store of the same legal entity
   daysSinceLastSale: number | null;
   avgMonthlyUsd: number | null; // trailing 12 months, over invoiced months only
@@ -625,6 +628,8 @@ export interface CoberturaResponse {
   windowStartDateKey: number;
   lapsedAfterDays: number;
   kindYear: number;               // the year patrimonio/nuevo were evaluated for (year of the range end)
+  periodStartDateKey: number;     // first day of the selected range (YYYYMMDD)
+  periodEndDateKey: number;       // last day of the selected range (YYYYMMDD)
   prevPeriodAvailable: boolean;   // false = no previous equal window (e.g. a closed past YTD year): comparisons are hidden
 }
 

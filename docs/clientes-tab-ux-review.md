@@ -1,5 +1,7 @@
 # Clientes tab: UX/UI summary
 
+> **Status:** addressed by the redesign in `docs/superpowers/specs/2026-11-20-clientes-tab-redesign-design.md` (implemented per `docs/superpowers/plans/2026-11-20-clientes-tab-redesign.md`). Open items: USD/mes in Cobertura still does not follow the currency toggle (labelled), and the trajectory shows ventas brutas only.
+
 Code-only review (`app/(app)/analitica/tabs/tab-clientes.tsx`, `components/cobertura-clientes.tsx`, `components/kind-panels.tsx`, `components/cartera-filter-bar.tsx`). The app was not run, so layout and visual notes come from the markup.
 
 ## Structure (top to bottom)

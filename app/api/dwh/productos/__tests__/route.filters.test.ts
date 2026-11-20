@@ -164,4 +164,21 @@ describe('GET /api/dwh/productos?tiendas=1', () => {
     expect(queries[0].sql).toContain('tk.CustomerCode = @tiendaCode');
     expect(queries[0].inputs).toMatchObject({ tiendaCode: 'J123' });
   });
+
+  test('ruta reaches the SQL as a bound parameter on the catalogo section', async () => {
+    await get('section=catalogo&nivel=linea&dateRange=month:2026-10&ruta=3');
+    expect(queries.length).toBeGreaterThan(0);
+    for (const q of queries) {
+      expect(q.sql).toContain('@ruta');
+      expect(q.inputs).toMatchObject({ ruta: 3 });
+    }
+  });
+
+  test('a malformed ruta is ignored (no SQL, no input)', async () => {
+    await get("section=catalogo&nivel=linea&dateRange=month:2026-10&ruta=3'%20OR%201=1");
+    for (const q of queries) {
+      expect(q.sql).not.toContain('@ruta');
+      expect(q.inputs).not.toHaveProperty('ruta');
+    }
+  });
 });

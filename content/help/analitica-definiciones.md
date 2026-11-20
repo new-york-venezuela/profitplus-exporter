@@ -38,6 +38,16 @@ La pestaña **Productos** baja de **línea** a **sublínea** (Artesanal / Indust
 - **Participación por grupo de cliente:** para cada fila del nivel actual, el porcentaje de sus ventas brutas (sin IVA) que va a cada grupo de cliente. Cada venta se asigna al grupo **actual** del cliente; los clientes sin grupo aparecen en "Sin grupo". Un "—" significa que ese grupo no compró esa fila. Pasar el cursor sobre una celda muestra el monto. Solo cuenta ventas positivas y muestra las 30 filas con más ventas, por lo que puede no cuadrar exactamente con la tabla de arriba.
 - **Presencia y profundidad por producto:** clientes y tiendas que compraron el producto y su porcentaje sobre los clientes y tiendas activos del período (la categoría no reduce ese denominador). *Primera línea* = lo compra el 70% o más de los clientes activos; *Segunda línea* = 30% o más; *Addon* = menos. Con una tienda seleccionada no se muestra la clasificación (con un solo cliente no tiene sentido). La tasa de devolución usa la fecha de la devolución.
 
+## Pestaña Clientes: origen y estado
+
+Cada cliente se describe con dos ejes.
+
+- **Origen** (fijo, según el año en que termina el rango): *Patrimonio* = registrado antes del 1 de enero de ese año o en el lote migrado en la puesta en marcha (28/03/2026); *Nuevo* = registrado durante ese año, fuera del lote migrado. El mismo cliente es Nuevo en su año de registro y Patrimonio al mirar el año siguiente.
+- **Estado en el período** (frente al período anterior equivalente): *Nuevo en el período* = su primera factura de toda la historia cae en el período; *Retenido* = compró en el período y en el anterior; *Recuperado* = compró en el período, no en el anterior, y ya había comprado antes; *Enfriado* = compró en el período anterior y no en este; *Perdido* = enfriado y sin comprar hace más de 3 ventanas de su frecuencia de visita (medido hasta el cierre del período; un cliente sin frecuencia de visita no llega a "Perdido"); *Sin ventas aún* = registrado, sin ninguna factura.
+- "Nuevo" (origen) y "Nuevo en el período" (estado) son cosas distintas: un cliente registrado este año que compra por primera vez en el período es ambos.
+- Sin un período anterior comparable (por ejemplo un año ya cerrado) solo se pueden determinar "Nuevo en el período" y "Sin ventas aún". Los clientes activos, el patrimonio retenido y los perdidos y enfriados usan los clientes vigentes del maestro (los inactivos no cuentan) e incluyen las raíces de consignación.
+- La tabla de tendencia por casa matriz y tienda muestra **ventas brutas** (sin IVA); una tienda que solo tuvo devoluciones no aparece.
+
 ## Cobertura de clientes
 
 La última venta y los promedios de la sección "Cobertura de clientes" no dependen del período seleccionado; solo "Sin compras en el período" y "Clientes nuevos" usan el rango de fechas.

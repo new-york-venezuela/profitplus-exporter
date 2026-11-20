@@ -26,6 +26,6 @@ export function parseHistProductosFilters(params: URLSearchParams): HistProducto
     metric: params.get('metric') === 'unidades' ? 'unidades' : 'ventas',
     currency: params.get('currency') === 'usd' ? 'usd' : 'bs',
     categoria: categoria !== '' && categoria.length <= MAX_CATEGORIA ? categoria : null,
-    filter: { ...parseItemFilter(params), grupo: null },
+    filter: { ...parseItemFilter(params), grupo: null, ruta: null },
   };
 }

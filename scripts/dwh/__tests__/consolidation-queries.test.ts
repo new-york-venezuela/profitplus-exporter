@@ -9,7 +9,7 @@ import { fetchCategorias, fetchGroupShare } from '../../../lib/productos/queries
 import type { ItemFilter } from '../../../lib/productos/item-filter';
 import { buildGroupShareMatrix } from '../../../lib/productos/group-share';
 
-const NO_FILTER: ItemFilter = { lineas: [], sublineas: [], grupo: null, q: null };
+const NO_FILTER: ItemFilter = { lineas: [], sublineas: [], grupo: null, ruta: null, q: null };
 
 process.env.DW_NAME = `DWH_AlimentosNY_Test_consolidation_${Date.now()}`;
 
@@ -122,7 +122,7 @@ describe('consolidation queries (disposable DWH)', () => {
 
   test('coberturaCustomersQuery: current rows only, route/group/frequency from the current row, period activity across SCD2 versions', async () => {
     const where = buildDateWhereClause('custom:2026-10-01:2026-10-07', 'fs');
-    const result = await pool.request().query(coberturaCustomersQuery(false, where));
+    const result = await pool.request().query(coberturaCustomersQuery(false, where, null, 20261007));
     const by = new Map(result.recordset.map(r => [String(r.CustomerCode).trim(), r]));
     // Migration 0035 itself seeds one consignment-store customer (J-301420608-24, current, never invoiced here);
     // only the synthetic codes are asserted. C2's old version is not a row.

@@ -1,19 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts';
-import { moneyLabel, qty } from '../lib/format';
-import { bucketLabels, bucketTitle, TREND_UNIT_LABEL } from '../lib/granularity';
 import type { Granularity } from '../lib/granularity';
 import { trendClickPatch, useProductosParams, type Nivel, type ProductosParams } from '../lib/productos-params';
 import ControlBar from '../components/productos/control-bar';
 import MasterTable from '../components/productos/master-table';
 import BubblePlot from '../components/productos/bubble-plot';
+import TrendCard from '../components/productos/trend-card';
 import CustomerAccordion from '../components/productos/customer-accordion';
 import { useClientesBreakdown } from '../lib/use-clientes-breakdown';
-import { normalizeStack } from '@/lib/productos/normalize-stack';
 import { GroupShareMatrixTable } from '../components/productos/group-share-matrix';
 import type { SearchableSelectOption } from '@/lib/components/searchable-select';
 import type {
@@ -21,27 +16,7 @@ import type {
   ProductosCategoriasResponse, ProductosFiltrosResponse, ProductosGroupShareResponse,
 } from '../types';
 
-// Stable palette across the (up to 10) series a given range/filter surfaces — "Otras" (always last
-// in `lineas`, see route.ts) gets the trailing gray so it reads as a catch-all, not another series.
-const LINEA_COLORS = [
-  '#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed',
-  '#0891b2', '#db2777', '#65a30d', '#ea580c', '#475569',
-];
-
-function lineaColor(linea: string, lineas: string[]): string {
-  if (linea === 'Otras') return '#9ca3af';
-  const idx = lineas.indexOf(linea);
-  return LINEA_COLORS[idx % LINEA_COLORS.length];
-}
-
-function pct(n: number | null): string {
-  if (n === null) return '—';
-  return `${(n * 100).toFixed(1)}%`;
-}
-
 const NIVEL_LABEL: Record<Nivel, string> = { linea: 'Línea', sublinea: 'Sublínea', sku: 'SKU' };
-
-const NIVEL_SERIES_LABEL: Record<Nivel, string> = { linea: 'línea', sublinea: 'sublínea', sku: 'SKU' };
 
 const NIVEL_SUBTITLE: Record<Nivel, string> = {
   linea: 'Una fila por línea de producto',
@@ -184,7 +159,6 @@ export default function TabProductos({
     q.set('key', row.key);
     return `/api/dwh/productos?${q.toString()}`;
   }
-  const [shareMode, setShareMode] = useState(false);
   const catalogo = useSection<CatalogoResponse>(catalogoUrl);
   const grupos = useSection<ProductosGroupShareResponse>(gruposUrl);
   const trend = useSection<UnitsByLineaResponse>(trendUrl);
@@ -204,19 +178,6 @@ export default function TabProductos({
     }
     document.getElementById(`prod-row-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
-
-  const porLineaMesData = trend.data;
-  const trendMode = porLineaMesData?.trendMode ?? 'month';
-  const porLineaMesLabels = bucketLabels(trendMode, (porLineaMesData?.rows ?? []).map(r => r.bucket));
-  const trendKeys = porLineaMesData?.lineas ?? [];
-  const trendShares = normalizeStack((porLineaMesData?.rows ?? []).map(r => r.units), trendKeys);
-  const porLineaMesChartData = (porLineaMesData?.rows ?? []).map((r, i) => ({
-    ...(shareMode ? trendShares[i] : r.units),
-    label: porLineaMesLabels[i],
-    bucket: r.bucket,
-    realUnits: r.units,
-    title: bucketTitle(trendMode, r.bucket),
-  }));
 
   return (
     <div className="p-6 max-w-7xl space-y-6">
@@ -289,56 +250,14 @@ export default function TabProductos({
         )}
       </ChartCard>
 
-      {/* Unidades vendidas por período, apiladas por el ítem del nivel activo */}
-      <ChartCard
-        title={`Unidades vendidas por ${TREND_UNIT_LABEL[trendMode]}, por ${NIVEL_SERIES_LABEL[params.nivel]}`}
-        subtitle="Clic en un segmento para filtrar la tabla"
-        actions={(
-          <div role="group" aria-label="Escala del gráfico" className="inline-flex rounded border border-gray-300 text-xs overflow-hidden shrink-0">
-            <button type="button" aria-pressed={!shareMode} onClick={() => setShareMode(false)} className={`px-2 py-1 ${!shareMode ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>Absoluto</button>
-            <button type="button" aria-pressed={shareMode} onClick={() => setShareMode(true)} className={`px-2 py-1 ${shareMode ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}>100 %</button>
-          </div>
-        )}
-      >
-        {trend.loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : trend.error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{trend.error}</p>
-        ) : !porLineaMesData || porLineaMesChartData.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <ResponsiveContainer width="100%" height={380}>
-            <BarChart data={porLineaMesChartData} margin={{ top: 8, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} domain={shareMode ? [0, 1] : undefined} tickFormatter={v => (shareMode ? `${Math.round(Number(v) * 100)}%` : qty(Number(v)))} />
-              <Tooltip
-                formatter={(value, name, entry) => {
-                  const row = porLineaMesData.rows.find(r => r.bucket === (entry.payload as { bucket: string })?.bucket);
-                  const lineaName = String(name);
-                  const realUnits = (entry.payload as { realUnits?: Record<string, number> })?.realUnits?.[lineaName] ?? Number(value);
-                  const salesGrossAmount = row?.salesGross[lineaName] ?? { bs: 0, usd: 0 };
-                  const totalBs = row?.totalSalesGross.bs ?? 0;
-                  const share = totalBs > 0 ? salesGrossAmount.bs / totalBs : null;
-                  return [`${qty(realUnits)} u. — ${moneyLabel(salesGrossAmount, currency)} (${pct(share)} del ${TREND_UNIT_LABEL[trendMode]})`, lineaName];
-                }}
-                labelFormatter={(label, payload) => payload?.[0]?.payload?.title ?? label}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {porLineaMesData.lineas.map(lineaName => (
-                <Bar
-                  key={lineaName}
-                  dataKey={lineaName}
-                  stackId="lineas"
-                  fill={lineaColor(lineaName, porLineaMesData.lineas)}
-                  cursor={lineaName === 'Otras' ? 'default' : 'pointer'}
-                  onClick={() => handleStackSegmentClick(lineaName)}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
+      <TrendCard
+        data={trend.data}
+        loading={trend.loading}
+        error={trend.error}
+        nivel={params.nivel}
+        currency={currency}
+        onSeriesClick={handleStackSegmentClick}
+      />
     </div>
   );
 }

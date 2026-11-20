@@ -1,8 +1,11 @@
-/** Productos master-table filters: lines, sublines, customer group and free text. */
+import { parseRuta } from '@/lib/clientes/scope';
+
+/** Productos master-table filters: lines, sublines, customer group, route (customer's current row) and free text. */
 export interface ItemFilter {
   lineas: string[];
   sublineas: string[];
   grupo: string | null;
+  ruta: number | null;
   q: string | null;
 }
 
@@ -27,6 +30,7 @@ export function parseItemFilter(params: URLSearchParams): ItemFilter {
     lineas: list(params.get('lineas')),
     sublineas: list(params.get('sublineas')),
     grupo: grupo === '' ? null : grupo,
+    ruta: parseRuta(params.get('ruta')),
     q: q === '' ? null : q,
   };
 }
@@ -46,6 +50,11 @@ function build(f: ItemFilter, p: string, fact: string): string {
   if (f.grupo !== null) {
     parts.push(
       `${fact}.CustomerKey IN (SELECT tk.CustomerKey FROM dim.Dim_Customer tk JOIN dim.Dim_Customer cur ON cur.CustomerCode = tk.CustomerCode AND cur.IsCurrent = 1 WHERE RTRIM(cur.ErpSegmentCode) = @grupo)`,
+    );
+  }
+  if (f.ruta !== null) {
+    parts.push(
+      `${fact}.CustomerKey IN (SELECT tk.CustomerKey FROM dim.Dim_Customer tk JOIN dim.Dim_Customer cur ON cur.CustomerCode = tk.CustomerCode AND cur.IsCurrent = 1 JOIN dim.Dim_Zone z ON z.ZoneCode = cur.ZoneCode WHERE z.RouteNumber = @ruta)`,
     );
   }
   if (f.q !== null) {
@@ -73,5 +82,6 @@ export function bindItemFilter(
   f.lineas.forEach((v, i) => req.input(`linea${i}`, v));
   f.sublineas.forEach((v, i) => req.input(`sublinea${i}`, v));
   if (f.grupo !== null) req.input('grupo', f.grupo);
+  if (f.ruta !== null) req.input('ruta', f.ruta);
   if (f.q !== null) req.input('q', `%${escapeLike(f.q)}%`);
 }

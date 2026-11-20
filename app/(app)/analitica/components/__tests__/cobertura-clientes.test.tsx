@@ -14,7 +14,7 @@ const { default: CoberturaClientes } = await import('../cobertura-clientes');
 const noVisit = { status: 'no_interval' as const, daysSinceLastInvoice: null, intervalDays: null, daysOverdue: null };
 const base: CoberturaRowView = {
   customerCode: 'X', customerName: 'X', entityName: null, sellerCode: null, sellerName: null,
-  lastSaleDateKey: null, entityLastSaleDateKey: null, daysSinceLastSale: null,
+  lastSaleDateKey: null, entityLastSaleDateKey: null, lastSaleAtPeriodEndKey: null, daysSinceLastSale: null,
   avgMonthlyUsd: null, avgMonthlyUnits: null, monthsWithSales: 0, status: 'never',
   routeNumber: null, groupCode: null, groupName: null, kind: null, visit: noVisit, activeInPeriod: true,
   registeredDate: null, firstSaleDateKey: null, daysToFirstSale: null, salesPeriod: { bs: 0, usd: 0 }, salesPrev: null, boughtPrev: null, stickiness: 'sin_frecuencia',
@@ -36,7 +36,7 @@ const rows: CoberturaRowView[] = [
     routeNumber: 4, groupCode: 'S2', groupName: 'Restaurante', kind: 'nuevo',
     visit: { status: 'ok', daysSinceLastInvoice: 3, intervalDays: 7, daysOverdue: 0 } },
 ];
-const payload: CoberturaResponse = { rows, asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026, prevPeriodAvailable: true };
+const payload: CoberturaResponse = { rows, asOfDateKey: 20261004, windowStartDateKey: 20251101, lapsedAfterDays: 30, kindYear: 2026, periodStartDateKey: 20261001, periodEndDateKey: 20261031, prevPeriodAvailable: true };
 
 const fetchMock = mock<(url: string) => Promise<Response>>(async () => ({ ok: true, json: async () => payload }) as unknown as Response);
 
@@ -205,7 +205,7 @@ describe('CoberturaClientes: cartera additions', () => {
   });
 });
 
-describe('CoberturaClientes: nuevos vs patrimonio', () => {
+describe('CoberturaClientes: origen scope', () => {
   const k = (o: Partial<CoberturaRowView>): CoberturaRowView => ({ ...base, status: 'active', lastSaleDateKey: 20261001, daysSinceLastSale: 3, ...o });
   const kindRows: CoberturaRowView[] = [
     k({ customerCode: 'P1', customerName: 'Patri Activo', kind: 'patrimonio', salesPeriod: { bs: 150, usd: 3 }, salesPrev: { bs: 100, usd: 2 }, boughtPrev: true, stickiness: 'constante' }),
@@ -218,71 +218,47 @@ describe('CoberturaClientes: nuevos vs patrimonio', () => {
     fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ ...payload, rows: kindRows, ...over }) }) as unknown as Response);
   const tableNames = () => [...screenSection().querySelectorAll('tbody tr')].map(tr => tr.querySelector('td')!.textContent);
 
-  test('the switch shows the counts per kind and scopes the table and the KPIs, not the comparison', async () => {
+  const loadedWith = async (props: { kind?: 'patrimonio' | 'nuevo' }) => {
+    render(<CoberturaClientes {...props} />);
+    await screen.findByRole('region', { name: 'Cobertura de clientes' });
+    return userEvent.setup();
+  };
+
+  test('the kind prop scopes the table and the KPIs', async () => {
     serve();
-    const { user } = await loaded();
-    const group = within(screenSection()).getByRole('group', { name: 'Tipo de cliente' });
-    expect(within(group).getByRole('button', { name: /Todos/ }).textContent).toContain('5');
-    expect(within(group).getByRole('button', { name: /Patrimonio/ }).textContent).toContain('2');
-    await user.click(within(group).getByRole('button', { name: /Nuevos/ }));
-    expect(within(group).getByRole('button', { name: /Nuevos/ }).getAttribute('aria-pressed')).toBe('true');
+    await loadedWith({ kind: 'nuevo' });
     expect(tableNames()).toHaveLength(3);
     expect(within(screenSection()).getByText('de 3 clientes')).toBeTruthy();
-    const clientesRow = within(screenSection()).getByRole('rowheader', { name: 'Clientes' }).parentElement!;
-    expect(within(clientesRow).getAllByRole('cell').map(c => c.textContent)).toEqual(['2', '3']);   // comparison still sees both kinds
   });
 
-  test('comparison panel: both columns share the same rows', async () => {
+  test('without a kind prop all customers are listed', async () => {
     serve();
-    await loaded();
-    const table = within(screenSection()).getByRole('table', { name: 'Comparación nuevos vs patrimonio' });
-    const cells = (label: string) => within(within(table).getByRole('rowheader', { name: label }).parentElement!).getAllByRole('cell').map(c => c.textContent);
-    expect(cells('Activos en el período')).toEqual(['50.0% (1)', '100.0% (3)']);
-    expect(cells('Ventas del período')).toEqual(['$3', '$2']);
-    expect(cells('Constantes (últimas 3 visitas)')).toEqual(['50.0%', '33.3%']);   // a never-bought new customer counts as perdido
+    await loadedWith({});
+    expect(tableNames()).toHaveLength(5);
   });
 
-  test('"¿Se mantiene el patrimonio?" shows the delta and the cooled customers, and the button filters the table to them', async () => {
+  test('the constancia filter narrows the table', async () => {
     serve();
-    const { user } = await loaded();
-    const panel = within(screenSection()).getByRole('region', { name: '¿Se mantiene el patrimonio?' });
-    expect(panel.textContent).toContain('▼ 25.0%');                      // patrimonio: $3 now vs $4 in the previous period
-    await user.click(within(panel).getByRole('button', { name: 'Ver en la tabla' }));
-    expect(tableNames()).toHaveLength(1);
-    expect(tableNames()[0]).toContain('Patri Frio');
-    expect(within(screenSection()).getByRole('button', { name: /Solo los que se enfriaron/ })).toBeTruthy();
-    expect(within(screenSection()).queryByRole('region', { name: '¿Se quedan los nuevos?' })).toBeNull();   // patrimonio selected
-  });
-
-  test('without a previous period the holding comparison explains why it is hidden', async () => {
-    serve({ prevPeriodAvailable: false });
-    await loaded();
-    expect(within(screenSection()).getByText('Este rango no tiene un período anterior comparable.')).toBeTruthy();
-  });
-
-  test('"¿Se quedan los nuevos?" funnel and the constancia filter', async () => {
-    serve();
-    const { user } = await loaded();
-    const funnel = within(screenSection()).getByRole('region', { name: '¿Se quedan los nuevos?' });
-    expect(funnel.textContent).toContain('Registrados3 · 100.0%');
-    expect(funnel.textContent).toContain('Compraron alguna vez2 · 66.7%');
-    expect(funnel.textContent).toContain('Constantes (3 de 3 visitas)1 · 33.3%');
-    expect(funnel.textContent).toContain('Nunca compraron: 1');
-    expect(funnel.textContent).toContain('Días a la 1ª compra (mediana): 4');
+    const user = await loadedWith({ kind: 'nuevo' });
     await user.selectOptions(within(screenSection()).getByLabelText('Filtrar por constancia'), 'irregular');
     expect(tableNames()).toHaveLength(1);
     expect(tableNames()[0]).toContain('Nuevo Irregular');
   });
 
-  test('the export carries the kind, cooled and constancia filters', async () => {
+  test('the export carries the kind and constancia filters', async () => {
     serve();
-    const { user } = await loaded();
+    const user = await loadedWith({ kind: 'nuevo' });
     const assign = mock((_: string) => {});
     Object.defineProperty(window, 'location', { value: { set href(v: string) { assign(v); } }, configurable: true });
-    await user.click(within(screenSection()).getByRole('button', { name: /Nuevos/ }));
     await user.selectOptions(within(screenSection()).getByLabelText('Filtrar por constancia'), 'perdido');
     await user.click(within(screenSection()).getByRole('button', { name: 'Exportar Excel' }));
     expect(assign.mock.calls[0][0]).toContain('kind=nuevo');
     expect(assign.mock.calls[0][0]).toContain('stickiness=perdido');
   });
+
+  test('the USD/mes header states the fixed currency', async () => {
+    await loaded();
+    expect(screen.getByRole('columnheader', { name: /USD\/mes \(siempre USD\)/ })).toBeTruthy();
+  });
+
 });

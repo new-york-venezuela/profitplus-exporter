@@ -1,33 +1,34 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import CoberturaClientes from '../components/cobertura-clientes';
-import CarteraFilterBar from '../components/cartera-filter-bar';
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts';
+import { ActivityTrendChart } from '../components/clientes/activity-trend-chart';
+import { DataTable, type Column } from '../components/clientes/data-table';
+import { FallingSkus } from '../components/clientes/falling-skus';
+import { GroupTable } from '../components/clientes/group-table';
+import { GroupTrendChart } from '../components/clientes/group-trend-chart';
+import { KpiStrip } from '../components/clientes/kpi-strip';
+import { ProductBreakdown } from '../components/clientes/product-breakdown';
+import { RetentionSection } from '../components/clientes/retention-section';
+import { TrajectoryTable } from '../components/clientes/trajectory-table';
+import { QuestionSection } from '../components/clientes/question-section';
+import { SegmentedControl } from '../components/clientes/segmented-control';
+import { ScopeBar } from '../components/clientes/scope-bar';
+import { dimToApi, referenceYearOf, useClientesParams } from '../lib/clientes-params';
+import { filterCobertura } from '../lib/cobertura';
+import { useDwhSection } from '../lib/use-dwh-section';
+import type { Granularity } from '../lib/granularity';
 import { moneyLabel } from '../lib/format';
-import type { ClientesChurnedResponse, ClientesResponse, ClientesRow, ClientesTrendResponse, Currency, DateRange } from '../types';
+import { buildEstados } from '@/lib/clientes/estados';
+import { buildGrupoRows, type GrupoBy } from '@/lib/clientes/grupos';
+import type { ClientesTrendGrupoResponse } from '@/lib/clientes/grupo-trend';
+import { buildKpis } from '@/lib/clientes/kpis';
+import type { ClientesTrayectoriaResponse } from '@/lib/clientes/trayectoria';
+import type { ClientesResponse, ClientesRow, ClientesTrendResponse, CoberturaResponse, Currency, DateRange } from '../types';
 
 function pct(n: number | null): string {
   if (n === null) return '—';
   return `${(n * 100).toFixed(1)}%`;
-}
-
-// DateKey is YYYYMMDD (see dwh-migrations' Dim_Date) — formatted locally
-// here rather than in lib/format.ts since this is the only tab that renders
-// a raw DateKey rather than a pre-aggregated monthly/period figure.
-function formatDateKey(dateKey: number): string {
-  const s = String(dateKey);
-  return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
-}
-
-function EmptyState({ message }: { message?: string }) {
-  return (
-    <div className="h-40 flex items-center justify-center text-sm text-gray-400 text-center px-4">
-      {message ?? 'Sin datos disponibles todavía.'}
-    </div>
-  );
 }
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -39,94 +40,6 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
       {children}
     </div>
   );
-}
-
-function useClientesTrend(
-  dateRange: DateRange,
-  clienteDimension: 'cliente_entidad' | 'cliente_tienda',
-  grupo: string | null,
-  ruta: string | null,
-) {
-  const [data, setData] = useState<ClientesTrendResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'trend' });
-        if (grupo) params.set('grupo', grupo);
-        if (ruta) params.set('ruta', ruta);
-        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
-          return;
-        }
-        const body: ClientesTrendResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
-      } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, clienteDimension, grupo, ruta]);
-
-  return { data, loading, error };
-}
-
-function useClientesChurned(
-  dateRange: DateRange,
-  clienteDimension: 'cliente_entidad' | 'cliente_tienda',
-  grupo: string | null,
-  ruta: string | null,
-) {
-  const [data, setData] = useState<ClientesChurnedResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, clienteDimension, section: 'churned' });
-        if (grupo) params.set('grupo', grupo);
-        if (ruta) params.set('ruta', ruta);
-        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
-          return;
-        }
-        const body: ClientesChurnedResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
-      } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, clienteDimension, grupo, ruta]);
-
-  return { data, loading, error };
 }
 
 type Segment = ClientesRow['pareto'];
@@ -148,40 +61,7 @@ function SegmentBadge({ segment }: { segment: Segment }) {
   );
 }
 
-type SortKey = 'name' | 'salesGross' | 'returnsNet' | 'salesNet' | 'returnRate' | 'pareto';
-type SortDir = 'asc' | 'desc';
-
-interface ColumnDef {
-  key: SortKey;
-  label: string;
-  align: 'left' | 'right';
-}
-
-const COLUMNS: ColumnDef[] = [
-  { key: 'name', label: 'Cliente', align: 'left' },
-  { key: 'salesGross', label: 'Ventas brutas', align: 'right' },
-  { key: 'returnsNet', label: 'Devoluciones', align: 'right' },
-  { key: 'salesNet', label: 'Ventas netas', align: 'right' },
-  { key: 'returnRate', label: 'Tasa dev.', align: 'right' },
-  { key: 'pareto', label: 'Segmento', align: 'right' },
-];
-
-function sortValue(row: ClientesRow, key: SortKey, currency: Currency): string | number {
-  switch (key) {
-    case 'name':
-      return row.name ?? '';
-    case 'salesGross':
-      return (currency === 'usd' ? row.salesGross.usd : row.salesGross.bs) ?? -Infinity;
-    case 'returnsNet':
-      return (currency === 'usd' ? row.returnsNet.usd : row.returnsNet.bs) ?? -Infinity;
-    case 'salesNet':
-      return (currency === 'usd' ? row.salesNet.usd : row.salesNet.bs) ?? -Infinity;
-    case 'returnRate':
-      return row.returnRate ?? -Infinity;
-    case 'pareto':
-      return row.pareto;
-  }
-}
+type ParetoRow = ClientesRow & { id: string };
 
 const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -190,305 +70,256 @@ const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = [
   { value: 'C', label: 'C' },
 ];
 
+function amountOf(a: { bs: number; usd: number | null }, currency: Currency): number | null {
+  return currency === 'usd' ? a.usd : a.bs;
+}
+
+function paretoColumns(currency: Currency): Column<ParetoRow>[] {
+  return [
+    { key: 'name', label: 'Cliente', sortValue: r => r.name, render: r => r.name },
+    { key: 'salesGross', label: 'Ventas brutas', align: 'right', sortValue: r => amountOf(r.salesGross, currency), render: r => <span className="font-medium text-gray-900">{moneyLabel(r.salesGross, currency)}</span> },
+    { key: 'returnsNet', label: 'Devoluciones', align: 'right', sortValue: r => amountOf(r.returnsNet, currency), render: r => moneyLabel(r.returnsNet, currency) },
+    { key: 'salesNet', label: 'Ventas netas', align: 'right', sortValue: r => amountOf(r.salesNet, currency), render: r => moneyLabel(r.salesNet, currency) },
+    { key: 'returnRate', label: 'Tasa dev.', align: 'right', sortValue: r => r.returnRate, render: r => pct(r.returnRate) },
+    { key: 'pareto', label: 'Segmento', align: 'right', sortValue: r => r.pareto, render: r => <SegmentBadge segment={r.pareto} /> },
+  ];
+}
+
 export default function TabClientes({
   dateRange,
   currency,
+  granularity,
 }: {
   dateRange: DateRange;
   currency: Currency;
+  granularity: Granularity;
 }) {
-  const [data, setData] = useState<ClientesResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('salesGross');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [params, setParams] = useClientesParams();
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
-  const [clienteDimension, setClienteDimension] = useState<'cliente_entidad' | 'cliente_tienda'>('cliente_entidad');
-  const [grupo, setGrupo] = useState<string | null>(null);
-  const [ruta, setRuta] = useState<string | null>(null);
-  const trend = useClientesTrend(dateRange, clienteDimension, grupo, ruta);
-  const churned = useClientesChurned(dateRange, clienteDimension, grupo, ruta);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ dateRange, clienteDimension });
-        if (grupo) params.set('grupo', grupo);
-        if (ruta) params.set('ruta', ruta);
-        const res = await fetch(`/api/dwh/clientes?${params.toString()}`);
-        if (cancelled) return;
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? 'Error desconocido');
-          return;
-        }
-        const body: ClientesResponse = await res.json();
-        if (cancelled) return;
-        setData(body);
-      } catch {
-        if (!cancelled) setError('No se pudo conectar con el servidor');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [dateRange, clienteDimension, grupo, ruta]);
-
-  const filteredRows = useMemo(() => {
-    if (!data) return [];
-    if (segmentFilter === 'all') return data.rows;
-    return data.rows.filter(r => r.pareto === segmentFilter);
-  }, [data, segmentFilter]);
-
-  const sortedRows = useMemo(() => {
-    const rows = [...filteredRows];
-    rows.sort((a, b) => {
-      const av = sortValue(a, sortKey, currency);
-      const bv = sortValue(b, sortKey, currency);
-      let cmp: number;
-      if (typeof av === 'string' || typeof bv === 'string') {
-        cmp = String(av).localeCompare(String(bv));
-      } else {
-        cmp = av - bv;
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return rows;
-  }, [filteredRows, sortKey, sortDir, currency]);
-
-  function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir(key === 'name' || key === 'pareto' ? 'asc' : 'desc');
-    }
-  }
-
-  // The filter bar and Cobertura sit at the same tree position in every state, so React keeps them mounted:
-  // a grupo/ruta change only reloads the Pareto/trend/churned part below, while Cobertura filters its
-  // already-fetched rows client-side and keeps its own seller/status/visit filters.
-  const shell = (body: React.ReactNode) => (
-    <div className="p-6 max-w-7xl space-y-6">
-      <CarteraFilterBar grupo={grupo} ruta={ruta} onGrupo={setGrupo} onRuta={setRuta} />
-      <CoberturaClientes dateRange={dateRange} grupo={grupo} ruta={ruta === null ? null : Number(ruta)} currency={currency} />
-      {body}
-    </div>
+  const dimApi = dimToApi(params.dim);
+  const sectionUrl = (extra: Record<string, string> = {}) => {
+    const q = new URLSearchParams({ dateRange, clienteDimension: dimApi, ...extra });
+    if (params.grupo) q.set('grupo', params.grupo);
+    if (params.ruta) q.set('ruta', params.ruta);
+    return `/api/dwh/clientes?${q.toString()}`;
+  };
+  const main = useDwhSection<ClientesResponse>(sectionUrl());
+  const trend = useDwhSection<ClientesTrendResponse>(sectionUrl({ section: 'trend', granularity }));
+  const grupoTrendUrl = (() => {
+    const q = new URLSearchParams({ dateRange, granularity, section: 'trendGrupo' });
+    if (params.ruta) q.set('ruta', params.ruta);
+    return `/api/dwh/clientes?${q.toString()}`;
+  })();
+  const [grupoBy, setGrupoBy] = useState<GrupoBy>('grupo');
+  const trayectoria = useDwhSection<ClientesTrayectoriaResponse>(sectionUrl({ section: 'trayectoria' }));
+  const cobertura = useDwhSection<CoberturaResponse>(`/api/dwh/clientes/cobertura?includeInactive=0&dateRange=${encodeURIComponent(dateRange)}`);
+  const scopedCobertura = useMemo<CoberturaResponse | null>(() => {
+    // A failed refetch must not keep showing the previous range's customers.
+    if (!cobertura.data || cobertura.error) return null;
+    // Origen is not applied here: the Patrimonio and Nuevos cards need both origins; Origen scopes Cobertura and Q4.
+    return { ...cobertura.data, rows: filterCobertura(cobertura.data.rows, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta) }) };
+  }, [cobertura.data, cobertura.error, params.grupo, params.ruta]);
+  const estados = useMemo(() => (scopedCobertura ? buildEstados(scopedCobertura) : null), [scopedCobertura]);
+  const estadoByCode = useMemo(() => new Map((estados?.rows ?? []).map(r => [r.customerCode, r.estado] as const)), [estados]);
+  const grupoRows = useMemo(
+    () => (cobertura.data
+      ? buildGrupoRows(cobertura.data.rows, grupoBy, { grupo: params.grupo, ruta: params.ruta === null ? null : Number(params.ruta), origen: params.origen }, currency, cobertura.data.prevPeriodAvailable)
+      : null),
+    [cobertura.data, grupoBy, params.grupo, params.ruta, params.origen, currency],
   );
+  const kpis = useMemo(
+    () => buildKpis({ cobertura: scopedCobertura, estados, trayectoria: trayectoria.error ? null : (trayectoria.data?.rows ?? null), currency }),
+    [scopedCobertura, estados, trayectoria.data, trayectoria.error, currency],
+  );
+  const data = main.data;
 
-  if (loading) {
-    return shell(<div className="text-sm text-gray-500 print:hidden">Cargando…</div>);
-  }
+  const paretoRows: ParetoRow[] = (data?.rows ?? []).map((r, i) => ({ ...r, id: String(i) }));
+  const visibleParetoRows = segmentFilter === 'all' ? paretoRows : paretoRows.filter(r => r.pareto === segmentFilter);
 
-  if (error) {
-    return shell(<p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3 print:hidden">{error}</p>);
-  }
-
-  if (!data) {
-    return shell(<div className="print:hidden"><EmptyState /></div>);
-  }
-
-  const segmentCounts = data.rows.reduce<Record<Segment, number>>(
+  const segmentCounts = (data?.rows ?? []).reduce<Record<Segment, number>>(
     (acc, r) => {
       acc[r.pareto] += 1;
       return acc;
     },
     { A: 0, B: 0, C: 0 }
   );
+  const bucketNoun = trend.data?.granularity === 'day' ? 'día' : trend.data?.granularity === 'week' ? 'semana' : 'mes';
 
-  const trendData = (trend.data?.rows ?? []).map(r => ({
-    label: r.yearMonth,
-    'Clientes activos': r.activeCustomers,
-    'Tasa de abandono': r.churnRate === null ? null : r.churnRate * 100,
-  }));
+  return (
+    <div className="p-6 max-w-7xl space-y-6">
+      <ScopeBar params={params} onChange={setParams} referenceYear={referenceYearOf(dateRange)} />
 
-  return shell(
-      <div className="space-y-6 print:hidden">
-      <div className="flex items-center justify-between gap-4 flex-wrap bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">Nivel de análisis</h2>
-          <p className="text-xs text-gray-500">
-            Aplica a todo lo de abajo — Entidad agrupa por cadena/razón social, Tienda por punto de venta individual.
-          </p>
+      <QuestionSection question="¿Cómo evolucionan las ventas?">
+        {/* Both sources keep their previous data while reloading, so the cards are dimmed until both settle. */}
+        <div data-testid="kpi-body" className={cobertura.loading || trayectoria.loading ? 'opacity-60' : ''}>
+          <KpiStrip cards={kpis} onFilter={setParams} />
         </div>
-        <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-          <button
-            onClick={() => setClienteDimension('cliente_entidad')}
-            className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_entidad' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            Entidad
-          </button>
-          <button
-            onClick={() => setClienteDimension('cliente_tienda')}
-            className={`px-3 py-1 text-sm font-medium rounded transition-colors ${clienteDimension === 'cliente_tienda' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            Tienda
-          </button>
-        </div>
-      </div>
-
-      <ChartCard
-        title="Clientes activos y tasa de abandono"
-        subtitle={`Por mes — grano: ${clienteDimension === 'cliente_entidad' ? 'Entidad (cadena)' : 'Tienda'}`}
-      >
-        {trend.loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : trend.error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{trend.error}</p>
-        ) : trendData.length === 0 ? (
-          <EmptyState />
+        <SegmentedControl
+          ariaLabel="Ver por"
+          value={params.ver}
+          options={[{ value: 'total', label: 'Total' }, { value: 'producto', label: 'Producto' }, { value: 'grupo', label: 'Grupo' }]}
+          onChange={ver => setParams({ ver })}
+        />
+        {params.ver === 'grupo' ? (
+          <GrupoTrendPanel url={grupoTrendUrl} currency={currency} />
+        ) : params.ver === 'producto' ? (
+          <ProductBreakdown params={params} dateRange={dateRange} granularity={granularity} currency={currency} onParams={setParams} />
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={v => `${v}%`} />
-              <Tooltip
-                formatter={(val: unknown, name: unknown) =>
-                  val === null ? '—' : name === 'Tasa de abandono' ? `${Number(val).toFixed(1)}%` : String(val)
-                }
-              />
-              <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="Clientes activos" stroke="#2563eb" strokeWidth={2} dot={false} />
-              <Line yAxisId="right" type="monotone" dataKey="Tasa de abandono" stroke="#dc2626" strokeWidth={2} dot={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
+          <ChartCard
+            title="Clientes activos y tasa de abandono"
+            subtitle={`Por ${bucketNoun} — grano: ${params.dim === 'entidad' ? 'Casa matriz' : 'Tienda'}`}
+          >
+            <ActivityTrendChart
+              rows={trend.data?.rows ?? []}
+              granularity={trend.data?.granularity ?? granularity}
+              loading={trend.loading}
+              error={trend.error}
+              onRetry={trend.retry}
+            />
+          </ChartCard>
         )}
-      </ChartCard>
+      </QuestionSection>
 
-      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-        <h2 className="text-sm font-bold text-gray-900">
-          {clienteDimension === 'cliente_entidad' ? 'Clientes' : 'Tiendas'} perdidos
-        </h2>
-        <p className="text-xs text-gray-500 mb-3">
-          {clienteDimension === 'cliente_entidad' ? 'Clientes' : 'Tiendas'} con compras en el período anterior que no
-          compraron en el período actual — ordenados por ingreso perdido.
+      <QuestionSection question="¿Cómo evolucionan clientes y tiendas?">
+        {trayectoria.error ? (
+          <ErrorBox message={trayectoria.error} onRetry={trayectoria.retry} />
+        ) : !trayectoria.data ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+        ) : (
+          <div className={`bg-white border border-gray-300 rounded-lg shadow-sm p-4 ${trayectoria.loading ? 'opacity-60' : ''}`}>
+            <TrajectoryTable
+              rows={trayectoria.data.rows}
+              currency={currency}
+              dim={params.dim}
+              selectedKey={params.tienda}
+              onSelect={tienda => setParams({ tienda })}
+              estadoByCode={estadoByCode}
+            />
+          </div>
+        )}
+      </QuestionSection>
+
+      <QuestionSection question="¿Qué grupo o ruta mueve las ventas?">
+        <SegmentedControl
+          ariaLabel="Agrupar por"
+          value={grupoBy}
+          options={[{ value: 'grupo', label: 'Grupo' }, { value: 'ruta', label: 'Ruta' }]}
+          onChange={setGrupoBy}
+        />
+        <p className="text-xs text-gray-600">
+          Cifras de la cobertura de clientes: solo clientes vigentes (sin inactivos), por lo que las ventas pueden ser menores que las de la tarjeta Ventas.
         </p>
-        {churned.loading ? (
-          <div className="h-40 flex items-center justify-center text-sm text-gray-500">Cargando…</div>
-        ) : churned.error ? (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-4 py-3">{churned.error}</p>
-        ) : churned.data && !churned.data.available ? (
-          <EmptyState message="No disponible para este rango de fechas." />
-        ) : churned.data && churned.data.rows.length > 0 ? (
-          (() => {
-            const churnedRows = churned.data.rows;
-            return (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                        {clienteDimension === 'cliente_entidad' ? 'Cliente' : 'Tienda'}
-                      </th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Última compra</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Ingreso perdido</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {churnedRows.map((r, i) => (
-                      <tr key={`${r.name}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                        <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                        <td className="px-3 py-2 text-right text-gray-600">{formatDateKey(r.lastPurchaseDateKey)}</td>
-                        <td className="px-3 py-2 text-right font-medium text-gray-900">
-                          {moneyLabel(r.lostRevenue, currency)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()
+        {cobertura.error ? (
+          <ErrorBox message={cobertura.error} onRetry={cobertura.retry} />
+        ) : !grupoRows ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
         ) : (
-          <EmptyState message="Sin clientes perdidos en este período." />
-        )}
-      </div>
-
-      <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
-        <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">Segmentación de clientes (Pareto)</h2>
-            <p className="text-xs text-gray-500">
-              Clientes ordenados por ventas brutas (sin IVA, antes de devoluciones), segmentados por participación
-              acumulada; devoluciones y ventas netas por fecha de la factura original — A: top{' '}
-              {(data.paretoThresholds.a * 100).toFixed(0)}%, B: hasta {(data.paretoThresholds.b * 100).toFixed(0)}%,
-              C: resto
-            </p>
+          <div className={`bg-white border border-gray-300 rounded-lg shadow-sm p-4 ${cobertura.loading ? 'opacity-60' : ''}`}>
+            <GroupTable
+              rows={grupoRows}
+              by={grupoBy}
+              currency={currency}
+              selectedKey={grupoBy === 'grupo' ? params.grupo : params.ruta}
+              onSelect={key => setParams(grupoBy === 'grupo' ? { grupo: key } : { ruta: key })}
+            />
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex gap-1 bg-gray-100 border border-gray-200 rounded-lg p-1">
-              {SEGMENT_FILTER_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setSegmentFilter(opt.value)}
-                  className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
-                    segmentFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {opt.label}
-                  {opt.value !== 'all' && (
-                    <span className="ml-1 text-xs opacity-75">({segmentCounts[opt.value]})</span>
-                  )}
-                </button>
-              ))}
-            </div>
+        )}
+      </QuestionSection>
+
+      <QuestionSection question="¿Se mantiene la base de clientes?">
+        {cobertura.error ? (
+          <ErrorBox message={cobertura.error} onRetry={cobertura.retry} />
+        ) : !estados ? (
+          <div className="h-24 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+        ) : (
+          <div className={cobertura.loading ? 'opacity-60' : ''}>
+            <RetentionSection data={estados} currency={currency} origen={params.origen} onOrigen={origen => setParams({ origen })} />
+          </div>
+        )}
+        <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+          <h3 className="text-sm font-bold text-gray-900">SKUs en caída</h3>
+          <p className="text-xs text-gray-600 mb-3">Los SKUs que más caen frente al período anterior en el alcance seleccionado; cada uno abre Productos.</p>
+          <FallingSkus params={params} dateRange={dateRange} currency={currency} />
+        </div>
+      </QuestionSection>
+
+      <details
+        open={params.detalle}
+        onToggle={e => {
+          const open = (e.currentTarget as HTMLDetailsElement).open;
+          if (open !== params.detalle) setParams({ detalle: open });
+        }}
+        className="bg-white border border-gray-300 rounded-lg shadow-sm"
+      >
+        <summary className="cursor-pointer px-4 py-3 text-lg font-bold text-gray-900">Detalle operativo</summary>
+        <div className="p-4 space-y-6">
+          <CoberturaClientes
+            dateRange={dateRange}
+            grupo={params.grupo}
+            ruta={params.ruta === null ? null : Number(params.ruta)}
+            currency={currency}
+            kind={params.origen}
+            shared={cobertura}
+          />
+
+          <div className={`space-y-6 print:hidden ${main.loading ? 'opacity-60' : ''}`}>
+            <section aria-label="Pareto de clientes" className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">Segmentación de clientes (Pareto)</h2>
+                  <p className="text-xs text-gray-600">
+                    Clientes ordenados por ventas brutas (sin IVA, antes de devoluciones), segmentados por participación
+                    acumulada; devoluciones y ventas netas por fecha de la factura original
+                    {data ? <> — A: top {(data.paretoThresholds.a * 100).toFixed(0)}%, B: hasta {(data.paretoThresholds.b * 100).toFixed(0)}%, C: resto</> : null}
+                  </p>
+                </div>
+                <SegmentedControl
+                  ariaLabel="Segmento Pareto"
+                  value={segmentFilter}
+                  options={SEGMENT_FILTER_OPTIONS.map(o => ({ ...o, count: o.value === 'all' ? undefined : segmentCounts[o.value] }))}
+                  onChange={setSegmentFilter}
+                />
+              </div>
+              {main.error ? (
+                <ErrorBox message={main.error} onRetry={main.retry} />
+              ) : !data && main.loading ? (
+                <div className="h-40 flex items-center justify-center text-sm text-gray-600">Cargando…</div>
+              ) : (
+                <DataTable<ParetoRow>
+                  columns={paretoColumns(currency)}
+                  rows={visibleParetoRows}
+                  rowKey={r => r.id}
+                  defaultSort={{ key: 'salesGross', dir: 'desc' }}
+                  searchText={r => r.name}
+                  exportFile={{ name: 'pareto-clientes.csv', toRecord: r => ({ Cliente: r.name, 'Ventas brutas': amountOf(r.salesGross, currency), Devoluciones: amountOf(r.returnsNet, currency), 'Ventas netas': amountOf(r.salesNet, currency), 'Tasa dev.': r.returnRate, Segmento: r.pareto }) }}
+                  emptyMessage="Sin datos disponibles todavía."
+                  pageSize={100}
+                />
+              )}
+            </section>
           </div>
         </div>
-        {sortedRows.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  {COLUMNS.map(col => (
-                    <th
-                      key={col.key}
-                      onClick={() => handleSort(col.key)}
-                      className={`px-3 py-2 text-xs font-semibold text-gray-600 uppercase cursor-pointer select-none hover:text-gray-900 ${
-                        col.align === 'right' ? 'text-right' : 'text-left'
-                      }`}
-                    >
-                      {col.label}
-                      {sortKey === col.key && (
-                        <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {sortedRows.map((r, i) => (
-                  <tr key={r.name} className={i % 2 === 1 ? 'bg-gray-50' : undefined}>
-                    <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">
-                      {moneyLabel(r.salesGross, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">
-                      {moneyLabel(r.returnsNet, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-900">
-                      {moneyLabel(r.salesNet, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-600">{pct(r.returnRate)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <SegmentBadge segment={r.pareto} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      </div>,
+      </details>
+    </div>
+  );
+}
+
+// Mounted only while "Ver por Grupo" is selected, so the by-grupo query runs only when asked for.
+function GrupoTrendPanel({ url, currency }: { url: string; currency: Currency }) {
+  const trend = useDwhSection<ClientesTrendGrupoResponse>(url);
+  return (
+    <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4">
+      <GroupTrendChart data={trend.data} currency={currency} loading={trend.loading} error={trend.error} onRetry={trend.retry} />
+    </div>
+  );
+}
+
+function ErrorBox({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="text-sm bg-red-50 border border-red-200 rounded px-4 py-3 flex items-center gap-3">
+      <span className="text-red-700">{message}</span>
+      <button type="button" onClick={onRetry} className="px-2 py-1 rounded border border-red-300 bg-white text-red-700">Reintentar</button>
+    </div>
   );
 }

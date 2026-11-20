@@ -56,7 +56,7 @@ const DEFAULT_CURRENCY: Currency = 'bs';
 const CURRENCY_STORAGE_KEY = 'analytics-currency';
 
 // Tabs whose trend charts honor the granularity selector.
-const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras', 'cxc']);
+const GRANULARITY_TABS = new Set(['resumen', 'ventas', 'productos', 'compras', 'cxc', 'clientes']);
 
 const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Día', week: 'Semana', month: 'Mes' };
 
